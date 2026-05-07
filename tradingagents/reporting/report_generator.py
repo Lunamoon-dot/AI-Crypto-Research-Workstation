@@ -126,7 +126,7 @@ class ReportGenerator:
                 break
 
         if execution_result:
-            section += f"\n**Execution**: {execution_result}\n"
+            section += f"\n**Trade Plan**: {execution_result}\n"
 
         return section
 

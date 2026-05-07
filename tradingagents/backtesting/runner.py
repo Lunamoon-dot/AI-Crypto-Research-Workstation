@@ -1,7 +1,7 @@
 """Backtesting runner — evaluates strategy performance across multiple dates.
 
-Wraps the TradingAgentsGraph to run a walk-forward backtest, tracking
-cumulative returns, equity curve, and standard performance metrics.
+Wraps the ResearchAgentsGraph to run historical thesis evaluation. Metrics
+describe research quality and rough forward outcomes, not broker-accurate PnL.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.dataflows.utils import safe_ticker_component
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TradeRecord:
-    """A single trade logged during backtest."""
+    """A single thesis record logged during historical evaluation."""
     date: str
     ticker: str
     rating: str
@@ -42,7 +42,7 @@ class TradeRecord:
 
 @dataclass
 class BacktestResult:
-    """Aggregate results from a full backtest run."""
+    """Aggregate results from a historical thesis-evaluation run."""
     ticker: str
     start_date: str
     end_date: str
@@ -199,14 +199,14 @@ class BacktestResult:
 
 
 class BacktestRunner:
-    """Runs the TradingAgentsGraph across a sequence of historical dates.
+    """Runs the ResearchAgentsGraph across a sequence of historical dates.
 
     Parameters
     ----------
     config : dict
         Framework config.  Will be copied and modified per-run.
     ticker : str
-        Symbol to backtest.
+        Symbol to evaluate.
     start_date : str (YYYY-MM-DD)
         First analysis date.
     end_date : str (YYYY-MM-DD)
@@ -244,7 +244,7 @@ class BacktestRunner:
         )
 
     def run(self, callback=None, node_callback=None) -> BacktestResult:
-        """Execute the backtest across all dates.
+        """Evaluate the thesis workflow across all dates.
 
         Parameters
         ----------
@@ -268,11 +268,11 @@ class BacktestRunner:
                 callback(trade_date, idx, total)
 
             run_config = {**self.base_config}
-            run_config["checkpoint_enabled"] = False  # no checkpoint during backtest
+            run_config["checkpoint_enabled"] = False  # no checkpoint during evaluation
 
             try:
                 if graph is None:
-                    graph = TradingAgentsGraph(
+                    graph = ResearchAgentsGraph(
                         selected_analysts=self.selected_analysts,
                         debug=False,
                         config=run_config,

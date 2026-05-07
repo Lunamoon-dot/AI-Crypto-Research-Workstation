@@ -430,7 +430,7 @@ def select_crypto_exchange() -> str:
     return choice
 
 
-def ask_execution_config() -> dict:
+def ask_planning_config() -> dict:
     """Ask whether to generate an assisted trade plan.
 
     This no longer enables automated order placement. The graph can produce
@@ -478,3 +478,8 @@ def ask_execution_config() -> dict:
         result["market_type"] = market_type
 
     return result
+
+
+def ask_execution_config() -> dict:
+    """Backward-compatible wrapper for old CLI imports."""
+    return ask_planning_config()

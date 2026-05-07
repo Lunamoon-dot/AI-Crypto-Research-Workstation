@@ -24,7 +24,7 @@ from rich import box
 from rich.align import Align
 from rich.rule import Rule
 
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 from cli.models import AnalystType, AssetClass
 from cli.utils import *
@@ -35,7 +35,7 @@ console = Console()
 
 app = typer.Typer(
     name="TradingAgents",
-    help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
+    help="TradingAgents CLI: AI crypto research workstation",
     add_completion=True,  # Enable shell completion
 )
 
@@ -94,7 +94,7 @@ class MessageBuffer:
         self.report_sections = {}
         self.selected_analysts = []
         self._processed_message_ids = set()
-        self.execution_result = None  # dict from graph._execute_decision
+        self.execution_result = None  # legacy field; stores assisted trade-plan dict
 
     def init_for_analysis(self, selected_analysts):
         """Initialize agent status and report sections based on selected analysts.
@@ -513,8 +513,7 @@ def _render_execution_panel(layout):
     # Style by status
     styles = {
         "planned": ("cyan", "[bold cyan]TRADE PLAN[/bold cyan]"),
-        "executed": ("green", "[bold green]EXECUTED[/bold green]"),
-        "no_trade": ("yellow", "[bold yellow]NO TRADE[/bold yellow]"),
+        "watch": ("yellow", "[bold yellow]WATCH[/bold yellow]"),
         "blocked": ("red", "[bold red]BLOCKED[/bold red]"),
         "error": ("red", "[bold red]ERROR[/bold red]"),
     }
@@ -528,10 +527,7 @@ def _render_execution_panel(layout):
     alloc_str = f"{alloc_pct:+.1%}" if alloc_pct is not None else "N/A"
     lines.append(f"Price: {price_str} | Confidence: {conf_str} | Allocation: {alloc_str}")
 
-    if status == "executed" and filled and avg_price:
-        oid_str = f" | ID: {order_id[:12]}..." if order_id else ""
-        lines.append(f"Filled: {filled:.4f} @ ${avg_price:.4f}{oid_str}")
-    elif reason:
+    if reason:
         lines.append(f"Reason: {reason}")
 
     # Show planning steps if available
@@ -557,7 +553,7 @@ def _print_execution_summary(exec_result):
     """Print a prominent Rich Panel with the full trade-planning summary.
 
     Called after the Live display ends, before the "Save report?" prompt.
-    Panel border color: green=executed, yellow=no_trade, red=blocked/error.
+    Panel border color: cyan=planned, yellow=watch, red=blocked/error.
     """
     status = exec_result.get("status", "unknown")
     symbol = exec_result.get("symbol", "")
@@ -577,18 +573,15 @@ def _print_execution_summary(exec_result):
     if status == "planned":
         border_style = "cyan"
         title = "[cyan]Assisted Trade Plan[/cyan]"
-    elif status == "executed":
-        border_style = "green"
-        title = "[green]Execution Summary — EXECUTED[/green]"
-    elif status == "no_trade":
+    elif status == "watch":
         border_style = "yellow"
-        title = "[yellow]Execution Summary — NO TRADE[/yellow]"
+        title = "[yellow]Assisted Trade Plan - WATCH[/yellow]"
     elif status == "blocked":
         border_style = "red"
-        title = "[red]Execution Summary — BLOCKED[/red]"
+        title = "[red]Assisted Trade Plan - BLOCKED[/red]"
     else:
         border_style = "red"
-        title = "[red]Execution Summary — ERROR[/red]"
+        title = "[red]Assisted Trade Plan - ERROR[/red]"
 
     lines = []
     lines.append(f"Symbol:     {symbol}")
@@ -600,26 +593,9 @@ def _print_execution_summary(exec_result):
     alloc_str = f"{alloc_pct:+.1%}" if alloc_pct is not None else "N/A"
     lines.append(f"Allocation: {alloc_str}")
 
-    if status == "executed":
-        filled_str = f"{filled:.4f}" if filled is not None else "N/A"
-        avg_str = f"${avg_price:.4f}" if avg_price is not None else "N/A"
-        lines.append("")
-        lines.append(f"Filled:     {filled_str} @ {avg_str}")
-        if order_id:
-            lines.append(f"Order ID:   {order_id}")
-        sl = exec_result.get("sl")
-        tp = exec_result.get("tp")
-        if sl or tp:
-            sltp_parts = []
-            if sl:
-                sltp_parts.append(f"SL=${sl:.2f}")
-            if tp:
-                sltp_parts.append(f"TP=${tp:.2f}")
-            lines.append(f"Risk:       {' | '.join(sltp_parts)}")
-    else:
-        lines.append("")
-        lines.append(f"Result:     {status.upper()}")
-        lines.append(f"Reason:     {reason}")
+    lines.append("")
+    lines.append(f"Result:     {status.upper()}")
+    lines.append(f"Reason:     {reason}")
 
     if sizing_reasoning:
         lines.append(f"Sizing:     {sizing_reasoning}")
@@ -811,8 +787,8 @@ def get_user_selections():
             "Configure AI-generated thesis planning",
         )
     )
-    from cli.utils import ask_execution_config
-    execution_config = ask_execution_config()
+    from cli.utils import ask_planning_config
+    planning_config = ask_planning_config()
 
     return {
         "ticker": selected_ticker,
@@ -830,7 +806,7 @@ def get_user_selections():
         "asset_class": selected_asset_class,
         "crypto_exchange": crypto_exchange,
         "crypto_benchmark": crypto_benchmark,
-        "execution_config": execution_config,
+        "planning_config": planning_config,
     }
 
 
@@ -1149,12 +1125,15 @@ def run_analysis(checkpoint: bool = False):
         config["crypto_exchange"] = selections["crypto_exchange"]
     if selections.get("crypto_benchmark"):
         config["crypto_benchmark"] = selections["crypto_benchmark"]
-    # Merge execution/trading configuration
-    exec_cfg = selections.get("execution_config", {})
-    if exec_cfg:
-        config.setdefault("execution", {}).update(exec_cfg)
-    # Always align execution exchange with the user-selected crypto/data exchange
+    # Merge assisted planning configuration. Keep the legacy execution key in
+    # sync for older internals, but new code should read config["planning"].
+    planning_cfg = selections.get("planning_config", {})
+    if planning_cfg:
+        config.setdefault("planning", {}).update(planning_cfg)
+        config.setdefault("execution", {}).update(planning_cfg)
+    # Always align planning exchange with the user-selected crypto/data exchange
     if selections.get("crypto_exchange"):
+        config.setdefault("planning", {})["exchange"] = selections["crypto_exchange"]
         config.setdefault("execution", {})["exchange"] = selections["crypto_exchange"]
     config["checkpoint_enabled"] = checkpoint
 
@@ -1166,7 +1145,7 @@ def run_analysis(checkpoint: bool = False):
     selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
 
     # Initialize the graph with callbacks bound to LLMs
-    graph = TradingAgentsGraph(
+    graph = ResearchAgentsGraph(
         selected_analyst_keys,
         config=config,
         debug=True,
@@ -1384,7 +1363,7 @@ def run_analysis(checkpoint: bool = False):
         # Build assisted trade plan if enabled. This does not place orders.
         from tradingagents.graph.trading_graph import _exec_result_to_str
 
-        exec_result = graph._execute_decision(final_state)
+        exec_result = graph._build_trade_plan(final_state)
         if exec_result is not None:
             message_buffer.execution_result = exec_result
             msg = _exec_result_to_str(exec_result)

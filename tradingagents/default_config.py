@@ -76,7 +76,23 @@ DEFAULT_CONFIG = {
     },
     "atr_risk_target": 0.02,        # ATR sizing: 2x ATR = 2% of portfolio risk
     "stress_test_threshold": 0.30,  # max drawdown threshold for stress test pass/fail
-    # Assisted trade-planning settings. This project is intentionally a
+    # Assisted trade-planning settings. New code should read this key.
+    "planning": {
+        "enabled": False,
+        "mode": "planning",
+        "exchange": "bitget",
+        "market_type": "spot",
+        "bypass_blocks": False,
+        "monitoring": {"enabled": False, "auto_close": False},
+        "websocket": {"enabled": False},
+        "confidence_thresholds": {
+            "force_hold": 0.05,
+            "penalty_50": 0.15,
+            "penalty_70": 0.25,
+        },
+    },
+
+    # Legacy assisted trade-planning settings. This project is intentionally a
     # research workstation first: the graph can produce a thesis/trade plan,
     # but it must not autonomously place or close orders.
     "execution": {

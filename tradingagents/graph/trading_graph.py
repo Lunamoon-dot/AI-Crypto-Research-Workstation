@@ -53,13 +53,26 @@ from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
 
-# Execution modules
-from tradingagents.exchange import create_exchange
+from tradingagents.domain import (
+    PlanningStatus,
+    ResearchRun,
+    ResearchRunStatus,
+    ThesisDirection,
+    TradePlanRecommendation,
+    TradeThesis,
+)
 from tradingagents.reporting import ReportGenerator
-from tradingagents.portfolio import Portfolio, TradeJournal
 
 
-def _make_execution_result(
+def _planning_config(config: dict) -> dict:
+    """Return assisted-planning config with legacy execution-key fallback."""
+    planning_cfg = config.get("planning")
+    if planning_cfg is not None:
+        return planning_cfg
+    return config.get("execution", {})
+
+
+def _make_planning_result(
     status: str,
     symbol: str,
     reason: str,
@@ -77,28 +90,34 @@ def _make_execution_result(
     steps: list[dict] | None = None,
 ):
     """Build a structured trade-planning result dict."""
-    return {
-        "status": status,
-        "symbol": symbol,
-        "side": side,
-        "action": action,
-        "rating": rating,
-        "reason": reason,
-        "confidence": confidence,
-        "alloc_pct": alloc_pct,
-        "last_price": last_price,
-        "order_id": getattr(order, "id", None),
-        "filled": getattr(order, "filled", None) or 0,
-        "avg_price": getattr(order, "avg_price", None) or 0,
-        "sl": sl,
-        "tp": tp,
-        "sizing_reasoning": sizing_reasoning,
-        "steps": steps or [],
-    }
+    recommendation = TradePlanRecommendation(
+        status=PlanningStatus(status),
+        symbol=symbol,
+        side=side,
+        action=action,
+        rating=rating,
+        reason=reason,
+        confidence=confidence,
+        alloc_pct=alloc_pct,
+        last_price=last_price,
+        order_id=getattr(order, "id", None),
+        filled=getattr(order, "filled", None) or 0,
+        avg_price=getattr(order, "avg_price", None) or 0,
+        sl=sl,
+        tp=tp,
+        sizing_reasoning=sizing_reasoning,
+        steps=steps or [],
+    )
+    return recommendation.to_legacy_dict()
+
+
+def _make_execution_result(*args, **kwargs):
+    """Backward-compatible alias for old imports/tests."""
+    return _make_planning_result(*args, **kwargs)
 
 
 def _exec_result_to_str(result: dict) -> str:
-    """Convert structured execution result to display string."""
+    """Convert structured planning result to display string."""
     status = result["status"]
     symbol = result.get("symbol", "")
     reason = result.get("reason", "")
@@ -107,22 +126,6 @@ def _exec_result_to_str(result: dict) -> str:
         rating = result.get("rating", "")
         action = result.get("action", "watch")
         return f"TRADE PLAN: {symbol} | rating={rating} | action={action} | manual review required"
-    if status == "executed":
-        filled = result.get("filled") or 0
-        avg_price = result.get("avg_price") or 0
-        oid = result.get("order_id", "")
-        parts = [f"EXECUTED: {side.upper()} {symbol} x{filled:.4f} @ ${avg_price:.4f}"]
-        if oid:
-            parts.append(f" | ID: {oid}")
-        sl = result.get("sl")
-        tp = result.get("tp")
-        if sl or tp:
-            sltp = " ".join(filter(None, [f"SL=${sl:.2f}" if sl else "", f"TP=${tp:.2f}" if tp else ""]))
-            parts.append(f" | {sltp}")
-        sreason = result.get("sizing_reasoning", "")
-        if sreason:
-            parts.append(f" | {sreason}")
-        return "".join(parts)
     return f"{status.upper()}: {reason}" if reason else f"{status.upper()}: no details"
 
 
@@ -135,7 +138,7 @@ def _validate_symbol_on_exchange(symbol: str, config: dict) -> str:
     """
     import ccxt
 
-    exec_cfg = config.get("execution", {})
+    exec_cfg = _planning_config(config)
     exchange_id = exec_cfg.get("exchange", "bitget")
     market_type = exec_cfg.get("market_type", "spot")
 
@@ -265,6 +268,8 @@ class TradingAgentsGraph:
         # State tracking
         self.curr_state = None
         self.ticker = None
+        self.current_research_run: ResearchRun | None = None
+        self.current_trade_thesis: TradeThesis | None = None
         self.log_states_dict = {}  # date to full state dict
         self.quant_signal_result = None  # set by _precompute_quant_signal
 
@@ -277,7 +282,7 @@ class TradingAgentsGraph:
         """Run SignalEngine before graph execution and return the prompt block.
 
         Stores the full ``SignalResult`` on ``self.quant_signal_result`` so
-        the confidence threshold in ``_execute_decision`` can access it.
+        the confidence threshold in ``_build_trade_plan`` can access it.
         """
         from datetime import datetime as dt, timedelta
         from tradingagents.dataflows.interface import route_to_vendor
@@ -569,6 +574,13 @@ class TradingAgentsGraph:
 
     def _run_graph(self, company_name, trade_date, node_callback=None):
         """Execute the graph and write the resulting state to disk and memory log."""
+        self.current_research_run = ResearchRun(
+            symbol=company_name,
+            asset_class=self.config.get("asset_class", "crypto"),
+            timeframe=str(trade_date),
+            status=ResearchRunStatus.RUNNING,
+        )
+
         # Pre-flight: validate and normalize crypto symbols only. Stock tickers
         # must remain exact; treating NVDA as NVDA/USDT:USDT corrupts memory,
         # reports, and future outcome reviews.
@@ -582,7 +594,9 @@ class TradingAgentsGraph:
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
 
-        # Collect portfolio state for Trader when execution is enabled.
+        # Portfolio/account state is intentionally not injected during the
+        # research-workstation reset; future assisted execution must use a
+        # separate user-approved context.
         portfolio_state = self._get_portfolio_state()
 
         # Initialize state — inject memory log context for PM.
@@ -625,7 +639,7 @@ class TradingAgentsGraph:
         self._log_state(trade_date, final_state)
 
         # Store decision for deferred reflection on the next same-ticker run.
-        exec_cfg = self.config.get("execution", {})
+        exec_cfg = _planning_config(self.config)
         self.memory_log.store_decision(
             ticker=company_name,
             trade_date=trade_date,
@@ -639,13 +653,16 @@ class TradingAgentsGraph:
                 self.config["data_cache_dir"], company_name, str(trade_date)
             )
 
+        if self.current_research_run:
+            self.current_research_run.status = ResearchRunStatus.COMPLETED
+
         # Build a trade plan if enabled. This project is now a research
         # workstation first: graph output never places orders or auto-closes
-        # positions. Execution assistance, if added later, must require an
+        # positions. Assisted execution, if added later, must require an
         # explicit user approval step outside the LLM graph.
         self.execution_result = None
-        if self.config.get("execution", {}).get("enabled"):
-            self.execution_result = self._execute_decision(final_state)
+        if _planning_config(self.config).get("enabled"):
+            self.execution_result = self._build_trade_plan(final_state)
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
@@ -703,34 +720,12 @@ class TradingAgentsGraph:
             pass  # Report generation is best-effort; never block the pipeline
 
     def _get_portfolio_state(self) -> str:
-        """Generate a portfolio snapshot string for injection into the Trader prompt."""
-        exec_cfg = self.config.get("execution", {})
-        if not exec_cfg.get("enabled"):
-            return ""
+        """Return no exchange portfolio context during the safety reset."""
+        return ""
 
-        try:
-            exchange = create_exchange(self.config)
-            portfolio = Portfolio(exchange)
-            journal = TradeJournal(self.config)
-            parts = [
-                portfolio.to_context_str(),
-                "",
-                journal.to_context_str(n=5),
-            ]
-            return "\n".join(parts)
-        except Exception as e:
-            logger.warning("Could not fetch portfolio state: %s", e)
-            return ""
-
-    def _execute_decision(self, final_state: dict) -> Optional[str]:
-        """Build an assisted trade plan from the final thesis.
-
-        Despite the historical method name, this no longer places paper,
-        demo, or live orders. It creates a planning artifact only. Any actual
-        order-routing layer must be user-approved and separate from the LLM
-        research graph.
-        """
-        exec_cfg = self.config.get("execution", {})
+    def _build_trade_plan(self, final_state: dict) -> Optional[dict]:
+        """Build an assisted trade plan from the final thesis."""
+        exec_cfg = _planning_config(self.config)
         if not exec_cfg.get("enabled"):
             return None
 
@@ -776,8 +771,34 @@ class TradingAgentsGraph:
         else:
             _add_step("Confidence", f"Quant signal confidence: {confidence:.0%}", "Use as thesis context")
 
+        thesis_direction = {
+            "plan_long": ThesisDirection.LONG,
+            "plan_exit_or_short": ThesisDirection.SHORT,
+            "watch": ThesisDirection.WATCH,
+        }[action]
+        self.current_trade_thesis = TradeThesis(
+            research_run_id=(
+                self.current_research_run.id if self.current_research_run else None
+            ),
+            symbol=symbol,
+            direction=thesis_direction,
+            setup_type="agent_debate",
+            thesis_text=final_decision,
+            confidence=confidence,
+            risk_notes=[
+                "Manual review required before any exchange action.",
+                "Autonomous execution is disabled by product policy.",
+            ],
+            evidence={
+                "trader_plan": trader_plan,
+                "rating": rating,
+            },
+        )
+        if self.current_research_run:
+            self.current_research_run.thesis_id = self.current_trade_thesis.id
+
         _add_step(
-            "Execution",
+            "Safety",
             "Autonomous execution, bypass blocks, and auto bracket handling are disabled",
             "User approval required outside this graph",
         )
@@ -787,7 +808,7 @@ class TradingAgentsGraph:
             "edit risk levels manually, and confirm outside the research graph "
             "before any exchange action."
         )
-        return _make_execution_result(
+        return _make_planning_result(
             "planned",
             symbol,
             reason,
@@ -802,6 +823,10 @@ class TradingAgentsGraph:
             sizing_reasoning=trader_plan,
             steps=steps,
         )
+
+    def _execute_decision(self, final_state: dict) -> Optional[dict]:
+        """Backward-compatible alias for the old graph method name."""
+        return self._build_trade_plan(final_state)
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""

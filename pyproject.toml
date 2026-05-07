@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tradingagents"
 version = "0.3.0"
-description = "TradingAgents: Multi-Agents LLM Financial Trading Framework"
+description = "TradingAgents: AI crypto research workstation and trade-thesis copilot"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -34,6 +34,12 @@ dependencies = [
     "yfinance>=0.2.63",
     "ccxt>=4.4.0",
     "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
 ]
 
 [project.scripts]

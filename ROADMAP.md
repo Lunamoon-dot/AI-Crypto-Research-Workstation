@@ -34,6 +34,12 @@ The codebase has already been reset away from dangerous autonomous execution:
 - historical backtest UX has been rebranded toward historical thesis evaluation;
 - paper adapter monitoring is now alert-only and does not mutate positions;
 - tests pass after the reset.
+- Phase 1 domain reset has started:
+  - `tradingagents/domain/` now defines research-run, signal, thesis, decision, outcome, scenario, provenance, and planning models;
+  - `ResearchAgentsGraph` is available as the forward-facing graph name;
+  - the graph builds `ResearchRun` and `TradeThesis` artifacts internally;
+  - CLI configuration now uses assisted planning terminology while preserving legacy compatibility;
+  - reports label the output as `Trade Plan`, not execution.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
