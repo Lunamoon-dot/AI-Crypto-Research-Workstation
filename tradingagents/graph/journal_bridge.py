@@ -7,6 +7,7 @@ import logging
 from tradingagents.domain import ResearchRun, Signal, TradeThesis
 from tradingagents.services import JournalService
 from tradingagents.signals.base import SignalResult
+from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot
 from tradingagents.signals.provenance import signal_result_to_domain_signals
 
 logger = logging.getLogger(__name__)
@@ -42,12 +43,28 @@ class JournalBridge:
         try:
             signals = self.service.save_signals(signal_result_to_domain_signals(result))
             run.signal_ids = [signal.id for signal in signals if signal.id]
+            market_snapshot = self.service.save_market_snapshot(
+                build_market_snapshot(result, research_run_id=run.id)
+            )
+            signal_snapshot = self.service.save_signal_snapshot(
+                build_signal_snapshot(
+                    research_run_id=run.id,
+                    symbol=result.symbol,
+                    signals=signals,
+                )
+            )
+            run.market_snapshot_id = market_snapshot.id
+            run.signal_snapshot_id = signal_snapshot.id
             run = self.service.update_research_run(run)
             self.service.add_run_event(
                 run.id,
-                "signals_saved",
-                f"Saved {len(signals)} quant signal(s)",
-                {"signal_ids": run.signal_ids},
+                "snapshots_saved",
+                f"Saved market snapshot and {len(signals)} signal(s)",
+                {
+                    "market_snapshot_id": run.market_snapshot_id,
+                    "signal_snapshot_id": run.signal_snapshot_id,
+                    "signal_ids": run.signal_ids,
+                },
             )
             return run, signals
         except Exception as e:

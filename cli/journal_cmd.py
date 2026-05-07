@@ -80,11 +80,72 @@ def journal_show(
         f"Status: {run.status.value}",
         f"Started: {run.started_at.isoformat()}",
         f"Completed: {run.completed_at.isoformat() if run.completed_at else 'N/A'}",
+        f"Market Snapshot: {run.market_snapshot_id or 'N/A'}",
+        f"Signal Snapshot: {run.signal_snapshot_id or 'N/A'}",
+        f"Signals: {len(run.signal_ids)}",
         f"Thesis: {run.thesis_id or 'N/A'}",
         f"User Decision: {run.user_decision_id or 'N/A'}",
         f"Outcome Review: {run.outcome_review_id or 'N/A'}",
     ]
     console.print(Panel("\n".join(lines), title="Research Run", border_style="cyan"))
+
+
+@journal_app.command("market-snapshot")
+def journal_market_snapshot(
+    snapshot_id: str = typer.Argument(..., help="Market snapshot id."),
+):
+    """Show a saved market snapshot."""
+    snapshot = _service().get_market_snapshot(snapshot_id)
+    if not snapshot:
+        console.print(f"[red]Market snapshot not found:[/red] {snapshot_id}")
+        raise typer.Exit(1)
+
+    lines = [
+        f"ID: {snapshot.id}",
+        f"Research Run: {snapshot.research_run_id or 'N/A'}",
+        f"Symbol: {snapshot.symbol}",
+        f"Captured: {snapshot.captured_at.isoformat()}",
+        f"Price: {snapshot.current_price if snapshot.current_price is not None else 'N/A'}",
+        f"Trend: {snapshot.trend_direction}",
+        f"Trend Strength: {snapshot.trend_strength if snapshot.trend_strength is not None else 'N/A'}",
+        f"Volatility: {snapshot.volatility_regime}",
+        f"Regime: {snapshot.market_regime}",
+        f"Source: {snapshot.source}",
+        f"Source Timestamp: {snapshot.source_timestamp.isoformat() if snapshot.source_timestamp else 'N/A'}",
+        "",
+        "Summary:",
+        snapshot.summary or "N/A",
+    ]
+    console.print(Panel("\n".join(lines), title="Market Snapshot", border_style="cyan"))
+
+
+@journal_app.command("signal-snapshot")
+def journal_signal_snapshot(
+    snapshot_id: str = typer.Argument(..., help="Signal snapshot id."),
+):
+    """Show a saved signal snapshot."""
+    snapshot = _service().get_signal_snapshot(snapshot_id)
+    if not snapshot:
+        console.print(f"[red]Signal snapshot not found:[/red] {snapshot_id}")
+        raise typer.Exit(1)
+
+    lines = [
+        f"ID: {snapshot.id}",
+        f"Research Run: {snapshot.research_run_id}",
+        f"Symbol: {snapshot.symbol}",
+        f"Captured: {snapshot.captured_at.isoformat()}",
+        f"Composite Signal: {snapshot.composite_signal_id or 'N/A'}",
+        f"Signal Count: {len(snapshot.signal_ids)}",
+        f"Bullish: {snapshot.bullish_count}",
+        f"Bearish: {snapshot.bearish_count}",
+        f"Neutral: {snapshot.neutral_count}",
+        f"Stale: {snapshot.stale_count}",
+        f"Unknown Freshness: {snapshot.unknown_freshness_count}",
+        "",
+        "Signal IDs:",
+    ]
+    lines.extend(f"- {signal_id}" for signal_id in snapshot.signal_ids)
+    console.print(Panel("\n".join(lines), title="Signal Snapshot", border_style="cyan"))
 
 
 @thesis_app.command("list")

@@ -27,6 +27,7 @@ class ResearchRun(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     market_snapshot_id: str | None = None
+    signal_snapshot_id: str | None = None
     signal_ids: list[str] = Field(default_factory=list)
     debate_id: str | None = None
     thesis_id: str | None = None

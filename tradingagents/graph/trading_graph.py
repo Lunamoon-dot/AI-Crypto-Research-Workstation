@@ -322,6 +322,30 @@ class TradingAgentsGraph:
 
         return kwargs
 
+    def _start_journal_run(self) -> None:
+        bridge = getattr(self, "journal_bridge", None)
+        if not isinstance(bridge, JournalBridge):
+            return
+        self.current_research_run = bridge.start_run(self.current_research_run)
+
+    def _save_journal_quant_signals(self) -> None:
+        bridge = getattr(self, "journal_bridge", None)
+        if not isinstance(bridge, JournalBridge):
+            return
+        self.current_research_run, self.current_signals = bridge.save_quant_signals(
+            self.current_research_run,
+            getattr(self, "quant_signal_result", None),
+        )
+
+    def _complete_journal_run(self) -> None:
+        bridge = getattr(self, "journal_bridge", None)
+        if not isinstance(bridge, JournalBridge):
+            return
+        self.current_research_run, self.current_trade_thesis = bridge.complete_run(
+            self.current_research_run,
+            self.current_trade_thesis,
+        )
+
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for crypto analysis.
 
@@ -529,6 +553,8 @@ class TradingAgentsGraph:
             timeframe=str(trade_date),
             status=ResearchRunStatus.RUNNING,
         )
+        self.current_trade_thesis = None
+        self.current_signals = []
 
         # Pre-flight: validate and normalize crypto symbols only. Stock tickers
         # must remain exact; treating NVDA as NVDA/USDT:USDT corrupts memory,
@@ -541,18 +567,11 @@ class TradingAgentsGraph:
                 company_name = canonical
 
         self.current_research_run.symbol = company_name
-        self.current_research_run = self.journal_bridge.start_run(
-            self.current_research_run
-        )
+        self._start_journal_run()
 
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
-        self.current_research_run, self.current_signals = (
-            self.journal_bridge.save_quant_signals(
-                self.current_research_run,
-                getattr(self, "quant_signal_result", None),
-            )
-        )
+        self._save_journal_quant_signals()
 
         # Portfolio/account state is intentionally not injected during the
         # research-workstation reset; future assisted execution must use a
@@ -629,12 +648,7 @@ class TradingAgentsGraph:
         if _planning_config(self.config).get("enabled"):
             self.execution_result = self._build_trade_plan(final_state)
 
-        self.current_research_run, self.current_trade_thesis = (
-            self.journal_bridge.complete_run(
-                self.current_research_run,
-                self.current_trade_thesis,
-            )
-        )
+        self._complete_journal_run()
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
 

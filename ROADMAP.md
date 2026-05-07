@@ -51,6 +51,11 @@ The codebase has already been reset away from dangerous autonomous execution:
   - research runs store saved signal IDs;
   - trade theses link supporting and contradicting signal IDs;
   - CLI command group `signals` can inspect saved signal provenance.
+- Phase 2B snapshot persistence has started:
+  - market snapshots capture point-in-time price, trend, volatility, regime, source timestamp, and summary;
+  - signal snapshots capture immutable signal IDs and directional/freshness counts;
+  - research runs link `market_snapshot_id` and `signal_snapshot_id`;
+  - journal CLI can inspect saved market and signal snapshots.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
@@ -289,9 +294,9 @@ OutcomeReview
 Estimated time: 2-4 weeks.
 
 MVP implementation status: started. The project now has a local SQLite journal,
-repository layer, journal service, graph integration, and basic CLI commands.
-Remaining Phase 2 work is deeper agent-debate/signal snapshot persistence and
-richer journal UX.
+repository layer, journal service, graph integration, basic CLI commands, market
+snapshot persistence, and signal snapshot persistence. Remaining Phase 2 work is
+deeper agent-debate persistence and richer journal UX.
 
 ## Goal
 

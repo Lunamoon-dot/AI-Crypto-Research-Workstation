@@ -6,10 +6,12 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from tradingagents.domain import (
+    MarketSnapshot,
     OutcomeReview,
     ResearchRun,
     ResearchRunStatus,
     Signal,
+    SignalSnapshot,
     TradeThesis,
     UserDecision,
 )
@@ -38,10 +40,10 @@ class JournalRepository:
             """
             INSERT INTO research_runs (
                 id, symbol, asset_class, timeframe, status, started_at,
-                completed_at, market_snapshot_id, thesis_id, user_decision_id,
-                outcome_review_id, payload_json
+                completed_at, market_snapshot_id, signal_snapshot_id, thesis_id,
+                user_decision_id, outcome_review_id, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 symbol=excluded.symbol,
                 asset_class=excluded.asset_class,
@@ -49,6 +51,7 @@ class JournalRepository:
                 status=excluded.status,
                 completed_at=excluded.completed_at,
                 market_snapshot_id=excluded.market_snapshot_id,
+                signal_snapshot_id=excluded.signal_snapshot_id,
                 thesis_id=excluded.thesis_id,
                 user_decision_id=excluded.user_decision_id,
                 outcome_review_id=excluded.outcome_review_id,
@@ -63,6 +66,7 @@ class JournalRepository:
                 _iso(run.started_at),
                 _iso(run.completed_at),
                 run.market_snapshot_id,
+                run.signal_snapshot_id,
                 run.thesis_id,
                 run.user_decision_id,
                 run.outcome_review_id,
@@ -92,6 +96,40 @@ class JournalRepository:
             (limit,),
         )
         return [model_from_json(ResearchRun, row["payload_json"]) for row in rows]
+
+    def save_market_snapshot(self, snapshot: MarketSnapshot) -> MarketSnapshot:
+        if not snapshot.id:
+            snapshot.id = _new_id("market_snapshot")
+        self.store.execute(
+            """
+            INSERT INTO market_snapshots (
+                id, research_run_id, symbol, captured_at, current_price,
+                source, source_timestamp, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                research_run_id=excluded.research_run_id,
+                current_price=excluded.current_price,
+                payload_json=excluded.payload_json
+            """,
+            (
+                snapshot.id,
+                snapshot.research_run_id,
+                snapshot.symbol,
+                _iso(snapshot.captured_at),
+                snapshot.current_price,
+                snapshot.source,
+                _iso(snapshot.source_timestamp),
+                model_to_json(snapshot),
+            ),
+        )
+        return snapshot
+
+    def get_market_snapshot(self, snapshot_id: str) -> MarketSnapshot | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM market_snapshots WHERE id = ?", (snapshot_id,)
+        )
+        return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
 
     def save_signal(self, signal: Signal) -> Signal:
         if not signal.id:
@@ -157,6 +195,50 @@ class JournalRepository:
                 (limit,),
             )
         return [model_from_json(Signal, row["payload_json"]) for row in rows]
+
+    def save_signal_snapshot(self, snapshot: SignalSnapshot) -> SignalSnapshot:
+        if not snapshot.id:
+            snapshot.id = _new_id("signal_snapshot")
+        self.store.execute(
+            """
+            INSERT INTO signal_snapshots (
+                id, research_run_id, symbol, captured_at, composite_signal_id,
+                signal_count, bullish_count, bearish_count, neutral_count,
+                stale_count, unknown_freshness_count, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                composite_signal_id=excluded.composite_signal_id,
+                signal_count=excluded.signal_count,
+                bullish_count=excluded.bullish_count,
+                bearish_count=excluded.bearish_count,
+                neutral_count=excluded.neutral_count,
+                stale_count=excluded.stale_count,
+                unknown_freshness_count=excluded.unknown_freshness_count,
+                payload_json=excluded.payload_json
+            """,
+            (
+                snapshot.id,
+                snapshot.research_run_id,
+                snapshot.symbol,
+                _iso(snapshot.captured_at),
+                snapshot.composite_signal_id,
+                len(snapshot.signal_ids),
+                snapshot.bullish_count,
+                snapshot.bearish_count,
+                snapshot.neutral_count,
+                snapshot.stale_count,
+                snapshot.unknown_freshness_count,
+                model_to_json(snapshot),
+            ),
+        )
+        return snapshot
+
+    def get_signal_snapshot(self, snapshot_id: str) -> SignalSnapshot | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM signal_snapshots WHERE id = ?", (snapshot_id,)
+        )
+        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
 
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
         if not thesis.id:

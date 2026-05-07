@@ -5,6 +5,8 @@ from tradingagents.domain import (
     Signal,
     SignalDirection,
     SignalProvenance,
+    MarketSnapshot,
+    SignalSnapshot,
     ThesisDirection,
     TradeThesis,
     UserDecision,
@@ -103,3 +105,38 @@ def test_journal_service_saves_and_reads_signals(tmp_path):
     assert btc_signals[0].symbol == "BTC/USDT"
     assert loaded is not None
     assert loaded.signal_type == "regime"
+
+
+def test_journal_service_persists_market_and_signal_snapshots(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+
+    market_snapshot = service.save_market_snapshot(
+        MarketSnapshot(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            current_price=100000.0,
+            trend_direction="bullish",
+        )
+    )
+    signal_snapshot = service.save_signal_snapshot(
+        SignalSnapshot(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            signal_ids=["sig_1", "sig_2"],
+            bullish_count=1,
+            bearish_count=1,
+        )
+    )
+    run.market_snapshot_id = market_snapshot.id
+    run.signal_snapshot_id = signal_snapshot.id
+    service.update_research_run(run)
+
+    loaded_run = service.get_research_run(run.id)
+    loaded_market = service.get_market_snapshot(market_snapshot.id)
+    loaded_signals = service.get_signal_snapshot(signal_snapshot.id)
+
+    assert loaded_run.market_snapshot_id == market_snapshot.id
+    assert loaded_run.signal_snapshot_id == signal_snapshot.id
+    assert loaded_market.current_price == 100000.0
+    assert loaded_signals.signal_ids == ["sig_1", "sig_2"]

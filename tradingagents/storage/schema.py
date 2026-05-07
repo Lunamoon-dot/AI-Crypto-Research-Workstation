@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
     started_at TEXT NOT NULL,
     completed_at TEXT,
     market_snapshot_id TEXT,
+    signal_snapshot_id TEXT,
     thesis_id TEXT,
     user_decision_id TEXT,
     outcome_review_id TEXT,
@@ -21,6 +22,24 @@ ON research_runs(started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_research_runs_symbol
 ON research_runs(symbol);
+
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    id TEXT PRIMARY KEY,
+    research_run_id TEXT,
+    symbol TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    current_price REAL,
+    source TEXT NOT NULL,
+    source_timestamp TEXT,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(research_run_id) REFERENCES research_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_run
+ON market_snapshots(research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_symbol_captured
+ON market_snapshots(symbol, captured_at DESC);
 
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
@@ -36,6 +55,28 @@ CREATE TABLE IF NOT EXISTS signals (
 
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_observed
 ON signals(symbol, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_snapshots (
+    id TEXT PRIMARY KEY,
+    research_run_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    composite_signal_id TEXT,
+    signal_count INTEGER NOT NULL,
+    bullish_count INTEGER NOT NULL,
+    bearish_count INTEGER NOT NULL,
+    neutral_count INTEGER NOT NULL,
+    stale_count INTEGER NOT NULL,
+    unknown_freshness_count INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(research_run_id) REFERENCES research_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_run
+ON signal_snapshots(research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_symbol_captured
+ON signal_snapshots(symbol, captured_at DESC);
 
 CREATE TABLE IF NOT EXISTS trade_theses (
     id TEXT PRIMARY KEY,

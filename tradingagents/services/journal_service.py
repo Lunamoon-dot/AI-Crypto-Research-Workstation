@@ -11,9 +11,11 @@ from pathlib import Path
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
+    MarketSnapshot,
     OutcomeReview,
     ResearchRun,
     Signal,
+    SignalSnapshot,
     TradeThesis,
     UserDecision,
 )
@@ -67,6 +69,12 @@ class JournalService:
     def save_signal(self, signal: Signal) -> Signal:
         return self.repo.save_signal(signal)
 
+    def save_market_snapshot(self, snapshot: MarketSnapshot) -> MarketSnapshot:
+        return self.repo.save_market_snapshot(snapshot)
+
+    def get_market_snapshot(self, snapshot_id: str) -> MarketSnapshot | None:
+        return self.repo.get_market_snapshot(snapshot_id)
+
     def save_signals(self, signals: list[Signal]) -> list[Signal]:
         return self.repo.save_signals(signals)
 
@@ -80,6 +88,12 @@ class JournalService:
         limit: int = 50,
     ) -> list[Signal]:
         return self.repo.list_signals(symbol=symbol, limit=limit)
+
+    def save_signal_snapshot(self, snapshot: SignalSnapshot) -> SignalSnapshot:
+        return self.repo.save_signal_snapshot(snapshot)
+
+    def get_signal_snapshot(self, snapshot_id: str) -> SignalSnapshot | None:
+        return self.repo.get_signal_snapshot(snapshot_id)
 
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
         saved = self.repo.save_thesis(thesis)

@@ -26,6 +26,20 @@ class SQLiteStore:
     def initialize(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.executescript(SCHEMA_SQL)
+            self._ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
+
+    @staticmethod
+    def _ensure_column(
+        conn: sqlite3.Connection,
+        table: str,
+        column: str,
+        column_type: str,
+    ) -> None:
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
     def execute(self, sql: str, params: Iterable = ()) -> None:
         with self.connect() as conn:
