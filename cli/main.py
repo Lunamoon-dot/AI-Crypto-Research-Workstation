@@ -1,6 +1,7 @@
 from typing import Optional
 import datetime
 import typer
+from typer import Context
 from pathlib import Path
 from functools import wraps
 from rich.console import Console
@@ -1247,6 +1248,13 @@ def analyze(
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     run_analysis(checkpoint=checkpoint)
+
+
+@app.callback(invoke_without_command=True)
+def _default_command(ctx: Context) -> None:
+    """Run interactive analysis when no subcommand is given (same as ``analyze``)."""
+    if ctx.invoked_subcommand is None:
+        run_analysis(checkpoint=False)
 
 
 if __name__ == "__main__":

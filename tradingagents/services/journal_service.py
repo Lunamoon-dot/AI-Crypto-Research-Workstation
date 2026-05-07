@@ -11,11 +11,14 @@ from pathlib import Path
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
+    AgentOpinion,
     MarketSnapshot,
     OutcomeReview,
+    ResearchDebate,
     ResearchRun,
     Signal,
     SignalSnapshot,
+    TimelineEvent,
     TradeThesis,
     UserDecision,
 )
@@ -63,8 +66,16 @@ class JournalService:
         event_type: str,
         message: str,
         payload: dict | None = None,
-    ) -> str:
-        return self.repo.add_run_event(research_run_id, event_type, message, payload)
+        *,
+        thesis_id: str | None = None,
+    ) -> TimelineEvent:
+        return self.repo.add_run_event(
+            research_run_id,
+            event_type,
+            message,
+            payload,
+            thesis_id=thesis_id,
+        )
 
     def save_signal(self, signal: Signal) -> Signal:
         return self.repo.save_signal(signal)
@@ -95,22 +106,105 @@ class JournalService:
     def get_signal_snapshot(self, snapshot_id: str) -> SignalSnapshot | None:
         return self.repo.get_signal_snapshot(snapshot_id)
 
+    def save_agent_opinions(self, opinions: list[AgentOpinion]) -> list[AgentOpinion]:
+        return self.repo.save_agent_opinions(opinions)
+
+    def list_agent_opinions(
+        self,
+        *,
+        research_run_id: str | None = None,
+        debate_id: str | None = None,
+        limit: int = 100,
+    ) -> list[AgentOpinion]:
+        return self.repo.list_agent_opinions(
+            research_run_id=research_run_id,
+            debate_id=debate_id,
+            limit=limit,
+        )
+
+    def save_debate(self, debate: ResearchDebate) -> ResearchDebate:
+        is_new = debate.id is None
+        saved = self.repo.save_debate(debate)
+        if is_new and saved.research_run_id:
+            self.repo.add_run_event(
+                saved.research_run_id,
+                "research_debate_saved",
+                f"Research debate saved for {saved.symbol}",
+                {"debate_id": saved.id, "opinion_ids": saved.opinion_ids},
+            )
+        return saved
+
+    def get_debate(self, debate_id: str) -> ResearchDebate | None:
+        return self.repo.get_debate(debate_id)
+
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
+        is_new = thesis.id is None
         saved = self.repo.save_thesis(thesis)
-        if saved.research_run_id:
+        if is_new and saved.research_run_id:
             self.repo.add_run_event(
                 saved.research_run_id,
                 "trade_thesis_saved",
                 f"Trade thesis saved for {saved.symbol}",
                 {"thesis_id": saved.id},
+                thesis_id=saved.id,
             )
         return saved
 
     def record_user_decision(self, decision: UserDecision) -> UserDecision:
-        return self.repo.save_user_decision(decision)
+        saved = self.repo.save_user_decision(decision)
+        thesis = self.repo.get_thesis(saved.thesis_id)
+        if thesis and thesis.research_run_id:
+            run = self.repo.get_research_run(thesis.research_run_id)
+            if run:
+                run.user_decision_id = saved.id
+                self.repo.save_research_run(run)
+            self.repo.add_run_event(
+                thesis.research_run_id,
+                "user_decision_recorded",
+                f"User decision recorded: {saved.action.value}",
+                {
+                    "decision_id": saved.id,
+                    "action": saved.action.value,
+                    "user_notes": saved.user_notes,
+                },
+                thesis_id=saved.thesis_id,
+            )
+        return saved
 
     def record_outcome_review(self, review: OutcomeReview) -> OutcomeReview:
-        return self.repo.save_outcome_review(review)
+        saved = self.repo.save_outcome_review(review)
+        thesis = self.repo.get_thesis(saved.thesis_id)
+        if thesis and thesis.research_run_id:
+            run = self.repo.get_research_run(thesis.research_run_id)
+            if run:
+                run.outcome_review_id = saved.id
+                self.repo.save_research_run(run)
+            self.repo.add_run_event(
+                thesis.research_run_id,
+                "outcome_review_recorded",
+                f"Outcome review recorded: {saved.result.value}",
+                {
+                    "outcome_review_id": saved.id,
+                    "result": saved.result.value,
+                    "invalidated": saved.invalidated,
+                    "lessons": saved.lessons,
+                },
+                thesis_id=saved.thesis_id,
+            )
+        return saved
+
+    def list_timeline_events(
+        self,
+        *,
+        research_run_id: str | None = None,
+        thesis_id: str | None = None,
+        limit: int = 200,
+    ) -> list[TimelineEvent]:
+        return self.repo.list_timeline_events(
+            research_run_id=research_run_id,
+            thesis_id=thesis_id,
+            limit=limit,
+        )
 
     def list_research_runs(self, limit: int = 20) -> list[ResearchRun]:
         return self.repo.list_research_runs(limit=limit)

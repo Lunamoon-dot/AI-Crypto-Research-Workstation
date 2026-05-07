@@ -6,8 +6,10 @@ import logging
 from typing import Callable, Optional
 
 from tradingagents.domain import (
+    AgentOpinion,
     PlanningStatus,
     ResearchRun,
+    ResearchDebate,
     Signal,
     SignalDirection,
     ThesisDirection,
@@ -84,7 +86,9 @@ def build_trade_thesis(
     quant_signal_result,
     current_research_run: ResearchRun | None,
     current_signals: list[Signal],
-    ticker: str | None,
+    current_agent_opinions: list[AgentOpinion] | None = None,
+    current_debate: ResearchDebate | None = None,
+    ticker: str | None = None,
 ) -> TradeThesis:
     """Create the journal thesis artifact from the final graph state."""
     final_decision = final_state.get("final_trade_decision", "")
@@ -102,6 +106,7 @@ def build_trade_thesis(
 
     return TradeThesis(
         research_run_id=current_research_run.id if current_research_run else None,
+        debate_id=current_debate.id if current_debate else None,
         symbol=symbol,
         direction=direction,
         setup_type="agent_debate",
@@ -113,10 +118,24 @@ def build_trade_thesis(
         ],
         supporting_signal_ids=supporting_signal_ids,
         contradicting_signal_ids=contradicting_signal_ids,
+        agent_opinion_ids=[
+            opinion.id for opinion in (current_agent_opinions or []) if opinion.id
+        ],
+        contradictions=current_debate.contradictions if current_debate else [],
+        consensus={
+            "stance": current_debate.consensus_stance.value if current_debate else None,
+            "confidence": current_debate.consensus_confidence if current_debate else None,
+            "conflict_level": current_debate.conflict_level.value if current_debate else None,
+            "stance_counts": current_debate.stance_counts if current_debate else {},
+        },
         evidence={
             "rating": rating,
             "trader_plan": final_state.get("trader_investment_plan", ""),
             "investment_plan": final_state.get("investment_plan", ""),
+            "agent_opinion_ids": [
+                opinion.id for opinion in (current_agent_opinions or []) if opinion.id
+            ],
+            "debate_id": current_debate.id if current_debate else None,
         },
     )
 
@@ -164,7 +183,9 @@ def build_trade_plan(
     quant_signal_result,
     current_research_run: ResearchRun | None,
     current_signals: list[Signal],
-    ticker: str | None,
+    current_agent_opinions: list[AgentOpinion] | None = None,
+    current_debate: ResearchDebate | None = None,
+    ticker: str | None = None,
 ) -> tuple[dict | None, TradeThesis | None]:
     """Build an assisted trade plan and matching thesis artifact."""
     exec_cfg = planning_config(config)
@@ -220,6 +241,8 @@ def build_trade_plan(
         quant_signal_result=quant_signal_result,
         current_research_run=current_research_run,
         current_signals=current_signals,
+        current_agent_opinions=current_agent_opinions,
+        current_debate=current_debate,
         ticker=ticker,
     )
     thesis.direction = {

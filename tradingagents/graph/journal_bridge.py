@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from tradingagents.domain import ResearchRun, Signal, TradeThesis
+from tradingagents.domain import AgentOpinion, ResearchDebate, ResearchRun, Signal, TradeThesis
 from tradingagents.services import JournalService
 from tradingagents.signals.base import SignalResult
 from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot
 from tradingagents.signals.provenance import signal_result_to_domain_signals
+from tradingagents.graph.opinions import build_agent_opinions, build_research_debate
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +89,36 @@ class JournalBridge:
         except Exception as e:
             logger.warning("Could not complete research journal entry: %s", e)
             return run, thesis
+
+    def save_agent_research(
+        self,
+        run: ResearchRun | None,
+        final_state: dict,
+        quant_signal_result: SignalResult | None,
+    ) -> tuple[ResearchRun | None, list[AgentOpinion], ResearchDebate | None]:
+        if not self.service or not run:
+            return run, [], None
+        try:
+            opinions = build_agent_opinions(
+                final_state,
+                research_run_id=run.id,
+                quant_signal_result=quant_signal_result,
+            )
+            opinions = self.service.save_agent_opinions(opinions)
+            debate = build_research_debate(
+                symbol=run.symbol,
+                research_run_id=run.id,
+                opinions=opinions,
+            )
+            debate = self.service.save_debate(debate)
+            for opinion in opinions:
+                opinion.debate_id = debate.id
+            opinions = self.service.save_agent_opinions(opinions)
+            debate.opinion_ids = [opinion.id for opinion in opinions if opinion.id]
+            debate = self.service.save_debate(debate)
+            run.debate_id = debate.id
+            run = self.service.update_research_run(run)
+            return run, opinions, debate
+        except Exception as e:
+            logger.warning("Could not save structured agent research: %s", e)
+            return run, [], None

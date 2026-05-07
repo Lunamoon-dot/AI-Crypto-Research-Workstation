@@ -83,11 +83,26 @@ def journal_show(
         f"Market Snapshot: {run.market_snapshot_id or 'N/A'}",
         f"Signal Snapshot: {run.signal_snapshot_id or 'N/A'}",
         f"Signals: {len(run.signal_ids)}",
+        f"Debate: {run.debate_id or 'N/A'}",
         f"Thesis: {run.thesis_id or 'N/A'}",
         f"User Decision: {run.user_decision_id or 'N/A'}",
         f"Outcome Review: {run.outcome_review_id or 'N/A'}",
     ]
     console.print(Panel("\n".join(lines), title="Research Run", border_style="cyan"))
+
+
+@journal_app.command("timeline")
+def journal_timeline(
+    run_id: str = typer.Argument(..., help="Research run id."),
+    limit: int = typer.Option(200, "--limit", "-n", min=1, max=500),
+):
+    """Show the persisted timeline for a research run."""
+    service = _service()
+    if not service.get_research_run(run_id):
+        console.print(f"[red]Research run not found:[/red] {run_id}")
+        raise typer.Exit(1)
+    events = service.list_timeline_events(research_run_id=run_id, limit=limit)
+    _print_timeline(events, title=f"Research Run Timeline: {run_id}")
 
 
 @journal_app.command("market-snapshot")
@@ -148,6 +163,61 @@ def journal_signal_snapshot(
     console.print(Panel("\n".join(lines), title="Signal Snapshot", border_style="cyan"))
 
 
+@journal_app.command("debate")
+def journal_debate(
+    debate_id: str = typer.Argument(..., help="Research debate id."),
+):
+    """Show a saved research debate and its structured opinions."""
+    service = _service()
+    debate = service.get_debate(debate_id)
+    if not debate:
+        console.print(f"[red]Research debate not found:[/red] {debate_id}")
+        raise typer.Exit(1)
+
+    confidence = (
+        f"{debate.consensus_confidence:.0%}"
+        if debate.consensus_confidence is not None
+        else "N/A"
+    )
+    lines = [
+        f"ID: {debate.id}",
+        f"Research Run: {debate.research_run_id or 'N/A'}",
+        f"Symbol: {debate.symbol}",
+        f"Consensus: {debate.consensus_stance.value}",
+        f"Consensus Confidence: {confidence}",
+        f"Conflict: {debate.conflict_level.value}",
+        f"Opinion Count: {len(debate.opinion_ids)}",
+    ]
+    if debate.contradictions:
+        lines.extend(["", "Contradictions:"])
+        lines.extend(f"- {item}" for item in debate.contradictions)
+    if debate.missing_data:
+        lines.extend(["", "Missing Data:"])
+        lines.extend(f"- {item}" for item in debate.missing_data)
+    console.print(Panel("\n".join(lines), title="Research Debate", border_style="cyan"))
+
+    opinions = service.list_agent_opinions(debate_id=debate.id)
+    if opinions:
+        table = Table(title="Agent Opinions")
+        table.add_column("Agent")
+        table.add_column("Role")
+        table.add_column("Stance")
+        table.add_column("Confidence")
+        table.add_column("Evidence")
+        for opinion in opinions:
+            opinion_confidence = (
+                f"{opinion.confidence:.0%}" if opinion.confidence is not None else "N/A"
+            )
+            table.add_row(
+                opinion.agent_name,
+                opinion.role,
+                opinion.stance.value,
+                opinion_confidence,
+                "\n".join(opinion.key_evidence[:2]),
+            )
+        console.print(table)
+
+
 @thesis_app.command("list")
 def thesis_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
@@ -191,6 +261,7 @@ def thesis_show(
     lines = [
         f"ID: {thesis.id}",
         f"Research Run: {thesis.research_run_id or 'N/A'}",
+        f"Debate: {thesis.debate_id or 'N/A'}",
         f"Symbol: {thesis.symbol}",
         f"Direction: {thesis.direction.value}",
         f"Setup: {thesis.setup_type}",
@@ -202,7 +273,24 @@ def thesis_show(
     if thesis.risk_notes:
         lines.extend(["", "Risk Notes:"])
         lines.extend(f"- {note}" for note in thesis.risk_notes)
+    if thesis.contradictions:
+        lines.extend(["", "Contradictions:"])
+        lines.extend(f"- {item}" for item in thesis.contradictions)
     console.print(Panel("\n".join(lines), title="Trade Thesis", border_style="cyan"))
+
+
+@thesis_app.command("timeline")
+def thesis_timeline(
+    thesis_id: str = typer.Argument(..., help="Trade thesis id."),
+    limit: int = typer.Option(200, "--limit", "-n", min=1, max=500),
+):
+    """Show the persisted lifecycle timeline for a thesis."""
+    service = _service()
+    if not service.get_thesis(thesis_id):
+        console.print(f"[red]Thesis not found:[/red] {thesis_id}")
+        raise typer.Exit(1)
+    events = service.list_timeline_events(thesis_id=thesis_id, limit=limit)
+    _print_timeline(events, title=f"Thesis Timeline: {thesis_id}")
 
 
 @thesis_app.command("decide")
@@ -269,6 +357,26 @@ def thesis_review(
         )
     )
     console.print(f"[green]Outcome review saved:[/green] {review.id}")
+
+
+def _print_timeline(events, *, title: str) -> None:
+    if not events:
+        console.print("[yellow]No timeline events saved yet.[/yellow]")
+        return
+
+    table = Table(title=title)
+    table.add_column("Time")
+    table.add_column("Event")
+    table.add_column("Message")
+    table.add_column("Thesis")
+    for event in events:
+        table.add_row(
+            event.created_at.isoformat(),
+            event.event_type,
+            event.message,
+            event.thesis_id or "",
+        )
+    console.print(table)
 
 
 def register_journal(parent_app: typer.Typer) -> None:

@@ -1,6 +1,10 @@
 from tradingagents.domain import (
+    AgentOpinion,
+    AgentStance,
+    ConflictLevel,
     OutcomeResult,
     OutcomeReview,
+    ResearchDebate,
     ResearchRun,
     Signal,
     SignalDirection,
@@ -78,6 +82,49 @@ def test_journal_service_records_decision_and_outcome(tmp_path):
     assert review.id.startswith("outcome_")
 
 
+def test_journal_service_persists_thesis_timeline(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="SOL/USDT"))
+    thesis = service.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="SOL/USDT",
+            direction=ThesisDirection.WATCH,
+            thesis_text="Watch for reclaim confirmation.",
+        )
+    )
+    run.thesis_id = thesis.id
+    service.update_research_run(run)
+
+    decision = service.record_user_decision(
+        UserDecision(
+            thesis_id=thesis.id,
+            action=UserDecisionAction.WATCHED,
+            user_notes="Waiting for clean breakout.",
+        )
+    )
+    review = service.record_outcome_review(
+        OutcomeReview(
+            thesis_id=thesis.id,
+            result=OutcomeResult.MIXED,
+            lessons="Breakout failed after initial follow-through.",
+        )
+    )
+
+    run_events = service.list_timeline_events(research_run_id=run.id)
+    thesis_events = service.list_timeline_events(thesis_id=thesis.id)
+    loaded_run = service.get_research_run(run.id)
+
+    assert [event.event_type for event in thesis_events] == [
+        "trade_thesis_saved",
+        "user_decision_recorded",
+        "outcome_review_recorded",
+    ]
+    assert any(event.event_type == "research_run_started" for event in run_events)
+    assert loaded_run.user_decision_id == decision.id
+    assert loaded_run.outcome_review_id == review.id
+
+
 def test_journal_service_saves_and_reads_signals(tmp_path):
     service = JournalService(_config(tmp_path))
     saved = service.save_signals([
@@ -140,3 +187,55 @@ def test_journal_service_persists_market_and_signal_snapshots(tmp_path):
     assert loaded_run.signal_snapshot_id == signal_snapshot.id
     assert loaded_market.current_price == 100000.0
     assert loaded_signals.signal_ids == ["sig_1", "sig_2"]
+
+
+def test_journal_service_persists_agent_opinions_and_debate(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+
+    opinions = service.save_agent_opinions([
+        AgentOpinion(
+            research_run_id=run.id,
+            agent_name="News Analyst",
+            stance=AgentStance.BULLISH,
+            confidence=0.7,
+            key_evidence=["ETF inflows improved."],
+        ),
+        AgentOpinion(
+            research_run_id=run.id,
+            agent_name="Contrarian Analyst",
+            role="research",
+            stance=AgentStance.BEARISH,
+            confidence=0.6,
+            key_evidence=["Funding is overheated."],
+        ),
+    ])
+    debate = service.save_debate(
+        ResearchDebate(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            consensus_stance=AgentStance.NEUTRAL,
+            consensus_confidence=0.65,
+            conflict_level=ConflictLevel.HIGH,
+            opinion_ids=[opinion.id for opinion in opinions],
+            contradictions=["Bullish flow conflicts with overheated funding."],
+        )
+    )
+    for opinion in opinions:
+        opinion.debate_id = debate.id
+    service.save_agent_opinions(opinions)
+    run.debate_id = debate.id
+    service.update_research_run(run)
+
+    loaded_run = service.get_research_run(run.id)
+    loaded_debate = service.get_debate(debate.id)
+    loaded_opinions = service.list_agent_opinions(debate_id=debate.id)
+
+    assert loaded_run.debate_id == debate.id
+    assert loaded_debate.consensus_stance == AgentStance.NEUTRAL
+    assert loaded_debate.conflict_level == ConflictLevel.HIGH
+    assert len(loaded_opinions) == 2
+    assert {opinion.agent_name for opinion in loaded_opinions} == {
+        "News Analyst",
+        "Contrarian Analyst",
+    }

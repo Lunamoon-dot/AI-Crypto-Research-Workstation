@@ -27,6 +27,8 @@ class SQLiteStore:
         with sqlite3.connect(self.path) as conn:
             conn.executescript(SCHEMA_SQL)
             self._ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
+            self._ensure_column(conn, "research_runs", "debate_id", "TEXT")
+            self._ensure_column(conn, "run_events", "thesis_id", "TEXT")
 
     @staticmethod
     def _ensure_column(

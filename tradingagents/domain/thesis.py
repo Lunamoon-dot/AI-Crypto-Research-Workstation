@@ -24,6 +24,7 @@ class TradeThesis(BaseModel):
 
     id: str | None = None
     research_run_id: str | None = None
+    debate_id: str | None = None
     symbol: str
     direction: ThesisDirection = ThesisDirection.WATCH
     setup_type: str = "unspecified"
@@ -35,5 +36,8 @@ class TradeThesis(BaseModel):
     risk_notes: list[str] = Field(default_factory=list)
     supporting_signal_ids: list[str] = Field(default_factory=list)
     contradicting_signal_ids: list[str] = Field(default_factory=list)
+    agent_opinion_ids: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    consensus: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

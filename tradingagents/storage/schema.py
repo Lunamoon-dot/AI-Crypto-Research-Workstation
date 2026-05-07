@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
     completed_at TEXT,
     market_snapshot_id TEXT,
     signal_snapshot_id TEXT,
+    debate_id TEXT,
     thesis_id TEXT,
     user_decision_id TEXT,
     outcome_review_id TEXT,
@@ -78,6 +79,43 @@ ON signal_snapshots(research_run_id);
 CREATE INDEX IF NOT EXISTS idx_signal_snapshots_symbol_captured
 ON signal_snapshots(symbol, captured_at DESC);
 
+CREATE TABLE IF NOT EXISTS debates (
+    id TEXT PRIMARY KEY,
+    research_run_id TEXT,
+    symbol TEXT NOT NULL,
+    consensus_stance TEXT NOT NULL,
+    conflict_level TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(research_run_id) REFERENCES research_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_debates_run
+ON debates(research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_debates_symbol_created
+ON debates(symbol, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_opinions (
+    id TEXT PRIMARY KEY,
+    research_run_id TEXT,
+    debate_id TEXT,
+    agent_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    stance TEXT NOT NULL,
+    confidence REAL,
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(research_run_id) REFERENCES research_runs(id),
+    FOREIGN KEY(debate_id) REFERENCES debates(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_opinions_run
+ON agent_opinions(research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_agent_opinions_debate
+ON agent_opinions(debate_id);
+
 CREATE TABLE IF NOT EXISTS trade_theses (
     id TEXT PRIMARY KEY,
     research_run_id TEXT,
@@ -125,6 +163,7 @@ ON outcome_reviews(thesis_id);
 CREATE TABLE IF NOT EXISTS run_events (
     id TEXT PRIMARY KEY,
     research_run_id TEXT NOT NULL,
+    thesis_id TEXT,
     event_type TEXT NOT NULL,
     created_at TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -134,4 +173,7 @@ CREATE TABLE IF NOT EXISTS run_events (
 
 CREATE INDEX IF NOT EXISTS idx_run_events_run
 ON run_events(research_run_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_thesis
+ON run_events(thesis_id, created_at);
 """

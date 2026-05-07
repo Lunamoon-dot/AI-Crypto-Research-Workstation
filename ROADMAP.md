@@ -56,6 +56,16 @@ The codebase has already been reset away from dangerous autonomous execution:
   - signal snapshots capture immutable signal IDs and directional/freshness counts;
   - research runs link `market_snapshot_id` and `signal_snapshot_id`;
   - journal CLI can inspect saved market and signal snapshots.
+- Phase 4A MVP has started:
+  - agent reports and debate outputs are adapted into structured `AgentOpinion` records;
+  - research debates persist consensus stance, conflict level, contradictions, missing data, and linked opinion IDs;
+  - research runs link `debate_id`;
+  - trade theses link `debate_id`, `agent_opinion_ids`, consensus, and contradictions;
+  - journal CLI can inspect saved debates and opinions.
+- Phase 2C timeline persistence has started:
+  - `run_events` now serve as the durable timeline for research runs and trade theses;
+  - debate, thesis creation, user decision, and outcome review events are persisted;
+  - journal/thesis CLI commands can inspect timelines.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
@@ -295,8 +305,8 @@ Estimated time: 2-4 weeks.
 
 MVP implementation status: started. The project now has a local SQLite journal,
 repository layer, journal service, graph integration, basic CLI commands, market
-snapshot persistence, and signal snapshot persistence. Remaining Phase 2 work is
-deeper agent-debate persistence and richer journal UX.
+snapshot persistence, signal snapshot persistence, agent-debate persistence, and
+thesis timeline persistence. Remaining Phase 2 work is richer journal UX.
 
 ## Goal
 
@@ -513,6 +523,12 @@ Estimated time: 3-5 weeks.
 ## Goal
 
 Turn the agent system into a useful research team, not prompt theater.
+
+MVP implementation status: started. Existing analyst reports, bull/bear
+research debate, trader plan, and risk debate are adapted into typed
+`AgentOpinion` records and persisted with a `ResearchDebate` summary. Remaining
+Phase 4 work is native structured-output prompts for every agent, richer
+contradiction semantics, and better workspace UX.
 
 ## Agent Roles
 

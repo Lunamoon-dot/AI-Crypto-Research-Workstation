@@ -54,6 +54,8 @@ from .reflection import Reflector
 from .signal_processing import SignalProcessor
 
 from tradingagents.domain import (
+    AgentOpinion,
+    ResearchDebate,
     ResearchRun,
     ResearchRunStatus,
     Signal,
@@ -218,6 +220,8 @@ class TradingAgentsGraph:
         self.current_research_run: ResearchRun | None = None
         self.current_trade_thesis: TradeThesis | None = None
         self.current_signals: list[Signal] = []
+        self.current_agent_opinions: list[AgentOpinion] = []
+        self.current_debate: ResearchDebate | None = None
         self.journal_bridge = JournalBridge(self.config)
         self.log_states_dict = {}  # date to full state dict
         self.quant_signal_result = None  # set by _precompute_quant_signal
@@ -344,6 +348,18 @@ class TradingAgentsGraph:
         self.current_research_run, self.current_trade_thesis = bridge.complete_run(
             self.current_research_run,
             self.current_trade_thesis,
+        )
+
+    def _save_journal_agent_research(self, final_state: dict) -> None:
+        bridge = getattr(self, "journal_bridge", None)
+        if not isinstance(bridge, JournalBridge):
+            return
+        self.current_research_run, self.current_agent_opinions, self.current_debate = (
+            bridge.save_agent_research(
+                self.current_research_run,
+                final_state,
+                getattr(self, "quant_signal_result", None),
+            )
         )
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
@@ -555,6 +571,8 @@ class TradingAgentsGraph:
         )
         self.current_trade_thesis = None
         self.current_signals = []
+        self.current_agent_opinions = []
+        self.current_debate = None
 
         # Pre-flight: validate and normalize crypto symbols only. Stock tickers
         # must remain exact; treating NVDA as NVDA/USDT:USDT corrupts memory,
@@ -613,6 +631,7 @@ class TradingAgentsGraph:
 
         # Store current state for reflection.
         self.curr_state = final_state
+        self._save_journal_agent_research(final_state)
 
         # Persist a thesis artifact even when the assisted planning panel is
         # disabled. The journal is the canonical decision memory.
@@ -717,6 +736,8 @@ class TradingAgentsGraph:
             quant_signal_result=getattr(self, "quant_signal_result", None),
             current_research_run=self.current_research_run,
             current_signals=self.current_signals,
+            current_agent_opinions=self.current_agent_opinions,
+            current_debate=self.current_debate,
             ticker=self.ticker,
         )
 
@@ -736,6 +757,8 @@ class TradingAgentsGraph:
             quant_signal_result=getattr(self, "quant_signal_result", None),
             current_research_run=self.current_research_run,
             current_signals=self.current_signals,
+            current_agent_opinions=self.current_agent_opinions,
+            current_debate=self.current_debate,
             ticker=self.ticker,
         )
         if thesis is not None:

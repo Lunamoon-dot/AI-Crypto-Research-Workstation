@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from uuid import uuid4
 
 from tradingagents.domain import (
+    AgentOpinion,
     MarketSnapshot,
     OutcomeReview,
+    ResearchDebate,
     ResearchRun,
     ResearchRunStatus,
     Signal,
     SignalSnapshot,
+    TimelineEvent,
     TradeThesis,
     UserDecision,
 )
@@ -40,10 +44,10 @@ class JournalRepository:
             """
             INSERT INTO research_runs (
                 id, symbol, asset_class, timeframe, status, started_at,
-                completed_at, market_snapshot_id, signal_snapshot_id, thesis_id,
-                user_decision_id, outcome_review_id, payload_json
+                completed_at, market_snapshot_id, signal_snapshot_id, debate_id,
+                thesis_id, user_decision_id, outcome_review_id, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 symbol=excluded.symbol,
                 asset_class=excluded.asset_class,
@@ -52,6 +56,7 @@ class JournalRepository:
                 completed_at=excluded.completed_at,
                 market_snapshot_id=excluded.market_snapshot_id,
                 signal_snapshot_id=excluded.signal_snapshot_id,
+                debate_id=excluded.debate_id,
                 thesis_id=excluded.thesis_id,
                 user_decision_id=excluded.user_decision_id,
                 outcome_review_id=excluded.outcome_review_id,
@@ -67,6 +72,7 @@ class JournalRepository:
                 _iso(run.completed_at),
                 run.market_snapshot_id,
                 run.signal_snapshot_id,
+                run.debate_id,
                 run.thesis_id,
                 run.user_decision_id,
                 run.outcome_review_id,
@@ -240,6 +246,116 @@ class JournalRepository:
         )
         return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
 
+    def save_agent_opinion(self, opinion: AgentOpinion) -> AgentOpinion:
+        if not opinion.id:
+            opinion.id = _new_id("opinion")
+        self.store.execute(
+            """
+            INSERT INTO agent_opinions (
+                id, research_run_id, debate_id, agent_name, role, stance,
+                confidence, created_at, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                debate_id=excluded.debate_id,
+                stance=excluded.stance,
+                confidence=excluded.confidence,
+                payload_json=excluded.payload_json
+            """,
+            (
+                opinion.id,
+                opinion.research_run_id,
+                opinion.debate_id,
+                opinion.agent_name,
+                opinion.role,
+                opinion.stance.value,
+                opinion.confidence,
+                _iso(opinion.created_at),
+                model_to_json(opinion),
+            ),
+        )
+        return opinion
+
+    def save_agent_opinions(self, opinions: list[AgentOpinion]) -> list[AgentOpinion]:
+        return [self.save_agent_opinion(opinion) for opinion in opinions]
+
+    def get_agent_opinion(self, opinion_id: str) -> AgentOpinion | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM agent_opinions WHERE id = ?", (opinion_id,)
+        )
+        return model_from_json(AgentOpinion, row["payload_json"]) if row else None
+
+    def list_agent_opinions(
+        self,
+        *,
+        research_run_id: str | None = None,
+        debate_id: str | None = None,
+        limit: int = 100,
+    ) -> list[AgentOpinion]:
+        if debate_id:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM agent_opinions
+                WHERE debate_id = ?
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (debate_id, limit),
+            )
+        elif research_run_id:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM agent_opinions
+                WHERE research_run_id = ?
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (research_run_id, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM agent_opinions
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(AgentOpinion, row["payload_json"]) for row in rows]
+
+    def save_debate(self, debate: ResearchDebate) -> ResearchDebate:
+        if not debate.id:
+            debate.id = _new_id("debate")
+        self.store.execute(
+            """
+            INSERT INTO debates (
+                id, research_run_id, symbol, consensus_stance, conflict_level,
+                created_at, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                consensus_stance=excluded.consensus_stance,
+                conflict_level=excluded.conflict_level,
+                payload_json=excluded.payload_json
+            """,
+            (
+                debate.id,
+                debate.research_run_id,
+                debate.symbol,
+                debate.consensus_stance.value,
+                debate.conflict_level.value,
+                _iso(debate.created_at),
+                model_to_json(debate),
+            ),
+        )
+        return debate
+
+    def get_debate(self, debate_id: str) -> ResearchDebate | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM debates WHERE id = ?", (debate_id,)
+        )
+        return model_from_json(ResearchDebate, row["payload_json"]) if row else None
+
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
         if not thesis.id:
             thesis.id = _new_id("thesis")
@@ -285,6 +401,9 @@ class JournalRepository:
             (limit,),
         )
         return [model_from_json(TradeThesis, row["payload_json"]) for row in rows]
+
+    def find_thesis_by_id(self, thesis_id: str) -> TradeThesis | None:
+        return self.get_thesis(thesis_id)
 
     def save_user_decision(self, decision: UserDecision) -> UserDecision:
         if not decision.id:
@@ -337,24 +456,93 @@ class JournalRepository:
         return review
 
     def add_run_event(
-        self, research_run_id: str, event_type: str, message: str, payload: dict | None = None
-    ) -> str:
-        event_id = _new_id("event")
-        created_at = datetime.now(timezone.utc).isoformat()
+        self,
+        research_run_id: str,
+        event_type: str,
+        message: str,
+        payload: dict | None = None,
+        *,
+        thesis_id: str | None = None,
+    ) -> TimelineEvent:
+        event = TimelineEvent(
+            id=_new_id("event"),
+            research_run_id=research_run_id,
+            thesis_id=thesis_id,
+            event_type=event_type,
+            message=message,
+            payload=payload or {},
+        )
         self.store.execute(
             """
             INSERT INTO run_events (
-                id, research_run_id, event_type, created_at, message, payload_json
+                id, research_run_id, thesis_id, event_type, created_at, message, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                event_id,
-                research_run_id,
-                event_type,
-                created_at,
-                message,
-                dumps_payload(payload or {}),
+                event.id,
+                event.research_run_id,
+                event.thesis_id,
+                event.event_type,
+                _iso(event.created_at),
+                event.message,
+                dumps_payload(event.payload),
             ),
         )
-        return event_id
+        return event
+
+    def list_timeline_events(
+        self,
+        *,
+        research_run_id: str | None = None,
+        thesis_id: str | None = None,
+        limit: int = 200,
+    ) -> list[TimelineEvent]:
+        if thesis_id:
+            rows = self.store.fetchall(
+                """
+                SELECT id, research_run_id, thesis_id, event_type, created_at,
+                       message, payload_json
+                FROM run_events
+                WHERE thesis_id = ?
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (thesis_id, limit),
+            )
+        elif research_run_id:
+            rows = self.store.fetchall(
+                """
+                SELECT id, research_run_id, thesis_id, event_type, created_at,
+                       message, payload_json
+                FROM run_events
+                WHERE research_run_id = ?
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (research_run_id, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT id, research_run_id, thesis_id, event_type, created_at,
+                       message, payload_json
+                FROM run_events
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [self._timeline_event_from_row(row) for row in rows]
+
+    @staticmethod
+    def _timeline_event_from_row(row) -> TimelineEvent:
+        return TimelineEvent(
+            id=row["id"],
+            research_run_id=row["research_run_id"],
+            thesis_id=row["thesis_id"],
+            event_type=row["event_type"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            message=row["message"],
+            payload=json.loads(row["payload_json"] or "{}"),
+        )
