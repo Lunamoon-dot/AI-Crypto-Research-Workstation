@@ -348,6 +348,8 @@ class TradingAgentsGraph:
         self.current_research_run, self.current_trade_thesis = bridge.complete_run(
             self.current_research_run,
             self.current_trade_thesis,
+            signals=self.current_signals,
+            debate=self.current_debate,
         )
 
     def _save_journal_agent_research(self, final_state: dict) -> None:

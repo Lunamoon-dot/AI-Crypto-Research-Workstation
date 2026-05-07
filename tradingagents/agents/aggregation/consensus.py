@@ -18,6 +18,10 @@ def consensus_from_opinions(
         AgentStance.BULLISH.value: stance_counts[AgentStance.BULLISH.value],
         AgentStance.BEARISH.value: stance_counts[AgentStance.BEARISH.value],
     }
+    uncertain_or_missing = (
+        stance_counts[AgentStance.UNCERTAIN.value]
+        + sum(1 for opinion in opinions if opinion.missing_data)
+    )
 
     if not opinions:
         return AgentStance.UNCERTAIN, stance_counts, ConflictLevel.LOW
@@ -31,9 +35,9 @@ def consensus_from_opinions(
 
     minority = min(directional.values())
     majority = max(directional.values())
-    if minority == 0:
+    if minority == 0 and uncertain_or_missing <= 1:
         conflict = ConflictLevel.LOW
-    elif majority - minority <= 1:
+    elif majority - minority <= 1 or uncertain_or_missing >= max(2, len(opinions) // 3):
         conflict = ConflictLevel.HIGH
     else:
         conflict = ConflictLevel.MEDIUM

@@ -36,8 +36,40 @@ BEARISH_TERMS = (
     "risk",
 )
 MISSING_DATA_TERMS = ("missing", "unavailable", "not available", "insufficient", "no data")
-RISK_TERMS = ("risk", "downside", "overheated", "weak", "volatile", "liquidation", "drawdown")
-INVALIDATION_TERMS = ("invalidate", "invalidation", "stop", "break below", "break above", "lose")
+RISK_TERMS = (
+    "risk",
+    "downside",
+    "overheated",
+    "weak",
+    "volatile",
+    "liquidation",
+    "drawdown",
+    "crowded",
+    "euphoric",
+)
+INVALIDATION_TERMS = (
+    "invalidate",
+    "invalidation",
+    "stop",
+    "stop-loss",
+    "break below",
+    "break above",
+    "lose",
+    "fails",
+)
+EVIDENCE_TERMS = (
+    "because",
+    "signal",
+    "trend",
+    "funding",
+    "volume",
+    "sentiment",
+    "news",
+    "on-chain",
+    "onchain",
+    "evidence",
+    "data",
+)
 
 
 def build_agent_opinions(
@@ -53,17 +85,17 @@ def build_agent_opinions(
         opinions.append(_quant_opinion(quant_signal_result, research_run_id))
 
     report_sources = [
-        ("Market Analyst", "market", final_state.get("market_report", "")),
-        ("Sentiment Analyst", "sentiment", final_state.get("sentiment_report", "")),
-        ("News Analyst", "news", final_state.get("news_report", "")),
-        ("Onchain Analyst", "onchain", final_state.get("fundamentals_report", "")),
+        ("Market Analyst", "market", "market_analyst", final_state.get("market_report", "")),
+        ("Sentiment Analyst", "sentiment", "sentiment_analyst", final_state.get("sentiment_report", "")),
+        ("News Analyst", "news", "news_analyst", final_state.get("news_report", "")),
+        ("Onchain Analyst", "onchain", "onchain_analyst", final_state.get("fundamentals_report", "")),
     ]
-    for agent_name, report_type, text in report_sources:
+    for agent_name, report_type, role, text in report_sources:
         opinion = _text_opinion(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="analyst",
+            role=role,
             source_report_type=report_type,
         )
         if opinion:
@@ -79,7 +111,7 @@ def build_agent_opinions(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="research",
+            role="contrarian" if agent_name == "Contrarian Analyst" else "research",
             source_report_type="investment_debate",
             stance_override=stance,
         )
@@ -99,16 +131,16 @@ def build_agent_opinions(
 
     risk = final_state.get("risk_debate_state") or {}
     for agent_name, text, stance in [
-        ("Aggressive Risk Analyst", risk.get("aggressive_history", ""), AgentStance.BULLISH),
-        ("Conservative Risk Analyst", risk.get("conservative_history", ""), AgentStance.BEARISH),
-        ("Neutral Risk Analyst", risk.get("neutral_history", ""), AgentStance.NEUTRAL),
+        ("Risk Analyst - Aggressive", risk.get("aggressive_history", ""), AgentStance.BULLISH),
+        ("Risk Analyst - Conservative", risk.get("conservative_history", ""), AgentStance.BEARISH),
+        ("Risk Analyst - Neutral", risk.get("neutral_history", ""), AgentStance.NEUTRAL),
         ("Portfolio Manager", risk.get("judge_decision", "") or final_state.get("final_trade_decision", ""), None),
     ]:
         opinion = _text_opinion(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="risk",
+            role="risk_analyst" if agent_name.startswith("Risk Analyst") else "portfolio_manager",
             source_report_type="risk_debate",
             stance_override=stance,
         )
@@ -130,12 +162,18 @@ def build_research_debate(
     missing_data = []
     for opinion in opinions:
         missing_data.extend(opinion.missing_data)
+    stale_count = _count_stale_mentions(opinions)
 
     return ResearchDebate(
         research_run_id=research_run_id,
         symbol=symbol,
         consensus_stance=consensus,
-        consensus_confidence=aggregate_confidence(opinions),
+        consensus_confidence=aggregate_confidence(
+            opinions,
+            conflict_level=conflict,
+            missing_data_count=len(missing_data),
+            stale_count=stale_count,
+        ),
         conflict_level=conflict,
         stance_counts=stance_counts,
         opinion_ids=[opinion.id for opinion in opinions if opinion.id],
@@ -172,6 +210,7 @@ def _quant_opinion(
         confidence=result.confidence,
         key_evidence=evidence or ([result.summary] if result.summary else []),
         risks=risks,
+        missing_data=_quant_missing_data(result),
         raw_text=result.to_prompt_block(),
         source_report_type="quant_signal",
     )
@@ -196,7 +235,7 @@ def _text_opinion(
         role=role,
         stance=stance,
         confidence=_infer_confidence(text, stance),
-        key_evidence=_extract_sentences(text, terms=(), limit=4),
+        key_evidence=_extract_evidence(text, limit=4),
         risks=_extract_sentences(text, terms=RISK_TERMS, limit=4),
         invalidation_conditions=_extract_sentences(text, terms=INVALIDATION_TERMS, limit=3),
         missing_data=_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=3),
@@ -223,6 +262,14 @@ def _infer_confidence(text: str, stance: AgentStance) -> float:
     return min(base + length_bonus + evidence_bonus, 0.85)
 
 
+def _extract_evidence(text: str, *, limit: int) -> list[str]:
+    evidence = _extract_sentences(text, terms=EVIDENCE_TERMS, limit=limit)
+    if len(evidence) >= limit:
+        return evidence
+    fallback = _extract_sentences(text, terms=(), limit=limit)
+    return _dedupe(evidence + fallback)[:limit]
+
+
 def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list[str]:
     cleaned = re.sub(r"\s+", " ", text.replace("|", " ")).strip()
     if not cleaned:
@@ -239,6 +286,23 @@ def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list
         if len(selected) >= limit:
             break
     return _dedupe(selected)
+
+
+def _quant_missing_data(result: SignalResult) -> list[str]:
+    missing = []
+    for factor in result.factors:
+        if factor.data_quality < 0.35:
+            missing.append(f"{factor.name} data quality is low ({factor.data_quality:.0%}).")
+    return missing[:5]
+
+
+def _count_stale_mentions(opinions: list[AgentOpinion]) -> int:
+    stale_terms = ("stale", "unknown freshness", "freshness is unknown")
+    return sum(
+        1
+        for opinion in opinions
+        if any(term in opinion.raw_text.lower() for term in stale_terms)
+    )
 
 
 def _dedupe(values: list[str]) -> list[str]:

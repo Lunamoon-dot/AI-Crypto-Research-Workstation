@@ -134,6 +134,18 @@ ON trade_theses(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_trade_theses_run
 ON trade_theses(research_run_id);
 
+CREATE TABLE IF NOT EXISTS scenarios (
+    id TEXT PRIMARY KEY,
+    thesis_id TEXT NOT NULL,
+    probability_band TEXT NOT NULL,
+    suggested_user_action TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenarios_thesis
+ON scenarios(thesis_id);
+
 CREATE TABLE IF NOT EXISTS user_decisions (
     id TEXT PRIMARY KEY,
     thesis_id TEXT NOT NULL,
@@ -176,4 +188,61 @@ ON run_events(research_run_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_run_events_thesis
 ON run_events(thesis_id, created_at);
+
+CREATE TABLE IF NOT EXISTS watchlists (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlists_enabled
+ON watchlists(enabled, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS watchlist_items (
+    id TEXT PRIMARY KEY,
+    watchlist_id TEXT NOT NULL,
+    item_type TEXT NOT NULL,
+    symbol TEXT,
+    thesis_id TEXT,
+    setup_type TEXT,
+    enabled INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(watchlist_id) REFERENCES watchlists(id),
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_watchlist
+ON watchlist_items(watchlist_id, enabled, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_symbol
+ON watchlist_items(symbol, enabled);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_thesis
+ON watchlist_items(thesis_id, enabled);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id TEXT PRIMARY KEY,
+    alert_type TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    thesis_id TEXT,
+    watchlist_item_id TEXT,
+    created_at TEXT NOT NULL,
+    read_at TEXT,
+    message TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id),
+    FOREIGN KEY(watchlist_item_id) REFERENCES watchlist_items(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_created_at
+ON alerts(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_symbol
+ON alerts(symbol, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_thesis
+ON alerts(thesis_id, created_at DESC);
 """

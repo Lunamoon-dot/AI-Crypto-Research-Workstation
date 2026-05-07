@@ -8,16 +8,20 @@ from uuid import uuid4
 
 from tradingagents.domain import (
     AgentOpinion,
+    Alert,
     MarketSnapshot,
     OutcomeReview,
     ResearchDebate,
     ResearchRun,
     ResearchRunStatus,
+    Scenario,
     Signal,
     SignalSnapshot,
     TimelineEvent,
     TradeThesis,
     UserDecision,
+    Watchlist,
+    WatchlistItem,
 )
 from tradingagents.storage.serialization import dumps_payload, model_from_json, model_to_json
 from tradingagents.storage.sqlite import SQLiteStore
@@ -134,6 +138,18 @@ class JournalRepository:
     def get_market_snapshot(self, snapshot_id: str) -> MarketSnapshot | None:
         row = self.store.fetchone(
             "SELECT payload_json FROM market_snapshots WHERE id = ?", (snapshot_id,)
+        )
+        return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
+
+    def get_latest_market_snapshot(self, symbol: str) -> MarketSnapshot | None:
+        row = self.store.fetchone(
+            """
+            SELECT payload_json FROM market_snapshots
+            WHERE symbol = ? AND current_price IS NOT NULL
+            ORDER BY captured_at DESC
+            LIMIT 1
+            """,
+            (symbol,),
         )
         return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
 
@@ -405,6 +421,270 @@ class JournalRepository:
     def find_thesis_by_id(self, thesis_id: str) -> TradeThesis | None:
         return self.get_thesis(thesis_id)
 
+    def save_scenario(self, scenario: Scenario) -> Scenario:
+        if not scenario.id:
+            scenario.id = _new_id("scenario")
+        self.store.execute(
+            """
+            INSERT INTO scenarios (
+                id, thesis_id, probability_band, suggested_user_action, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                probability_band=excluded.probability_band,
+                suggested_user_action=excluded.suggested_user_action,
+                payload_json=excluded.payload_json
+            """,
+            (
+                scenario.id,
+                scenario.thesis_id,
+                scenario.probability_band.value,
+                scenario.suggested_user_action,
+                model_to_json(scenario),
+            ),
+        )
+        return scenario
+
+    def save_scenarios(self, scenarios: list[Scenario]) -> list[Scenario]:
+        return [self.save_scenario(scenario) for scenario in scenarios]
+
+    def get_scenario(self, scenario_id: str) -> Scenario | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM scenarios WHERE id = ?", (scenario_id,)
+        )
+        return model_from_json(Scenario, row["payload_json"]) if row else None
+
+    def list_scenarios(self, *, thesis_id: str, limit: int = 20) -> list[Scenario]:
+        rows = self.store.fetchall(
+            """
+            SELECT payload_json FROM scenarios
+            WHERE thesis_id = ?
+            ORDER BY id
+            LIMIT ?
+            """,
+            (thesis_id, limit),
+        )
+        return [model_from_json(Scenario, row["payload_json"]) for row in rows]
+
+    def save_watchlist(self, watchlist: Watchlist) -> Watchlist:
+        if not watchlist.id:
+            watchlist.id = _new_id("watchlist")
+        self.store.execute(
+            """
+            INSERT INTO watchlists (
+                id, name, enabled, created_at, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                enabled=excluded.enabled,
+                payload_json=excluded.payload_json
+            """,
+            (
+                watchlist.id,
+                watchlist.name,
+                1 if watchlist.enabled else 0,
+                _iso(watchlist.created_at),
+                model_to_json(watchlist),
+            ),
+        )
+        return watchlist
+
+    def get_watchlist(self, watchlist_id: str) -> Watchlist | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM watchlists WHERE id = ?", (watchlist_id,)
+        )
+        return model_from_json(Watchlist, row["payload_json"]) if row else None
+
+    def get_watchlist_by_name(self, name: str) -> Watchlist | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM watchlists WHERE name = ?", (name,)
+        )
+        return model_from_json(Watchlist, row["payload_json"]) if row else None
+
+    def list_watchlists(self, *, enabled_only: bool = False, limit: int = 50) -> list[Watchlist]:
+        if enabled_only:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM watchlists
+                WHERE enabled = 1
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM watchlists
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(Watchlist, row["payload_json"]) for row in rows]
+
+    def save_watchlist_item(self, item: WatchlistItem) -> WatchlistItem:
+        if not item.id:
+            item.id = _new_id("watch_item")
+        self.store.execute(
+            """
+            INSERT INTO watchlist_items (
+                id, watchlist_id, item_type, symbol, thesis_id, setup_type,
+                enabled, created_at, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                item_type=excluded.item_type,
+                symbol=excluded.symbol,
+                thesis_id=excluded.thesis_id,
+                setup_type=excluded.setup_type,
+                enabled=excluded.enabled,
+                payload_json=excluded.payload_json
+            """,
+            (
+                item.id,
+                item.watchlist_id,
+                item.item_type.value,
+                item.symbol,
+                item.thesis_id,
+                item.setup_type,
+                1 if item.enabled else 0,
+                _iso(item.created_at),
+                model_to_json(item),
+            ),
+        )
+        return item
+
+    def get_watchlist_item(self, item_id: str) -> WatchlistItem | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM watchlist_items WHERE id = ?", (item_id,)
+        )
+        return model_from_json(WatchlistItem, row["payload_json"]) if row else None
+
+    def list_watchlist_items(
+        self,
+        *,
+        watchlist_id: str | None = None,
+        enabled_only: bool = False,
+        limit: int = 100,
+    ) -> list[WatchlistItem]:
+        conditions = []
+        params: list[object] = []
+        if watchlist_id:
+            conditions.append("watchlist_id = ?")
+            params.append(watchlist_id)
+        if enabled_only:
+            conditions.append("enabled = 1")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.store.fetchall(
+            f"""
+            SELECT payload_json FROM watchlist_items
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        return [model_from_json(WatchlistItem, row["payload_json"]) for row in rows]
+
+    def disable_watchlist_item(self, item_id: str) -> WatchlistItem | None:
+        item = self.get_watchlist_item(item_id)
+        if not item:
+            return None
+        item.enabled = False
+        return self.save_watchlist_item(item)
+
+    def save_alert(self, alert: Alert) -> Alert:
+        if not alert.id:
+            alert.id = _new_id("alert")
+        self.store.execute(
+            """
+            INSERT INTO alerts (
+                id, alert_type, symbol, thesis_id, watchlist_item_id,
+                created_at, read_at, message, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                read_at=excluded.read_at,
+                message=excluded.message,
+                payload_json=excluded.payload_json
+            """,
+            (
+                alert.id,
+                alert.alert_type.value,
+                alert.symbol,
+                alert.thesis_id,
+                alert.watchlist_item_id,
+                _iso(alert.created_at),
+                _iso(alert.read_at),
+                alert.message,
+                model_to_json(alert),
+            ),
+        )
+        return alert
+
+    def list_alerts(
+        self,
+        *,
+        symbol: str | None = None,
+        thesis_id: str | None = None,
+        unread_only: bool = False,
+        limit: int = 100,
+    ) -> list[Alert]:
+        conditions = []
+        params: list[object] = []
+        if symbol:
+            conditions.append("symbol = ?")
+            params.append(symbol)
+        if thesis_id:
+            conditions.append("thesis_id = ?")
+            params.append(thesis_id)
+        if unread_only:
+            conditions.append("read_at IS NULL")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.store.fetchall(
+            f"""
+            SELECT payload_json FROM alerts
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        return [model_from_json(Alert, row["payload_json"]) for row in rows]
+
+    def has_alert(
+        self,
+        *,
+        alert_type: str,
+        thesis_id: str | None,
+        watchlist_item_id: str | None,
+        trigger_key: str,
+    ) -> bool:
+        rows = self.store.fetchall(
+            """
+            SELECT payload_json FROM alerts
+            WHERE alert_type = ?
+              AND COALESCE(thesis_id, '') = COALESCE(?, '')
+              AND COALESCE(watchlist_item_id, '') = COALESCE(?, '')
+            """,
+            (alert_type, thesis_id, watchlist_item_id),
+        )
+        for row in rows:
+            payload = json.loads(row["payload_json"] or "{}")
+            if payload.get("payload", {}).get("trigger_key") == trigger_key:
+                return True
+        return False
+
+    def mark_alert_read(self, alert_id: str, read_at: datetime | None = None) -> Alert | None:
+        row = self.store.fetchone("SELECT payload_json FROM alerts WHERE id = ?", (alert_id,))
+        if not row:
+            return None
+        alert = model_from_json(Alert, row["payload_json"])
+        alert.read_at = read_at or datetime.now(timezone.utc)
+        return self.save_alert(alert)
+
     def save_user_decision(self, decision: UserDecision) -> UserDecision:
         if not decision.id:
             decision.id = _new_id("decision")
@@ -454,6 +734,39 @@ class JournalRepository:
             ),
         )
         return review
+
+    def get_outcome_review(self, review_id: str) -> OutcomeReview | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM outcome_reviews WHERE id = ?", (review_id,)
+        )
+        return model_from_json(OutcomeReview, row["payload_json"]) if row else None
+
+    def list_outcome_reviews(
+        self,
+        *,
+        thesis_id: str | None = None,
+        limit: int = 100,
+    ) -> list[OutcomeReview]:
+        if thesis_id:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM outcome_reviews
+                WHERE thesis_id = ?
+                ORDER BY reviewed_at DESC
+                LIMIT ?
+                """,
+                (thesis_id, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM outcome_reviews
+                ORDER BY reviewed_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(OutcomeReview, row["payload_json"]) for row in rows]
 
     def add_run_event(
         self,

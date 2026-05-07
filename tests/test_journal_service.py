@@ -6,6 +6,8 @@ from tradingagents.domain import (
     OutcomeReview,
     ResearchDebate,
     ResearchRun,
+    Scenario,
+    ScenarioProbabilityBand,
     Signal,
     SignalDirection,
     SignalProvenance,
@@ -82,6 +84,69 @@ def test_journal_service_records_decision_and_outcome(tmp_path):
     assert review.id.startswith("outcome_")
 
 
+def test_journal_service_builds_outcome_analytics_and_insights(tmp_path):
+    service = JournalService(_config(tmp_path))
+    btc_thesis = service.save_thesis(
+        TradeThesis(
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            confidence=0.8,
+            thesis_text="Bullish continuation.",
+        )
+    )
+    eth_thesis = service.save_thesis(
+        TradeThesis(
+            symbol="ETH/USDT",
+            direction=ThesisDirection.SHORT,
+            confidence=0.5,
+            thesis_text="Bearish breakdown.",
+        )
+    )
+
+    service.record_outcome_review(
+        OutcomeReview(
+            thesis_id=btc_thesis.id,
+            result=OutcomeResult.HIT_TARGET,
+            max_favorable_excursion=0.12,
+            max_adverse_excursion=-0.03,
+            lessons="Volume confirmation worked.",
+        )
+    )
+    service.record_outcome_review(
+        OutcomeReview(
+            thesis_id=btc_thesis.id,
+            result=OutcomeResult.INVALIDATED,
+            max_favorable_excursion=0.02,
+            max_adverse_excursion=-0.08,
+            invalidated=True,
+            lessons="Invalidation needed tighter monitoring.",
+        )
+    )
+    service.record_outcome_review(
+        OutcomeReview(
+            thesis_id=eth_thesis.id,
+            result=OutcomeResult.MIXED,
+            lessons="Wait for cleaner confirmation.",
+        )
+    )
+
+    btc_reviews = service.list_outcome_reviews(symbol="BTC/USDT")
+    analytics = service.build_outcome_analytics(symbol="BTC/USDT")
+    empty = service.build_outcome_analytics(symbol="SOL/USDT")
+
+    assert len(btc_reviews) == 2
+    assert analytics.sample_size == 2
+    assert analytics.hit_rate == 0.5
+    assert analytics.invalidation_rate == 0.5
+    assert round(analytics.average_mfe, 4) == 0.07
+    assert any(
+        insight.insight_type == "high_invalidation_rate"
+        for insight in analytics.insights
+    )
+    assert empty.sample_size == 0
+    assert empty.insights[0].insight_type == "insufficient_data"
+
+
 def test_journal_service_persists_thesis_timeline(tmp_path):
     service = JournalService(_config(tmp_path))
     run = service.start_research_run(ResearchRun(symbol="SOL/USDT"))
@@ -123,6 +188,39 @@ def test_journal_service_persists_thesis_timeline(tmp_path):
     assert any(event.event_type == "research_run_started" for event in run_events)
     assert loaded_run.user_decision_id == decision.id
     assert loaded_run.outcome_review_id == review.id
+
+
+def test_journal_service_persists_scenarios_and_timeline(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = service.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            thesis_text="Bullish continuation if reclaim holds.",
+        )
+    )
+
+    saved = service.save_scenarios([
+        Scenario(
+            thesis_id=thesis.id,
+            condition="If BTC reclaims resistance with volume.",
+            expected_market_behavior="Continuation becomes more likely.",
+            probability_band=ScenarioProbabilityBand.MEDIUM,
+            invalidation="Invalid if reclaim fails.",
+            risk_map=["Funding can overheat."],
+            suggested_user_action="review long thesis",
+        )
+    ])
+
+    loaded = service.get_scenario(saved[0].id)
+    scenarios = service.list_scenarios(thesis_id=thesis.id)
+    timeline = service.list_timeline_events(thesis_id=thesis.id)
+
+    assert loaded.condition.startswith("If BTC reclaims")
+    assert scenarios[0].probability_band == ScenarioProbabilityBand.MEDIUM
+    assert any(event.event_type == "scenarios_saved" for event in timeline)
 
 
 def test_journal_service_saves_and_reads_signals(tmp_path):

@@ -10,6 +10,7 @@ from tradingagents.signals.base import SignalResult
 from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot
 from tradingagents.signals.provenance import signal_result_to_domain_signals
 from tradingagents.graph.opinions import build_agent_opinions, build_research_debate
+from tradingagents.graph.scenarios import build_scenarios_for_thesis
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ class JournalBridge:
         self,
         run: ResearchRun | None,
         thesis: TradeThesis | None,
+        *,
+        signals: list[Signal] | None = None,
+        debate: ResearchDebate | None = None,
     ) -> tuple[ResearchRun | None, TradeThesis | None]:
         if not self.service or not run:
             return run, thesis
@@ -84,6 +88,15 @@ class JournalBridge:
                 thesis.research_run_id = run.id
                 thesis = self.service.save_thesis(thesis)
                 run.thesis_id = thesis.id
+                try:
+                    scenarios = build_scenarios_for_thesis(
+                        thesis,
+                        debate=debate,
+                        signals=signals or [],
+                    )
+                    self.service.save_scenarios(scenarios)
+                except Exception as e:
+                    logger.warning("Could not save thesis scenarios: %s", e)
             run = self.service.complete_research_run(run)
             return run, thesis
         except Exception as e:

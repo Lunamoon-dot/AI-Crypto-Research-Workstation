@@ -103,6 +103,11 @@ def build_trade_thesis(
         current_signals,
         direction,
     )
+    supporting_opinion_ids, contradicting_opinion_ids = classify_thesis_opinions(
+        current_agent_opinions or [],
+        direction,
+    )
+    missing_data = _missing_data_summary(current_agent_opinions or [], current_debate)
 
     return TradeThesis(
         research_run_id=current_research_run.id if current_research_run else None,
@@ -135,6 +140,14 @@ def build_trade_thesis(
             "agent_opinion_ids": [
                 opinion.id for opinion in (current_agent_opinions or []) if opinion.id
             ],
+            "supporting_opinion_ids": supporting_opinion_ids,
+            "contradicting_opinion_ids": contradicting_opinion_ids,
+            "missing_data": missing_data,
+            "conflict_level": current_debate.conflict_level.value if current_debate else None,
+            "confidence_adjustment_reason": _confidence_adjustment_reason(
+                current_debate,
+                missing_data,
+            ),
             "debate_id": current_debate.id if current_debate else None,
         },
     )
@@ -173,6 +186,68 @@ def classify_thesis_signals(
             elif signal.direction == SignalDirection.BULLISH:
                 contradicting.append(signal.id)
     return supporting, contradicting
+
+
+def classify_thesis_opinions(
+    opinions: list[AgentOpinion],
+    direction: ThesisDirection,
+) -> tuple[list[str], list[str]]:
+    """Classify saved opinion IDs against a thesis direction."""
+    if direction not in (ThesisDirection.LONG, ThesisDirection.SHORT):
+        return [], []
+
+    supporting = []
+    contradicting = []
+    for opinion in opinions:
+        if not opinion.id:
+            continue
+        if direction == ThesisDirection.LONG:
+            if opinion.stance.value == "bullish":
+                supporting.append(opinion.id)
+            elif opinion.stance.value == "bearish":
+                contradicting.append(opinion.id)
+        elif direction == ThesisDirection.SHORT:
+            if opinion.stance.value == "bearish":
+                supporting.append(opinion.id)
+            elif opinion.stance.value == "bullish":
+                contradicting.append(opinion.id)
+    return supporting, contradicting
+
+
+def _missing_data_summary(
+    opinions: list[AgentOpinion],
+    debate: ResearchDebate | None,
+) -> list[str]:
+    missing = []
+    if debate:
+        missing.extend(debate.missing_data)
+    for opinion in opinions:
+        missing.extend(opinion.missing_data)
+    seen = set()
+    result = []
+    for item in missing:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result[:10]
+
+
+def _confidence_adjustment_reason(
+    debate: ResearchDebate | None,
+    missing_data: list[str],
+) -> str:
+    if not debate:
+        return "No persisted debate summary was available."
+    reasons = []
+    if debate.conflict_level.value != "low":
+        reasons.append(f"conflict level is {debate.conflict_level.value}")
+    if missing_data:
+        reasons.append(f"{len(missing_data)} missing-data item(s)")
+    if not reasons:
+        return "No material confidence penalty from debate conflict or missing data."
+    return "Consensus confidence adjusted because " + " and ".join(reasons) + "."
 
 
 def build_trade_plan(

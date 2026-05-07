@@ -66,6 +66,11 @@ The codebase has already been reset away from dangerous autonomous execution:
   - `run_events` now serve as the durable timeline for research runs and trade theses;
   - debate, thesis creation, user decision, and outcome review events are persisted;
   - journal/thesis CLI commands can inspect timelines.
+- Phase 2D outcome analytics has started:
+  - outcome reviews can be listed and filtered by thesis or symbol;
+  - journal analytics compute hit rate, invalidation rate, mixed rate, average MFE, and average MAE;
+  - deterministic retrospective insights summarize invalidation, sample-size, excursion, and lesson patterns;
+  - journal CLI can inspect outcome reviews and retrospective intelligence.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
@@ -305,8 +310,9 @@ Estimated time: 2-4 weeks.
 
 MVP implementation status: started. The project now has a local SQLite journal,
 repository layer, journal service, graph integration, basic CLI commands, market
-snapshot persistence, signal snapshot persistence, agent-debate persistence, and
-thesis timeline persistence. Remaining Phase 2 work is richer journal UX.
+snapshot persistence, signal snapshot persistence, agent-debate persistence,
+thesis timeline persistence, and outcome analytics/retrospective intelligence.
+Remaining Phase 2 work is richer journal UX.
 
 ## Goal
 
@@ -524,11 +530,14 @@ Estimated time: 3-5 weeks.
 
 Turn the agent system into a useful research team, not prompt theater.
 
-MVP implementation status: started. Existing analyst reports, bull/bear
+MVP implementation status: completed. Existing analyst reports, bull/bear
 research debate, trader plan, and risk debate are adapted into typed
-`AgentOpinion` records and persisted with a `ResearchDebate` summary. Remaining
-Phase 4 work is native structured-output prompts for every agent, richer
-contradiction semantics, and better workspace UX.
+`AgentOpinion` records and persisted with a `ResearchDebate` summary. Consensus
+confidence is adjusted for conflict, missing data, and stale/unknown data;
+contradictions are exposed with typed messages; trade theses include opinion
+evidence and confidence-adjustment context; and the journal CLI provides a
+workspace view for a full research run. Remaining post-MVP work is native
+structured-output prompts for every analyst and richer web/TUI workspace UX.
 
 ## Agent Roles
 
