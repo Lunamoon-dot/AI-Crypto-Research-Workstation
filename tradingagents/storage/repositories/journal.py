@@ -122,6 +122,42 @@ class JournalRepository:
         )
         return signal
 
+    def save_signals(self, signals: list[Signal]) -> list[Signal]:
+        return [self.save_signal(signal) for signal in signals]
+
+    def get_signal(self, signal_id: str) -> Signal | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM signals WHERE id = ?", (signal_id,)
+        )
+        return model_from_json(Signal, row["payload_json"]) if row else None
+
+    def list_signals(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 50,
+    ) -> list[Signal]:
+        if symbol:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM signals
+                WHERE symbol = ?
+                ORDER BY observed_at DESC
+                LIMIT ?
+                """,
+                (symbol, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM signals
+                ORDER BY observed_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(Signal, row["payload_json"]) for row in rows]
+
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
         if not thesis.id:
             thesis.id = _new_id("thesis")

@@ -2,6 +2,9 @@ from tradingagents.domain import (
     OutcomeResult,
     OutcomeReview,
     ResearchRun,
+    Signal,
+    SignalDirection,
+    SignalProvenance,
     ThesisDirection,
     TradeThesis,
     UserDecision,
@@ -71,3 +74,32 @@ def test_journal_service_records_decision_and_outcome(tmp_path):
 
     assert decision.id.startswith("decision_")
     assert review.id.startswith("outcome_")
+
+
+def test_journal_service_saves_and_reads_signals(tmp_path):
+    service = JournalService(_config(tmp_path))
+    saved = service.save_signals([
+        Signal(
+            symbol="BTC/USDT",
+            signal_type="regime",
+            direction=SignalDirection.BULLISH,
+            confidence=0.7,
+            provenance=SignalProvenance(source="signal_engine"),
+        ),
+        Signal(
+            symbol="ETH/USDT",
+            signal_type="funding_oi",
+            direction=SignalDirection.BEARISH,
+            confidence=0.6,
+            provenance=SignalProvenance(source="funding_oi"),
+        ),
+    ])
+
+    btc_signals = service.list_signals(symbol="BTC/USDT")
+    loaded = service.get_signal(saved[0].id)
+
+    assert len(saved) == 2
+    assert len(btc_signals) == 1
+    assert btc_signals[0].symbol == "BTC/USDT"
+    assert loaded is not None
+    assert loaded.signal_type == "regime"

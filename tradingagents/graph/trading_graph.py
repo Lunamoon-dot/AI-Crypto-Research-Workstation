@@ -57,12 +57,15 @@ from tradingagents.domain import (
     PlanningStatus,
     ResearchRun,
     ResearchRunStatus,
+    Signal,
+    SignalDirection,
     ThesisDirection,
     TradePlanRecommendation,
     TradeThesis,
 )
 from tradingagents.reporting import ReportGenerator
 from tradingagents.services import JournalService
+from tradingagents.signals.provenance import signal_result_to_domain_signals
 
 
 def _planning_config(config: dict) -> dict:
@@ -271,6 +274,7 @@ class TradingAgentsGraph:
         self.ticker = None
         self.current_research_run: ResearchRun | None = None
         self.current_trade_thesis: TradeThesis | None = None
+        self.current_signals: list[Signal] = []
         self.journal_service = None
         if self.config.get("journal", {}).get("enabled", True):
             try:
@@ -310,6 +314,30 @@ class TradingAgentsGraph:
             )
         except Exception as e:
             logger.warning("Could not complete research journal entry: %s", e)
+
+    def _save_quant_signals_to_journal(self) -> None:
+        if not self.journal_service or not self.current_research_run:
+            return
+        result = getattr(self, "quant_signal_result", None)
+        if result is None:
+            return
+        try:
+            signals = signal_result_to_domain_signals(result)
+            self.current_signals = self.journal_service.save_signals(signals)
+            self.current_research_run.signal_ids = [
+                signal.id for signal in self.current_signals if signal.id
+            ]
+            self.current_research_run = self.journal_service.update_research_run(
+                self.current_research_run
+            )
+            self.journal_service.add_run_event(
+                self.current_research_run.id,
+                "signals_saved",
+                f"Saved {len(self.current_signals)} quant signal(s)",
+                {"signal_ids": self.current_research_run.signal_ids},
+            )
+        except Exception as e:
+            logger.warning("Could not save quant signals to journal: %s", e)
 
     def _precompute_quant_signal(self, symbol: str, trade_date: str) -> str:
         """Run SignalEngine before graph execution and return the prompt block.
@@ -629,6 +657,7 @@ class TradingAgentsGraph:
 
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
+        self._save_quant_signals_to_journal()
 
         # Portfolio/account state is intentionally not injected during the
         # research-workstation reset; future assisted execution must use a
@@ -782,6 +811,10 @@ class TradingAgentsGraph:
         else:
             direction = ThesisDirection.WATCH
 
+        supporting_signal_ids, contradicting_signal_ids = self._classify_thesis_signals(
+            direction
+        )
+
         return TradeThesis(
             research_run_id=(
                 self.current_research_run.id if self.current_research_run else None
@@ -795,12 +828,39 @@ class TradingAgentsGraph:
                 "Manual review required before any exchange action.",
                 "Autonomous execution is disabled by product policy.",
             ],
+            supporting_signal_ids=supporting_signal_ids,
+            contradicting_signal_ids=contradicting_signal_ids,
             evidence={
                 "rating": rating,
                 "trader_plan": final_state.get("trader_investment_plan", ""),
                 "investment_plan": final_state.get("investment_plan", ""),
             },
         )
+
+    def _classify_thesis_signals(
+        self,
+        direction: ThesisDirection,
+    ) -> tuple[list[str], list[str]]:
+        """Classify saved signal IDs against a thesis direction."""
+        if direction not in (ThesisDirection.LONG, ThesisDirection.SHORT):
+            return [], []
+
+        supporting = []
+        contradicting = []
+        for signal in self.current_signals:
+            if not signal.id:
+                continue
+            if direction == ThesisDirection.LONG:
+                if signal.direction == SignalDirection.BULLISH:
+                    supporting.append(signal.id)
+                elif signal.direction == SignalDirection.BEARISH:
+                    contradicting.append(signal.id)
+            elif direction == ThesisDirection.SHORT:
+                if signal.direction == SignalDirection.BEARISH:
+                    supporting.append(signal.id)
+                elif signal.direction == SignalDirection.BULLISH:
+                    contradicting.append(signal.id)
+        return supporting, contradicting
 
     def _build_trade_plan(self, final_state: dict) -> Optional[dict]:
         """Build an assisted trade plan from the final thesis."""

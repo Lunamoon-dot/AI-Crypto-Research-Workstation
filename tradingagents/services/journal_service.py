@@ -52,8 +52,34 @@ class JournalService:
         self.repo.add_run_event(saved.id, "research_run_completed", "Research run completed")
         return saved
 
+    def update_research_run(self, run: ResearchRun) -> ResearchRun:
+        return self.repo.save_research_run(run)
+
+    def add_run_event(
+        self,
+        research_run_id: str,
+        event_type: str,
+        message: str,
+        payload: dict | None = None,
+    ) -> str:
+        return self.repo.add_run_event(research_run_id, event_type, message, payload)
+
     def save_signal(self, signal: Signal) -> Signal:
         return self.repo.save_signal(signal)
+
+    def save_signals(self, signals: list[Signal]) -> list[Signal]:
+        return self.repo.save_signals(signals)
+
+    def get_signal(self, signal_id: str) -> Signal | None:
+        return self.repo.get_signal(signal_id)
+
+    def list_signals(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 50,
+    ) -> list[Signal]:
+        return self.repo.list_signals(symbol=symbol, limit=limit)
 
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
         saved = self.repo.save_thesis(thesis)

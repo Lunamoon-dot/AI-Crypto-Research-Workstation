@@ -46,6 +46,7 @@ from cli.config_cmd import register_config
 from cli.backtest_cmd import register_backtest
 from cli.risk_cmd import register_risk
 from cli.journal_cmd import register_journal
+from cli.signals_cmd import register_signals
 
 register_watch(app)
 register_dashboard(app)
@@ -53,6 +54,7 @@ register_config(app)
 register_backtest(app)
 register_risk(app)
 register_journal(app)
+register_signals(app)
 
 
 # Create a deque to store recent messages with a maximum length

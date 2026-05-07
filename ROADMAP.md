@@ -45,6 +45,12 @@ The codebase has already been reset away from dangerous autonomous execution:
   - `tradingagents/services/journal_service.py` is the application boundary for journal operations;
   - research runs and trade theses are persisted to the local decision journal;
   - CLI commands `journal` and `thesis` can inspect runs/theses and record decisions/outcome reviews.
+- Phase 3 MVP has started:
+  - existing `SignalResult` / `FactorSignal` outputs are adapted into domain `Signal` records;
+  - signal provenance, freshness, evidence, and confidence are persisted to the journal;
+  - research runs store saved signal IDs;
+  - trade theses link supporting and contradicting signal IDs;
+  - CLI command group `signals` can inspect saved signal provenance.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
@@ -399,6 +405,12 @@ This is what traders actually need. It also creates user-specific data that can 
 # Phase 3: Signal Provenance Layer
 
 Estimated time: 2-3 weeks.
+
+MVP implementation status: started. The existing quant signal engine is not
+rewritten; its `SignalResult` and `FactorSignal` outputs are converted into
+domain `Signal` records, persisted to SQLite, and linked to journal theses.
+Remaining Phase 3 work is provider-specific source timestamps, richer freshness
+policies, and historical reliability scoring.
 
 ## Goal
 
