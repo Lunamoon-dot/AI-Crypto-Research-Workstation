@@ -7,6 +7,13 @@ DEFAULT_CONFIG = {
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
+    "journal": {
+        "enabled": True,
+        "db_path": os.getenv(
+            "TRADINGAGENTS_JOURNAL_DB",
+            os.path.join(_TRADINGAGENTS_HOME, "cache", "research_journal.sqlite"),
+        ),
+    },
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.

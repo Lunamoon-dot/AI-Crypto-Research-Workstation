@@ -62,6 +62,7 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.reporting import ReportGenerator
+from tradingagents.services import JournalService
 
 
 def _planning_config(config: dict) -> dict:
@@ -270,6 +271,12 @@ class TradingAgentsGraph:
         self.ticker = None
         self.current_research_run: ResearchRun | None = None
         self.current_trade_thesis: TradeThesis | None = None
+        self.journal_service = None
+        if self.config.get("journal", {}).get("enabled", True):
+            try:
+                self.journal_service = JournalService(self.config)
+            except Exception as e:
+                logger.warning("Decision journal disabled: %s", e)
         self.log_states_dict = {}  # date to full state dict
         self.quant_signal_result = None  # set by _precompute_quant_signal
 
@@ -277,6 +284,32 @@ class TradingAgentsGraph:
         self.workflow = self.graph_setup.setup_graph(selected_analysts)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
+
+    def _save_journal_run_start(self) -> None:
+        if not self.journal_service or not self.current_research_run:
+            return
+        try:
+            self.current_research_run = self.journal_service.start_research_run(
+                self.current_research_run
+            )
+        except Exception as e:
+            logger.warning("Could not save research run start: %s", e)
+
+    def _save_journal_thesis_and_complete(self) -> None:
+        if not self.journal_service or not self.current_research_run:
+            return
+        try:
+            if self.current_trade_thesis:
+                self.current_trade_thesis.research_run_id = self.current_research_run.id
+                self.current_trade_thesis = self.journal_service.save_thesis(
+                    self.current_trade_thesis
+                )
+                self.current_research_run.thesis_id = self.current_trade_thesis.id
+            self.current_research_run = self.journal_service.complete_research_run(
+                self.current_research_run
+            )
+        except Exception as e:
+            logger.warning("Could not complete research journal entry: %s", e)
 
     def _precompute_quant_signal(self, symbol: str, trade_date: str) -> str:
         """Run SignalEngine before graph execution and return the prompt block.
@@ -591,6 +624,9 @@ class TradingAgentsGraph:
                 self.ticker = canonical
                 company_name = canonical
 
+        self.current_research_run.symbol = company_name
+        self._save_journal_run_start()
+
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
 
@@ -635,6 +671,11 @@ class TradingAgentsGraph:
         # Store current state for reflection.
         self.curr_state = final_state
 
+        # Persist a thesis artifact even when the assisted planning panel is
+        # disabled. The journal is the canonical decision memory.
+        if self.current_trade_thesis is None:
+            self.current_trade_thesis = self._build_trade_thesis(final_state)
+
         # Log state to disk.
         self._log_state(trade_date, final_state)
 
@@ -663,6 +704,8 @@ class TradingAgentsGraph:
         self.execution_result = None
         if _planning_config(self.config).get("enabled"):
             self.execution_result = self._build_trade_plan(final_state)
+
+        self._save_journal_thesis_and_complete()
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
@@ -723,6 +766,42 @@ class TradingAgentsGraph:
         """Return no exchange portfolio context during the safety reset."""
         return ""
 
+    def _build_trade_thesis(self, final_state: dict) -> TradeThesis:
+        """Create the journal thesis artifact from the final graph state."""
+        final_decision = final_state.get("final_trade_decision", "")
+        rating = self.process_signal(final_decision)
+        symbol = final_state.get("company_of_interest", self.ticker)
+        quant_result = getattr(self, "quant_signal_result", None)
+        confidence = quant_result.confidence if quant_result is not None else None
+
+        rating_lower = rating.strip().lower()
+        if rating_lower in ("buy", "overweight"):
+            direction = ThesisDirection.LONG
+        elif rating_lower in ("sell", "underweight"):
+            direction = ThesisDirection.SHORT
+        else:
+            direction = ThesisDirection.WATCH
+
+        return TradeThesis(
+            research_run_id=(
+                self.current_research_run.id if self.current_research_run else None
+            ),
+            symbol=symbol,
+            direction=direction,
+            setup_type="agent_debate",
+            thesis_text=final_decision,
+            confidence=confidence,
+            risk_notes=[
+                "Manual review required before any exchange action.",
+                "Autonomous execution is disabled by product policy.",
+            ],
+            evidence={
+                "rating": rating,
+                "trader_plan": final_state.get("trader_investment_plan", ""),
+                "investment_plan": final_state.get("investment_plan", ""),
+            },
+        )
+
     def _build_trade_plan(self, final_state: dict) -> Optional[dict]:
         """Build an assisted trade plan from the final thesis."""
         exec_cfg = _planning_config(self.config)
@@ -771,29 +850,12 @@ class TradingAgentsGraph:
         else:
             _add_step("Confidence", f"Quant signal confidence: {confidence:.0%}", "Use as thesis context")
 
-        thesis_direction = {
+        self.current_trade_thesis = self._build_trade_thesis(final_state)
+        self.current_trade_thesis.direction = {
             "plan_long": ThesisDirection.LONG,
             "plan_exit_or_short": ThesisDirection.SHORT,
             "watch": ThesisDirection.WATCH,
         }[action]
-        self.current_trade_thesis = TradeThesis(
-            research_run_id=(
-                self.current_research_run.id if self.current_research_run else None
-            ),
-            symbol=symbol,
-            direction=thesis_direction,
-            setup_type="agent_debate",
-            thesis_text=final_decision,
-            confidence=confidence,
-            risk_notes=[
-                "Manual review required before any exchange action.",
-                "Autonomous execution is disabled by product policy.",
-            ],
-            evidence={
-                "trader_plan": trader_plan,
-                "rating": rating,
-            },
-        )
         if self.current_research_run:
             self.current_research_run.thesis_id = self.current_trade_thesis.id
 

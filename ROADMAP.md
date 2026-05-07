@@ -40,6 +40,11 @@ The codebase has already been reset away from dangerous autonomous execution:
   - the graph builds `ResearchRun` and `TradeThesis` artifacts internally;
   - CLI configuration now uses assisted planning terminology while preserving legacy compatibility;
   - reports label the output as `Trade Plan`, not execution.
+- Phase 2 MVP has started:
+  - `tradingagents/storage/` provides local SQLite schema and persistence helpers;
+  - `tradingagents/services/journal_service.py` is the application boundary for journal operations;
+  - research runs and trade theses are persisted to the local decision journal;
+  - CLI commands `journal` and `thesis` can inspect runs/theses and record decisions/outcome reviews.
 
 This is the right foundation, but the codebase still needs a deeper product/domain cleanup. Many names and structures still reflect the old trading-bot identity.
 
@@ -276,6 +281,11 @@ OutcomeReview
 # Phase 2: Decision Journal Core
 
 Estimated time: 2-4 weeks.
+
+MVP implementation status: started. The project now has a local SQLite journal,
+repository layer, journal service, graph integration, and basic CLI commands.
+Remaining Phase 2 work is deeper agent-debate/signal snapshot persistence and
+richer journal UX.
 
 ## Goal
 
