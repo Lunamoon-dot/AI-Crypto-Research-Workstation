@@ -86,13 +86,20 @@ def test_research_namespace_help_is_available():
 
 
 def test_analyze_help_mentions_noninteractive_flags():
+    command = main.typer.main.get_command(main.app)
+    analyze_command = command.commands["analyze"]
+    option_names = {
+        option
+        for param in analyze_command.params
+        for option in getattr(param, "opts", [])
+    }
     runner = CliRunner()
 
     result = runner.invoke(main.app, ["analyze", "--help"])
 
     assert result.exit_code == 0
-    assert "--non-interactive" in result.output
-    assert "--ticker" in result.output
+    assert "--non-interactive" in option_names
+    assert "--ticker" in option_names
 
 
 def test_config_list_uses_correct_show_hint(monkeypatch):
