@@ -54,83 +54,26 @@ from .reflection import Reflector
 from .signal_processing import SignalProcessor
 
 from tradingagents.domain import (
-    PlanningStatus,
     ResearchRun,
     ResearchRunStatus,
     Signal,
-    SignalDirection,
-    ThesisDirection,
-    TradePlanRecommendation,
     TradeThesis,
 )
 from tradingagents.reporting import ReportGenerator
-from tradingagents.services import JournalService
-from tradingagents.signals.provenance import signal_result_to_domain_signals
-
-
-def _planning_config(config: dict) -> dict:
-    """Return assisted-planning config with legacy execution-key fallback."""
-    planning_cfg = config.get("planning")
-    if planning_cfg is not None:
-        return planning_cfg
-    return config.get("execution", {})
-
-
-def _make_planning_result(
-    status: str,
-    symbol: str,
-    reason: str,
-    *,
-    side: str | None = None,
-    action: str | None = None,
-    rating: str = "",
-    confidence: float | None = None,
-    alloc_pct: float | None = None,
-    last_price: float | None = None,
-    order=None,
-    sl: float | None = None,
-    tp: float | None = None,
-    sizing_reasoning: str = "",
-    steps: list[dict] | None = None,
-):
-    """Build a structured trade-planning result dict."""
-    recommendation = TradePlanRecommendation(
-        status=PlanningStatus(status),
-        symbol=symbol,
-        side=side,
-        action=action,
-        rating=rating,
-        reason=reason,
-        confidence=confidence,
-        alloc_pct=alloc_pct,
-        last_price=last_price,
-        order_id=getattr(order, "id", None),
-        filled=getattr(order, "filled", None) or 0,
-        avg_price=getattr(order, "avg_price", None) or 0,
-        sl=sl,
-        tp=tp,
-        sizing_reasoning=sizing_reasoning,
-        steps=steps or [],
-    )
-    return recommendation.to_legacy_dict()
+from tradingagents.graph.journal_bridge import JournalBridge
+from tradingagents.graph.planning import (
+    build_trade_plan,
+    build_trade_thesis,
+    classify_thesis_signals,
+    make_planning_result as _make_planning_result,
+    planning_config as _planning_config,
+    planning_result_to_str as _exec_result_to_str,
+)
 
 
 def _make_execution_result(*args, **kwargs):
     """Backward-compatible alias for old imports/tests."""
     return _make_planning_result(*args, **kwargs)
-
-
-def _exec_result_to_str(result: dict) -> str:
-    """Convert structured planning result to display string."""
-    status = result["status"]
-    symbol = result.get("symbol", "")
-    reason = result.get("reason", "")
-    side = result.get("side", "")
-    if status == "planned":
-        rating = result.get("rating", "")
-        action = result.get("action", "watch")
-        return f"TRADE PLAN: {symbol} | rating={rating} | action={action} | manual review required"
-    return f"{status.upper()}: {reason}" if reason else f"{status.upper()}: no details"
 
 
 def _validate_symbol_on_exchange(symbol: str, config: dict) -> str:
@@ -275,12 +218,7 @@ class TradingAgentsGraph:
         self.current_research_run: ResearchRun | None = None
         self.current_trade_thesis: TradeThesis | None = None
         self.current_signals: list[Signal] = []
-        self.journal_service = None
-        if self.config.get("journal", {}).get("enabled", True):
-            try:
-                self.journal_service = JournalService(self.config)
-            except Exception as e:
-                logger.warning("Decision journal disabled: %s", e)
+        self.journal_bridge = JournalBridge(self.config)
         self.log_states_dict = {}  # date to full state dict
         self.quant_signal_result = None  # set by _precompute_quant_signal
 
@@ -288,56 +226,6 @@ class TradingAgentsGraph:
         self.workflow = self.graph_setup.setup_graph(selected_analysts)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
-
-    def _save_journal_run_start(self) -> None:
-        if not self.journal_service or not self.current_research_run:
-            return
-        try:
-            self.current_research_run = self.journal_service.start_research_run(
-                self.current_research_run
-            )
-        except Exception as e:
-            logger.warning("Could not save research run start: %s", e)
-
-    def _save_journal_thesis_and_complete(self) -> None:
-        if not self.journal_service or not self.current_research_run:
-            return
-        try:
-            if self.current_trade_thesis:
-                self.current_trade_thesis.research_run_id = self.current_research_run.id
-                self.current_trade_thesis = self.journal_service.save_thesis(
-                    self.current_trade_thesis
-                )
-                self.current_research_run.thesis_id = self.current_trade_thesis.id
-            self.current_research_run = self.journal_service.complete_research_run(
-                self.current_research_run
-            )
-        except Exception as e:
-            logger.warning("Could not complete research journal entry: %s", e)
-
-    def _save_quant_signals_to_journal(self) -> None:
-        if not self.journal_service or not self.current_research_run:
-            return
-        result = getattr(self, "quant_signal_result", None)
-        if result is None:
-            return
-        try:
-            signals = signal_result_to_domain_signals(result)
-            self.current_signals = self.journal_service.save_signals(signals)
-            self.current_research_run.signal_ids = [
-                signal.id for signal in self.current_signals if signal.id
-            ]
-            self.current_research_run = self.journal_service.update_research_run(
-                self.current_research_run
-            )
-            self.journal_service.add_run_event(
-                self.current_research_run.id,
-                "signals_saved",
-                f"Saved {len(self.current_signals)} quant signal(s)",
-                {"signal_ids": self.current_research_run.signal_ids},
-            )
-        except Exception as e:
-            logger.warning("Could not save quant signals to journal: %s", e)
 
     def _precompute_quant_signal(self, symbol: str, trade_date: str) -> str:
         """Run SignalEngine before graph execution and return the prompt block.
@@ -653,11 +541,18 @@ class TradingAgentsGraph:
                 company_name = canonical
 
         self.current_research_run.symbol = company_name
-        self._save_journal_run_start()
+        self.current_research_run = self.journal_bridge.start_run(
+            self.current_research_run
+        )
 
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
-        self._save_quant_signals_to_journal()
+        self.current_research_run, self.current_signals = (
+            self.journal_bridge.save_quant_signals(
+                self.current_research_run,
+                getattr(self, "quant_signal_result", None),
+            )
+        )
 
         # Portfolio/account state is intentionally not injected during the
         # research-workstation reset; future assisted execution must use a
@@ -734,7 +629,12 @@ class TradingAgentsGraph:
         if _planning_config(self.config).get("enabled"):
             self.execution_result = self._build_trade_plan(final_state)
 
-        self._save_journal_thesis_and_complete()
+        self.current_research_run, self.current_trade_thesis = (
+            self.journal_bridge.complete_run(
+                self.current_research_run,
+                self.current_trade_thesis,
+            )
+        )
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
@@ -797,154 +697,38 @@ class TradingAgentsGraph:
 
     def _build_trade_thesis(self, final_state: dict) -> TradeThesis:
         """Create the journal thesis artifact from the final graph state."""
-        final_decision = final_state.get("final_trade_decision", "")
-        rating = self.process_signal(final_decision)
-        symbol = final_state.get("company_of_interest", self.ticker)
-        quant_result = getattr(self, "quant_signal_result", None)
-        confidence = quant_result.confidence if quant_result is not None else None
-
-        rating_lower = rating.strip().lower()
-        if rating_lower in ("buy", "overweight"):
-            direction = ThesisDirection.LONG
-        elif rating_lower in ("sell", "underweight"):
-            direction = ThesisDirection.SHORT
-        else:
-            direction = ThesisDirection.WATCH
-
-        supporting_signal_ids, contradicting_signal_ids = self._classify_thesis_signals(
-            direction
-        )
-
-        return TradeThesis(
-            research_run_id=(
-                self.current_research_run.id if self.current_research_run else None
-            ),
-            symbol=symbol,
-            direction=direction,
-            setup_type="agent_debate",
-            thesis_text=final_decision,
-            confidence=confidence,
-            risk_notes=[
-                "Manual review required before any exchange action.",
-                "Autonomous execution is disabled by product policy.",
-            ],
-            supporting_signal_ids=supporting_signal_ids,
-            contradicting_signal_ids=contradicting_signal_ids,
-            evidence={
-                "rating": rating,
-                "trader_plan": final_state.get("trader_investment_plan", ""),
-                "investment_plan": final_state.get("investment_plan", ""),
-            },
+        return build_trade_thesis(
+            final_state,
+            process_signal=self.process_signal,
+            quant_signal_result=getattr(self, "quant_signal_result", None),
+            current_research_run=self.current_research_run,
+            current_signals=self.current_signals,
+            ticker=self.ticker,
         )
 
     def _classify_thesis_signals(
         self,
-        direction: ThesisDirection,
+        direction,
     ) -> tuple[list[str], list[str]]:
         """Classify saved signal IDs against a thesis direction."""
-        if direction not in (ThesisDirection.LONG, ThesisDirection.SHORT):
-            return [], []
-
-        supporting = []
-        contradicting = []
-        for signal in self.current_signals:
-            if not signal.id:
-                continue
-            if direction == ThesisDirection.LONG:
-                if signal.direction == SignalDirection.BULLISH:
-                    supporting.append(signal.id)
-                elif signal.direction == SignalDirection.BEARISH:
-                    contradicting.append(signal.id)
-            elif direction == ThesisDirection.SHORT:
-                if signal.direction == SignalDirection.BEARISH:
-                    supporting.append(signal.id)
-                elif signal.direction == SignalDirection.BULLISH:
-                    contradicting.append(signal.id)
-        return supporting, contradicting
+        return classify_thesis_signals(self.current_signals, direction)
 
     def _build_trade_plan(self, final_state: dict) -> Optional[dict]:
         """Build an assisted trade plan from the final thesis."""
-        exec_cfg = _planning_config(self.config)
-        if not exec_cfg.get("enabled"):
-            return None
-
-        final_decision = final_state.get("final_trade_decision", "")
-        rating = self.process_signal(final_decision)
-        trader_plan = final_state.get("trader_investment_plan", "")
-        symbol = final_state.get("company_of_interest", self.ticker)
-        quant_result = getattr(self, "quant_signal_result", None)
-        confidence = quant_result.confidence if quant_result is not None else None
-
-        steps: list[dict] = []
-
-        def _add_step(phase: str, detail: str, result: str = ""):
-            steps.append({"phase": phase, "detail": detail, "result": result})
-            logger.info("[%s] %s %s", phase, detail, ("-> " + result) if result else "")
-
-        rating_lower = rating.strip().lower()
-        if rating_lower in ("buy", "overweight"):
-            side = "buy"
-            action = "plan_long"
-        elif rating_lower in ("sell", "underweight"):
-            side = "sell"
-            action = "plan_exit_or_short"
-        else:
-            side = None
-            action = "watch"
-
-        _add_step("Mode", "Research workstation safety reset", "No orders are placed")
-        _add_step("Rating", f"Thesis rating: {rating}", action.replace("_", " ").title())
-
-        thresholds = exec_cfg.get("confidence_thresholds", {})
-        force_hold = thresholds.get("force_hold", 0.05)
-        if confidence is None:
-            _add_step("Confidence", "No quantitative confidence available", "Manual review required")
-        elif confidence < force_hold:
-            _add_step(
-                "Confidence",
-                f"Quant signal confidence: {confidence:.0%}",
-                f"Below planning threshold {force_hold:.0%}; treat as watchlist only",
-            )
-            action = "watch"
-            side = None
-        else:
-            _add_step("Confidence", f"Quant signal confidence: {confidence:.0%}", "Use as thesis context")
-
-        self.current_trade_thesis = self._build_trade_thesis(final_state)
-        self.current_trade_thesis.direction = {
-            "plan_long": ThesisDirection.LONG,
-            "plan_exit_or_short": ThesisDirection.SHORT,
-            "watch": ThesisDirection.WATCH,
-        }[action]
-        if self.current_research_run:
-            self.current_research_run.thesis_id = self.current_trade_thesis.id
-
-        _add_step(
-            "Safety",
-            "Autonomous execution, bypass blocks, and auto bracket handling are disabled",
-            "User approval required outside this graph",
+        plan, thesis = build_trade_plan(
+            final_state,
+            config=self.config,
+            process_signal=self.process_signal,
+            quant_signal_result=getattr(self, "quant_signal_result", None),
+            current_research_run=self.current_research_run,
+            current_signals=self.current_signals,
+            ticker=self.ticker,
         )
-
-        reason = (
-            "AI-generated trade thesis only. Review the analyst evidence, "
-            "edit risk levels manually, and confirm outside the research graph "
-            "before any exchange action."
-        )
-        return _make_planning_result(
-            "planned",
-            symbol,
-            reason,
-            side=side,
-            action=action,
-            rating=rating,
-            confidence=confidence,
-            alloc_pct=None,
-            last_price=None,
-            sl=None,
-            tp=None,
-            sizing_reasoning=trader_plan,
-            steps=steps,
-        )
+        if thesis is not None:
+            self.current_trade_thesis = thesis
+            if self.current_research_run:
+                self.current_research_run.thesis_id = thesis.id
+        return plan
 
     def _execute_decision(self, final_state: dict) -> Optional[dict]:
         """Backward-compatible alias for the old graph method name."""
