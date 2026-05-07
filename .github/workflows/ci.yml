@@ -2,9 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - "codex/**"
   pull_request:
     branches:
       - main
@@ -41,6 +38,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+          python -m pip check
+
+      - name: Import smoke test
+        run: |
+          python -c "import cli; import tradingagents"
 
       - name: Ruff critical checks
         run: |

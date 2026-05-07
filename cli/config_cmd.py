@@ -65,7 +65,7 @@ def config_list():
         table.add_row(name, str(path))
 
     console.print(table)
-    console.print(f"\n[dim]Use 'tradingagents config-show <name>' to view details.[/dim]")
+    console.print(f"\n[dim]Use 'tradingagents config show <name>' to view details.[/dim]")
 
 
 @config_app.command("show")

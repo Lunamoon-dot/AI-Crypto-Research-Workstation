@@ -1,5 +1,6 @@
 from typing import Optional
 import datetime
+import re
 import typer
 from typer import Context
 from pathlib import Path
@@ -41,13 +42,15 @@ app = typer.Typer(
 )
 
 # Register sub-commands
+from cli.watch_cmd import app as watchlist_app
+from cli.watch_cmd import brief as watchlist_brief
 from cli.watch_cmd import register_watch
 from cli.dashboard import register_dashboard
 from cli.config_cmd import register_config
 from cli.backtest_cmd import register_backtest
 from cli.risk_cmd import register_risk
-from cli.journal_cmd import register_journal
-from cli.signals_cmd import register_signals
+from cli.journal_cmd import journal_app, journal_workspace, register_journal, thesis_app
+from cli.signals_cmd import register_signals, signals_app
 
 register_watch(app)
 register_dashboard(app)
@@ -442,9 +445,9 @@ def get_user_selections():
 
     # Create welcome box content
     welcome_content = f"{welcome_ascii}\n"
-    welcome_content += "[bold green]HuyVuAgents: Multi-Agents LLM Financial Trading Framework - CLI[/bold green]\n\n"
-    welcome_content += "[bold]Workflow Steps:[/bold]\n"
-    welcome_content += "I. Analyst Team -> II. Research Team -> III. Trader -> IV. Risk Management -> V. Portfolio Management\n\n"
+    welcome_content += "[bold green]TradingAgents: AI Crypto Research Workstation[/bold green]\n\n"
+    welcome_content += "[bold]Research Workflow:[/bold]\n"
+    welcome_content += "I. Analysts -> II. Research Debate -> III. Thesis Plan -> IV. Risk Review -> V. Journal\n\n"
     welcome_content += (
         "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
     )
@@ -454,8 +457,8 @@ def get_user_selections():
         welcome_content,
         border_style="green",
         padding=(1, 2),
-        title="Welcome to HuyVuAgents",
-        subtitle="Multi-Agents LLM Financial Trading Framework",
+        title="Welcome to TradingAgents",
+        subtitle="Local-first crypto research and trade-thesis copilot",
     )
     console.print(Align.center(welcome_box))
     console.print()
@@ -477,7 +480,7 @@ def get_user_selections():
     console.print(
         create_question_box(
             "Step 0: Asset Class",
-            "Choose whether to analyze stocks or crypto"
+            "Choose the research universe. Crypto is the primary supported workflow."
         )
     )
     selected_asset_class = select_asset_class()
@@ -599,7 +602,7 @@ def get_user_selections():
     # Step 9: Assisted trade-planning config
     console.print(
         create_question_box(
-            "Step 9: Trade Planning",
+            "Step 9: Thesis Planning",
             "Configure AI-generated thesis planning",
         )
     )
@@ -918,11 +921,82 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
-def run_analysis(checkpoint: bool = False):
-    # First get all user selections
-    selections = get_user_selections()
+def _validate_analysis_date(value: str) -> str:
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        raise typer.BadParameter("Date must use YYYY-MM-DD.")
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise typer.BadParameter("Date must be a valid calendar date.") from exc
+    return value
 
-    # Create config with selected research depth
+
+def _parse_analysts(value: str) -> list[AnalystType]:
+    analysts = []
+    for item in value.split(","):
+        token = item.strip().lower()
+        if not token:
+            continue
+        try:
+            analysts.append(AnalystType(token))
+        except ValueError as exc:
+            allowed = ", ".join(analyst.value for analyst in AnalystType)
+            raise typer.BadParameter(f"Unknown analyst '{token}'. Allowed: {allowed}") from exc
+    if not analysts:
+        raise typer.BadParameter("Select at least one analyst.")
+    return analysts
+
+
+def selections_from_cli_options(
+    *,
+    ticker: str,
+    analysis_date: str,
+    asset_class: str,
+    exchange: str | None,
+    analysts: str,
+    research_depth: int,
+    llm_provider: str | None,
+    backend_url: str | None,
+    quick_model: str | None,
+    deep_model: str | None,
+    output_language: str,
+) -> dict:
+    """Build the same selection shape as the interactive wizard."""
+
+    if research_depth < 1:
+        raise typer.BadParameter("Research depth must be >= 1.")
+    selected_asset_class = asset_class.lower()
+    if selected_asset_class not in {item.value for item in AssetClass}:
+        raise typer.BadParameter("Asset class must be 'crypto' or 'stock'.")
+    selected_ticker = normalize_ticker_symbol(ticker)
+    if not selected_ticker:
+        raise typer.BadParameter("Ticker is required for non-interactive runs.")
+
+    provider = (llm_provider or DEFAULT_CONFIG["llm_provider"]).lower()
+    crypto_exchange = exchange or DEFAULT_CONFIG.get("crypto_exchange")
+    return {
+        "ticker": selected_ticker,
+        "analysis_date": _validate_analysis_date(analysis_date),
+        "analysts": _parse_analysts(analysts),
+        "research_depth": research_depth,
+        "llm_provider": provider,
+        "backend_url": backend_url if backend_url is not None else DEFAULT_CONFIG.get("backend_url"),
+        "shallow_thinker": quick_model or DEFAULT_CONFIG["quick_think_llm"],
+        "deep_thinker": deep_model or DEFAULT_CONFIG["deep_think_llm"],
+        "google_thinking_level": None,
+        "openai_reasoning_effort": None,
+        "anthropic_effort": None,
+        "output_language": output_language,
+        "asset_class": selected_asset_class,
+        "crypto_exchange": crypto_exchange if selected_asset_class == "crypto" else None,
+        "crypto_benchmark": DEFAULT_CONFIG.get("crypto_benchmark") if selected_asset_class == "crypto" else None,
+        "planning_config": dict(DEFAULT_CONFIG.get("planning", {})),
+    }
+
+
+def build_run_config(selections: dict, checkpoint: bool) -> dict:
+    """Create graph config from interactive or CLI selections."""
+
     config = DEFAULT_CONFIG.copy()
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
@@ -930,28 +1004,40 @@ def run_analysis(checkpoint: bool = False):
     config["deep_think_llm"] = selections["deep_thinker"]
     config["backend_url"] = selections["backend_url"]
     config["llm_provider"] = selections["llm_provider"].lower()
-    # Provider-specific thinking configuration
     config["google_thinking_level"] = selections.get("google_thinking_level")
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
-    # Asset class and crypto settings
-    config["asset_class"] = selections.get("asset_class", "stock")
+    config["asset_class"] = selections.get("asset_class", "crypto")
     if selections.get("crypto_exchange"):
         config["crypto_exchange"] = selections["crypto_exchange"]
     if selections.get("crypto_benchmark"):
         config["crypto_benchmark"] = selections["crypto_benchmark"]
-    # Merge assisted planning configuration. Keep the legacy execution key in
-    # sync for older internals, but new code should read config["planning"].
     planning_cfg = selections.get("planning_config", {})
     if planning_cfg:
         config.setdefault("planning", {}).update(planning_cfg)
         config.setdefault("execution", {}).update(planning_cfg)
-    # Always align planning exchange with the user-selected crypto/data exchange
     if selections.get("crypto_exchange"):
         config.setdefault("planning", {})["exchange"] = selections["crypto_exchange"]
         config.setdefault("execution", {})["exchange"] = selections["crypto_exchange"]
     config["checkpoint_enabled"] = checkpoint
+    return config
+
+
+def run_analysis(
+    checkpoint: bool = False,
+    *,
+    selections: dict | None = None,
+    non_interactive: bool = False,
+    plain: bool = False,
+    save_report: bool = False,
+    save_path: Path | None = None,
+):
+    # First get all user selections unless a scriptable caller supplied them.
+    selections = selections or get_user_selections()
+    non_interactive = non_interactive or plain
+
+    config = build_run_config(selections, checkpoint)
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1022,183 +1108,190 @@ def run_analysis(checkpoint: bool = False):
     message_buffer.add_tool_call = save_tool_call_decorator(message_buffer, "add_tool_call")
     message_buffer.update_report_section = save_report_section_decorator(message_buffer, "update_report_section")
 
-    # Now start the display layout
-    layout = create_layout()
+    def process_chunk(chunk):
+        for message in chunk.get("messages", []):
+            msg_id = getattr(message, "id", None)
+            if msg_id is not None:
+                if msg_id in message_buffer._processed_message_ids:
+                    continue
+                message_buffer._processed_message_ids.add(msg_id)
 
-    with Live(layout, refresh_per_second=4) as live:
-        # Initial display
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
+            msg_type, content = classify_message_type(message)
+            if content and content.strip():
+                message_buffer.add_message(msg_type, content)
 
-        # Add initial messages
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if isinstance(tool_call, dict):
+                        message_buffer.add_tool_call(tool_call["name"], tool_call["args"])
+                    else:
+                        message_buffer.add_tool_call(tool_call.name, tool_call.args)
+
+        update_analyst_statuses(message_buffer, chunk)
+
+        if chunk.get("investment_debate_state"):
+            debate_state = chunk["investment_debate_state"]
+            bull_hist = debate_state.get("bull_history", "").strip()
+            bear_hist = debate_state.get("bear_history", "").strip()
+            judge = debate_state.get("judge_decision", "").strip()
+            if bull_hist or bear_hist:
+                update_research_team_status("in_progress")
+            if bull_hist:
+                message_buffer.update_report_section(
+                    "investment_plan", f"### Bull Researcher Analysis\n{bull_hist}"
+                )
+            if bear_hist:
+                message_buffer.update_report_section(
+                    "investment_plan", f"### Bear Researcher Analysis\n{bear_hist}"
+                )
+            if judge:
+                message_buffer.update_report_section(
+                    "investment_plan", f"### Research Manager Decision\n{judge}"
+                )
+                update_research_team_status("completed")
+                message_buffer.update_agent_status("Trader", "in_progress")
+
+        if chunk.get("trader_investment_plan"):
+            message_buffer.update_report_section(
+                "trader_investment_plan", chunk["trader_investment_plan"]
+            )
+            if message_buffer.agent_status.get("Trader") != "completed":
+                message_buffer.update_agent_status("Trader", "completed")
+                message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+
+        if chunk.get("risk_debate_state"):
+            risk_state = chunk["risk_debate_state"]
+            agg_hist = risk_state.get("aggressive_history", "").strip()
+            con_hist = risk_state.get("conservative_history", "").strip()
+            neu_hist = risk_state.get("neutral_history", "").strip()
+            judge = risk_state.get("judge_decision", "").strip()
+
+            if agg_hist:
+                if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
+                    message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+                message_buffer.update_report_section(
+                    "final_trade_decision", f"### Aggressive Analyst Analysis\n{agg_hist}"
+                )
+            if con_hist:
+                if message_buffer.agent_status.get("Conservative Analyst") != "completed":
+                    message_buffer.update_agent_status("Conservative Analyst", "in_progress")
+                message_buffer.update_report_section(
+                    "final_trade_decision", f"### Conservative Analyst Analysis\n{con_hist}"
+                )
+            if neu_hist:
+                if message_buffer.agent_status.get("Neutral Analyst") != "completed":
+                    message_buffer.update_agent_status("Neutral Analyst", "in_progress")
+                message_buffer.update_report_section(
+                    "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
+                )
+            if judge:
+                if message_buffer.agent_status.get("Portfolio Manager") != "completed":
+                    message_buffer.update_agent_status("Portfolio Manager", "in_progress")
+                    message_buffer.update_report_section(
+                        "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
+                    )
+                    message_buffer.update_agent_status("Aggressive Analyst", "completed")
+                    message_buffer.update_agent_status("Conservative Analyst", "completed")
+                    message_buffer.update_agent_status("Neutral Analyst", "completed")
+                    message_buffer.update_agent_status("Portfolio Manager", "completed")
+
+    def run_stream(update_live=None):
         message_buffer.add_message("System", f"Selected ticker: {selections['ticker']}")
-        message_buffer.add_message(
-            "System", f"Analysis date: {selections['analysis_date']}"
-        )
+        message_buffer.add_message("System", f"Analysis date: {selections['analysis_date']}")
         message_buffer.add_message(
             "System",
             f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
         )
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
+        if selected_analyst_keys:
+            first_analyst = ANALYST_AGENT_NAMES.get(
+                selected_analyst_keys[0],
+                f"{selected_analyst_keys[0].capitalize()} Analyst",
+            )
+            message_buffer.update_agent_status(first_analyst, "in_progress")
+        if update_live:
+            update_live()
+        elif plain:
+            console.print(
+                f"[cyan]Research run:[/cyan] {selections['ticker']} on {selections['analysis_date']}"
+            )
 
-        # Update agent status to in_progress for the first analyst
-        first_analyst = f"{selections['analysts'][0].value.capitalize()} Analyst"
-        message_buffer.update_agent_status(first_analyst, "in_progress")
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
-        # Show precompute status before blocking call
-        spinner_text = (
-            f"Precomputing quantitative signals for {selections['ticker']}..."
-        )
-        update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
-
-        # Precompute quantitative signal (deterministic, before AI agents run)
+        spinner_text = f"Precomputing quantitative signals for {selections['ticker']}..."
+        if update_live:
+            update_live(spinner_text)
+        elif plain:
+            console.print(spinner_text)
         quant_signal_text = graph._precompute_quant_signal(
             selections["ticker"], selections["analysis_date"]
         )
 
-        # Update status for graph execution phase
-        spinner_text = (
-            f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
-        )
-        update_display(layout, spinner_text, stats_handler=stats_handler, start_time=start_time)
-
-        # Initialize state and get graph args with callbacks
+        spinner_text = f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
+        if update_live:
+            update_live(spinner_text)
+        elif plain:
+            console.print(spinner_text)
         init_agent_state = graph.propagator.create_initial_state(
             selections["ticker"], selections["analysis_date"]
         )
         init_agent_state["quant_signal"] = quant_signal_text
-        # Pass callbacks to graph config for tool execution tracking
-        # (LLM tracking is handled separately via LLM constructor)
         args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
-        # Stream the analysis
         trace = []
         for chunk in graph.graph.stream(init_agent_state, **args):
-            # Process all messages in chunk, deduplicating by message ID
-            for message in chunk.get("messages", []):
-                msg_id = getattr(message, "id", None)
-                if msg_id is not None:
-                    if msg_id in message_buffer._processed_message_ids:
-                        continue
-                    message_buffer._processed_message_ids.add(msg_id)
-
-                msg_type, content = classify_message_type(message)
-                if content and content.strip():
-                    message_buffer.add_message(msg_type, content)
-
-                if hasattr(message, "tool_calls") and message.tool_calls:
-                    for tool_call in message.tool_calls:
-                        if isinstance(tool_call, dict):
-                            message_buffer.add_tool_call(tool_call["name"], tool_call["args"])
-                        else:
-                            message_buffer.add_tool_call(tool_call.name, tool_call.args)
-
-            # Update analyst statuses based on report state (runs on every chunk)
-            update_analyst_statuses(message_buffer, chunk)
-
-            # Research Team - Handle Investment Debate State
-            if chunk.get("investment_debate_state"):
-                debate_state = chunk["investment_debate_state"]
-                bull_hist = debate_state.get("bull_history", "").strip()
-                bear_hist = debate_state.get("bear_history", "").strip()
-                judge = debate_state.get("judge_decision", "").strip()
-
-                # Only update status when there's actual content
-                if bull_hist or bear_hist:
-                    update_research_team_status("in_progress")
-                if bull_hist:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Bull Researcher Analysis\n{bull_hist}"
-                    )
-                if bear_hist:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Bear Researcher Analysis\n{bear_hist}"
-                    )
-                if judge:
-                    message_buffer.update_report_section(
-                        "investment_plan", f"### Research Manager Decision\n{judge}"
-                    )
-                    update_research_team_status("completed")
-                    message_buffer.update_agent_status("Trader", "in_progress")
-
-            # Trading Team
-            if chunk.get("trader_investment_plan"):
-                message_buffer.update_report_section(
-                    "trader_investment_plan", chunk["trader_investment_plan"]
-                )
-                if message_buffer.agent_status.get("Trader") != "completed":
-                    message_buffer.update_agent_status("Trader", "completed")
-                    message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-
-            # Risk Management Team - Handle Risk Debate State
-            if chunk.get("risk_debate_state"):
-                risk_state = chunk["risk_debate_state"]
-                agg_hist = risk_state.get("aggressive_history", "").strip()
-                con_hist = risk_state.get("conservative_history", "").strip()
-                neu_hist = risk_state.get("neutral_history", "").strip()
-                judge = risk_state.get("judge_decision", "").strip()
-
-                if agg_hist:
-                    if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
-                        message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Aggressive Analyst Analysis\n{agg_hist}"
-                    )
-                if con_hist:
-                    if message_buffer.agent_status.get("Conservative Analyst") != "completed":
-                        message_buffer.update_agent_status("Conservative Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Conservative Analyst Analysis\n{con_hist}"
-                    )
-                if neu_hist:
-                    if message_buffer.agent_status.get("Neutral Analyst") != "completed":
-                        message_buffer.update_agent_status("Neutral Analyst", "in_progress")
-                    message_buffer.update_report_section(
-                        "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
-                    )
-                if judge:
-                    if message_buffer.agent_status.get("Portfolio Manager") != "completed":
-                        message_buffer.update_agent_status("Portfolio Manager", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
-                        )
-                        message_buffer.update_agent_status("Aggressive Analyst", "completed")
-                        message_buffer.update_agent_status("Conservative Analyst", "completed")
-                        message_buffer.update_agent_status("Neutral Analyst", "completed")
-                        message_buffer.update_agent_status("Portfolio Manager", "completed")
-
-            # Update the display
-            update_display(layout, stats_handler=stats_handler, start_time=start_time)
-
+            process_chunk(chunk)
+            if update_live:
+                update_live()
             trace.append(chunk)
+        if not trace:
+            raise RuntimeError("Research graph produced no output.")
+        return trace[-1]
 
-        # Get final state and decision
-        final_state = trace[-1]
-        decision = graph.process_signal(final_state["final_trade_decision"])
+    if plain:
+        final_state = run_stream()
+    else:
+        layout = create_layout()
 
-        # Build assisted trade plan if enabled. This does not place orders.
-        from tradingagents.graph.trading_graph import _exec_result_to_str
+        with Live(layout, refresh_per_second=4):
+            def update_live(spinner_text=None):
+                update_display(
+                    layout,
+                    spinner_text,
+                    stats_handler=stats_handler,
+                    start_time=start_time,
+                )
 
-        exec_result = graph._build_trade_plan(final_state)
-        if exec_result is not None:
-            message_buffer.execution_result = exec_result
-            msg = _exec_result_to_str(exec_result)
-            message_buffer.add_message("Trade Plan", msg)
+            update_live()
+            final_state = run_stream(update_live)
 
-        # Update all agent statuses to completed
-        for agent in message_buffer.agent_status:
-            message_buffer.update_agent_status(agent, "completed")
+            for agent in message_buffer.agent_status:
+                message_buffer.update_agent_status(agent, "completed")
+            message_buffer.add_message(
+                "System", f"Completed analysis for {selections['analysis_date']}"
+            )
+            for section in message_buffer.report_sections.keys():
+                if section in final_state:
+                    message_buffer.update_report_section(section, final_state[section])
+            update_live()
 
-        message_buffer.add_message(
-            "System", f"Completed analysis for {selections['analysis_date']}"
-        )
+    decision = graph.process_signal(final_state["final_trade_decision"])
 
-        # Update final report sections
-        for section in message_buffer.report_sections.keys():
-            if section in final_state:
-                message_buffer.update_report_section(section, final_state[section])
+    from tradingagents.graph.trading_graph import _exec_result_to_str
 
-        update_display(layout, stats_handler=stats_handler, start_time=start_time)
+    exec_result = graph._build_trade_plan(final_state)
+    if exec_result is not None:
+        message_buffer.execution_result = exec_result
+        msg = _exec_result_to_str(exec_result)
+        message_buffer.add_message("Trade Plan", msg)
+
+    for agent in message_buffer.agent_status:
+        message_buffer.update_agent_status(agent, "completed")
+
+    message_buffer.add_message(
+        "System", f"Completed analysis for {selections['analysis_date']}"
+    )
+
+    for section in message_buffer.report_sections.keys():
+        if section in final_state:
+            message_buffer.update_report_section(section, final_state[section])
 
     # Post-analysis prompts (outside Live context for clean interaction)
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
@@ -1207,27 +1300,51 @@ def run_analysis(checkpoint: bool = False):
     if message_buffer.execution_result:
         _print_execution_summary(message_buffer.execution_result)
 
-    # Prompt to save report
-    save_choice = typer.prompt("Save report?", default="Y").strip().upper()
-    if save_choice in ("Y", "YES", ""):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_path = Path.cwd() / "reports" / f"{selections['ticker']}_{timestamp}"
-        save_path_str = typer.prompt(
-            "Save path (press Enter for default)",
-            default=str(default_path)
-        ).strip()
-        save_path = Path(save_path_str)
-        try:
-            report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
-            console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
-            console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
-        except Exception as e:
-            console.print(f"[red]Error saving report: {e}[/red]")
+    report_file = None
+    if non_interactive:
+        if save_report:
+            save_path = save_path or (Path.cwd() / "reports" / f"{selections['ticker']}_{selections['analysis_date']}")
+            try:
+                report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+                console.print(f"[green]Report saved to:[/green] {save_path.resolve()}")
+            except Exception as e:
+                console.print(f"[red]Error saving report: {e}[/red]")
+    else:
+        save_choice = typer.prompt("Save report?", default="Y").strip().upper()
+        if save_choice in ("Y", "YES", ""):
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_path = Path.cwd() / "reports" / f"{selections['ticker']}_{timestamp}"
+            save_path_str = typer.prompt(
+                "Save path (press Enter for default)",
+                default=str(default_path)
+            ).strip()
+            save_path = Path(save_path_str)
+            try:
+                report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+                console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
+                console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
+            except Exception as e:
+                console.print(f"[red]Error saving report: {e}[/red]")
+
+    if non_interactive:
+        lines = [
+            f"Symbol: {selections['ticker']}",
+            f"Date: {selections['analysis_date']}",
+            f"Decision: {decision}",
+        ]
+        if report_file:
+            lines.append(f"Report: {report_file}")
+        console.print(Panel("\n".join(lines), title="Research Run Summary", border_style="cyan"))
+        return final_state
 
     # Prompt to display full report
     display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
     if display_choice in ("Y", "YES", ""):
-        display_complete_report(final_state)
+        try:
+            display_complete_report(final_state)
+        except Exception as e:
+            console.print(f"[red]Error displaying report: {e}[/red]")
+    return final_state
 
 
 @app.command()
@@ -1242,12 +1359,202 @@ def analyze(
         "--clear-checkpoints",
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
+    ticker: Optional[str] = typer.Option(
+        None,
+        "--ticker",
+        "-t",
+        help="Ticker for non-interactive research, e.g. BTC/USDT.",
+    ),
+    analysis_date: Optional[str] = typer.Option(
+        None,
+        "--date",
+        help="Analysis date for non-interactive research (YYYY-MM-DD).",
+    ),
+    asset_class: str = typer.Option(
+        "crypto",
+        "--asset-class",
+        help="Asset class for non-interactive research: crypto or stock.",
+    ),
+    exchange: Optional[str] = typer.Option(
+        None,
+        "--exchange",
+        help="Crypto exchange id for market data, e.g. binance.",
+    ),
+    analysts: str = typer.Option(
+        "market,social,news,onchain",
+        "--analysts",
+        help="Comma-separated analysts: market,social,news,onchain.",
+    ),
+    research_depth: int = typer.Option(
+        1,
+        "--research-depth",
+        min=1,
+        help="Debate depth/round count for non-interactive research.",
+    ),
+    llm_provider: Optional[str] = typer.Option(
+        None,
+        "--llm-provider",
+        help="LLM provider key. Defaults to config.",
+    ),
+    backend_url: Optional[str] = typer.Option(
+        None,
+        "--backend-url",
+        help="Optional provider-compatible backend URL.",
+    ),
+    quick_model: Optional[str] = typer.Option(
+        None,
+        "--quick-model",
+        help="Quick-thinking model id. Defaults to config.",
+    ),
+    deep_model: Optional[str] = typer.Option(
+        None,
+        "--deep-model",
+        help="Deep-thinking model id. Defaults to config.",
+    ),
+    output_language: str = typer.Option(
+        "English",
+        "--output-language",
+        help="Language for generated reports.",
+    ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        "-y",
+        help="Run from flags without prompts.",
+    ),
+    plain: bool = typer.Option(
+        False,
+        "--plain",
+        help="Use simple terminal output instead of the live Rich layout.",
+    ),
+    save_report: bool = typer.Option(
+        False,
+        "--save-report",
+        help="Save report without prompting in non-interactive mode.",
+    ),
+    save_path: Optional[Path] = typer.Option(
+        None,
+        "--save-path",
+        help="Report output directory for --save-report.",
+    ),
 ):
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
+    if non_interactive or plain or ticker:
+        if not ticker:
+            raise typer.BadParameter("--ticker is required for non-interactive research.")
+        selections = selections_from_cli_options(
+            ticker=ticker,
+            analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
+            asset_class=asset_class,
+            exchange=exchange,
+            analysts=analysts,
+            research_depth=research_depth,
+            llm_provider=llm_provider,
+            backend_url=backend_url,
+            quick_model=quick_model,
+            deep_model=deep_model,
+            output_language=output_language,
+        )
+        run_analysis(
+            checkpoint=checkpoint,
+            selections=selections,
+            non_interactive=True,
+            plain=True,
+            save_report=save_report,
+            save_path=save_path,
+        )
+        return
     run_analysis(checkpoint=checkpoint)
+
+
+research_app = typer.Typer(
+    help="Research workflow aliases for runs, workspaces, watchlists, theses, and signals."
+)
+
+
+@research_app.command("run")
+def research_run(
+    ticker: Optional[str] = typer.Argument(
+        None,
+        help="Ticker to research, e.g. BTC/USDT. Omit for the interactive wizard.",
+    ),
+    analysis_date: Optional[str] = typer.Option(None, "--date", help="Analysis date (YYYY-MM-DD)."),
+    exchange: Optional[str] = typer.Option(None, "--exchange", help="Crypto exchange id."),
+    analysts: str = typer.Option(
+        "market,social,news,onchain",
+        "--analysts",
+        help="Comma-separated analysts: market,social,news,onchain.",
+    ),
+    research_depth: int = typer.Option(1, "--research-depth", min=1),
+    llm_provider: Optional[str] = typer.Option(None, "--llm-provider"),
+    backend_url: Optional[str] = typer.Option(None, "--backend-url"),
+    quick_model: Optional[str] = typer.Option(None, "--quick-model"),
+    deep_model: Optional[str] = typer.Option(None, "--deep-model"),
+    output_language: str = typer.Option("English", "--output-language"),
+    checkpoint: bool = typer.Option(False, "--checkpoint"),
+    plain: bool = typer.Option(True, "--plain/--live", help="Use plain output by default for research aliases."),
+    save_report: bool = typer.Option(False, "--save-report"),
+    save_path: Optional[Path] = typer.Option(None, "--save-path"),
+) -> None:
+    """Run research through the terminal-first research namespace."""
+    if not ticker:
+        run_analysis(checkpoint=checkpoint)
+        return
+    selections = selections_from_cli_options(
+        ticker=ticker,
+        analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
+        asset_class="crypto",
+        exchange=exchange,
+        analysts=analysts,
+        research_depth=research_depth,
+        llm_provider=llm_provider,
+        backend_url=backend_url,
+        quick_model=quick_model,
+        deep_model=deep_model,
+        output_language=output_language,
+    )
+    run_analysis(
+        checkpoint=checkpoint,
+        selections=selections,
+        non_interactive=True,
+        plain=plain,
+        save_report=save_report,
+        save_path=save_path,
+    )
+
+
+@research_app.command("workspace")
+def research_workspace(
+    run_id: str = typer.Argument(..., help="Research run id."),
+) -> None:
+    """Alias for journal workspace."""
+    journal_workspace(run_id)
+
+
+@research_app.command("brief")
+def research_brief(
+    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
+    alerts_limit: int = typer.Option(20, "--alerts-limit", min=1),
+    unread_only: bool = typer.Option(False, "--unread"),
+    evaluate_snapshots: bool = typer.Option(False, "--evaluate-snapshots"),
+) -> None:
+    """Alias for watchlist brief."""
+    watchlist_brief(
+        watchlist=watchlist,
+        alerts_limit=alerts_limit,
+        unread_only=unread_only,
+        evaluate_snapshots=evaluate_snapshots,
+    )
+
+
+research_app.add_typer(journal_app, name="journal")
+research_app.add_typer(thesis_app, name="thesis")
+research_app.add_typer(signals_app, name="signals")
+research_app.add_typer(watchlist_app, name="watchlist")
+app.add_typer(research_app, name="research")
 
 
 @app.callback(invoke_without_command=True)

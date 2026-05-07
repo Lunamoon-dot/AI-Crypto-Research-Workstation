@@ -761,35 +761,256 @@ BTC thesis update:
 
 ---
 
-# Phase 7: Research UX
+# Phase 7: Terminal-First Research UX
 
 Estimated time: 4-8 weeks.
 
 ## Goal
 
-Build a serious research workspace, not a generic dashboard.
+Build a serious terminal research workspace before building a web app.
 
-## Short-Term UX: CLI/TUI
-
-Before building a large web app, make the CLI/TUI excellent.
-
-Target commands:
-
-```bash
-research run BTC
-research brief
-research watchlist
-research thesis list
-research thesis show 42
-research thesis review 42
-research signals BTC
-research journal
-```
-
-Example output:
+The terminal should become the product's first real UI:
 
 ```text
-BTC Research Run
+run research -> inspect workspace -> manage thesis lifecycle -> monitor watchlist -> review outcomes
+```
+
+This is not a generic dashboard and not an execution console. It is a local-first
+research cockpit for reading evidence, preserving decisions, and reviewing thesis
+quality over time.
+
+## UX Principles
+
+- Terminal first, web later.
+- Evidence before opinion.
+- IDs are always visible so the next command is obvious.
+- Freshness, source, and timestamp are visible wherever data can become stale.
+- Lists use tables; entities use panels; lifecycles use timelines.
+- Default output is Rich and human-readable; later add `--json` and `--plain` for scripts.
+- Language must say `review`, `watch`, `reassess`, or `stand aside`, never `buy now` or `sell now`.
+- Read-only views must not fetch live provider data unless the command explicitly says so.
+
+## Current CLI Surface
+
+The current command tree should be documented and improved before adding a new UI:
+
+```bash
+tradingagents
+tradingagents analyze
+
+tradingagents journal path
+tradingagents journal list
+tradingagents journal show <run_id>
+tradingagents journal workspace <run_id>
+tradingagents journal timeline <run_id>
+tradingagents journal market-snapshot <snapshot_id>
+tradingagents journal signal-snapshot <snapshot_id>
+tradingagents journal debate <debate_id>
+tradingagents journal outcomes
+tradingagents journal retrospective
+
+tradingagents thesis list
+tradingagents thesis show <thesis_id>
+tradingagents thesis scenarios <thesis_id>
+tradingagents thesis timeline <thesis_id>
+tradingagents thesis decide <thesis_id>
+tradingagents thesis review <thesis_id>
+
+tradingagents signals list
+tradingagents signals show <signal_id>
+
+tradingagents watchlist add-symbol BTC/USDT
+tradingagents watchlist add-thesis <thesis_id>
+tradingagents watchlist list
+tradingagents watchlist brief
+tradingagents watchlist check
+tradingagents watchlist alerts
+
+tradingagents evaluate run ...
+tradingagents config ...
+tradingagents risk ...
+```
+
+The `dashboard` command is only a placeholder until the terminal workflows are
+stable.
+
+## Target Command Taxonomy
+
+Do not destructively rename existing commands. In the medium term, add a
+`research` namespace as aliases over the existing command groups:
+
+```bash
+tradingagents research run BTC/USDT
+tradingagents research workspace <run_id>
+tradingagents research brief
+tradingagents research journal
+tradingagents research thesis list
+tradingagents research thesis show <thesis_id>
+tradingagents research watchlist brief
+tradingagents research signals BTC/USDT
+```
+
+The alias layer is for UX coherence only. The service layer and persistence
+model should remain shared with `journal`, `thesis`, `signals`, and `watchlist`.
+
+## Standard Terminal Workflows
+
+### First-Run Setup
+
+```bash
+tradingagents config list
+tradingagents config show <profile>
+tradingagents journal path
+```
+
+The user should immediately know:
+
+- which config profile is active;
+- where the SQLite journal lives;
+- which optional providers are disabled;
+- whether the product is in research-only mode.
+
+### Deep Research Workflow
+
+```bash
+tradingagents analyze
+tradingagents journal list
+tradingagents journal workspace <run_id>
+```
+
+The interactive run remains the default beginner flow. A later non-interactive
+flow should support:
+
+```bash
+tradingagents research run BTC/USDT --date 2026-05-08 --profile default --yes
+```
+
+That command should produce the same persisted run, thesis, signals, scenarios,
+debate, and timeline as the interactive flow.
+
+### Workspace Inspection Workflow
+
+```bash
+tradingagents journal workspace <run_id>
+tradingagents signals show <signal_id>
+tradingagents journal debate <debate_id>
+tradingagents journal timeline <run_id>
+```
+
+The workspace view is the main post-run screen. It should show:
+
+- run status and IDs;
+- market and signal snapshot IDs;
+- consensus, confidence, and conflict;
+- supporting and contradicting evidence;
+- thesis summary, invalidation, target zones;
+- scenarios and timeline events.
+
+### Thesis Lifecycle Workflow
+
+```bash
+tradingagents thesis list
+tradingagents thesis show <thesis_id>
+tradingagents thesis scenarios <thesis_id>
+tradingagents thesis decide <thesis_id>
+tradingagents thesis timeline <thesis_id>
+tradingagents thesis review <thesis_id>
+```
+
+The thesis detail screen should make the next action obvious:
+
+```text
+Thesis: thesis_abc123
+Symbol: BTC/USDT
+Direction: watch
+Confidence: 64%
+Setup: breakout_confirmation
+
+Evidence:
+- Support: trend signal, market analyst, volume context
+- Contradiction: funding elevated, sentiment crowded
+
+Invalidation:
+- Lose 103800
+
+Next useful commands:
+- tradingagents thesis decide thesis_abc123
+- tradingagents watchlist add-thesis thesis_abc123
+- tradingagents thesis review thesis_abc123
+```
+
+### Daily Monitoring Workflow
+
+```bash
+tradingagents watchlist brief
+tradingagents watchlist check
+tradingagents watchlist alerts
+```
+
+`watchlist brief` is the daily home screen. It should summarize:
+
+- active watched theses;
+- symbol-only watches;
+- recent alerts;
+- saved scenarios;
+- scenario activation history;
+- latest persisted market snapshot when available.
+
+`watchlist check` is an explicit one-shot monitoring command. It may create
+alerts. `watchlist brief` should remain read-only by default.
+
+### Retrospective Workflow
+
+```bash
+tradingagents journal outcomes
+tradingagents journal retrospective
+```
+
+The retrospective view should answer:
+
+- which theses worked;
+- which invalidated early;
+- whether MFE/MAE patterns are improving;
+- which lessons should inform future research.
+
+### Historical Thesis Evaluation Workflow
+
+```bash
+tradingagents evaluate run ...
+```
+
+This is historical thesis evaluation, not broker-accurate backtesting. Do not
+show fake PnL, Sharpe, or execution metrics unless a real simulator exists.
+
+## Terminal Screen Templates
+
+### Research Run Completion
+
+```text
+Research Run Complete
+
+Run ID: run_abc123
+Symbol: BTC/USDT
+Status: completed
+Market Snapshot: market_snapshot_123
+Signal Snapshot: signal_snapshot_456
+Debate: debate_789
+Thesis: thesis_def456
+
+Consensus: mild_bullish
+Conflict: high
+Freshness: ok
+
+Next:
+- tradingagents journal workspace run_abc123
+- tradingagents thesis show thesis_def456
+- tradingagents watchlist add-thesis thesis_def456
+```
+
+### Journal Workspace
+
+```text
+BTC/USDT Research Workspace
 
 Regime: Bullish but crowded
 Consensus: Mild bullish
@@ -799,19 +1020,74 @@ Freshness: OK
 Supporting:
 - Higher-timeframe trend intact
 - Spot volume improving
-- ETF flow positive
 
 Contradicting:
 - Funding elevated
-- Sentiment euphoric
-- Macro event in 10h
+- Sentiment crowded
 
 Thesis:
 Watch for reclaim of 110k. Avoid chasing if funding expands further.
 
 Invalidation:
 103.8k
+
+Scenarios:
+- If reclaim holds with volume, continuation becomes more likely.
+- If funding rises while price stalls, squeeze risk increases.
 ```
+
+### Watchlist Brief
+
+```text
+Watchlist Brief
+
+Active Theses:
+- BTC/USDT thesis_def456 | watch | confidence 64%
+- ETH/USDT thesis_aaa111 | short | confidence 58%
+
+Recent Alerts:
+- BTC scenario activated: price reclaimed 110k. Review thesis_def456.
+- ETH invalidation level reached. Review thesis_aaa111.
+
+Symbol-only Watches:
+- SOL/USDT | no thesis-backed monitoring rule yet
+```
+
+### Thesis Timeline
+
+```text
+Created
+-> User marked as watch
+-> Scenario activated
+-> Signal conflict increased
+-> Target reached or invalidation hit
+-> Outcome reviewed
+```
+
+### Outcome Retrospective
+
+```text
+Outcome Retrospective
+
+Sample Size: 24
+Hit Rate: 46%
+Invalidation Rate: 29%
+Average MFE: 8.2%
+Average MAE: -3.6%
+
+Lessons:
+- Long theses perform worse when funding is already crowded.
+- Waiting for volume confirmation reduced adverse excursion.
+```
+
+## Build Order
+
+1. Normalize CLI copy and help text toward crypto research workstation language.
+2. Make `journal workspace` and `watchlist brief` the two primary terminal home screens.
+3. Add non-interactive research run flags after the interactive flow is stable.
+4. Add `--json` and `--plain` output modes for core read commands.
+5. Add optional `research` namespace aliases without removing existing commands.
+6. Revisit TUI/local web app only after the terminal workflows are excellent.
 
 ## Medium-Term UX: Local Web App
 
@@ -835,25 +1111,17 @@ The UX should feel closer to:
 
 It should not feel like a marketing landing page or generic analytics dashboard.
 
-## Thesis Timeline
-
-Each thesis should have a timeline:
-
-```text
-Created
--> User marked as Watch
--> Scenario A activated
--> Signal conflict increased
--> Target reached or invalidation hit
--> Outcome reviewed
-```
-
 ## Acceptance Criteria
 
-- User can complete the full research/journal/review workflow from the UI.
-- Active theses are easy to scan.
-- Contradictions and freshness warnings are visually obvious.
-- The UI does not imply automatic trading.
+- A new user can complete setup, research, journal inspection, thesis decision, watchlist monitoring, and outcome review from the terminal.
+- `journal workspace` shows the whole research artifact without opening generated report files.
+- `watchlist brief` gives a useful daily view without mutating state.
+- `watchlist check` is explicit when it can create alerts.
+- Every screen shows IDs needed for likely next commands.
+- Freshness/source timestamps are visible when showing snapshots, signals, or scenario evaluation from persisted data.
+- Contradictions and missing data are visually obvious.
+- CLI copy does not imply autonomous trading or trade execution.
+- Historical evaluation is labeled as thesis evaluation, not broker backtesting.
 
 ---
 
@@ -864,6 +1132,11 @@ Estimated time: 2-4 weeks.
 ## Goal
 
 Create a high-value daily workflow that can become a paid feature.
+
+The terminal version should build on Phase 7 instead of inventing a separate
+surface. `watchlist brief` is the local daily home screen; the later market brief
+should extend it with market-wide context, active thesis updates, and prior-brief
+memory.
 
 ## Daily Brief Contents
 

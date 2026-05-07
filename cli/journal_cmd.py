@@ -128,6 +128,16 @@ def journal_workspace(
         f"Thesis: {run.thesis_id or 'N/A'}",
     ]
     console.print(Panel("\n".join(lines), title="Research Workspace", border_style="cyan"))
+    next_commands = [
+        f"tradingagents journal timeline {run.id}",
+    ]
+    if run.thesis_id:
+        next_commands.extend([
+            f"tradingagents thesis show {run.thesis_id}",
+            f"tradingagents watchlist add-thesis {run.thesis_id}",
+        ])
+    if run.debate_id:
+        next_commands.append(f"tradingagents journal debate {run.debate_id}")
 
     debate = service.get_debate(run.debate_id) if run.debate_id else None
     if debate:
@@ -150,6 +160,8 @@ def journal_workspace(
             debate_lines.extend(f"- {item}" for item in debate.missing_data)
         console.print(Panel("\n".join(debate_lines), title="Debate", border_style="magenta"))
         _print_opinions_table(service.list_agent_opinions(debate_id=debate.id))
+    else:
+        console.print("[yellow]No structured debate saved for this run yet.[/yellow]")
 
     thesis = service.get_thesis(run.thesis_id) if run.thesis_id else None
     if thesis:
@@ -182,10 +194,21 @@ def journal_workspace(
                     scenario.suggested_user_action,
                 )
             console.print(scenario_table)
+        else:
+            console.print("[yellow]No scenarios saved for this thesis yet.[/yellow]")
+    else:
+        console.print("[yellow]No thesis saved for this run yet.[/yellow]")
 
     events = service.list_timeline_events(research_run_id=run.id)
     if events:
         _print_timeline(events, title="Workspace Timeline")
+    console.print(
+        Panel(
+            "\n".join(f"- {command}" for command in next_commands),
+            title="Next Useful Commands",
+            border_style="blue",
+        )
+    )
 
 
 @journal_app.command("market-snapshot")
