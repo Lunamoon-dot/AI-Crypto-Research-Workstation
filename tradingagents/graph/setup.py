@@ -8,6 +8,7 @@ from langgraph.prebuilt import ToolNode
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
 
+from .analyst_runtime import make_analyst_runner
 from .conditional_logic import ConditionalLogic
 
 
@@ -39,9 +40,8 @@ class GraphSetup:
     ):
         """Set up and compile the agent workflow graph.
 
-        Analysts run SEQUENTIALLY, each with its own tool loop.  The graph
-        unconditionally provides full analyst coverage; tool loops gate
-        on whether the last message contains ``tool_calls``.
+        Analysts run in PARALLEL. Each analyst node executes its own local tool
+        loop until completion, then all analyst branches join before debate.
         """
         if len(selected_analysts) == 0:
             raise ValueError(
@@ -49,30 +49,46 @@ class GraphSetup:
             )
 
         # -- Analyst nodes ----------------------------------------------------
-        analyst_order = []
+        analyst_specs = []
         if "market" in selected_analysts:
-            analyst_order.append(
-                ("Market Analyst", create_market_analyst(
-                    self.quick_thinking_llm, config=self.config
-                ), "tools_market", "should_continue_market")
+            analyst_specs.append(
+                (
+                    "Market Analyst",
+                    create_market_analyst(self.quick_thinking_llm, config=self.config),
+                    "market",
+                    "market_report",
+                )
             )
         if "social" in selected_analysts:
-            analyst_order.append(
-                ("Social Analyst", create_social_media_analyst(
-                    self.quick_thinking_llm, config=self.config
-                ), "tools_social", "should_continue_social")
+            analyst_specs.append(
+                (
+                    "Social Analyst",
+                    create_social_media_analyst(self.quick_thinking_llm, config=self.config),
+                    "social",
+                    "sentiment_report",
+                )
             )
         if "news" in selected_analysts:
-            analyst_order.append(
-                ("News Analyst", create_news_analyst(
-                    self.quick_thinking_llm, config=self.config
-                ), "tools_news", "should_continue_news")
+            analyst_specs.append(
+                (
+                    "News Analyst",
+                    create_news_analyst(self.quick_thinking_llm, config=self.config),
+                    "news",
+                    "news_report",
+                )
             )
         if "onchain" in selected_analysts:
-            analyst_order.append(
-                ("Onchain Analyst", create_onchain_analyst(
-                    self.quick_thinking_llm, config=self.config
-                ), "tools_onchain", "should_continue_onchain")
+            analyst_specs.append(
+                (
+                    "Onchain Analyst",
+                    create_onchain_analyst(self.quick_thinking_llm, config=self.config),
+                    "onchain",
+                    "fundamentals_report",
+                )
+            )
+        if not analyst_specs:
+            raise ValueError(
+                "Trading Agents Graph Setup Error: selected analysts are invalid!"
             )
 
         # -- Researcher and manager nodes -------------------------------------
@@ -98,29 +114,23 @@ class GraphSetup:
         # -- Build workflow ---------------------------------------------------
         workflow = StateGraph(AgentState)
 
-        # Add analyst nodes + tool nodes with sequential edges
-        for node_name, node_fn, tools_name, cond_method in analyst_order:
-            workflow.add_node(node_name, node_fn)
-            workflow.add_node(tools_name, self.tool_nodes[tools_name.split("_", 1)[1]])
-
-        # Sequential analyst pipeline with tool loops
-        for i, (node_name, _, tools_name, cond_method) in enumerate(analyst_order):
-            # Determine next node after this analyst finishes
-            if i + 1 < len(analyst_order):
-                next_analyst = analyst_order[i + 1][0]
-            else:
-                next_analyst = "Bull Researcher"
-
-            conditional = getattr(self.conditional_logic, cond_method)
-            workflow.add_conditional_edges(
-                node_name,
-                conditional,
-                {tools_name: tools_name, next_analyst: next_analyst},
+        # Add analyst nodes (each wraps its own internal tool loop).
+        for node_name, node_fn, tool_key, report_key in analyst_specs:
+            runner = make_analyst_runner(
+                node_fn,
+                self.tool_nodes[tool_key],
+                report_key=report_key,
             )
-            workflow.add_edge(tools_name, node_name)
+            workflow.add_node(node_name, runner)
 
-        # Start with the first analyst
-        workflow.add_edge(START, analyst_order[0][0])
+        # Fan-out from START: run all selected analysts concurrently.
+        for node_name, _, _, _ in analyst_specs:
+            workflow.add_edge(START, node_name)
+
+        # Fan-in barrier: wait until all analyst branches complete.
+        workflow.add_node("Analyst Barrier", lambda _state: {})
+        for node_name, _, _, _ in analyst_specs:
+            workflow.add_edge(node_name, "Analyst Barrier")
 
         # After last analyst → debate/risk pipeline
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -133,6 +143,7 @@ class GraphSetup:
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Debate edges
+        workflow.add_edge("Analyst Barrier", "Bull Researcher")
         workflow.add_conditional_edges(
             "Bull Researcher",
             self.conditional_logic.should_continue_debate,

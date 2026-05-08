@@ -1,12 +1,46 @@
 import json
 import logging
+from unittest.mock import MagicMock
+
+import pytest
 
 from tradingagents.dataflows import interface
-from tradingagents.observability import (
+from tradingagents.domain import ResearchRun
+from tradingagents.observability.logging import (
     bind_observability_context,
+    configure_plain_observability_logging,
     log_event,
     observability_context,
+    observability_run_event_persistence,
 )
+from tradingagents.services import JournalService
+
+
+@pytest.fixture(autouse=True)
+def _reset_plain_logging_handler():
+    """Avoid leaking stderr handlers across tests."""
+    yield
+    root_pkg = logging.getLogger("tradingagents")
+    root_pkg.handlers = [
+        h
+        for h in root_pkg.handlers
+        if not getattr(h, "_tradingagents_plain_stderr", False)
+    ]
+
+
+def test_configure_plain_observability_logging_is_idempotent():
+    log = logging.getLogger("tradingagents")
+    configure_plain_observability_logging(logging.INFO)
+    plain_handlers = [
+        h for h in log.handlers if getattr(h, "_tradingagents_plain_stderr", False)
+    ]
+    assert len(plain_handlers) == 1
+    configure_plain_observability_logging(logging.WARNING)
+    plain_after = [
+        h for h in log.handlers if getattr(h, "_tradingagents_plain_stderr", False)
+    ]
+    assert len(plain_after) == 1
+    assert plain_after[0].level == logging.WARNING
 
 
 def _json_messages(caplog):
@@ -92,3 +126,72 @@ def test_route_to_vendor_emits_provider_observability_events(monkeypatch, caplog
     assert events[0]["vendor"] == "bad"
     assert events[0]["error_type"] == "RuntimeError"
     assert events[1]["vendor"] == "good"
+
+
+def test_log_event_persists_to_journal_when_context_active(caplog):
+    logger = logging.getLogger("tests.observability.persist")
+    journal = MagicMock()
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        with observability_run_event_persistence(journal):
+            log_event(
+                logger,
+                "research_run_started",
+                run_id="run_xyz",
+                symbol="BTC/USDT",
+            )
+
+    journal.add_run_event.assert_called_once()
+    rid, event_type, message, payload = journal.add_run_event.call_args[0]
+    assert rid == "run_xyz"
+    assert event_type == "research_run_started"
+    assert "BTC/USDT" in message
+    assert payload["event"] == "research_run_started"
+    assert payload["symbol"] == "BTC/USDT"
+
+
+def test_log_event_skips_data_provider_persist_when_disabled(caplog):
+    logger = logging.getLogger("tests.observability.provider_skip")
+    journal = MagicMock()
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        with observability_run_event_persistence(
+            journal, persist_provider_calls=False
+        ):
+            log_event(
+                logger,
+                "data_provider_call",
+                run_id="run_1",
+                method="get_crypto_ohlcv",
+                vendor="ccxt",
+                status="success",
+                duration_ms=1.0,
+            )
+
+    journal.add_run_event.assert_not_called()
+
+
+def test_log_event_persist_writes_sqlite_when_run_exists(tmp_path, caplog):
+    logger = logging.getLogger("tests.observability.sqlite")
+    cfg = {
+        "data_cache_dir": str(tmp_path),
+        "journal": {
+            "enabled": True,
+            "db_path": str(tmp_path / "journal.sqlite"),
+        },
+    }
+    service = JournalService(cfg)
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        with observability_run_event_persistence(service):
+            log_event(
+                logger,
+                "research_run_started",
+                run_id=run.id,
+                symbol="BTC/USDT",
+            )
+
+    timeline = service.list_timeline_events(research_run_id=run.id)
+    assert timeline[-1].event_type == "research_run_started"
+    assert timeline[-1].payload["symbol"] == "BTC/USDT"

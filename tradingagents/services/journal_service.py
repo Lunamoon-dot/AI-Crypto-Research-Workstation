@@ -52,12 +52,10 @@ class JournalService:
 
     def start_research_run(self, run: ResearchRun) -> ResearchRun:
         saved = self.repo.save_research_run(run)
-        self.repo.add_run_event(saved.id, "research_run_started", "Research run started")
         return saved
 
     def complete_research_run(self, run: ResearchRun) -> ResearchRun:
         saved = self.repo.complete_research_run(run)
-        self.repo.add_run_event(saved.id, "research_run_completed", "Research run completed")
         return saved
 
     def update_research_run(self, run: ResearchRun) -> ResearchRun:

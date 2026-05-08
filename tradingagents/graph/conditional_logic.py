@@ -6,9 +6,8 @@ from tradingagents.agents.utils.agent_states import AgentState
 class ConditionalLogic:
     """Handles conditional logic for determining graph flow.
 
-    With sequential analyst execution, each ``should_continue_*`` method reads
-    from the shared ``messages`` channel — tool results accumulate through
-    LangGraph's ``add_messages`` reducer.
+    Analyst tool loops are now handled inside dedicated analyst runner nodes.
+    The remaining conditional methods are used by debate and risk stages.
     """
 
     def __init__(self, max_debate_rounds=1, max_risk_discuss_rounds=1):

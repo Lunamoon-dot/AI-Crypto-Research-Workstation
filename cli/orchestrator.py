@@ -68,6 +68,13 @@ class AnalysisOrchestrator:
 
         config = build_run_config(selections, checkpoint)
 
+        if plain:
+            from tradingagents.observability.logging import (
+                configure_plain_observability_logging,
+            )
+
+            configure_plain_observability_logging()
+
         # Create stats callback handler for tracking LLM/tool calls
         self.stats_handler = StatsCallbackHandler()
 

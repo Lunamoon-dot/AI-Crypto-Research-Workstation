@@ -2,6 +2,7 @@
 
 import logging
 import os
+from contextlib import nullcontext
 from pathlib import Path
 import json
 from datetime import datetime, timedelta
@@ -11,45 +12,26 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from langgraph.prebuilt import ToolNode
-
 from tradingagents.llm_clients import create_llm_client
 
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.utils.memory import TradingMemoryLog
+from tradingagents.dataflows.config import config_context
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
     RiskDebateState,
 )
-# Import the new abstract tool methods from agent_utils
-from tradingagents.agents.utils.agent_utils import (
-    get_indicators,
-    get_news,
-    get_global_news,
-    get_multi_timeframe_analysis,
-    get_fear_greed_index,
-    get_social_sentiment,
-    get_news_sentiment_aggregate,
-)
-
-from tradingagents.agents.utils.crypto_tools import (
-    get_crypto_ohlcv,
-    get_crypto_ticker,
-    get_crypto_long_short_ratio,
-    get_crypto_nvt,
-    get_crypto_supply,
-    get_crypto_exchange_metrics,
-)
-
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
+from .quant_signals import precompute_quant_signal
 from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+from .tooling import create_tool_nodes
 
 from tradingagents.domain import (
     AgentOpinion,
@@ -60,7 +42,12 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.reporting import ReportGenerator
-from tradingagents.observability import bind_observability_context, log_event, observability_context
+from tradingagents.observability import (
+    bind_observability_context,
+    log_event,
+    observability_context,
+    observability_run_event_persistence,
+)
 from tradingagents.graph.journal_bridge import JournalBridge
 from tradingagents.graph.planning import (
     build_trade_plan,
@@ -199,7 +186,7 @@ class ResearchAgentsGraph:
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes
-        self.tool_nodes = self._create_tool_nodes()
+        self.tool_nodes = create_tool_nodes(self.config)
 
         # Initialize components
         self.conditional_logic = ConditionalLogic(
@@ -241,72 +228,9 @@ class ResearchAgentsGraph:
         Stores the full ``SignalResult`` on ``self.quant_signal_result`` so
         the confidence threshold in ``_build_trade_plan`` can access it.
         """
-        from datetime import datetime as dt, timedelta
-        from tradingagents.dataflows.interface import route_to_vendor
-        from tradingagents.agents.utils.signal_tools import _get_signal_engine, get_quant_signal
-
-        td = dt.strptime(trade_date, "%Y-%m-%d")
-        start = (td - timedelta(days=90)).strftime("%Y-%m-%d")
-
-        # Use the existing data-fetching logic via get_quant_signal,
-        # then also call the engine directly to get the structured result.
-        try:
-            ohlcv_csv = route_to_vendor("get_crypto_ohlcv", symbol, start, trade_date)
-        except Exception as e:
-            logger.warning("Cannot fetch OHLCV for quant signal: %s", e)
-            self.quant_signal_result = None
-            return ""
-
-        funding_csv = None
-        oi_csv = None
-        liq_csv = None
-        long_short_csv = None
-        nvt_csv = None
-        exchange_metrics_csv = None
-        try:
-            funding_csv = route_to_vendor("get_crypto_funding_rate_history", symbol, 60)
-        except Exception:
-            try:
-                funding_csv = route_to_vendor("get_crypto_funding_rate", symbol)
-            except Exception:
-                pass
-        try:
-            oi_csv = route_to_vendor("get_crypto_open_interest_history", symbol, 60)
-        except Exception:
-            try:
-                oi_csv = route_to_vendor("get_crypto_open_interest", symbol)
-            except Exception:
-                pass
-        try:
-            liq_csv = route_to_vendor("get_crypto_liquidations", symbol)
-        except Exception:
-            pass
-        try:
-            long_short_csv = route_to_vendor("get_crypto_long_short_ratio", symbol)
-        except Exception:
-            pass
-        try:
-            nvt_csv = route_to_vendor("get_crypto_nvt", symbol)
-        except Exception:
-            pass
-        try:
-            exchange_metrics_csv = route_to_vendor("get_crypto_exchange_metrics", symbol)
-        except Exception:
-            pass
-
-        engine = _get_signal_engine(config=self.config)
-        result = engine.generate(
-            symbol=symbol,
-            ohlcv_csv=ohlcv_csv,
-            funding_csv=funding_csv,
-            oi_csv=oi_csv,
-            liq_csv=liq_csv,
-            long_short_ratio_csv=long_short_csv,
-            nvt_csv=nvt_csv,
-            exchange_metrics_csv=exchange_metrics_csv,
-        )
+        quant_prompt, result = precompute_quant_signal(self.config, symbol, trade_date)
         self.quant_signal_result = result
-        return result.to_prompt_block()
+        return quant_prompt
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -368,73 +292,9 @@ class ResearchAgentsGraph:
             )
         )
 
-    def _create_tool_nodes(self) -> Dict[str, ToolNode]:
-        """Create tool nodes for crypto analysis.
-
-        Each tool is wrapped to set the config context variable before
-        execution, so every downstream data-layer call sees the correct
-        config without changing tool signatures exposed to the LLM.
-        """
-        import functools
-        from tradingagents.dataflows.config import _config_ctx
-
-        config = self.config
-
-        def _with_config(tool_fn):
-            # Wrap on tool_fn.func (the original function) instead of the
-            # StructuredTool so that functools.wraps copies __wrapped__ from a
-            # regular function.  Otherwise inspect.signature follows __wrapped__
-            # to the StructuredTool and crashes with "descriptor '__call__' for
-            # 'type' objects doesn't apply to a 'StructuredTool' object".
-            #
-            # Call the underlying function directly inside the wrapper — a
-            # StructuredTool is not callable with (*args, **kwargs) so we must
-            # reach through to .func.
-            inner = getattr(tool_fn, "func", tool_fn)
-
-            @functools.wraps(inner)
-            def wrapper(*args, **kwargs):
-                token = _config_ctx.set(config)
-                try:
-                    return inner(*args, **kwargs)
-                finally:
-                    _config_ctx.reset(token)
-
-            return wrapper
-
-        return {
-            "market": ToolNode(
-                [
-                    _with_config(get_crypto_ohlcv),
-                    _with_config(get_indicators),
-                    _with_config(get_multi_timeframe_analysis),
-                ]
-            ),
-            "social": ToolNode(
-                [
-                    _with_config(get_news),
-                    _with_config(get_fear_greed_index),
-                    _with_config(get_social_sentiment),
-                    _with_config(get_news_sentiment_aggregate),
-                ]
-            ),
-            "news": ToolNode(
-                [
-                    _with_config(get_news),
-                    _with_config(get_global_news),
-                    _with_config(get_news_sentiment_aggregate),
-                ]
-            ),
-            "onchain": ToolNode(
-                [
-                    _with_config(get_crypto_ticker),
-                    _with_config(get_crypto_long_short_ratio),
-                    _with_config(get_crypto_nvt),
-                    _with_config(get_crypto_supply),
-                    _with_config(get_crypto_exchange_metrics),
-                ]
-            ),
-        }
+    def _create_tool_nodes(self):
+        """Backward-compatible helper kept for older tests/callers."""
+        return create_tool_nodes(self.config)
 
     def _fetch_returns(
         self, ticker: str, trade_date: str, holding_days: int = 5
@@ -588,22 +448,42 @@ class ResearchAgentsGraph:
             else:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
-        try:
-            with observability_context(
-                symbol=company_name,
-                timeframe=str(trade_date),
-                asset_class=self.config.get("asset_class", "crypto"),
-            ):
-                return self._run_graph(company_name, trade_date, node_callback=node_callback)
-        except Exception as exc:
-            log_event(
-                logger,
-                "research_run_failed",
-                level=logging.ERROR,
-                error_type=type(exc).__name__,
-                error=str(exc),
+        obs_cfg = self.config.get("observability") or {}
+        persist_run_events = obs_cfg.get("persist_run_events", True)
+        journal_service = getattr(self.journal_bridge, "service", None)
+        persist_ctx = (
+            observability_run_event_persistence(
+                journal_service,
+                persist_provider_calls=obs_cfg.get(
+                    "persist_data_provider_calls", True
+                ),
             )
-            raise
+            if persist_run_events and journal_service is not None
+            else nullcontext()
+        )
+
+        try:
+            with config_context(self.config):
+                with observability_context(
+                    symbol=company_name,
+                    timeframe=str(trade_date),
+                    asset_class=self.config.get("asset_class", "crypto"),
+                ):
+                    with persist_ctx:
+                        try:
+                            return self._run_graph(
+                                company_name, trade_date, node_callback=node_callback
+                            )
+                        except Exception as exc:
+                            log_event(
+                                logger,
+                                "research_run_failed",
+                                level=logging.ERROR,
+                                error_type=type(exc).__name__,
+                                error=str(exc),
+                                run_id=getattr(self.current_research_run, "id", None),
+                            )
+                            raise
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -644,6 +524,9 @@ class ResearchAgentsGraph:
             trade_date=str(trade_date),
             asset_class=self.config.get("asset_class", "crypto"),
             llm_provider=self.config.get("llm_provider"),
+            checkpoint_enabled=bool(self.config.get("checkpoint_enabled")),
+            quick_think_llm=self.config.get("quick_think_llm"),
+            deep_think_llm=self.config.get("deep_think_llm"),
         )
 
         # Pre-flight: compute quantitative signal before graph starts
@@ -725,6 +608,9 @@ class ResearchAgentsGraph:
             symbol=company_name,
             trade_date=str(trade_date),
             final_signal=final_signal,
+            checkpoint_enabled=bool(self.config.get("checkpoint_enabled")),
+            quick_think_llm=self.config.get("quick_think_llm"),
+            deep_think_llm=self.config.get("deep_think_llm"),
         )
 
         # Build a trade plan if enabled. This project is now a research

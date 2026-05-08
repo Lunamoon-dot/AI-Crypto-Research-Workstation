@@ -176,7 +176,6 @@ def test_journal_service_persists_thesis_timeline(tmp_path):
         )
     )
 
-    run_events = service.list_timeline_events(research_run_id=run.id)
     thesis_events = service.list_timeline_events(thesis_id=thesis.id)
     loaded_run = service.get_research_run(run.id)
 
@@ -185,7 +184,6 @@ def test_journal_service_persists_thesis_timeline(tmp_path):
         "user_decision_recorded",
         "outcome_review_recorded",
     ]
-    assert any(event.event_type == "research_run_started" for event in run_events)
     assert loaded_run.user_decision_id == decision.id
     assert loaded_run.outcome_review_id == review.id
 

@@ -37,6 +37,11 @@ DEFAULT_CONFIG = {
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     "anthropic_effort": None,           # "high", "medium", "low"
+    # Structured observability (Phase 11): JSON logs + optional journal run_events.
+    "observability": {
+        "persist_run_events": True,
+        "persist_data_provider_calls": True,
+    },
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
