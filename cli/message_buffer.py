@@ -11,7 +11,7 @@ class MessageBuffer:
 
     FIXED_AGENTS = {
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
+        "Thesis Team": ["Trader"],
         "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
         "Portfolio Management": ["Portfolio Manager"],
     }
@@ -116,7 +116,7 @@ class MessageBuffer:
                 "news_report": "News Analysis",
                 "fundamentals_report": "Onchain Analysis",
                 "investment_plan": "Research Team Decision",
-                "trader_investment_plan": "Trading Team Plan",
+                "trader_investment_plan": "Thesis Team Plan",
                 "final_trade_decision": "Portfolio Management Decision",
             }
             self.current_report = (
@@ -158,7 +158,7 @@ class MessageBuffer:
             report_parts.append(f"{self.report_sections['investment_plan']}")
 
         if self.report_sections.get("trader_investment_plan"):
-            report_parts.append("## Trading Team Plan")
+            report_parts.append("## Thesis Team Plan")
             report_parts.append(f"{self.report_sections['trader_investment_plan']}")
 
         if self.report_sections.get("final_trade_decision"):

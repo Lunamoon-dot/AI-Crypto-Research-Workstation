@@ -1,4 +1,4 @@
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ config["quick_think_llm"] = "gpt-5.4-mini"
 config["max_debate_rounds"] = 1
 
 # Initialize with custom config
-ta = TradingAgentsGraph(debug=True, config=config)
+ta = ResearchAgentsGraph(debug=True, config=config)
 
 # forward propagate
 _, decision = ta.propagate("ETH/USDT", "2024-05-10")

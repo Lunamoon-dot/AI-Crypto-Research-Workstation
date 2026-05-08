@@ -17,7 +17,9 @@ from tqdm import tqdm
 
 from tradingagents.backtesting.runner import BacktestRunner
 from tradingagents.config_manager import resolve_config
+from tradingagents.domain import EvaluationMetricsRow, ThesisEvaluation
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
+from tradingagents.services import EvaluationService
 from cli.preflight import check_api_keys
 
 load_dotenv()
@@ -34,6 +36,80 @@ backtest_app = typer.Typer(
 def backtest_default():
     """Show help when no subcommand is given."""
     pass
+
+
+@backtest_app.command(name="thesis")
+def evaluate_thesis(
+    thesis_id: str = typer.Argument(..., help="Saved thesis id to evaluate."),
+    window_days: int = typer.Option(
+        14,
+        "--window-days",
+        "-w",
+        min=1,
+        help="Forward OHLCV window used for thesis-quality evaluation.",
+    ),
+    record_review: bool = typer.Option(
+        False,
+        "--record-review",
+        help="Also save an OutcomeReview from this evaluation.",
+    ),
+):
+    """Evaluate one saved thesis over a forward OHLCV window."""
+    try:
+        evaluation = EvaluationService().evaluate_thesis(
+            thesis_id,
+            window_days=window_days,
+            record_review=record_review,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _display_thesis_evaluation(evaluation)
+
+
+@backtest_app.command(name="batch")
+def evaluate_batch(
+    symbol: str | None = typer.Option(None, "--symbol", help="Filter saved theses by symbol."),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, help="Maximum saved theses to evaluate."),
+    window_days: int = typer.Option(
+        14,
+        "--window-days",
+        "-w",
+        min=1,
+        help="Forward OHLCV window used for each thesis.",
+    ),
+):
+    """Evaluate recent saved theses without replaying historical research."""
+    evaluations = EvaluationService().evaluate_batch(
+        symbol=symbol,
+        limit=limit,
+        window_days=window_days,
+    )
+    _display_evaluation_table(evaluations, title="Historical Thesis Quality Evaluation")
+
+
+@backtest_app.command(name="results")
+def evaluation_results(
+    thesis_id: str | None = typer.Option(None, "--thesis-id", help="Filter by thesis id."),
+    symbol: str | None = typer.Option(None, "--symbol", help="Filter by symbol."),
+    limit: int = typer.Option(50, "--limit", "-n", min=1),
+):
+    """List persisted thesis evaluation results."""
+    evaluations = EvaluationService().list_evaluations(
+        thesis_id=thesis_id,
+        symbol=symbol,
+        limit=limit,
+    )
+    _display_evaluation_table(evaluations, title="Saved Thesis Evaluations")
+
+
+@backtest_app.command(name="analytics")
+def evaluation_analytics(
+    symbol: str | None = typer.Option(None, "--symbol", help="Filter evaluations by symbol."),
+    limit: int = typer.Option(300, "--limit", "-n", min=1),
+):
+    """Aggregate thesis-quality analytics by symbol/setup/signal/agent/confidence."""
+    analytics = EvaluationService().build_analytics(symbol=symbol, limit=limit)
+    _display_analytics(analytics)
 
 
 @backtest_app.command()
@@ -231,6 +307,131 @@ def _display_result(result) -> None:
         )
         table.add_row("Rating Distribution", dist_str)
 
+    console.print(table)
+
+
+def _display_thesis_evaluation(evaluation: ThesisEvaluation) -> None:
+    console.print(
+        Panel(
+            "\n".join(
+                [
+                    f"Evaluation ID: {evaluation.id}",
+                    f"Thesis: {evaluation.thesis_id}",
+                    f"Symbol: {evaluation.symbol}",
+                    f"Window: {evaluation.evaluation_start.isoformat()} -> {evaluation.evaluation_end.isoformat()} ({evaluation.window_days}d)",
+                    f"Result: {evaluation.result.value}",
+                    f"Target Hit: {'yes' if evaluation.target_hit else 'no'}",
+                    f"Invalidated: {'yes' if evaluation.invalidated else 'no'}",
+                    f"MFE: {_fmt_pct(evaluation.max_favorable_excursion)}",
+                    f"MAE: {_fmt_pct(evaluation.max_adverse_excursion)}",
+                    f"Time To Target: {_fmt_days(evaluation.time_to_target_days)}",
+                    f"Time To Invalidation: {_fmt_days(evaluation.time_to_invalidation_days)}",
+                    "",
+                    "Note: this evaluates saved thesis quality from forward OHLCV. "
+                    "It is not broker PnL and does not replay historical news/provider context.",
+                ]
+            ),
+            title="Thesis Quality Evaluation",
+            border_style="cyan",
+        )
+    )
+    if evaluation.notes:
+        console.print(
+            Panel(
+                "\n".join(f"- {note}" for note in evaluation.notes),
+                title="Scope Notes",
+                border_style="yellow",
+            )
+        )
+
+
+def _display_evaluation_table(
+    evaluations: list[ThesisEvaluation],
+    *,
+    title: str,
+) -> None:
+    table = Table(title=title, header_style="bold magenta")
+    table.add_column("Evaluation", style="dim")
+    table.add_column("Thesis", style="dim")
+    table.add_column("Symbol", style="cyan")
+    table.add_column("Result")
+    table.add_column("MFE")
+    table.add_column("MAE")
+    table.add_column("Target")
+    table.add_column("Invalidated")
+    table.add_column("Window")
+    for evaluation in evaluations:
+        table.add_row(
+            evaluation.id or "",
+            evaluation.thesis_id,
+            evaluation.symbol,
+            evaluation.result.value,
+            _fmt_pct(evaluation.max_favorable_excursion),
+            _fmt_pct(evaluation.max_adverse_excursion),
+            "yes" if evaluation.target_hit else "no",
+            "yes" if evaluation.invalidated else "no",
+            f"{evaluation.evaluation_start.isoformat()} -> {evaluation.evaluation_end.isoformat()}",
+        )
+    console.print(table)
+    if not evaluations:
+        console.print("[yellow]No thesis evaluations found.[/yellow]")
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "-" if value is None else f"{value:+.2%}"
+
+
+def _fmt_days(value: int | None) -> str:
+    return "-" if value is None else f"{value}d"
+
+
+def _display_analytics(analytics) -> None:
+    overall = analytics.overall
+    console.print(
+        Panel(
+            "\n".join(
+                [
+                    f"Sample Size: {overall.sample_size}",
+                    f"Hit Rate: {_fmt_pct(overall.hit_rate)}",
+                    f"Invalidation Rate: {_fmt_pct(overall.invalidation_rate)}",
+                    f"Mixed Rate: {_fmt_pct(overall.mixed_rate)}",
+                    f"Expired Rate: {_fmt_pct(overall.expired_rate)}",
+                    f"Average MFE: {_fmt_pct(overall.average_mfe)}",
+                    f"Average MAE: {_fmt_pct(overall.average_mae)}",
+                ]
+            ),
+            title="Evaluation Analytics Overview",
+            border_style="cyan",
+        )
+    )
+    _print_metrics_rows("By Symbol", analytics.by_symbol)
+    _print_metrics_rows("By Setup", analytics.by_setup)
+    _print_metrics_rows("By Confidence Bucket", analytics.by_confidence_bucket)
+    _print_metrics_rows("By Signal", analytics.by_signal)
+    _print_metrics_rows("By Agent", analytics.by_agent)
+
+
+def _print_metrics_rows(title: str, rows: list[EvaluationMetricsRow]) -> None:
+    table = Table(title=title)
+    table.add_column("Key", style="cyan")
+    table.add_column("N")
+    table.add_column("Hit")
+    table.add_column("Invalidated")
+    table.add_column("Mixed")
+    table.add_column("Expired")
+    table.add_column("MFE")
+    table.add_column("MAE")
+    for row in rows:
+        table.add_row(
+            row.key,
+            str(row.sample_size),
+            _fmt_pct(row.hit_rate),
+            _fmt_pct(row.invalidation_rate),
+            _fmt_pct(row.mixed_rate),
+            _fmt_pct(row.expired_rate),
+            _fmt_pct(row.average_mfe),
+            _fmt_pct(row.average_mae),
+        )
     console.print(table)
 
 

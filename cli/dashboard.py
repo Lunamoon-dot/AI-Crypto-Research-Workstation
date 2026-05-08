@@ -32,7 +32,7 @@ def dashboard(
             f"Items: [bold]{brief.item_count}[/bold] | "
             f"Theses: [bold cyan]{brief.thesis_count}[/bold cyan] | "
             f"Recent alerts: [bold]{len(brief.alerts)}[/bold]",
-            title="TradingAgents Research Workspace",
+            title="Research Workspace",
             border_style="cyan",
         )
     )
@@ -77,7 +77,7 @@ def dashboard(
     )
     console.print(
         Panel(
-            "- tradingagents analyze\n"
+            "- tradingagents research run\n"
             "- tradingagents journal workspace <run_id>\n"
             "- tradingagents watchlist brief\n"
             "- tradingagents watchlist check",

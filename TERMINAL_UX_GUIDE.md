@@ -13,7 +13,7 @@ tradingagents
 Các nhóm lệnh quan trọng:
 
 ```bash
-tradingagents analyze
+tradingagents research run
 tradingagents research ...
 tradingagents dashboard
 tradingagents journal ...
@@ -73,7 +73,7 @@ tradingagents
 Hoặc:
 
 ```bash
-tradingagents analyze
+tradingagents research run
 ```
 
 Wizard sẽ hỏi symbol, date, analysts, model/provider, research depth và thesis planning.
@@ -83,10 +83,9 @@ Wizard sẽ hỏi symbol, date, analysts, model/provider, research depth và the
 Dùng khi muốn chạy bằng script/CI/terminal nhanh:
 
 ```bash
-tradingagents analyze \
+tradingagents research run BTC/USDT \
   --non-interactive \
   --plain \
-  --ticker BTC/USDT \
   --date 2026-05-08 \
   --analysts market,social,news,onchain \
   --research-depth 1
@@ -95,10 +94,9 @@ tradingagents analyze \
 Có thể chỉ định model/provider:
 
 ```bash
-tradingagents analyze \
+tradingagents research run ETH/USDT \
   --non-interactive \
   --plain \
-  --ticker ETH/USDT \
   --llm-provider openai \
   --quick-model gpt-5.4-mini \
   --deep-model gpt-5.4
@@ -107,10 +105,9 @@ tradingagents analyze \
 Lưu report không cần prompt:
 
 ```bash
-tradingagents analyze \
+tradingagents research run BTC/USDT \
   --non-interactive \
   --plain \
-  --ticker BTC/USDT \
   --save-report \
   --save-path reports/BTC_manual_run
 ```
@@ -431,7 +428,7 @@ tradingagents journal retrospective
 Một flow ngắn để test sản phẩm:
 
 ```bash
-tradingagents analyze --non-interactive --plain --ticker BTC/USDT --date 2026-05-08
+tradingagents research run BTC/USDT --non-interactive --plain --date 2026-05-08
 tradingagents journal list
 tradingagents journal workspace <run_id>
 tradingagents thesis list

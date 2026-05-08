@@ -182,5 +182,5 @@ def test_dashboard_renders_terminal_home(tmp_path, monkeypatch):
     result = runner.invoke(dashboard.app, [])
 
     assert result.exit_code == 0
-    assert "TradingAgents Research Workspace" in result.output
+    assert "Research Workspace" in result.output
     assert "BTC/USDT" in result.output

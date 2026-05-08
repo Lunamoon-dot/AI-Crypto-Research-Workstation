@@ -262,4 +262,23 @@ ON market_briefs(brief_date DESC, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_market_briefs_watchlist
 ON market_briefs(watchlist_name, brief_date DESC);
+
+CREATE TABLE IF NOT EXISTS thesis_evaluations (
+    id TEXT PRIMARY KEY,
+    thesis_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    evaluated_at TEXT NOT NULL,
+    evaluation_start TEXT NOT NULL,
+    evaluation_end TEXT NOT NULL,
+    result TEXT NOT NULL,
+    invalidated INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_thesis
+ON thesis_evaluations(thesis_id, evaluated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_symbol
+ON thesis_evaluations(symbol, evaluated_at DESC);
 """

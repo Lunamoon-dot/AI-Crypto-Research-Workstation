@@ -43,7 +43,7 @@ class ReportGenerator:
         Parameters
         ----------
         final_state : The final state dict from the graph run
-        execution_result : Optional execution summary string
+        execution_result : Optional thesis-planning summary string
         include_charts : Whether to embed chart references
 
         Returns
@@ -103,9 +103,9 @@ class ReportGenerator:
 
     def _header(self, ticker: str, trade_date: str) -> str:
         return (
-            f"# TradingAgents Analysis Report\n\n"
+            f"# TradingAgents Research Report\n\n"
             f"**Instrument**: {ticker}\n\n"
-            f"**Trade Date**: {trade_date}\n\n"
+            f"**Analysis Date**: {trade_date}\n\n"
             f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n\n"
             f"**Asset Class**: Crypto\n\n"
             f"**LLM Provider**: {self.config.get('llm_provider', 'unknown').title()}"
@@ -126,7 +126,7 @@ class ReportGenerator:
                 break
 
         if execution_result:
-            section += f"\n**Trade Plan**: {execution_result}\n"
+            section += f"\n**Thesis Plan**: {execution_result}\n"
 
         return section
 
@@ -159,7 +159,7 @@ class ReportGenerator:
 
     def _trader_plan(self, state: dict) -> str:
         plan = state.get("trader_investment_plan", "")
-        section = "## Trader's Transaction Proposal\n\n"
+        section = "## Thesis Planner Proposal\n\n"
         section += plan if plan else "_No trader proposal available._"
         return section
 
@@ -178,7 +178,7 @@ class ReportGenerator:
 
     def _final_decision(self, state: dict) -> str:
         decision = state.get("final_trade_decision", "")
-        section = "## Final Trade Decision\n\n"
+        section = "## Final Thesis Decision\n\n"
         section += decision if decision else "_Pending._"
         return section
 

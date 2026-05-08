@@ -39,7 +39,7 @@ The codebase has already been reset away from dangerous autonomous execution:
   - `ResearchAgentsGraph` is available as the forward-facing graph name;
   - the graph builds `ResearchRun` and `TradeThesis` artifacts internally;
   - CLI configuration now uses assisted planning terminology while preserving legacy compatibility;
-  - reports label the output as `Trade Plan`, not execution.
+  - reports label the output as `Thesis Plan`, not execution.
 - Phase 2 MVP has started:
   - `tradingagents/storage/` provides local SQLite schema and persistence helpers;
   - `tradingagents/services/journal_service.py` is the application boundary for journal operations;
@@ -796,7 +796,7 @@ The current command tree should be documented and improved before adding a new U
 
 ```bash
 tradingagents
-tradingagents analyze
+tradingagents research run
 
 tradingagents journal path
 tradingagents journal list
@@ -873,7 +873,7 @@ The user should immediately know:
 ### Deep Research Workflow
 
 ```bash
-tradingagents analyze
+tradingagents research run
 tradingagents journal list
 tradingagents journal workspace <run_id>
 ```
@@ -1200,6 +1200,79 @@ Estimated time: 3-6 weeks.
 ## Goal
 
 Evaluate thesis quality without pretending to run a broker-accurate backtest.
+
+MVP implementation status: started. The core local evaluator now scores saved
+journal theses over a forward OHLCV window, persists `ThesisEvaluation` records,
+and exposes CLI commands for one-thesis, batch, and saved-result inspection. This
+MVP deliberately evaluates theses that already exist in the journal; it does not
+yet replay full historical research or enforce provider-level no-lookahead
+contracts.
+
+## Phase 9 Build Stages
+
+### 9A: Saved Thesis Outcome Evaluation
+
+Core build:
+
+```text
+Saved TradeThesis
+-> forward OHLCV window
+-> target / invalidation detection
+-> MFE / MAE
+-> time to target / invalidation
+-> persisted ThesisEvaluation
+```
+
+This is the safest first step because the thesis already existed before the
+evaluation window. It evaluates thesis quality without rerunning agents or
+pretending to simulate broker execution.
+
+### 9B: Evaluation Analytics
+
+Aggregate stored `ThesisEvaluation` records by:
+
+- symbol;
+- setup type;
+- signal mix;
+- agent consensus/conflict;
+- confidence bucket;
+- market regime.
+
+This turns isolated outcomes into reliability intelligence.
+
+### 9C: Historical Data Contracts
+
+This is where Phase 9 becomes hard. Each data provider must explicitly declare:
+
+- whether historical data is supported;
+- the maximum lookback;
+- source timestamp semantics;
+- freshness rules;
+- unsupported modes.
+
+Providers that cannot prove historical correctness must be marked unsupported
+for replay.
+
+### 9D: No-Lookahead Research Replay
+
+Only after 9C should the app rerun research for historical dates. Replay must
+ensure:
+
+- price candles stop at the replay timestamp;
+- news and macro inputs are historical only;
+- signal source timestamps are not after the replay timestamp;
+- prompts cannot include future context;
+- missing historical sources are visible, not silently substituted.
+
+### 9E: Agent And Signal Reliability
+
+Once replay and outcome records are trustworthy, compute:
+
+- signal hit rate;
+- agent stance calibration;
+- contradiction usefulness;
+- confidence calibration;
+- setup quality by regime.
 
 ## Do Not Fake These Metrics
 

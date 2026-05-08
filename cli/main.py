@@ -37,7 +37,7 @@ console = Console()
 
 app = typer.Typer(
     name="TradingAgents",
-    help="TradingAgents CLI: AI crypto research workstation",
+    help="TradingAgents CLI: AI crypto research workspace",
     add_completion=True,  # Enable shell completion
 )
 
@@ -97,7 +97,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         Panel(
             "[bold green]Welcome to TradingAgents CLI[/bold green]\n"
             "[dim]© [Tauric Research](https://github.com/TauricResearch)[/dim]",
-            title="Welcome to TradingAgents",
+            title="Research Workstation",
             border_style="green",
             padding=(1, 2),
             expand=True,
@@ -127,7 +127,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
             "Onchain Analyst",
         ],
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
+        "Thesis Team": ["Trader"],
         "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
         "Portfolio Management": ["Portfolio Manager"],
     }
@@ -311,11 +311,11 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
 
 
 def _render_execution_panel(layout):
-    """Render the assisted trade-planning panel at the bottom of the layout."""
+    """Render the assisted thesis-planning panel at the bottom of the layout."""
     exec_result = message_buffer.execution_result
     if exec_result is None:
         layout["execution"].update(
-            Panel("[dim]Trade planning disabled or pending...[/dim]", border_style="grey50")
+            Panel("[dim]Thesis planning disabled or pending...[/dim]", border_style="grey50")
         )
         return
 
@@ -334,7 +334,7 @@ def _render_execution_panel(layout):
 
     # Style by status
     styles = {
-        "planned": ("cyan", "[bold cyan]TRADE PLAN[/bold cyan]"),
+        "planned": ("cyan", "[bold cyan]THESIS PLAN[/bold cyan]"),
         "watch": ("yellow", "[bold yellow]WATCH[/bold yellow]"),
         "blocked": ("red", "[bold red]BLOCKED[/bold red]"),
         "error": ("red", "[bold red]ERROR[/bold red]"),
@@ -367,12 +367,12 @@ def _render_execution_panel(layout):
 
     content = "\n".join(lines)
     layout["execution"].update(
-        Panel(content, title="Trade Plan", border_style=border_color)
+        Panel(content, title="Thesis Plan", border_style=border_color)
     )
 
 
 def _print_execution_summary(exec_result):
-    """Print a prominent Rich Panel with the full trade-planning summary.
+    """Print a prominent Rich Panel with the full thesis-planning summary.
 
     Called after the Live display ends, before the "Save report?" prompt.
     Panel border color: cyan=planned, yellow=watch, red=blocked/error.
@@ -394,16 +394,16 @@ def _print_execution_summary(exec_result):
     # Decide panel style
     if status == "planned":
         border_style = "cyan"
-        title = "[cyan]Assisted Trade Plan[/cyan]"
+        title = "[cyan]Assisted Thesis Plan[/cyan]"
     elif status == "watch":
         border_style = "yellow"
-        title = "[yellow]Assisted Trade Plan - WATCH[/yellow]"
+        title = "[yellow]Assisted Thesis Plan - WATCH[/yellow]"
     elif status == "blocked":
         border_style = "red"
-        title = "[red]Assisted Trade Plan - BLOCKED[/red]"
+        title = "[red]Assisted Thesis Plan - BLOCKED[/red]"
     else:
         border_style = "red"
-        title = "[red]Assisted Trade Plan - ERROR[/red]"
+        title = "[red]Assisted Thesis Plan - ERROR[/red]"
 
     lines = []
     lines.append(f"Symbol:     {symbol}")
@@ -448,7 +448,7 @@ def get_user_selections():
 
     # Create welcome box content
     welcome_content = f"{welcome_ascii}\n"
-    welcome_content += "[bold green]TradingAgents: AI Crypto Research Workstation[/bold green]\n\n"
+    welcome_content += "[bold green]TradingAgents: AI Crypto Research Workspace[/bold green]\n\n"
     welcome_content += "[bold]Research Workflow:[/bold]\n"
     welcome_content += "I. Analysts -> II. Research Debate -> III. Thesis Plan -> IV. Risk Review -> V. Journal\n\n"
     welcome_content += (
@@ -460,7 +460,7 @@ def get_user_selections():
         welcome_content,
         border_style="green",
         padding=(1, 2),
-        title="Welcome to TradingAgents",
+        title="Research Workstation",
         subtitle="Local-first crypto research and trade-thesis copilot",
     )
     console.print(Align.center(welcome_box))
@@ -683,12 +683,12 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             content = "\n\n".join(f"### {name}\n{text}" for name, text in research_parts)
             sections.append(f"## II. Research Team Decision\n\n{content}")
 
-    # 3. Trading
+    # 3. Thesis planning
     if final_state.get("trader_investment_plan"):
         trading_dir = save_path / "3_trading"
         trading_dir.mkdir(exist_ok=True)
         (trading_dir / "trader.md").write_text(final_state["trader_investment_plan"], encoding="utf-8")
-        sections.append(f"## III. Trading Team Plan\n\n### Trader\n{final_state['trader_investment_plan']}")
+        sections.append(f"## III. Thesis Team Plan\n\n### Trader\n{final_state['trader_investment_plan']}")
 
     # 4. Risk Management
     if final_state.get("risk_debate_state"):
@@ -719,7 +719,7 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    header = f"# Research Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
     return save_path / "complete_report.md"
 
@@ -759,9 +759,9 @@ def display_complete_report(final_state):
             for title, content in research:
                 console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # III. Trading Team
+    # III. Thesis Team
     if final_state.get("trader_investment_plan"):
-        console.print(Panel("[bold]III. Trading Team Plan[/bold]", border_style="yellow"))
+        console.print(Panel("[bold]III. Thesis Team Plan[/bold]", border_style="yellow"))
         console.print(Panel(Markdown(final_state["trader_investment_plan"]), title="Trader", border_style="blue", padding=(1, 2)))
 
     # IV. Risk Management Team
@@ -1314,13 +1314,14 @@ def run_analysis(
 
     decision = graph.process_signal(final_state["final_trade_decision"])
 
+    # Legacy helper path kept for compatibility with older integrations.
     from tradingagents.graph.trading_graph import _exec_result_to_str
 
     exec_result = graph._build_trade_plan(final_state)
     if exec_result is not None:
         message_buffer.execution_result = exec_result
         msg = _exec_result_to_str(exec_result)
-        message_buffer.add_message("Trade Plan", msg)
+        message_buffer.add_message("Thesis Plan", msg)
 
     for agent in message_buffer.agent_status:
         message_buffer.update_agent_status(agent, "completed")

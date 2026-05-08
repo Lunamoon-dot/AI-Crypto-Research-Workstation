@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from tradingagents.domain import DataFreshness, Signal, SignalDirection, SignalProvenance, ThesisDirection
-from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
 from tradingagents.signals.provenance import (
     freshness_from_timestamp,
@@ -96,7 +96,7 @@ def test_parse_signal_timestamp_returns_none_for_invalid_timestamp():
 
 
 def test_thesis_signal_classification_by_direction():
-    graph = TradingAgentsGraph.__new__(TradingAgentsGraph)
+    graph = ResearchAgentsGraph.__new__(ResearchAgentsGraph)
     graph.current_signals = [
         Signal(
             id="sig_bull",

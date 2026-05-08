@@ -481,5 +481,10 @@ def ask_planning_config() -> dict:
 
 
 def ask_execution_config() -> dict:
-    """Backward-compatible wrapper for old CLI imports."""
+    """Deprecated compatibility wrapper; prefer ``ask_planning_config``.
+
+    Kept to avoid breaking downstream scripts during the research-first
+    transition and to preserve a stable API boundary for the optional
+    assisted-execution phase later in the roadmap.
+    """
     return ask_planning_config()

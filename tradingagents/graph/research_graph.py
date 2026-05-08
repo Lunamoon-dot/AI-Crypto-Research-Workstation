@@ -1,12 +1,6 @@
-"""Research-workstation graph entrypoint.
+"""Research-workstation graph entrypoint."""
 
-The legacy class name ``TradingAgentsGraph`` remains available for backward
-compatibility, but new code should import ``ResearchAgentsGraph``.
-"""
+from .research_agents_graph import ResearchAgentsGraph, TradingAgentsGraph
 
-from .trading_graph import TradingAgentsGraph
-
-
-class ResearchAgentsGraph(TradingAgentsGraph):
-    """Backward-compatible graph with research-workstation naming."""
+__all__ = ["ResearchAgentsGraph", "TradingAgentsGraph"]
 

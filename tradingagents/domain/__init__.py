@@ -9,6 +9,7 @@ from .agent_opinion import AgentOpinion, AgentStance
 from .brief import BriefAssetSummary, BriefThesisUpdate, MarketBrief
 from .debate import ConflictLevel, ResearchDebate
 from .decision import UserDecision, UserDecisionAction
+from .evaluation import EvaluationAnalytics, EvaluationMetricsRow, ThesisEvaluation
 from .outcome import OutcomeReview, OutcomeResult
 from .outcome_analytics import OutcomeAnalytics, RetrospectiveInsight
 from .planning import PlanningStatus, TradePlanRecommendation
@@ -47,6 +48,9 @@ __all__ = [
     "SignalSnapshot",
     "SignalProvenance",
     "ThesisDirection",
+    "EvaluationAnalytics",
+    "EvaluationMetricsRow",
+    "ThesisEvaluation",
     "TradePlanRecommendation",
     "TradeThesis",
     "TimelineEvent",
