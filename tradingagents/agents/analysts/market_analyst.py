@@ -74,7 +74,7 @@ def create_market_analyst(llm, config=None):
 
         chain = prompt | llm.bind_tools(tools)
 
-        messages = state.get("market_messages", state.get("messages", []))
+        messages = state.get("messages", [])
         result = chain.invoke(messages)
 
         report = ""
@@ -83,8 +83,8 @@ def create_market_analyst(llm, config=None):
             report = result.content
 
         return {
-            "market_messages": messages + [result],
             "market_report": report,
+            "messages": [result],
         }
 
     return market_analyst_node

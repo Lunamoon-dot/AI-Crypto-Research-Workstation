@@ -47,7 +47,7 @@ def create_news_analyst(llm, config=None):
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)
-        messages = state.get("news_messages", state.get("messages", []))
+        messages = state.get("messages", [])
         result = chain.invoke(messages)
 
         report = ""
@@ -56,8 +56,8 @@ def create_news_analyst(llm, config=None):
             report = result.content
 
         return {
-            "news_messages": messages + [result],
             "news_report": report,
+            "messages": [result],
         }
 
     return news_analyst_node

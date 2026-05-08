@@ -325,10 +325,6 @@ def _default_command(ctx: Context) -> None:
         run_analysis(checkpoint=False)
 
 
-if __name__ == "__main__":
-    app()
-
-
 # ---------------------------------------------------------------------------
 # Backward-compatible module-level wrapper
 # ---------------------------------------------------------------------------
@@ -358,3 +354,7 @@ def run_analysis(
         save_path=save_path,
         _graph_class=ResearchAgentsGraph,
     )
+
+
+if __name__ == "__main__":
+    app()

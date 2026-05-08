@@ -3,21 +3,12 @@
 from tradingagents.agents.utils.agent_states import AgentState
 
 
-# Per-analyst message scope keys — mirrors ANALYST_MESSAGE_KEYS in setup.py
-_MESSAGE_SCOPES = {
-    "market": "market_messages",
-    "social": "social_messages",
-    "news": "news_messages",
-    "onchain": "onchain_messages",
-    "fundamentals": "onchain_messages",  # legacy alias
-}
-
-
 class ConditionalLogic:
     """Handles conditional logic for determining graph flow.
 
-    With parallel analyst fan-out, each ``should_continue_*`` method reads
-    from the analyst's own message scope instead of the shared ``messages``.
+    With sequential analyst execution, each ``should_continue_*`` method reads
+    from the shared ``messages`` channel — tool results accumulate through
+    LangGraph's ``add_messages`` reducer.
     """
 
     def __init__(self, max_debate_rounds=1, max_risk_discuss_rounds=1):
@@ -25,61 +16,55 @@ class ConditionalLogic:
         self.max_debate_rounds = max_debate_rounds
         self.max_risk_discuss_rounds = max_risk_discuss_rounds
 
-    def _get_messages(self, state: AgentState, analyst_key: str):
-        """Return the appropriate message list for *analyst_key*."""
-        scope_key = _MESSAGE_SCOPES.get(analyst_key, "messages")
-        messages = state.get(scope_key, state.get("messages", []))
-        return messages
+    @staticmethod
+    def _get_last_message(state):
+        messages = state.get("messages", [])
+        return messages[-1] if messages else None
 
-    def should_continue_market(self, state: AgentState):
+    def should_continue_market(self, state):
         """Determine if market analysis should continue."""
-        messages = self._get_messages(state, "market")
-        if not messages:
-            return "aggregate_analysts"
-        last_message = messages[-1]
-        if getattr(last_message, "tool_calls", None):
+        last = self._get_last_message(state)
+        if last is None:
+            return "Social Analyst"
+        if getattr(last, "tool_calls", None):
             return "tools_market"
-        return "aggregate_analysts"
+        return "Social Analyst"
 
-    def should_continue_social(self, state: AgentState):
+    def should_continue_social(self, state):
         """Determine if social media analysis should continue."""
-        messages = self._get_messages(state, "social")
-        if not messages:
-            return "aggregate_analysts"
-        last_message = messages[-1]
-        if getattr(last_message, "tool_calls", None):
+        last = self._get_last_message(state)
+        if last is None:
+            return "News Analyst"
+        if getattr(last, "tool_calls", None):
             return "tools_social"
-        return "aggregate_analysts"
+        return "News Analyst"
 
-    def should_continue_news(self, state: AgentState):
+    def should_continue_news(self, state):
         """Determine if news analysis should continue."""
-        messages = self._get_messages(state, "news")
-        if not messages:
-            return "aggregate_analysts"
-        last_message = messages[-1]
-        if getattr(last_message, "tool_calls", None):
+        last = self._get_last_message(state)
+        if last is None:
+            return "Onchain Analyst"
+        if getattr(last, "tool_calls", None):
             return "tools_news"
-        return "aggregate_analysts"
+        return "Onchain Analyst"
 
-    def should_continue_fundamentals(self, state: AgentState):
+    def should_continue_fundamentals(self, state):
         """Determine if fundamentals analysis should continue."""
-        messages = self._get_messages(state, "fundamentals")
-        if not messages:
-            return "aggregate_analysts"
-        last_message = messages[-1]
-        if getattr(last_message, "tool_calls", None):
+        last = self._get_last_message(state)
+        if last is None:
+            return "Bull Researcher"
+        if getattr(last, "tool_calls", None):
             return "tools_fundamentals"
-        return "aggregate_analysts"
+        return "Bull Researcher"
 
-    def should_continue_onchain(self, state: AgentState):
-        """Determine if on-chain analysis should continue (crypto mode)."""
-        messages = self._get_messages(state, "onchain")
-        if not messages:
-            return "aggregate_analysts"
-        last_message = messages[-1]
-        if getattr(last_message, "tool_calls", None):
+    def should_continue_onchain(self, state):
+        """Determine if on-chain analysis should continue."""
+        last = self._get_last_message(state)
+        if last is None:
+            return "Bull Researcher"
+        if getattr(last, "tool_calls", None):
             return "tools_onchain"
-        return "aggregate_analysts"
+        return "Bull Researcher"
 
     def should_continue_debate(self, state: AgentState) -> str:
         """Determine if debate should continue."""

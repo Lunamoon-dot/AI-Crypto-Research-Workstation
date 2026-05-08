@@ -51,7 +51,7 @@ def create_social_media_analyst(llm, config=None):
 
         chain = prompt | llm.bind_tools(tools)
 
-        messages = state.get("social_messages", state.get("messages", []))
+        messages = state.get("messages", [])
         result = chain.invoke(messages)
 
         report = ""
@@ -60,8 +60,8 @@ def create_social_media_analyst(llm, config=None):
             report = result.content
 
         return {
-            "social_messages": messages + [result],
             "sentiment_report": report,
+            "messages": [result],
         }
 
     return social_media_analyst_node

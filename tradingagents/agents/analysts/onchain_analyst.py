@@ -84,7 +84,7 @@ def create_onchain_analyst(llm, config=None):
 
         chain = prompt | llm.bind_tools(tools)
 
-        messages = state.get("onchain_messages", state.get("messages", []))
+        messages = state.get("messages", [])
         result = chain.invoke(messages)
 
         report = ""
@@ -93,8 +93,8 @@ def create_onchain_analyst(llm, config=None):
             report = result.content
 
         return {
-            "onchain_messages": messages + [result],
             "fundamentals_report": report,
+            "messages": [result],
         }
 
     return onchain_analyst_node

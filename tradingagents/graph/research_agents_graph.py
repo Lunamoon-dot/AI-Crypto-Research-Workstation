@@ -60,6 +60,7 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.reporting import ReportGenerator
+from tradingagents.observability import bind_observability_context, log_event, observability_context
 from tradingagents.graph.journal_bridge import JournalBridge
 from tradingagents.graph.planning import (
     build_trade_plan,
@@ -380,13 +381,25 @@ class ResearchAgentsGraph:
         config = self.config
 
         def _with_config(tool_fn):
-            @functools.wraps(tool_fn)
+            # Wrap on tool_fn.func (the original function) instead of the
+            # StructuredTool so that functools.wraps copies __wrapped__ from a
+            # regular function.  Otherwise inspect.signature follows __wrapped__
+            # to the StructuredTool and crashes with "descriptor '__call__' for
+            # 'type' objects doesn't apply to a 'StructuredTool' object".
+            #
+            # Call the underlying function directly inside the wrapper — a
+            # StructuredTool is not callable with (*args, **kwargs) so we must
+            # reach through to .func.
+            inner = getattr(tool_fn, "func", tool_fn)
+
+            @functools.wraps(inner)
             def wrapper(*args, **kwargs):
                 token = _config_ctx.set(config)
                 try:
-                    return tool_fn(*args, **kwargs)
+                    return inner(*args, **kwargs)
                 finally:
                     _config_ctx.reset(token)
+
             return wrapper
 
         return {
@@ -576,7 +589,21 @@ class ResearchAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date, node_callback=node_callback)
+            with observability_context(
+                symbol=company_name,
+                timeframe=str(trade_date),
+                asset_class=self.config.get("asset_class", "crypto"),
+            ):
+                return self._run_graph(company_name, trade_date, node_callback=node_callback)
+        except Exception as exc:
+            log_event(
+                logger,
+                "research_run_failed",
+                level=logging.ERROR,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            raise
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -608,6 +635,16 @@ class ResearchAgentsGraph:
 
         self.current_research_run.symbol = company_name
         self._start_journal_run()
+        bind_observability_context(run_id=getattr(self.current_research_run, "id", None))
+        log_event(
+            logger,
+            "research_run_started",
+            run_id=getattr(self.current_research_run, "id", None),
+            symbol=company_name,
+            trade_date=str(trade_date),
+            asset_class=self.config.get("asset_class", "crypto"),
+            llm_provider=self.config.get("llm_provider"),
+        )
 
         # Pre-flight: compute quantitative signal before graph starts
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
@@ -680,6 +717,15 @@ class ResearchAgentsGraph:
 
         if self.current_research_run:
             self.current_research_run.status = ResearchRunStatus.COMPLETED
+        final_signal = self.process_signal(final_state["final_trade_decision"])
+        log_event(
+            logger,
+            "research_run_completed",
+            run_id=getattr(self.current_research_run, "id", None),
+            symbol=company_name,
+            trade_date=str(trade_date),
+            final_signal=final_signal,
+        )
 
         # Build a trade plan if enabled. This project is now a research
         # workstation first: graph output never places orders or auto-closes
@@ -691,7 +737,7 @@ class ResearchAgentsGraph:
 
         self._complete_journal_run()
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state, final_signal
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""

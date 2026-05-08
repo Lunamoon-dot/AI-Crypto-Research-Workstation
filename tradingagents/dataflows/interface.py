@@ -1,4 +1,5 @@
 import logging
+from time import perf_counter
 from typing import Annotated
 
 # Import from vendor-specific modules
@@ -21,6 +22,7 @@ from .stockstats_utils import StockstatsUtils
 
 # Configuration and routing logic
 from .config import get_config
+from tradingagents.observability import log_event
 
 
 logger = logging.getLogger(__name__)
@@ -206,14 +208,37 @@ def route_to_vendor(method: str, *args, **kwargs):
             continue
 
         impl_func = VENDOR_METHODS[method][vendor]
+        started = perf_counter()
 
         try:
-            return impl_func(*args, **kwargs)
+            result = impl_func(*args, **kwargs)
+            log_event(
+                logger,
+                "data_provider_call",
+                method=method,
+                category=category,
+                vendor=vendor,
+                status="success",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
+            return result
         except Exception as exc:
             last_error = exc
             logger.warning(
                 "Vendor '%s' failed for method '%s': %s",
                 vendor, method, exc,
+            )
+            log_event(
+                logger,
+                "data_provider_call",
+                level=logging.WARNING,
+                method=method,
+                category=category,
+                vendor=vendor,
+                status="failed",
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                error_type=type(exc).__name__,
+                error=str(exc),
             )
             continue  # try next vendor on any error
 
