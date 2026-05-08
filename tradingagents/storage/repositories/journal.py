@@ -9,6 +9,7 @@ from uuid import uuid4
 from tradingagents.domain import (
     AgentOpinion,
     Alert,
+    MarketBrief,
     MarketSnapshot,
     OutcomeReview,
     ResearchDebate,
@@ -684,6 +685,94 @@ class JournalRepository:
         alert = model_from_json(Alert, row["payload_json"])
         alert.read_at = read_at or datetime.now(timezone.utc)
         return self.save_alert(alert)
+
+    def save_market_brief(self, brief: MarketBrief) -> MarketBrief:
+        if not brief.id:
+            brief.id = _new_id("brief")
+        self.store.execute(
+            """
+            INSERT INTO market_briefs (
+                id, brief_date, watchlist_name, title, created_at,
+                previous_brief_id, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                brief_date=excluded.brief_date,
+                watchlist_name=excluded.watchlist_name,
+                title=excluded.title,
+                previous_brief_id=excluded.previous_brief_id,
+                payload_json=excluded.payload_json
+            """,
+            (
+                brief.id,
+                brief.brief_date.isoformat(),
+                brief.watchlist_name,
+                brief.title,
+                _iso(brief.created_at),
+                brief.previous_brief_id,
+                model_to_json(brief),
+            ),
+        )
+        return brief
+
+    def get_market_brief(self, brief_id: str) -> MarketBrief | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM market_briefs WHERE id = ?", (brief_id,)
+        )
+        return model_from_json(MarketBrief, row["payload_json"]) if row else None
+
+    def get_latest_market_brief(
+        self,
+        *,
+        watchlist_name: str | None = None,
+        before_date: str | None = None,
+    ) -> MarketBrief | None:
+        conditions = []
+        params: list[object] = []
+        if watchlist_name:
+            conditions.append("watchlist_name = ?")
+            params.append(watchlist_name)
+        if before_date:
+            conditions.append("brief_date < ?")
+            params.append(before_date)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        row = self.store.fetchone(
+            f"""
+            SELECT payload_json FROM market_briefs
+            {where_clause}
+            ORDER BY brief_date DESC, created_at DESC
+            LIMIT 1
+            """,
+            tuple(params),
+        )
+        return model_from_json(MarketBrief, row["payload_json"]) if row else None
+
+    def list_market_briefs(
+        self,
+        *,
+        watchlist_name: str | None = None,
+        limit: int = 20,
+    ) -> list[MarketBrief]:
+        if watchlist_name:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM market_briefs
+                WHERE watchlist_name = ?
+                ORDER BY brief_date DESC, created_at DESC
+                LIMIT ?
+                """,
+                (watchlist_name, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM market_briefs
+                ORDER BY brief_date DESC, created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(MarketBrief, row["payload_json"]) for row in rows]
 
     def save_user_decision(self, decision: UserDecision) -> UserDecision:
         if not decision.id:

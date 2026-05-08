@@ -40,6 +40,23 @@ class _FakeResearchGraph:
         return None
 
 
+class _FakeProviderStatusError(Exception):
+    status_code = 402
+    body = {"error": {"message": "Insufficient Balance"}}
+
+
+class _FakeFailingCompiledGraph:
+    def stream(self, init_state, **kwargs):
+        raise _FakeProviderStatusError("Insufficient Balance")
+        yield
+
+
+class _FakeFailingResearchGraph(_FakeResearchGraph):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.graph = _FakeFailingCompiledGraph()
+
+
 def _patch_default_config(monkeypatch, tmp_path):
     monkeypatch.setitem(main.DEFAULT_CONFIG, "results_dir", str(tmp_path / "logs"))
     monkeypatch.setitem(main.DEFAULT_CONFIG, "data_cache_dir", str(tmp_path / "cache"))
@@ -72,6 +89,33 @@ def test_analyze_noninteractive_uses_flags_without_prompts(tmp_path, monkeypatch
     assert "Research Run Summary" in result.output
     assert "BTC/USDT" in result.output
     assert "Save report?" not in result.output
+
+
+def test_analyze_reports_provider_balance_error_without_traceback(tmp_path, monkeypatch):
+    _patch_default_config(monkeypatch, tmp_path)
+    monkeypatch.setattr(main, "ResearchAgentsGraph", _FakeFailingResearchGraph)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main.app,
+        [
+            "analyze",
+            "--non-interactive",
+            "--ticker",
+            "BTC/USDT",
+            "--date",
+            "2026-05-08",
+            "--plain",
+            "--llm-provider",
+            "deepseek",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Provider Error" in result.output
+    assert "Deepseek rejected the request" in result.output
+    assert "insufficient balance" in result.output.lower()
+    assert "Traceback" not in result.output
 
 
 def test_research_namespace_help_is_available():

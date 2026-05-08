@@ -43,12 +43,14 @@ app = typer.Typer(
 
 # Register sub-commands
 from cli.watch_cmd import app as watchlist_app
-from cli.watch_cmd import brief as watchlist_brief
 from cli.watch_cmd import register_watch
 from cli.dashboard import register_dashboard
 from cli.config_cmd import register_config
 from cli.backtest_cmd import register_backtest
 from cli.risk_cmd import register_risk
+from cli.brief_cmd import app as brief_app
+from cli.brief_cmd import daily as market_brief_daily
+from cli.brief_cmd import register_brief
 from cli.journal_cmd import journal_app, journal_workspace, register_journal, thesis_app
 from cli.signals_cmd import register_signals, signals_app
 
@@ -59,6 +61,7 @@ register_backtest(app)
 register_risk(app)
 register_journal(app)
 register_signals(app)
+register_brief(app)
 
 
 message_buffer = MessageBuffer()
@@ -1024,6 +1027,36 @@ def build_run_config(selections: dict, checkpoint: bool) -> dict:
     return config
 
 
+def _format_provider_runtime_error(exc: Exception, config: dict) -> str | None:
+    """Return a concise user-facing message for known provider API failures."""
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+
+    body = getattr(exc, "body", None)
+    details = str(body or exc)
+    lower_details = details.lower()
+    provider = str(config.get("llm_provider", "LLM provider")).title()
+
+    if status_code == 402 or "insufficient balance" in lower_details:
+        return (
+            f"{provider} rejected the request because the account has insufficient balance "
+            "(HTTP 402).\n\n"
+            "Top up the provider account or rerun with another provider/model. "
+            "No research report was generated."
+        )
+
+    if status_code in {401, 403}:
+        return (
+            f"{provider} rejected the request with HTTP {status_code}.\n\n"
+            "Check that the provider API key is valid and has access to the selected model. "
+            "No research report was generated."
+        )
+
+    return None
+
+
 def run_analysis(
     checkpoint: bool = False,
     *,
@@ -1245,32 +1278,39 @@ def run_analysis(
             raise RuntimeError("Research graph produced no output.")
         return trace[-1]
 
-    if plain:
-        final_state = run_stream()
-    else:
-        layout = create_layout()
+    try:
+        if plain:
+            final_state = run_stream()
+        else:
+            layout = create_layout()
 
-        with Live(layout, refresh_per_second=4):
-            def update_live(spinner_text=None):
-                update_display(
-                    layout,
-                    spinner_text,
-                    stats_handler=stats_handler,
-                    start_time=start_time,
+            with Live(layout, refresh_per_second=4):
+                def update_live(spinner_text=None):
+                    update_display(
+                        layout,
+                        spinner_text,
+                        stats_handler=stats_handler,
+                        start_time=start_time,
+                    )
+
+                update_live()
+                final_state = run_stream(update_live)
+
+                for agent in message_buffer.agent_status:
+                    message_buffer.update_agent_status(agent, "completed")
+                message_buffer.add_message(
+                    "System", f"Completed analysis for {selections['analysis_date']}"
                 )
-
-            update_live()
-            final_state = run_stream(update_live)
-
-            for agent in message_buffer.agent_status:
-                message_buffer.update_agent_status(agent, "completed")
-            message_buffer.add_message(
-                "System", f"Completed analysis for {selections['analysis_date']}"
-            )
-            for section in message_buffer.report_sections.keys():
-                if section in final_state:
-                    message_buffer.update_report_section(section, final_state[section])
-            update_live()
+                for section in message_buffer.report_sections.keys():
+                    if section in final_state:
+                        message_buffer.update_report_section(section, final_state[section])
+                update_live()
+    except Exception as exc:
+        provider_message = _format_provider_runtime_error(exc, config)
+        if provider_message is None:
+            raise
+        console.print(Panel(provider_message, title="Provider Error", border_style="red"))
+        raise typer.Exit(code=1) from None
 
     decision = graph.process_signal(final_state["final_trade_decision"])
 
@@ -1538,15 +1578,21 @@ def research_workspace(
 def research_brief(
     watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
     alerts_limit: int = typer.Option(20, "--alerts-limit", min=1),
-    unread_only: bool = typer.Option(False, "--unread"),
-    evaluate_snapshots: bool = typer.Option(False, "--evaluate-snapshots"),
+    brief_date: Optional[str] = typer.Option(None, "--date", help="Brief date (YYYY-MM-DD)."),
+    evaluate_snapshots: bool = typer.Option(
+        True,
+        "--evaluate-snapshots/--no-evaluate-snapshots",
+        help="Evaluate saved scenarios using latest persisted snapshots.",
+    ),
+    save: bool = typer.Option(True, "--save/--no-save", help="Persist the generated brief."),
 ) -> None:
-    """Alias for watchlist brief."""
-    watchlist_brief(
+    """Create a daily market brief from the research namespace."""
+    market_brief_daily(
         watchlist=watchlist,
+        brief_date=brief_date,
         alerts_limit=alerts_limit,
-        unread_only=unread_only,
         evaluate_snapshots=evaluate_snapshots,
+        save=save,
     )
 
 
@@ -1554,6 +1600,7 @@ research_app.add_typer(journal_app, name="journal")
 research_app.add_typer(thesis_app, name="thesis")
 research_app.add_typer(signals_app, name="signals")
 research_app.add_typer(watchlist_app, name="watchlist")
+research_app.add_typer(brief_app, name="briefs")
 app.add_typer(research_app, name="research")
 
 

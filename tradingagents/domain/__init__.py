@@ -6,6 +6,7 @@ outcome reviews, scenarios, and assisted planning artifacts.
 """
 
 from .agent_opinion import AgentOpinion, AgentStance
+from .brief import BriefAssetSummary, BriefThesisUpdate, MarketBrief
 from .debate import ConflictLevel, ResearchDebate
 from .decision import UserDecision, UserDecisionAction
 from .outcome import OutcomeReview, OutcomeResult
@@ -23,6 +24,8 @@ from .watchlist import Alert, AlertType, Watchlist, WatchlistItem, WatchlistItem
 __all__ = [
     "Alert",
     "AlertType",
+    "BriefAssetSummary",
+    "BriefThesisUpdate",
     "DataFreshness",
     "AgentOpinion",
     "AgentStance",
@@ -40,6 +43,7 @@ __all__ = [
     "Signal",
     "SignalDirection",
     "MarketSnapshot",
+    "MarketBrief",
     "SignalSnapshot",
     "SignalProvenance",
     "ThesisDirection",

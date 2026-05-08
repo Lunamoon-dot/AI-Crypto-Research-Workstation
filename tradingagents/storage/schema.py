@@ -245,4 +245,21 @@ ON alerts(symbol, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_thesis
 ON alerts(thesis_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_briefs (
+    id TEXT PRIMARY KEY,
+    brief_date TEXT NOT NULL,
+    watchlist_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    previous_brief_id TEXT,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(previous_brief_id) REFERENCES market_briefs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_briefs_date
+ON market_briefs(brief_date DESC, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_market_briefs_watchlist
+ON market_briefs(watchlist_name, brief_date DESC);
 """
