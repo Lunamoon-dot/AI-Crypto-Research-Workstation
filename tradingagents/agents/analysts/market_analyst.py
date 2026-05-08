@@ -8,7 +8,7 @@ from tradingagents.agents.utils.agent_utils import (
 from tradingagents.agents.utils.crypto_tools import get_crypto_ohlcv
 
 
-def create_market_analyst(llm):
+def create_market_analyst(llm, config=None):
 
     def market_analyst_node(state):
         current_date = state["trade_date"]
@@ -38,7 +38,7 @@ def create_market_analyst(llm):
             "   and actionable insights for the Trader.\n\n"
             "Your role is INTERPRETATION, not computation."
             + " Append a brief Markdown table organizing the signal factors at the end."
-            + get_language_instruction()
+            + get_language_instruction(config=config)
         )
 
         # Inject the pre-computed quant signal into the system message
@@ -74,7 +74,8 @@ def create_market_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        messages = state.get("market_messages", state.get("messages", []))
+        result = chain.invoke(messages)
 
         report = ""
 
@@ -82,7 +83,7 @@ def create_market_analyst(llm):
             report = result.content
 
         return {
-            "messages": [result],
+            "market_messages": messages + [result],
             "market_report": report,
         }
 

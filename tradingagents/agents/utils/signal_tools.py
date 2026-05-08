@@ -4,6 +4,9 @@ The engine now runs as a pre-processing step BEFORE the LangGraph graph,
 so AI agents receive the signal as structured context rather than having
 to call a tool.  Kept as a plain function for direct use by the graph
 runner and backtesting.
+
+Config is now passed explicitly — the old module-level singleton cache
+has been removed so each graph instance gets its own engine.
 """
 
 from __future__ import annotations
@@ -13,9 +16,14 @@ from tradingagents.dataflows.config import get_config
 from tradingagents.signals.engine import SignalEngine
 
 
-def _get_signal_engine() -> SignalEngine:
-    """Create SignalEngine with config-driven weights/thresholds."""
-    config = get_config()
+def _get_signal_engine(config=None) -> SignalEngine:
+    """Create SignalEngine with config-driven weights/thresholds.
+
+    Accepts an optional *config* dict.  When ``None``, falls back to the
+    module-level global (backward compat).
+    """
+    if config is None:
+        config = get_config()
     weights = config.get("signal_weights")
     thresholds = config.get("signal_thresholds", {})
     return SignalEngine(
@@ -27,13 +35,11 @@ def _get_signal_engine() -> SignalEngine:
     )
 
 
-_engine = None
-
-
 def get_quant_signal(
     symbol: str,
     start_date: str,
     end_date: str,
+    config=None,
 ) -> str:
     """Generate a quantitative trading signal for a symbol.
 
@@ -47,7 +53,9 @@ def get_quant_signal(
     """
     # Fetch OHLCV
     try:
-        ohlcv_csv = route_to_vendor("get_crypto_ohlcv", symbol, start_date, end_date)
+        ohlcv_csv = route_to_vendor(
+            "get_crypto_ohlcv", symbol, start_date, end_date
+        )
     except Exception as e:
         return (
             f"Quant Signal: could not fetch OHLCV data for {symbol}: {e}. "
@@ -67,17 +75,25 @@ def get_quant_signal(
     exchange_metrics_csv = None
 
     try:
-        funding_csv = route_to_vendor("get_crypto_funding_rate_history", symbol, 60)
+        funding_csv = route_to_vendor(
+            "get_crypto_funding_rate_history", symbol, 60
+        )
     except Exception:
         try:
-            funding_csv = route_to_vendor("get_crypto_funding_rate", symbol)
+            funding_csv = route_to_vendor(
+                "get_crypto_funding_rate", symbol
+            )
         except Exception:
             pass
     try:
-        oi_csv = route_to_vendor("get_crypto_open_interest_history", symbol, 60)
+        oi_csv = route_to_vendor(
+            "get_crypto_open_interest_history", symbol, 60
+        )
     except Exception:
         try:
-            oi_csv = route_to_vendor("get_crypto_open_interest", symbol)
+            oi_csv = route_to_vendor(
+                "get_crypto_open_interest", symbol
+            )
         except Exception:
             pass
     try:
@@ -87,7 +103,9 @@ def get_quant_signal(
 
     # On-chain data — non-critical, best-effort
     try:
-        long_short_csv = route_to_vendor("get_crypto_long_short_ratio", symbol)
+        long_short_csv = route_to_vendor(
+            "get_crypto_long_short_ratio", symbol
+        )
     except Exception:
         pass
     try:
@@ -95,16 +113,15 @@ def get_quant_signal(
     except Exception:
         pass
     try:
-        exchange_metrics_csv = route_to_vendor("get_crypto_exchange_metrics", symbol)
+        exchange_metrics_csv = route_to_vendor(
+            "get_crypto_exchange_metrics", symbol
+        )
     except Exception:
         pass
 
-    # Lazy-init engine so it picks up the current config at call time
-    global _engine
-    if _engine is None:
-        _engine = _get_signal_engine()
+    engine = _get_signal_engine(config=config)
 
-    result = _engine.generate(
+    result = engine.generate(
         symbol=symbol,
         ohlcv_csv=ohlcv_csv,
         funding_csv=funding_csv,

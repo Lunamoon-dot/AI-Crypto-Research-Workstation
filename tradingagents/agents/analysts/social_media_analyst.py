@@ -7,7 +7,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_social_sentiment,
     get_news_sentiment_aggregate,
 )
-def create_social_media_analyst(llm):
+def create_social_media_analyst(llm, config=None):
     def social_media_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = build_instrument_context(state["company_of_interest"])
@@ -24,7 +24,7 @@ def create_social_media_analyst(llm):
         system_message = (
             f"You are a social media and {entity}-specific news researcher/analyst tasked with analyzing social media posts, recent {entity} news, and public sentiment for a specific {entity} over the past week. You will be given a {entity}'s name; your objective is to write a comprehensive long report detailing your analysis, insights, and implications for traders and investors on this {entity}'s current state after looking at social media and what people are saying about that {entity}, analyzing sentiment data of what people feel each day about the {entity}, and looking at recent {entity} news. Use the tools at your disposal: `get_news` for {entity}-specific news and discussions, `get_fear_greed_index` for market-wide sentiment gauge, `get_social_sentiment` for social media trending/engagement data, and `get_news_sentiment_aggregate` for aggregated bullish/bearish scoring of recent headlines. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
+            + get_language_instruction(config=config)
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -51,7 +51,8 @@ def create_social_media_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        messages = state.get("social_messages", state.get("messages", []))
+        result = chain.invoke(messages)
 
         report = ""
 
@@ -59,7 +60,7 @@ def create_social_media_analyst(llm):
             report = result.content
 
         return {
-            "messages": [result],
+            "social_messages": messages + [result],
             "sentiment_report": report,
         }
 

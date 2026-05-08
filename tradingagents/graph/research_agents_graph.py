@@ -24,8 +24,6 @@ from tradingagents.agents.utils.agent_states import (
     InvestDebateState,
     RiskDebateState,
 )
-from tradingagents.dataflows.config import set_config
-
 # Import the new abstract tool methods from agent_utils
 from tradingagents.agents.utils.agent_utils import (
     get_indicators,
@@ -167,8 +165,8 @@ class ResearchAgentsGraph:
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
 
-        # Update the interface's config
-        set_config(self.config)
+        # Config is now threaded via contextvars, not a global mutation.
+        # The old set_config(self.config) call is removed.
 
         # Create necessary directories
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
@@ -212,6 +210,7 @@ class ResearchAgentsGraph:
             self.deep_thinking_llm,
             self.tool_nodes,
             self.conditional_logic,
+            config=self.config,
         )
 
         self.propagator = Propagator()
@@ -294,7 +293,7 @@ class ResearchAgentsGraph:
         except Exception:
             pass
 
-        engine = _get_signal_engine()
+        engine = _get_signal_engine(config=self.config)
         result = engine.generate(
             symbol=symbol,
             ohlcv_csv=ohlcv_csv,
@@ -371,39 +370,55 @@ class ResearchAgentsGraph:
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for crypto analysis.
 
-        Technical indicators (RSI, MACD, SMA, etc.) are price-action-based
-        and work on any OHLCV DataFrame regardless of the underlying asset.
+        Each tool is wrapped to set the config context variable before
+        execution, so every downstream data-layer call sees the correct
+        config without changing tool signatures exposed to the LLM.
         """
+        import functools
+        from tradingagents.dataflows.config import _config_ctx
+
+        config = self.config
+
+        def _with_config(tool_fn):
+            @functools.wraps(tool_fn)
+            def wrapper(*args, **kwargs):
+                token = _config_ctx.set(config)
+                try:
+                    return tool_fn(*args, **kwargs)
+                finally:
+                    _config_ctx.reset(token)
+            return wrapper
+
         return {
             "market": ToolNode(
                 [
-                    get_crypto_ohlcv,
-                    get_indicators,
-                    get_multi_timeframe_analysis,
+                    _with_config(get_crypto_ohlcv),
+                    _with_config(get_indicators),
+                    _with_config(get_multi_timeframe_analysis),
                 ]
             ),
             "social": ToolNode(
                 [
-                    get_news,
-                    get_fear_greed_index,
-                    get_social_sentiment,
-                    get_news_sentiment_aggregate,
+                    _with_config(get_news),
+                    _with_config(get_fear_greed_index),
+                    _with_config(get_social_sentiment),
+                    _with_config(get_news_sentiment_aggregate),
                 ]
             ),
             "news": ToolNode(
                 [
-                    get_news,
-                    get_global_news,
-                    get_news_sentiment_aggregate,
+                    _with_config(get_news),
+                    _with_config(get_global_news),
+                    _with_config(get_news_sentiment_aggregate),
                 ]
             ),
             "onchain": ToolNode(
                 [
-                    get_crypto_ticker,
-                    get_crypto_long_short_ratio,
-                    get_crypto_nvt,
-                    get_crypto_supply,
-                    get_crypto_exchange_metrics,
+                    _with_config(get_crypto_ticker),
+                    _with_config(get_crypto_long_short_ratio),
+                    _with_config(get_crypto_nvt),
+                    _with_config(get_crypto_supply),
+                    _with_config(get_crypto_exchange_metrics),
                 ]
             ),
         }
@@ -512,6 +527,7 @@ class ResearchAgentsGraph:
                 raw_return=raw,
                 alpha_return=alpha,
                 market_type=entry.get("market_type", ""),
+                config=getattr(self, "config", None),
             )
             updates.append({
                 "ticker": ticker,

@@ -1,9 +1,8 @@
 
 
-def create_bull_researcher(llm):
+def create_bull_researcher(llm, config=None):
     def bull_node(state) -> dict:
-        from tradingagents.dataflows.config import get_config
-        asset_class = get_config().get("asset_class", "crypto")
+        asset_class = (config or {}).get("asset_class", "crypto")
         instrument = "cryptocurrency"
         entity = "project"
 

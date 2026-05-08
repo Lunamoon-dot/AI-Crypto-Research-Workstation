@@ -73,3 +73,11 @@ class AgentState(MessagesState):
     past_context: Annotated[str, "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)"]
     portfolio_state: Annotated[str, "Serialized portfolio snapshot injected into Trader prompt when execution is enabled"]
     quant_signal: Annotated[str, "Pre-computed quantitative signal (prompt block from SignalEngine)"]
+
+    # Per-analyst message scopes for parallel execution.
+    # Each analyst has its own isolated message history, eliminating
+    # data races when all four run concurrently via the Send API.
+    market_messages: Annotated[list, "Market analyst message history"]
+    social_messages: Annotated[list, "Social analyst message history"]
+    news_messages: Annotated[list, "News analyst message history"]
+    onchain_messages: Annotated[list, "Onchain analyst message history"]

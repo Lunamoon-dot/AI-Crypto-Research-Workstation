@@ -19,10 +19,9 @@ from tradingagents.agents.utils.crypto_tools import (
     get_crypto_supply,
     get_crypto_exchange_metrics,
 )
-from tradingagents.dataflows.config import get_config
 
 
-def create_onchain_analyst(llm):
+def create_onchain_analyst(llm, config=None):
     def onchain_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = build_instrument_context(state["company_of_interest"])
@@ -49,7 +48,7 @@ def create_onchain_analyst(llm):
             + " Use the available tools: `get_crypto_ticker` for 24h market snapshot, "
             "`get_crypto_long_short_ratio` for position skew, `get_crypto_nvt` for valuation ratio, "
             "`get_crypto_supply` for tokenomics, and `get_crypto_exchange_metrics` for liquidity/reserve data."
-            + get_language_instruction()
+            + get_language_instruction(config=config)
         )
 
         # Inject pre-computed quant signal (contains funding/OI/liquidation data)
@@ -85,7 +84,8 @@ def create_onchain_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
+        messages = state.get("onchain_messages", state.get("messages", []))
+        result = chain.invoke(messages)
 
         report = ""
 
@@ -93,7 +93,7 @@ def create_onchain_analyst(llm):
             report = result.content
 
         return {
-            "messages": [result],
+            "onchain_messages": messages + [result],
             "fundamentals_report": report,
         }
 

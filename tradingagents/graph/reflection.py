@@ -87,6 +87,7 @@ class Reflector:
         raw_return: float,
         alpha_return: float,
         market_type: str = "",
+        config=None,
     ) -> str:
         """Generate a post-trade reflection, preferring structured output.
 
@@ -94,8 +95,9 @@ class Reflector:
         *market_type* tunes the reflection focus: thesis quality (spot) vs
         execution quality (futures/swap).
         """
-        from tradingagents.dataflows.config import get_config
-        config = get_config()
+        if config is None:
+            from tradingagents.dataflows.config import get_config
+            config = get_config()
         benchmark_label = config.get("crypto_benchmark", "BTC/USDT")
 
         context = (

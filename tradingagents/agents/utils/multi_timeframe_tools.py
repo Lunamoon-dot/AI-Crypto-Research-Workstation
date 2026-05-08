@@ -28,9 +28,6 @@ def get_multi_timeframe_analysis(
     and an alignment score (0-100) that indicates how well the timeframes
     agree.  Higher scores suggest higher-conviction trades.
     """
-    from tradingagents.dataflows.config import get_config
-
-    cfg = get_config()
     method = "get_crypto_ohlcv"
 
     csv_data = route_to_vendor(method, symbol, start_date, end_date)
