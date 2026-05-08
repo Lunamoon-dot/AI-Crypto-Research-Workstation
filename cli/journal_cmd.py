@@ -427,6 +427,7 @@ def thesis_show(
         raise typer.Exit(1)
 
     confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
+    created = thesis.created_at.strftime("%Y-%m-%d %H:%M UTC") if thesis.created_at else "N/A"
     lines = [
         f"ID: {thesis.id}",
         f"Research Run: {thesis.research_run_id or 'N/A'}",
@@ -435,16 +436,130 @@ def thesis_show(
         f"Direction: {thesis.direction.value}",
         f"Setup: {thesis.setup_type}",
         f"Confidence: {confidence}",
-        "",
-        "Thesis:",
-        thesis.thesis_text,
+        f"Created: {created}",
     ]
+
+    # ── Price Levels ──
+    if thesis.entry_zone or thesis.invalidation_level or thesis.target_zones:
+        lines.append("")
+        lines.append("Price Levels:")
+        if thesis.entry_zone:
+            lines.append(f"  Entry Zone: {thesis.entry_zone}")
+        if thesis.invalidation_level:
+            lines.append(f"  Invalidation: {thesis.invalidation_level}")
+        if thesis.target_zones:
+            lines.append("  Target Zones:")
+            for tz in thesis.target_zones:
+                lines.append(f"    - {tz}")
+
+    # ── Thesis Text ──
+    lines.extend(["", "Thesis:", thesis.thesis_text])
+
+    # ── Risk & Contradictions ──
     if thesis.risk_notes:
         lines.extend(["", "Risk Notes:"])
         lines.extend(f"- {note}" for note in thesis.risk_notes)
     if thesis.contradictions:
         lines.extend(["", "Contradictions:"])
         lines.extend(f"- {item}" for item in thesis.contradictions)
+
+    # ── Signal Evidence ──
+    if thesis.supporting_signal_ids or thesis.contradicting_signal_ids:
+        lines.append("")
+        lines.append("Signal Evidence:")
+        if thesis.supporting_signal_ids:
+            lines.append(
+                f"  Supporting ({len(thesis.supporting_signal_ids)}): "
+                + ", ".join(thesis.supporting_signal_ids)
+            )
+        if thesis.contradicting_signal_ids:
+            lines.append(
+                f"  Contradicting ({len(thesis.contradicting_signal_ids)}): "
+                + ", ".join(thesis.contradicting_signal_ids)
+            )
+
+    # ── Agent Opinions ──
+    if thesis.agent_opinion_ids:
+        lines.append("")
+        lines.append(f"Agent Opinions ({len(thesis.agent_opinion_ids)}):")
+        evidence = thesis.evidence or {}
+        supporting = evidence.get("supporting_opinion_ids", [])
+        contradicting = evidence.get("contradicting_opinion_ids", [])
+        if supporting:
+            lines.append(f"  Supporting: {', '.join(supporting)}")
+        if contradicting:
+            lines.append(f"  Contradicting: {', '.join(contradicting)}")
+
+    # ── Consensus ──
+    if thesis.consensus:
+        consensus = thesis.consensus
+        lines.append("")
+        lines.append("Consensus:")
+        stance = consensus.get("stance") or "N/A"
+        conf_val = consensus.get("confidence")
+        conflict = consensus.get("conflict_level") or "N/A"
+        counts = consensus.get("stance_counts") or {}
+        lines.append(f"  Stance: {stance}")
+        if conf_val is not None:
+            lines.append(f"  Confidence: {conf_val:.2f}")
+        lines.append(f"  Conflict Level: {conflict}")
+        if counts:
+            lines.append(f"  Stance Counts: {counts}")
+
+    # ── Confidence Calibration ──
+    if thesis.evidence:
+        evidence = thesis.evidence
+        lines.append("")
+        lines.append("Confidence Calibration:")
+        rating = evidence.get("rating") or "N/A"
+        lines.append(f"  Rating: {rating}")
+        missing = evidence.get("missing_data") or []
+        if missing:
+            lines.append(f"  Missing Data ({len(missing)}): {', '.join(missing[:5])}")
+        conflict = evidence.get("conflict_level")
+        if conflict:
+            lines.append(f"  Conflict Level: {conflict}")
+        reason = evidence.get("confidence_adjustment_reason") or ""
+        if reason:
+            lines.append(f"  Adjustment: {reason}")
+
+    # ── Explainability Checklist ──
+    evidence_bag = thesis.evidence or {}
+    consensus_bag = thesis.consensus or {}
+    lines.append("")
+    lines.append("Quick Check:")
+    # 1. Signal consensus
+    sup = len(thesis.supporting_signal_ids)
+    con = len(thesis.contradicting_signal_ids)
+    lines.append(f"  Signals:       {sup} support / {con} contradict")
+    # 2. Data gaps
+    missing = evidence_bag.get("missing_data") or []
+    if missing:
+        lines.append(f"  Data Gaps:     {len(missing)} — {missing[0][:60]}")
+    else:
+        lines.append("  Data Gaps:     none reported")
+    # 3. Debate consensus
+    conflict = consensus_bag.get("conflict_level") or evidence_bag.get("conflict_level") or "N/A"
+    stance = consensus_bag.get("stance") or "N/A"
+    lines.append(f"  Consensus:     {conflict} conflict, stance={stance}")
+    # 4. Invalidation trigger
+    inval = thesis.invalidation_level or "not specified"
+    lines.append(f"  Invalidation:  {inval}")
+    # 5. Confidence calibration
+    conf_str = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
+    adj = evidence_bag.get("confidence_adjustment_reason") or ""
+    if adj:
+        lines.append(f"  Confidence:    {conf_str} — {adj[:80]}")
+    else:
+        lines.append(f"  Confidence:    {conf_str}")
+    # 6. Monitor next
+    if thesis.risk_notes:
+        lines.append(f"  Monitor:       {thesis.risk_notes[0][:80]}")
+    elif thesis.contradictions:
+        lines.append(f"  Monitor:       {thesis.contradictions[0][:80]}")
+    else:
+        lines.append("  Monitor:       review scenarios & watchlist")
+
     console.print(Panel("\n".join(lines), title="Trade Thesis", border_style="cyan"))
 
 

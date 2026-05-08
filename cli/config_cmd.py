@@ -17,7 +17,7 @@ from tradingagents.config_manager import (
     delete_profile,
 )
 from tradingagents.dataflows.health import provider_health_snapshot
-from tradingagents.exceptions import ConfigurationError
+from tradingagents.exceptions import ConfigurationError, HealthCheckError
 
 console = Console()
 config_app = typer.Typer(help="Manage configuration profiles.")
@@ -198,6 +198,27 @@ def config_health(
             border_style="magenta",
         )
     )
+
+    # Live connectivity check
+    try:
+        from tradingagents.dataflows.interface import check_provider_health
+
+        console.print("\n[bold]Live connectivity check...[/bold]")
+        results = check_provider_health(timeout_sec=5.0)
+        live_table = Table(title="Live Provider Connectivity")
+        live_table.add_column("Provider", style="cyan")
+        live_table.add_column("Status")
+        for vendor, status in results.items():
+            color = "green" if status == "healthy" else "red"
+            live_table.add_row(vendor, f"[{color}]{status}[/{color}]")
+        console.print(live_table)
+    except HealthCheckError as exc:
+        console.print(f"[red]Health check failed: {exc}[/red]")
+        raise typer.Exit(code=2)
+    except ImportError:
+        console.print("[yellow]Live check skipped (CCXT not available).[/yellow]")
+    except Exception as exc:
+        console.print(f"[yellow]Live check unavailable: {exc}[/yellow]")
 
 
 def register_config(parent_app: typer.Typer) -> None:

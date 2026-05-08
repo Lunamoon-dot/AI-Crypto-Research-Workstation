@@ -1,9 +1,18 @@
+import logging
+import time
 from typing import Any, Optional
 
 from langchain_anthropic import ChatAnthropic
 
-from .base_client import BaseLLMClient, normalize_content
+from .base_client import (
+    BaseLLMClient,
+    _emit_llm_event,
+    _extract_token_usage,
+    normalize_content,
+)
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "api_key", "max_tokens",
@@ -20,7 +29,33 @@ class NormalizedChatAnthropic(ChatAnthropic):
     """
 
     def invoke(self, input, config=None, **kwargs):
-        return normalize_content(super().invoke(input, config, **kwargs))
+        started = time.perf_counter()
+        provider = getattr(self, "_provider_name", "unknown")
+        try:
+            response = super().invoke(input, config, **kwargs)
+            duration_ms = (time.perf_counter() - started) * 1000
+            tokens = _extract_token_usage(response)
+            _emit_llm_event(
+                logger,
+                provider,
+                self.model_name,
+                duration_ms,
+                "success",
+                input_tokens=tokens["input_tokens"],
+                output_tokens=tokens["output_tokens"],
+            )
+            return normalize_content(response)
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - started) * 1000
+            _emit_llm_event(
+                logger,
+                provider,
+                self.model_name,
+                duration_ms,
+                "failed",
+                error=exc,
+            )
+            raise
 
 
 class AnthropicClient(BaseLLMClient):
@@ -41,7 +76,9 @@ class AnthropicClient(BaseLLMClient):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
-        return NormalizedChatAnthropic(**llm_kwargs)
+        llm = NormalizedChatAnthropic(**llm_kwargs)
+        llm._provider_name = "anthropic"
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for Anthropic."""

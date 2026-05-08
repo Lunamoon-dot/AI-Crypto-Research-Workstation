@@ -23,6 +23,9 @@ from typing import Any, Callable, Optional, TypeVar
 
 from pydantic import BaseModel
 
+from tradingagents.observability import log_event
+from tradingagents.exceptions import LLMOutputError
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
@@ -62,12 +65,38 @@ def invoke_structured_or_freetext(
     if structured_llm is not None:
         try:
             result = structured_llm.invoke(prompt)
+            log_event(
+                logger,
+                "structured_output_call",
+                agent_name=agent_name,
+                status="success",
+            )
             return render(result)
         except Exception as exc:
+            log_event(
+                logger,
+                "structured_output_call",
+                agent_name=agent_name,
+                status="fallback",
+                error_type=type(exc).__name__,
+                error=str(exc)[:500],
+            )
             logger.warning(
                 "%s: structured-output invocation failed (%s); retrying once as free text",
                 agent_name, exc,
             )
 
-    response = plain_llm.invoke(prompt)
-    return response.content
+    try:
+        response = plain_llm.invoke(prompt)
+        return response.content
+    except Exception as exc:
+        log_event(
+            logger,
+            "llm_output_failure",
+            agent_name=agent_name,
+            error_type=type(exc).__name__,
+            error=str(exc)[:500],
+        )
+        raise LLMOutputError(
+            f"{agent_name}: both structured output and free-text fallback failed"
+        ) from exc

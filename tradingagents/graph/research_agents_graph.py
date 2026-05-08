@@ -461,6 +461,11 @@ class ResearchAgentsGraph:
                 persist_provider_calls=obs_cfg.get(
                     "persist_data_provider_calls", True
                 ),
+                persist_llm_calls=obs_cfg.get("persist_llm_calls", True),
+                persist_snapshot_health=obs_cfg.get("persist_snapshot_health", True),
+                data_provider_call_sample_rate=obs_cfg.get(
+                    "data_provider_call_sample_rate", 1.0
+                ),
             )
             if persist_run_events and journal_service is not None
             else nullcontext()

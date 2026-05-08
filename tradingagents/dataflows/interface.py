@@ -27,6 +27,7 @@ from .stockstats_utils import StockstatsUtils
 from .config import get_config
 from tradingagents.exceptions import (
     DataProviderError,
+    HealthCheckError,
     ProviderDisabledError,
     ProviderRetryExhaustedError,
     ProviderTimeoutError,
@@ -358,3 +359,52 @@ def _invoke_with_resilience(
     raise ProviderRetryExhaustedError(
         f"{vendor}.{method} failed after {attempts} attempts: {last_error}"
     ) from last_error
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+
+def check_provider_health(timeout_sec: float = 5.0) -> dict[str, str]:
+    """Ping each registered vendor with a lightweight call.
+
+    Uses ``get_crypto_ticker`` (a simple CCXT ``fetch_ticker``) as the
+    probe because every exchange supports it and the payload is small.
+
+    Returns a dict mapping vendor name to ``"healthy"`` or an error
+    message.  Raises :exc:`HealthCheckError` if *all* vendors are
+    unreachable.
+    """
+    health_method = "get_crypto_ticker"
+    health_kwargs = {"symbol": "BTC/USDT"}
+    checks: dict[str, str] = {}
+
+    vendor_methods = VENDOR_METHODS.get(health_method, {})
+    for vendor, impl_func in vendor_methods.items():
+        try:
+            _invoke_with_resilience(
+                impl_func,
+                vendor=vendor,
+                method=health_method,
+                args=(),
+                kwargs=health_kwargs,
+                runtime_cfg={
+                    "enabled": True,
+                    "timeout_sec": timeout_sec,
+                    "retries": 0,
+                    "backoff_base_sec": 0.0,
+                    "backoff_max_sec": 0.0,
+                    "rate_limit_per_sec": 0.0,
+                },
+            )
+            checks[vendor] = "healthy"
+        except Exception as exc:
+            checks[vendor] = str(exc)[:200]
+
+    healthy = [v for v, s in checks.items() if s == "healthy"]
+    if not healthy:
+        raise HealthCheckError(
+            f"No vendors reachable. Checked: {list(checks.keys())}"
+        )
+    return checks

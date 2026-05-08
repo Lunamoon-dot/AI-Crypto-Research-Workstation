@@ -1,11 +1,22 @@
+import logging
 import os
+import time
 from typing import Any, Optional
 
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
-from .base_client import BaseLLMClient, normalize_content
+from tradingagents.exceptions import RateLimitError
+
+from .base_client import (
+    BaseLLMClient,
+    _emit_llm_event,
+    _extract_token_usage,
+    normalize_content,
+)
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
@@ -24,7 +35,40 @@ class NormalizedChatOpenAI(ChatOpenAI):
     """
 
     def invoke(self, input, config=None, **kwargs):
-        return normalize_content(super().invoke(input, config, **kwargs))
+        started = time.perf_counter()
+        provider = getattr(self, "_provider_name", "unknown")
+        try:
+            response = super().invoke(input, config, **kwargs)
+            duration_ms = (time.perf_counter() - started) * 1000
+            tokens = _extract_token_usage(response)
+            _emit_llm_event(
+                logger,
+                provider,
+                self.model_name,
+                duration_ms,
+                "success",
+                input_tokens=tokens["input_tokens"],
+                output_tokens=tokens["output_tokens"],
+            )
+            return normalize_content(response)
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - started) * 1000
+            _emit_llm_event(
+                logger,
+                provider,
+                self.model_name,
+                duration_ms,
+                "failed",
+                error=exc,
+            )
+            # Detect rate-limit (429) responses from the OpenAI SDK
+            exc_name = type(exc).__name__
+            exc_msg = str(exc).lower()
+            if exc_name == "RateLimitError" or "rate limit" in exc_msg or "429" in exc_msg:
+                raise RateLimitError(
+                    f"{provider} rate limited: {exc}"
+                ) from exc
+            raise
 
     def with_structured_output(self, schema, *, method=None, **kwargs):
         if method is None:
@@ -187,7 +231,9 @@ class OpenAIClient(BaseLLMClient):
         # DeepSeek's thinking-mode quirks live in their own subclass so the
         # base NormalizedChatOpenAI stays free of provider-specific branches.
         chat_cls = DeepSeekChatOpenAI if self.provider == "deepseek" else NormalizedChatOpenAI
-        return chat_cls(**llm_kwargs)
+        llm = chat_cls(**llm_kwargs)
+        llm._provider_name = self.provider
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""

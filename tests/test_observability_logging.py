@@ -156,9 +156,10 @@ def test_log_event_persists_to_journal_when_context_active(caplog):
     journal.add_run_event.assert_called_once()
     rid, event_type, message, payload = journal.add_run_event.call_args[0]
     assert rid == "run_xyz"
-    assert event_type == "research_run_started"
+    assert event_type == "run.started"
     assert "BTC/USDT" in message
     assert payload["event"] == "research_run_started"
+    assert payload["timeline_event_type"] == "run.started"
     assert payload["symbol"] == "BTC/USDT"
 
 
@@ -180,6 +181,40 @@ def test_log_event_skips_data_provider_persist_when_disabled(caplog):
                 duration_ms=1.0,
             )
 
+    journal.add_run_event.assert_not_called()
+
+
+def test_log_event_skips_llm_call_persist_when_disabled():
+    logger = logging.getLogger("tests.observability.llm_skip")
+    journal = MagicMock()
+    with observability_run_event_persistence(journal, persist_llm_calls=False):
+        log_event(
+            logger,
+            "llm_call",
+            run_id="run_2",
+            model="test-model",
+            status="success",
+        )
+    journal.add_run_event.assert_not_called()
+
+
+def test_log_event_samples_data_provider_calls_to_timeline(monkeypatch):
+    logger = logging.getLogger("tests.observability.sample")
+    journal = MagicMock()
+    monkeypatch.setattr("tradingagents.observability.logging.random.random", lambda: 0.9)
+    with observability_run_event_persistence(
+        journal,
+        persist_provider_calls=True,
+        data_provider_call_sample_rate=0.5,
+    ):
+        log_event(
+            logger,
+            "data_provider_call",
+            run_id="run_3",
+            method="get_crypto_ohlcv",
+            vendor="ccxt",
+            status="success",
+        )
     journal.add_run_event.assert_not_called()
 
 
@@ -205,5 +240,6 @@ def test_log_event_persist_writes_sqlite_when_run_exists(tmp_path, caplog):
             )
 
     timeline = service.list_timeline_events(research_run_id=run.id)
-    assert timeline[-1].event_type == "research_run_started"
+    assert timeline[-1].event_type == "run.started"
     assert timeline[-1].payload["symbol"] == "BTC/USDT"
+    assert timeline[-1].payload["timeline_event_type"] == "run.started"

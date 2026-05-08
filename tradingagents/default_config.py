@@ -41,6 +41,9 @@ DEFAULT_CONFIG = {
     "observability": {
         "persist_run_events": True,
         "persist_data_provider_calls": True,
+        "persist_llm_calls": True,
+        "persist_snapshot_health": True,
+        "data_provider_call_sample_rate": 1.0,
     },
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
@@ -78,6 +81,11 @@ DEFAULT_CONFIG = {
         "backoff_base_sec": 0.35,
         "backoff_max_sec": 2.5,
         "rate_limit_per_sec": 8.0,
+    },
+    # Stale-data handling: "warn" (log + event + continue) or "fail_fast" (raise).
+    "stale_data": {
+        "mode": "warn",
+        "max_age_hours": 24.0,
     },
     # Signal / quant layer configuration
     "signal_weights": {

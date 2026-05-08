@@ -15,9 +15,24 @@ from typing import Optional
 
 import pandas as pd
 
+from tradingagents.exceptions import RateLimitError
+
 from .config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+def _reraise_rate_limit(exc: Exception, vendor: str) -> None:
+    """Re-raise CCXT rate-limit exceptions as :exc:`RateLimitError`.
+
+    CCXT raises ``RateLimitExceeded`` (a subclass of ``DDoSProtection``)
+    when an exchange returns HTTP 429 or a rate-limit header.  We convert
+    those so the resilience wrapper in ``interface.py`` can retry with
+    backoff, while other errors keep their existing fallback behaviour.
+    """
+    name = type(exc).__name__
+    if name in ("RateLimitExceeded", "DDoSProtection"):
+        raise RateLimitError(f"{vendor} rate limited: {exc}") from exc
 
 # Canonical quote currency we normalise to when the user passes a bare
 # pair like "BTC" or "BTC-USD".
@@ -239,11 +254,13 @@ def get_crypto_funding_rate(symbol: str) -> str:
 
     try:
         fr = exchange.fetch_funding_rate(symbol)
-    except Exception:
+    except Exception as e:
+        _reraise_rate_limit(e, exchange.id)
         # Try the linear perpetual form: "BTC/USDT:USDT"
         try:
             fr = exchange.fetch_funding_rate(f"{symbol}:{symbol.split('/')[1]}")
-        except Exception:
+        except Exception as e2:
+            _reraise_rate_limit(e2, exchange.id)
             return (
                 f"Funding rate data is not available for {symbol} on {exchange.id}. "
                 "This pair may not have a perpetual futures market."
@@ -279,10 +296,12 @@ def get_crypto_open_interest(symbol: str) -> str:
 
     try:
         oi = exchange.fetch_open_interest(symbol)
-    except Exception:
+    except Exception as e:
+        _reraise_rate_limit(e, exchange.id)
         try:
             oi = exchange.fetch_open_interest(f"{symbol}:{symbol.split('/')[1]}")
-        except Exception:
+        except Exception as e2:
+            _reraise_rate_limit(e2, exchange.id)
             return (
                 f"Open interest data is not available for {symbol} on {exchange.id}. "
                 "This pair may not have a futures market with open interest reporting."
@@ -353,8 +372,8 @@ def _fetch_funding_history_inner(
         return exchange.fetch_funding_rate_history(
             symbol, since=since_ms, limit=limit,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _reraise_rate_limit(e, exchange.id)
 
     # Retry with linear perpetual form: "BTC/USDT:USDT"
     try:
@@ -363,8 +382,8 @@ def _fetch_funding_history_inner(
         return exchange.fetch_funding_rate_history(
             linear, since=since_ms, limit=limit,
         )
-    except Exception:
-        pass
+    except Exception as e2:
+        _reraise_rate_limit(e2, exchange.id)
 
     return None
 
@@ -440,8 +459,8 @@ def _fetch_oi_history_inner(
         return exchange.fetch_open_interest_history(
             symbol, timeframe="1d", since=since_ms, limit=limit,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _reraise_rate_limit(e, exchange.id)
 
     try:
         quote = symbol.split("/")[1]
@@ -449,8 +468,8 @@ def _fetch_oi_history_inner(
         return exchange.fetch_open_interest_history(
             linear, timeframe="1d", since=since_ms, limit=limit,
         )
-    except Exception:
-        pass
+    except Exception as e2:
+        _reraise_rate_limit(e2, exchange.id)
 
     return None
 

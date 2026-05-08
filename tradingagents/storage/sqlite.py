@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
+from tradingagents.exceptions import StorageError
+
 from .schema import SCHEMA_SQL
 
 
@@ -44,13 +46,22 @@ class SQLiteStore:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
     def execute(self, sql: str, params: Iterable = ()) -> None:
-        with self.connect() as conn:
-            conn.execute(sql, tuple(params))
+        try:
+            with self.connect() as conn:
+                conn.execute(sql, tuple(params))
+        except sqlite3.Error as exc:
+            raise StorageError(f"SQLite execute failed: {exc}") from exc
 
     def fetchone(self, sql: str, params: Iterable = ()) -> sqlite3.Row | None:
-        with self.connect() as conn:
-            return conn.execute(sql, tuple(params)).fetchone()
+        try:
+            with self.connect() as conn:
+                return conn.execute(sql, tuple(params)).fetchone()
+        except sqlite3.Error as exc:
+            raise StorageError(f"SQLite fetch failed: {exc}") from exc
 
     def fetchall(self, sql: str, params: Iterable = ()) -> list[sqlite3.Row]:
-        with self.connect() as conn:
-            return list(conn.execute(sql, tuple(params)).fetchall())
+        try:
+            with self.connect() as conn:
+                return list(conn.execute(sql, tuple(params)).fetchall())
+        except sqlite3.Error as exc:
+            raise StorageError(f"SQLite fetch failed: {exc}") from exc

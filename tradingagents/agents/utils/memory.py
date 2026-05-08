@@ -1,10 +1,12 @@
 """Append-only markdown decision log for TradingAgents."""
 
+import os
 from typing import List, Optional
 from pathlib import Path
 import re
 
 from tradingagents.agents.utils.rating import parse_rating
+from tradingagents.exceptions import StorageError
 
 
 class TradingMemoryLog:
@@ -56,8 +58,11 @@ class TradingMemoryLog:
         if meta_line:
             body = f"{meta_line}\n{body}"
         entry = f"{tag}\n\nDECISION:\n{body}{self._SEPARATOR}"
-        with open(self._log_path, "a", encoding="utf-8") as f:
-            f.write(entry)
+        try:
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(entry)
+        except OSError as exc:
+            raise StorageError(f"Failed to append memory entry: {exc}") from exc
 
     # --- Read path (Phase A) ---
 
@@ -169,8 +174,11 @@ class TradingMemoryLog:
         new_blocks = self._apply_rotation(new_blocks)
         new_text = self._SEPARATOR.join(new_blocks)
         tmp_path = self._log_path.with_suffix(".tmp")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        tmp_path.replace(self._log_path)
+        try:
+            tmp_path.write_text(new_text, encoding="utf-8")
+            tmp_path.replace(self._log_path)
+        except OSError as exc:
+            raise StorageError(f"Failed to update memory entry: {exc}") from exc
 
     def batch_update_with_outcomes(self, updates: List[dict]) -> None:
         """Apply multiple outcome updates in a single read + atomic write.
@@ -223,8 +231,11 @@ class TradingMemoryLog:
         new_blocks = self._apply_rotation(new_blocks)
         new_text = self._SEPARATOR.join(new_blocks)
         tmp_path = self._log_path.with_suffix(".tmp")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        tmp_path.replace(self._log_path)
+        try:
+            tmp_path.write_text(new_text, encoding="utf-8")
+            tmp_path.replace(self._log_path)
+        except OSError as exc:
+            raise StorageError(f"Failed to batch update memory entries: {exc}") from exc
 
     # --- Helpers ---
 

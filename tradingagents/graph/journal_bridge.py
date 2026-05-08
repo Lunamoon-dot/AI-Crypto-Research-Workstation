@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from tradingagents.domain import AgentOpinion, ResearchDebate, ResearchRun, Signal, TradeThesis
+from tradingagents.observability import log_event
 from tradingagents.services import JournalService
 from tradingagents.signals.base import SignalResult
 from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot
@@ -20,11 +21,19 @@ class JournalBridge:
 
     def __init__(self, config: dict):
         self.service = None
+        self.config = config
         if config.get("journal", {}).get("enabled", True):
             try:
                 self.service = JournalService(config)
             except Exception as e:
                 logger.warning("Decision journal disabled: %s", e)
+                log_event(
+                    logger,
+                    "storage_operation_failed",
+                    operation="journal_init",
+                    error_type=type(e).__name__,
+                    error=str(e)[:500],
+                )
 
     def start_run(self, run: ResearchRun | None) -> ResearchRun | None:
         if not self.service or not run:
@@ -33,6 +42,14 @@ class JournalBridge:
             return self.service.start_research_run(run)
         except Exception as e:
             logger.warning("Could not save research run start: %s", e)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="start_run",
+                run_id=getattr(run, "id", None),
+                error_type=type(e).__name__,
+                error=str(e)[:500],
+            )
             return run
 
     def save_quant_signals(
@@ -43,7 +60,10 @@ class JournalBridge:
         if not self.service or not run or result is None:
             return run, []
         try:
-            signals = self.service.save_signals(signal_result_to_domain_signals(result))
+            stale_mode = self.config.get("stale_data", {}).get("mode", "warn")
+            signals = self.service.save_signals(
+                signal_result_to_domain_signals(result, stale_mode=stale_mode)
+            )
             run.signal_ids = [signal.id for signal in signals if signal.id]
             market_snapshot = self.service.save_market_snapshot(
                 build_market_snapshot(result, research_run_id=run.id)
@@ -68,9 +88,38 @@ class JournalBridge:
                     "signal_ids": run.signal_ids,
                 },
             )
+            stale_count = signal_snapshot.stale_count
+            total_count = len(signal_snapshot.signal_ids or [])
+            stale_ratio = (stale_count / total_count) if total_count else 0.0
+            status = "healthy"
+            if total_count == 0:
+                status = "missing"
+            elif stale_ratio >= 0.5:
+                status = "degraded"
+            log_event(
+                logger,
+                "snapshot_health",
+                run_id=run.id,
+                symbol=run.symbol,
+                market_snapshot_id=run.market_snapshot_id,
+                signal_snapshot_id=run.signal_snapshot_id,
+                signal_count=total_count,
+                stale_count=stale_count,
+                unknown_freshness_count=signal_snapshot.unknown_freshness_count,
+                stale_ratio=round(stale_ratio, 4),
+                status=status,
+            )
             return run, signals
         except Exception as e:
             logger.warning("Could not save quant signals to journal: %s", e)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="save_quant_signals",
+                run_id=getattr(run, "id", None),
+                error_type=type(e).__name__,
+                error=str(e)[:500],
+            )
             return run, []
 
     def complete_run(
@@ -97,10 +146,26 @@ class JournalBridge:
                     self.service.save_scenarios(scenarios)
                 except Exception as e:
                     logger.warning("Could not save thesis scenarios: %s", e)
+                    log_event(
+                        logger,
+                        "storage_operation_failed",
+                        operation="save_scenarios",
+                        run_id=getattr(run, "id", None),
+                        error_type=type(e).__name__,
+                        error=str(e)[:500],
+                    )
             run = self.service.complete_research_run(run)
             return run, thesis
         except Exception as e:
             logger.warning("Could not complete research journal entry: %s", e)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="complete_run",
+                run_id=getattr(run, "id", None),
+                error_type=type(e).__name__,
+                error=str(e)[:500],
+            )
             return run, thesis
 
     def save_agent_research(
@@ -134,4 +199,12 @@ class JournalBridge:
             return run, opinions, debate
         except Exception as e:
             logger.warning("Could not save structured agent research: %s", e)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="save_agent_research",
+                run_id=getattr(run, "id", None),
+                error_type=type(e).__name__,
+                error=str(e)[:500],
+            )
             return run, [], None

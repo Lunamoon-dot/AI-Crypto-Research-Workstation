@@ -21,6 +21,13 @@ backoff_base_sec = 0.35
 backoff_max_sec = 2.5
 rate_limit_per_sec = 8.0
 
+[observability]
+persist_run_events = true
+persist_data_provider_calls = true
+persist_llm_calls = true
+persist_snapshot_health = true
+data_provider_call_sample_rate = 0.25
+
 # Example local override:
 # llm_provider = "openai"
 # quick_think_llm = "gpt-5-mini"

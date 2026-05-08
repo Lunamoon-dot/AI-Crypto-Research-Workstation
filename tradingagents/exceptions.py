@@ -38,3 +38,19 @@ class ProviderRetryExhaustedError(DataProviderError):
 class HealthCheckError(TradingAgentsError, RuntimeError):
     """Raised when health checks cannot be completed."""
 
+
+class StaleDataError(DataProviderError):
+    """Raised when cached/provider data exceeds freshness threshold."""
+
+
+class RateLimitError(DataProviderError):
+    """Raised when an external API returns a rate-limit (HTTP 429) response."""
+
+
+class LLMOutputError(TradingAgentsError, RuntimeError):
+    """Raised when LLM output cannot be parsed even after free-text fallback."""
+
+
+class StorageError(TradingAgentsError, RuntimeError):
+    """Raised when database or filesystem persistence operations fail."""
+

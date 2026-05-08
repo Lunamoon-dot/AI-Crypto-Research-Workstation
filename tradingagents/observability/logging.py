@@ -8,6 +8,7 @@ from datetime import date, datetime
 import json
 import logging
 import os
+import random
 import re
 import sys
 from typing import Any, Iterator, Mapping
@@ -22,6 +23,20 @@ _OBS_RUN_EVENT_PERSIST = contextvars.ContextVar(
     "tradingagents_obs_run_event_persist",
     default=None,
 )
+
+_TIMELINE_EVENT_TYPES = {
+    "research_run_started": "run.started",
+    "research_run_completed": "run.completed",
+    "research_run_failed": "run.failed",
+    "data_provider_call": "provider.call",
+    "llm_call": "llm.call",
+    "snapshot_health": "snapshot.health",
+    "stale_data_detected": "data.stale",
+    "storage_operation_failed": "storage.failed",
+    "rate_limit_hit": "provider.rate_limit",
+    "llm_output_failure": "llm.output_failure",
+    "health_check_failed": "health.failed",
+}
 
 
 _SECRET_KEY_RE = re.compile(
@@ -97,6 +112,9 @@ def observability_run_event_persistence(
     service: Any | None,
     *,
     persist_provider_calls: bool = True,
+    persist_llm_calls: bool = True,
+    persist_snapshot_health: bool = True,
+    data_provider_call_sample_rate: float = 1.0,
 ) -> Iterator[None]:
     """When active, ``log_event`` also writes matching rows to journal ``run_events``."""
     if service is None:
@@ -106,6 +124,11 @@ def observability_run_event_persistence(
     cfg = {
         "service": service,
         "persist_provider_calls": persist_provider_calls,
+        "persist_llm_calls": persist_llm_calls,
+        "persist_snapshot_health": persist_snapshot_health,
+        "data_provider_call_sample_rate": max(
+            0.0, min(1.0, float(data_provider_call_sample_rate))
+        ),
     }
     token = _OBS_RUN_EVENT_PERSIST.set(cfg)
     try:
@@ -157,21 +180,49 @@ def install_secret_redaction_filter() -> None:
 
 
 def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
+    if event_name in _TIMELINE_EVENT_TYPES:
+        event_name = _TIMELINE_EVENT_TYPES[event_name]
     symbol = payload.get("symbol") or ""
-    if event_name == "research_run_started":
+    if event_name == "run.started":
         return f"Research run started ({symbol})".strip()
-    if event_name == "research_run_completed":
+    if event_name == "run.completed":
         sig = payload.get("final_signal")
         suffix = f" → {sig}" if sig else ""
         return f"Research run completed ({symbol}){suffix}".strip()
-    if event_name == "research_run_failed":
+    if event_name == "run.failed":
         err_t = payload.get("error_type", "Error")
         return f"Research run failed: {err_t}"
-    if event_name == "data_provider_call":
+    if event_name == "provider.call":
         method = payload.get("method", "?")
         vendor = payload.get("vendor", "?")
         status = payload.get("status", "?")
         return f"Data provider {method} [{vendor}] {status}"
+    if event_name == "llm.call":
+        model = payload.get("model", "?")
+        status = payload.get("status", "success")
+        return f"LLM call [{model}] {status}"
+    if event_name == "snapshot.health":
+        health = payload.get("status", "unknown")
+        return f"Snapshot health: {health}"
+    if event_name == "data.stale":
+        source = payload.get("source", "?")
+        age_hours = payload.get("age_hours", "?")
+        return f"Stale data [{source}] age={age_hours}h"
+    if event_name == "storage.failed":
+        op = payload.get("operation", "?")
+        err_t = payload.get("error_type", "Error")
+        return f"Storage operation failed: {op} ({err_t})"
+    if event_name == "provider.rate_limit":
+        vendor = payload.get("vendor", "?")
+        return f"Rate limit hit [{vendor}]"
+    if event_name == "llm.output_failure":
+        agent = payload.get("agent_name", "?")
+        err_t = payload.get("error_type", "Error")
+        return f"LLM output failure [{agent}]: {err_t}"
+    if event_name == "health.failed":
+        provider = payload.get("provider", "?")
+        err_t = payload.get("error_type", "Error")
+        return f"Health check failed [{provider}]: {err_t}"
     return event_name
 
 
@@ -206,13 +257,26 @@ def log_event(
         and not persist_cfg.get("persist_provider_calls", True)
     ):
         return
+    if event == "llm_call" and not persist_cfg.get("persist_llm_calls", True):
+        return
+    if event == "snapshot_health" and not persist_cfg.get("persist_snapshot_health", True):
+        return
+    if event == "data_provider_call":
+        sample_rate = float(persist_cfg.get("data_provider_call_sample_rate", 1.0))
+        if sample_rate < 1.0 and random.random() > sample_rate:
+            return
 
     safe_payload = redact_secrets(dict(payload))
-    message = _timeline_message(event, safe_payload)
+    canonical_event = _TIMELINE_EVENT_TYPES.get(event, event)
+    safe_payload.setdefault("timeline_schema", "v1")
+    safe_payload.setdefault("timeline_event_type", canonical_event)
+    if canonical_event != event:
+        safe_payload.setdefault("timeline_event_raw", event)
+    message = _timeline_message(canonical_event, safe_payload)
     try:
         persist_cfg["service"].add_run_event(
             str(run_id),
-            event,
+            canonical_event,
             message,
             safe_payload,
         )

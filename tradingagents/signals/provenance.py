@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from tradingagents.domain import DataFreshness, Signal, SignalDirection, SignalProvenance
+from tradingagents.exceptions import StaleDataError
+from tradingagents.observability import log_event
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
+
+logger = logging.getLogger(__name__)
 
 FRESHNESS_WINDOW = timedelta(hours=24)
 
@@ -39,8 +44,15 @@ def freshness_from_timestamp(
     source_timestamp: datetime | None,
     *,
     now: datetime | None = None,
+    mode: str | None = None,
+    symbol: str = "",
+    source: str = "",
 ) -> tuple[DataFreshness, int | None]:
-    """Return freshness state and data age in seconds."""
+    """Return freshness state and data age in seconds.
+
+    When *mode* is ``"fail_fast"`` and the data is STALE, raises
+    :exc:`StaleDataError` instead of returning the enum.
+    """
     if source_timestamp is None:
         return DataFreshness.UNKNOWN, None
 
@@ -49,6 +61,21 @@ def freshness_from_timestamp(
     age_seconds = max(int(age.total_seconds()), 0)
     if age <= FRESHNESS_WINDOW:
         return DataFreshness.FRESH, age_seconds
+
+    age_hours = round(age_seconds / 3600.0, 2)
+    log_event(
+        logger,
+        "stale_data_detected",
+        source=source or "signal_timestamp",
+        symbol=symbol,
+        age_hours=age_hours,
+        mode=mode or "warn",
+    )
+    if mode == "fail_fast":
+        raise StaleDataError(
+            f"Data from {source or 'unknown'} is stale "
+            f"({age_hours}h old, threshold={FRESHNESS_WINDOW.total_seconds() / 3600:.0f}h)"
+        )
     return DataFreshness.STALE, age_seconds
 
 
@@ -56,6 +83,7 @@ def signal_result_to_domain_signals(
     result: SignalResult,
     *,
     now: datetime | None = None,
+    stale_mode: str | None = None,
 ) -> list[Signal]:
     """Convert a SignalResult plus factors into domain Signal records."""
     observed_at = now or datetime.now(timezone.utc)
@@ -63,6 +91,9 @@ def signal_result_to_domain_signals(
     freshness, freshness_seconds = freshness_from_timestamp(
         source_timestamp,
         now=observed_at,
+        mode=stale_mode,
+        symbol=result.symbol,
+        source="signal_engine",
     )
 
     signals = [_composite_signal(result, source_timestamp, freshness, freshness_seconds, observed_at)]

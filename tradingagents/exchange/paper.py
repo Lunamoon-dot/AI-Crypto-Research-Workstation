@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from tradingagents.exceptions import StaleDataError
+from tradingagents.observability import log_event
+
 from .base import Balance, ExchangeAdapter, ExchangePosition, Order
 
 logger = logging.getLogger(__name__)
@@ -105,8 +108,11 @@ class PaperAdapter(ExchangeAdapter):
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         tmp = self._state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp.replace(self._state_path)
+        try:
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(self._state_path)
+        except OSError as exc:
+            raise StorageError(f"Failed to save paper state: {exc}") from exc
 
     # -- Price data ------------------------------------------------------------
 
@@ -148,12 +154,28 @@ class PaperAdapter(ExchangeAdapter):
 
     def _get_last_price(self, symbol: str, market_data=None) -> float:
         """Get current price — cache-first when WebSocket feed is available."""
-        if market_data is not None and not market_data.is_ticker_stale(symbol):
-            ticker = market_data.get_ticker(symbol)
-            if ticker:
-                price = ticker.get("last")
-                if price:
-                    return float(price)
+        stale_mode = self.config.get("stale_data", {}).get("mode", "warn")
+        if market_data is not None:
+            if market_data.is_ticker_stale(symbol):
+                log_event(
+                    logger,
+                    "stale_data_detected",
+                    source="websocket_ticker",
+                    symbol=symbol,
+                    age_hours=0.0,
+                    mode=stale_mode,
+                )
+                if stale_mode == "fail_fast":
+                    raise StaleDataError(
+                        f"WebSocket ticker for {symbol} is stale; "
+                        f"execution blocked in fail_fast mode"
+                    )
+            else:
+                ticker = market_data.get_ticker(symbol)
+                if ticker:
+                    price = ticker.get("last")
+                    if price:
+                        return float(price)
         ticker = self.fetch_ticker(symbol)
         price = ticker.get("last")
         if price is None:

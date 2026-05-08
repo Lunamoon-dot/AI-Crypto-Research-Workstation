@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 import warnings
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_content(response):
@@ -20,6 +26,42 @@ def normalize_content(response):
         ]
         response.content = "\n".join(t for t in texts if t)
     return response
+
+
+def _extract_token_usage(response) -> dict[str, int]:
+    usage = getattr(response, "usage_metadata", None) or {}
+    return {
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+    }
+
+
+def _emit_llm_event(
+    llm_logger: logging.Logger,
+    provider: str,
+    model: str,
+    duration_ms: float,
+    status: str,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    error: Exception | None = None,
+) -> None:
+    from tradingagents.observability import log_event
+
+    fields: dict[str, Any] = {
+        "provider": provider,
+        "model": model,
+        "duration_ms": round(duration_ms, 2),
+        "status": status,
+    }
+    if status == "success":
+        fields["input_tokens"] = input_tokens
+        fields["output_tokens"] = output_tokens
+    else:
+        fields["error_type"] = type(error).__name__ if error else "Unknown"
+        fields["error"] = str(error)[:500] if error else ""
+    log_event(llm_logger, "llm_call", **fields)
 
 
 class BaseLLMClient(ABC):
