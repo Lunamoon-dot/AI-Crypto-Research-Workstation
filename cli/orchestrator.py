@@ -119,7 +119,7 @@ class AnalysisOrchestrator:
 
         try:
             if plain:
-                final_state = self._run_stream(
+                final_state, decision = self._run_stream(
                     graph, selections, selected_analyst_keys, plain=plain
                 )
             else:
@@ -137,7 +137,7 @@ class AnalysisOrchestrator:
                         )
 
                     update_live()
-                    final_state = self._run_stream(
+                    final_state, decision = self._run_stream(
                         graph,
                         selections,
                         selected_analyst_keys,
@@ -174,22 +174,14 @@ class AnalysisOrchestrator:
             )
             raise typer.Exit(code=1) from None
 
-        graph.begin_cli_journal_persistence(
-            selections["ticker"], selections["analysis_date"], final_state
-        )
-
-        decision = graph.process_signal(final_state["final_trade_decision"])
-
-        # Legacy helper path kept for compatibility with older integrations.
-        from tradingagents.graph.trading_graph import _exec_result_to_str
-
-        exec_result = graph._build_trade_plan(final_state)
+        exec_result = graph.execution_result
         if exec_result is not None:
             self.message_buffer.execution_result = exec_result
-            msg = _exec_result_to_str(exec_result)
-            self.message_buffer.add_message("Thesis Plan", msg)
+            from tradingagents.graph.planning import planning_result_to_str
 
-        graph.finalize_cli_journal_persistence(selections["analysis_date"], final_state)
+            self.message_buffer.add_message(
+                "Thesis Plan", planning_result_to_str(exec_result)
+            )
 
         from cli.research_completion import emit_research_run_complete_panel
 
@@ -377,7 +369,7 @@ class AnalysisOrchestrator:
         update_live=None,
         plain=False,
     ):
-        """Stream the graph execution, processing each chunk."""
+        """Run ``ResearchAgentsGraph.propagate`` while streaming CLI progress."""
         self.message_buffer.add_message(
             "System", f"Selected ticker: {selections['ticker']}"
         )
@@ -389,7 +381,6 @@ class AnalysisOrchestrator:
             f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
         )
         if selected_analyst_keys:
-            # With parallel fan-out, all analysts start simultaneously
             for analyst_key in selected_analyst_keys:
                 agent_name = ANALYST_AGENT_NAMES.get(
                     analyst_key,
@@ -406,40 +397,26 @@ class AnalysisOrchestrator:
             )
 
         spinner_text = (
-            f"Precomputing quantitative signals for {selections['ticker']}..."
+            "Loading research graph (signals + analysts + debates)..."
         )
         if update_live:
             update_live(spinner_text)
         elif plain:
             console.print(spinner_text)
-        quant_signal_text = graph._precompute_quant_signal(
-            selections["ticker"], selections["analysis_date"]
-        )
 
-        spinner_text = (
-            f"Analyzing {selections['ticker']} on {selections['analysis_date']}..."
-        )
-        if update_live:
-            update_live(spinner_text)
-        elif plain:
-            console.print(spinner_text)
-        init_agent_state = graph.propagator.create_initial_state(
-            selections["ticker"], selections["analysis_date"]
-        )
-        init_agent_state["quant_signal"] = quant_signal_text
-        args = graph.propagator.get_graph_args(
-            callbacks=[self.stats_handler]
-        )
-
-        trace = []
-        for chunk in graph.graph.stream(init_agent_state, **args):
+        def node_callback(chunk):
             self.chunk_processor.process_chunk(chunk)
             if update_live:
                 update_live()
-            trace.append(chunk)
-        if not trace:
-            raise RuntimeError("Research graph produced no output.")
-        return trace[-1]
+
+        final_state, decision = graph.propagate(
+            selections["ticker"],
+            selections["analysis_date"],
+            node_callback=node_callback,
+            run_callbacks=[self.stats_handler],
+        )
+
+        return final_state, decision
 
     @staticmethod
     def _format_provider_runtime_error(

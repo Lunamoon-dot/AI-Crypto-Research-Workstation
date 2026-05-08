@@ -40,8 +40,9 @@ class GraphSetup:
     ):
         """Set up and compile the agent workflow graph.
 
-        Analysts run in PARALLEL. Each analyst node executes its own local tool
-        loop until completion, then all analyst branches join before debate.
+        Analysts run sequentially in a fixed chain. Each analyst completes its
+        local tool loop before the next one starts, so downstream analysts see
+        the full output of upstream ones.
         """
         if len(selected_analysts) == 0:
             raise ValueError(
@@ -123,16 +124,12 @@ class GraphSetup:
             )
             workflow.add_node(node_name, runner)
 
-        # Fan-out from START: run all selected analysts concurrently.
-        for node_name, _, _, _ in analyst_specs:
-            workflow.add_edge(START, node_name)
+        # Chain analysts sequentially: START → first → second → ... → last → Bull.
+        workflow.add_edge(START, analyst_specs[0][0])
+        for i in range(len(analyst_specs) - 1):
+            workflow.add_edge(analyst_specs[i][0], analyst_specs[i + 1][0])
 
-        # Fan-in barrier: wait until all analyst branches complete.
-        workflow.add_node("Analyst Barrier", lambda _state: {})
-        for node_name, _, _, _ in analyst_specs:
-            workflow.add_edge(node_name, "Analyst Barrier")
-
-        # After last analyst → debate/risk pipeline
+        # Debate/risk pipeline
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -142,8 +139,8 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
-        # Debate edges
-        workflow.add_edge("Analyst Barrier", "Bull Researcher")
+        # Last analyst → Bull Researcher
+        workflow.add_edge(analyst_specs[-1][0], "Bull Researcher")
         workflow.add_conditional_edges(
             "Bull Researcher",
             self.conditional_logic.should_continue_debate,

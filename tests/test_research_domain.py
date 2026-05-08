@@ -63,3 +63,27 @@ def test_planning_result_uses_legacy_cli_shape_without_execution():
     assert result["symbol"] == "BTC/USDT"
     assert result["order_id"] is None
     assert result["filled"] == 0
+
+
+def test_planning_config_overlays_legacy_execution_defaults():
+    from tradingagents.graph.planning import planning_config
+
+    cfg = {
+        "execution": {"exchange": "legacy", "position_sizing": "kelly", "optimizer": {}},
+        "planning": {"exchange": "bitget"},
+    }
+    merged = planning_config(cfg)
+    assert merged["exchange"] == "bitget"
+    assert merged["position_sizing"] == "kelly"
+
+
+def test_planning_nested_dict_shallow_merges_with_execution():
+    from tradingagents.graph.planning import planning_config
+
+    cfg = {
+        "execution": {"monitoring": {"poll_interval_sec": 99, "enabled": False}},
+        "planning": {"monitoring": {"enabled": True}},
+    }
+    merged = planning_config(cfg)["monitoring"]
+    assert merged["enabled"] is True
+    assert merged["poll_interval_sec"] == 99

@@ -21,11 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 def planning_config(config: dict) -> dict:
-    """Return assisted-planning config with legacy execution-key fallback."""
-    planning_cfg = config.get("planning")
-    if planning_cfg is not None:
-        return planning_cfg
-    return config.get("execution", {})
+    """Return unified planning/paper/sizing knobs.
+
+    Starts from legacy ``execution`` defaults (when present), then overlays
+    ``planning`` so newer config wins key-by-key. Nested dicts (e.g.
+    ``monitoring``) merge with ``planning`` overriding overlapping keys only.
+    """
+    exec_dict = dict(config.get("execution") or {})
+    plan_dict = dict(config.get("planning") or {})
+    merged = dict(exec_dict)
+    for k, pv in plan_dict.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(pv, dict):
+            sub = dict(merged[k])
+            sub.update(pv)
+            merged[k] = sub
+        else:
+            merged[k] = pv
+    return merged
 
 
 def make_planning_result(

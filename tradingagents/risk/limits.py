@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from tradingagents.graph.planning import planning_config
+
 from tradingagents.portfolio.portfolio import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -13,7 +15,9 @@ logger = logging.getLogger(__name__)
 class RiskLimits:
     """Enforces portfolio-level risk constraints before order execution.
 
-    Config keys (under ``execution.risk_limits``):
+    Config keys on merged ``planning`` (legacy ``execution`` supported via
+    :func:`~tradingagents.graph.planning.planning_config`; same path
+    ``risk_limits``):
 
     - ``max_position_size_pct``: Max % of portfolio in a single position (e.g. 30).
     - ``max_leverage``: Maximum allowed leverage (futures only).
@@ -25,7 +29,7 @@ class RiskLimits:
     """
 
     def __init__(self, config: dict):
-        rl = config.get("execution", {}).get("risk_limits", {})
+        rl = planning_config(config).get("risk_limits", {})
         self.max_position_size_pct: float = float(rl.get("max_position_size_pct", 30.0))
         self.max_leverage: int = int(rl.get("max_leverage", 3))
         self.max_drawdown_pct: float = float(rl.get("max_drawdown_pct", 15.0))

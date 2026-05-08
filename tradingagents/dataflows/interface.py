@@ -3,8 +3,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import perf_counter
-from typing import Annotated
-
 # Import from vendor-specific modules
 from .ccxt_provider import (
     get_crypto_ohlcv as get_ccxt_crypto_ohlcv,
@@ -25,6 +23,10 @@ from .stockstats_utils import StockstatsUtils
 
 # Configuration and routing logic
 from .config import get_config
+from .crypto_news_provider import (
+    format_cryptopanic_for_tool,
+    format_global_cryptopanic_for_tool,
+)
 from tradingagents.exceptions import (
     DataProviderError,
     HealthCheckError,
@@ -54,30 +56,24 @@ def _get_indicators_ccxt(
 def _get_news_crypto(
     ticker: str, start_date: str = "", end_date: str = "",
 ) -> str:
-    """Placeholder crypto news — returns a note that crypto news is pending.
+    """Crypto-native news: CryptoPanic headlines when ``CRYPTOPANIC_API_TOKEN`` is set.
 
-    TODO: integrate Cryptopanic API or similar crypto-native news source.
+    Falls back to an explicit MISSING-DATA briefing so downstream LLM agents do not
+    invent headlines when no feed is configured.
     """
-    return (
-        f"Crypto News for {ticker} ({start_date} → {end_date})\n"
-        f"{'=' * 50}\n\n"
-        f"Crypto-specific news source is not yet configured. The AI analyst "
-        f"should rely on sentiment data (Fear & Greed Index, social sentiment, "
-        f"news sentiment aggregation) and on-chain metrics for context.\n\n"
-        f"To enable news: configure a Cryptopanic API key or add a "
-        f"CryptoPanic provider in tradingagents/dataflows/.\n"
+    return format_cryptopanic_for_tool(
+        ticker=ticker, start_date=start_date, end_date=end_date,
     )
 
 
 def _get_global_news_crypto(
     curr_date: str, look_back_days: int = 7, limit: int = 5,
 ) -> str:
-    """Placeholder global crypto news."""
-    return (
-        f"Global Crypto News (last {look_back_days} days)\n"
-        f"{'=' * 50}\n\n"
-        f"Global crypto news source is not yet configured. Use sentiment "
-        f"indicators (Fear & Greed, social sentiment) for macro mood.\n"
+    """Macro crypto briefing — same CryptoPanic env gate as the per-ticker tool."""
+    return format_global_cryptopanic_for_tool(
+        curr_date=curr_date,
+        look_back_days=look_back_days,
+        limit=min(max(limit, 1), 20),
     )
 
 
@@ -343,7 +339,7 @@ def _invoke_with_resilience(
             with ThreadPoolExecutor(max_workers=1) as ex:
                 fut = ex.submit(impl_func, *args, **kwargs)
                 return fut.result(timeout=timeout_sec)
-        except FuturesTimeoutError as exc:
+        except FuturesTimeoutError:
             last_error = ProviderTimeoutError(
                 f"{vendor}.{method} timed out after {timeout_sec}s"
             )

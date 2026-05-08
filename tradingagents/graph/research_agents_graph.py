@@ -418,7 +418,14 @@ class ResearchAgentsGraph:
         if updates:
             self.memory_log.batch_update_with_outcomes(updates)
 
-    def propagate(self, company_name, trade_date, node_callback=None):
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        node_callback=None,
+        *,
+        run_callbacks=None,
+    ):
         """Run the research graph for a company on a specific date.
 
         When ``checkpoint_enabled`` is set in config, the graph is recompiled
@@ -428,6 +435,9 @@ class ResearchAgentsGraph:
         If *node_callback* is provided, the graph runs in streaming mode and
         calls the callback after each node completes, allowing the caller to
         report intermediate progress.
+
+        *run_callbacks* is forwarded to LangGraph runnable ``callbacks`` (e.g. CLI
+        usage stats). LLM tracing remains on ``self.callbacks`` from ``__init__``.
         """
         self.ticker = company_name
 
@@ -481,7 +491,10 @@ class ResearchAgentsGraph:
                     with persist_ctx:
                         try:
                             return self._run_graph(
-                                company_name, trade_date, node_callback=node_callback
+                                company_name,
+                                trade_date,
+                                node_callback=node_callback,
+                                run_callbacks=run_callbacks,
                             )
                         except Exception as exc:
                             log_event(
@@ -499,7 +512,14 @@ class ResearchAgentsGraph:
                 self._checkpointer_ctx = None
                 self.graph = self.workflow.compile()
 
-    def _run_graph(self, company_name, trade_date, node_callback=None):
+    def _run_graph(
+        self,
+        company_name,
+        trade_date,
+        node_callback=None,
+        *,
+        run_callbacks=None,
+    ):
         """Execute the graph and write the resulting state to disk and memory log."""
         self.current_research_run = ResearchRun(
             symbol=company_name,
@@ -555,7 +575,7 @@ class ResearchAgentsGraph:
         )
         # Inject pre-computed quant signal into initial state
         init_agent_state["quant_signal"] = quant_signal_text
-        args = self.propagator.get_graph_args()
+        args = self.propagator.get_graph_args(callbacks=run_callbacks or None)
 
         # Inject thread_id so same ticker+date resumes, different date starts fresh.
         if self.config.get("checkpoint_enabled"):

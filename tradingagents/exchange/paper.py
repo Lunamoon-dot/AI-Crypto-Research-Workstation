@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from tradingagents.exceptions import StaleDataError, StorageError
+from tradingagents.graph.planning import planning_config
 from tradingagents.observability import log_event
 
 from .base import Balance, ExchangeAdapter, ExchangePosition, Order
@@ -33,9 +34,9 @@ class PaperAdapter(ExchangeAdapter):
 
     def __init__(self, config: dict):
         super().__init__(config)
-        exec_cfg = config.get("execution", {})
-        self.initial_balance = float(exec_cfg.get("initial_balance", 10_000))
-        self.market_type = exec_cfg.get("market_type", "spot")
+        pcfg = planning_config(config)
+        self.initial_balance = float(pcfg.get("initial_balance", 10_000))
+        self.market_type = pcfg.get("market_type", "spot")
 
         # Persistent state file
         cache_dir = config.get("data_cache_dir", ".")
@@ -121,7 +122,7 @@ class PaperAdapter(ExchangeAdapter):
             return self._price_exchange
         import ccxt
 
-        exchange_id = self.config.get("execution", {}).get("exchange", "bitget")
+        exchange_id = planning_config(self.config).get("exchange", "bitget")
         exchange_class = getattr(ccxt, exchange_id)
         self._price_exchange = exchange_class({"enableRateLimit": True})
         self._price_exchange.load_markets()
@@ -134,7 +135,7 @@ class PaperAdapter(ExchangeAdapter):
         try:
             raw = exchange.fetch_ticker(native_symbol)
         except Exception as e:
-            exchange_id = self.config.get("execution", {}).get("exchange", "bitget")
+            exchange_id = planning_config(self.config).get("exchange", "bitget")
             msg = (
                 f"Symbol {symbol} is not available on {exchange_id}. "
                 f"Try a pair like BTC/USDT, ETH/USDT, or SOL/USDT that {exchange_id} supports."

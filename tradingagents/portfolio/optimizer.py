@@ -14,6 +14,8 @@ from typing import Optional
 
 import numpy as np
 
+from tradingagents.graph.planning import planning_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,14 +55,15 @@ class OptimizationResult:
 class PortfolioOptimizer:
     """Produces allocation suggestions across multiple assets.
 
-    Config keys (under ``execution.optimizer``):
+    Config keys on merged ``planning.optimizer``:
+
     - ``method``: "equal_weight", "risk_parity", "rating_weighted"
     - ``max_turnover``: max % of portfolio to rebalance per run (e.g. 0.20)
     - ``min_position_pct``: minimum allocation per position (e.g. 0.05)
     """
 
     def __init__(self, config: dict):
-        opt_cfg = config.get("execution", {}).get("optimizer", {})
+        opt_cfg = planning_config(config).get("optimizer", {})
         self.method = opt_cfg.get("method", "rating_weighted")
         self.max_turnover = float(opt_cfg.get("max_turnover", 0.20))
         self.min_position_pct = float(opt_cfg.get("min_position_pct", 0.05))

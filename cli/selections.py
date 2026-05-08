@@ -366,12 +366,8 @@ def build_run_config(selections: dict, checkpoint: bool) -> dict:
     planning_cfg = selections.get("planning_config", {})
     if planning_cfg:
         config.setdefault("planning", {}).update(planning_cfg)
-        config.setdefault("execution", {}).update(planning_cfg)
     if selections.get("crypto_exchange"):
         config.setdefault("planning", {})["exchange"] = selections[
-            "crypto_exchange"
-        ]
-        config.setdefault("execution", {})["exchange"] = selections[
             "crypto_exchange"
         ]
     config["checkpoint_enabled"] = checkpoint

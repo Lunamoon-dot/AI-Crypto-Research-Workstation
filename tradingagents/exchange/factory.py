@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from tradingagents.graph.planning import planning_config
+
 from .base import ExchangeAdapter
 
 logger = logging.getLogger(__name__)
@@ -12,7 +14,9 @@ logger = logging.getLogger(__name__)
 def create_exchange(config: dict) -> ExchangeAdapter:
     """Create an exchange adapter for read-only/paper research context.
 
-    Config keys used (under ``execution``):
+    Config is read via :func:`planning_config` (single ``planning`` block, plus
+    optional legacy ``execution`` merges).
+
     - ``mode``: ``"planning"`` or ``"paper"`` for local research context
     - ``exchange``: CCXT exchange id (e.g. ``"bitget"``)
     - ``market_type``: ``"spot"`` or ``"swap"``
@@ -21,9 +25,9 @@ def create_exchange(config: dict) -> ExchangeAdapter:
     workstation reset. Any future assisted execution path must be explicit,
     user-approved, and separate from the LLM graph.
     """
-    exec_cfg = config.get("execution", {})
-    mode = exec_cfg.get("mode", "planning")
-    exchange_id = exec_cfg.get("exchange", "bitget")
+    pcfg = planning_config(config)
+    mode = pcfg.get("mode", "planning")
+    exchange_id = pcfg.get("exchange", "bitget")
 
     if mode in ("planning", "paper"):
         from .paper import PaperAdapter

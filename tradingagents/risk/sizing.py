@@ -1,6 +1,6 @@
 """Position sizing strategies — Kelly, volatility-adjusted, ATR-based, and more.
 
-Three modes (config key ``execution.position_sizing``):
+Three modes (merged ``planning`` via :func:`~tradingagents.graph.planning.planning_config`, key ``position_sizing``):
 
 ``"fixed"``
     Fixed-ratio mapping: rating → % of portfolio.  No LLM call.
@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
+
+from tradingagents.graph.planning import planning_config
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +58,18 @@ class PositionSizer:
     """Translates a rating into a concrete portfolio allocation %."""
 
     def __init__(self, config: dict):
-        exec_cfg = config.get("execution", {})
-        self.mode: str = exec_cfg.get("position_sizing", "llm")
+        pcfg = planning_config(config)
+        self.mode: str = pcfg.get("position_sizing", "llm")
         self.max_position_pct: float = float(
-            exec_cfg.get("risk_limits", {}).get("max_position_size_pct", 30)
+            pcfg.get("risk_limits", {}).get("max_position_size_pct", 30)
         ) / 100.0
         # Volatility targeting params
         self.vol_target_daily: float = float(
-            exec_cfg.get("volatility_target_daily", 0.01)
+            pcfg.get("volatility_target_daily", 0.01)
         )  # default 1% daily vol per position
         # Kelly params
         self.kelly_fraction: float = float(
-            exec_cfg.get("kelly_fraction", 0.5)
+            pcfg.get("kelly_fraction", 0.5)
         )  # half-Kelly default
         # Fixed sizing from config (allows user override of module-level default)
         self.fixed_sizing: dict[str, float] = config.get("fixed_sizing", FIXED_SIZING)

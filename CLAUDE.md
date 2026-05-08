@@ -39,13 +39,13 @@ python scripts/smoke_structured_output.py
 
 **State** (`tradingagents/agents/utils/agent_states.py`): `AgentState` extends LangGraph `MessagesState` with fields for each analyst report, debate substates, portfolio context, past memory context, and quant signal. `InvestDebateState` and `RiskDebateState` are `TypedDict` substates tracking debate history and round counts.
 
-**Configuration** (`tradingagents/default_config.py`): All settings in a single `DEFAULT_CONFIG` dict. Key sections: `data_vendors`, `signal_weights`, `signal_thresholds`, `fixed_sizing`, `execution` (disabled by default — must toggle `execution.enabled`), `confidence_thresholds`. The `DEFAULT_CONFIG` is passed to `TradingAgentsGraph` and merged with user overrides.
+**Configuration** (`tradingagents/default_config.py`): All settings in a single `DEFAULT_CONFIG` dict. Key sections: `data_vendors`, `signal_weights`, `signal_thresholds`, `fixed_sizing`, and **`planning`** (assisted thesis/trade-plan artifact toggles plus paper-exchange context — `planning.enabled` default off). Consumers merge settings through `planning_config()` (`tradingagents/graph/planning.py`), which still overlays deprecated top-level **`execution`** if present in older user configs. Overrides are merged with `DEFAULT_CONFIG` when constructing `ResearchAgentsGraph`.
 
 **Memory system** (`tradingagents/agents/utils/memory.py`): `TradingMemoryLog` persists decisions to `~/.tradingagents/memory/trading_memory.md`. On each run, pending same-ticker entries are resolved with realised returns, alpha vs benchmark, and a structured reflection (see `ReflectionResult` schema). Past context is injected into the Portfolio Manager prompt.
 
 **Checkpoint/resume** (`tradingagents/graph/checkpointer.py`): Opt-in via `--checkpoint`. Per-ticker SQLite databases under `~/.tradingagents/cache/checkpoints/`. Uses deterministic `thread_id(ticker, date)` so re-running the same ticker+date resumes; different dates start fresh. Checkpoints are cleared on successful completion.
 
-**Exchange & execution** (`tradingagents/exchange/`, `tradingagents/risk/`, `tradingagents/portfolio/`): Execution is disabled by default (`execution.enabled: false`). When enabled, orders flow through `_execute_decision()` which validates the symbol, computes position sizing (LLM/fixed/Kelly/volatility/ATR modes), applies confidence-based penalties from the quant signal, checks risk limits, and places orders on a paper or live CCXT exchange.
+**Exchange & assisted planning** (`tradingagents/exchange/`, `tradingagents/risk/`, `tradingagents/portfolio/`): The graph does not place orders. When `planning.enabled` is true, the pipeline builds a thesis-planning artifact (`_build_trade_plan`). `create_exchange()` uses merged planning config plus `PaperAdapter` for read-only/paper context; sizing and risk-limit helpers read the same merged `planning` view.
 
 ## Key patterns
 

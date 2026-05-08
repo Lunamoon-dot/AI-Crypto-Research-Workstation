@@ -28,24 +28,34 @@ class _FakeCompiledGraph:
 
 
 class _FakeResearchGraph:
+    execution_result = None
+
     def __init__(self, *args, **kwargs):
         self.propagator = _FakePropagator()
         self.graph = _FakeCompiledGraph()
 
-    def _precompute_quant_signal(self, ticker, analysis_date):
-        return "quant signal"
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        node_callback=None,
+        *,
+        run_callbacks=None,
+    ):
+        final_state = {
+            "market_report": "Market report",
+            "sentiment_report": "Sentiment report",
+            "news_report": "News report",
+            "fundamentals_report": "Onchain report",
+            "trader_investment_plan": "Thesis plan",
+            "final_trade_decision": "**Rating**: Hold",
+        }
+        if node_callback is not None:
+            node_callback(final_state)
+        return final_state, self.process_signal(final_state["final_trade_decision"])
 
     def process_signal(self, final_trade_decision):
         return "Hold"
-
-    def _build_trade_plan(self, final_state):
-        return None
-
-    def begin_cli_journal_persistence(self, ticker, analysis_date, final_state):
-        return None
-
-    def finalize_cli_journal_persistence(self, trade_date, final_state):
-        return None
 
 
 class _FakeProviderStatusError(Exception):
@@ -53,16 +63,21 @@ class _FakeProviderStatusError(Exception):
     body = {"error": {"message": "Insufficient Balance"}}
 
 
-class _FakeFailingCompiledGraph:
-    def stream(self, init_state, **kwargs):
-        raise _FakeProviderStatusError("Insufficient Balance")
-        yield
-
-
 class _FakeFailingResearchGraph(_FakeResearchGraph):
+    """Simulate provider rejection before any streamed output."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.graph = _FakeFailingCompiledGraph()
+
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        node_callback=None,
+        *,
+        run_callbacks=None,
+    ):
+        raise _FakeProviderStatusError("Insufficient Balance")
 
 
 def _patch_default_config(monkeypatch, tmp_path):
