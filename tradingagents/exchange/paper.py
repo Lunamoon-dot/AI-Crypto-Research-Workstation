@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from tradingagents.exceptions import StaleDataError
+from tradingagents.exceptions import StaleDataError, StorageError
 from tradingagents.observability import log_event
 
 from .base import Balance, ExchangeAdapter, ExchangePosition, Order
