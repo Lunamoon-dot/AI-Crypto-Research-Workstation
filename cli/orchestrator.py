@@ -26,6 +26,7 @@ from cli.tui import (
     create_layout,
     update_display,
 )
+from tradingagents.observability import install_secret_redaction_filter
 console = Console()
 
 
@@ -67,6 +68,7 @@ class AnalysisOrchestrator:
         non_interactive = non_interactive or plain
 
         config = build_run_config(selections, checkpoint)
+        install_secret_redaction_filter()
 
         if plain:
             from tradingagents.observability.logging import (

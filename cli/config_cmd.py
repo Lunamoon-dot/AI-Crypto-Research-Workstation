@@ -16,9 +16,20 @@ from tradingagents.config_manager import (
     load_profile,
     delete_profile,
 )
+from tradingagents.dataflows.health import provider_health_snapshot
+from tradingagents.exceptions import ConfigurationError
 
 console = Console()
 config_app = typer.Typer(help="Manage configuration profiles.")
+
+
+def _profile_file_for_display(profile_name: str) -> Path | None:
+    base = Path.home() / ".tradingagents" / "profiles"
+    for ext in (".yaml", ".yml", ".toml"):
+        path = base / f"{profile_name}{ext}"
+        if path.exists():
+            return path
+    return None
 
 
 @config_app.command("save")
@@ -35,7 +46,11 @@ def config_save(
     inherited automatically.
     """
     if source_profile:
-        config = load_profile(source_profile)
+        try:
+            config = load_profile(source_profile)
+        except ConfigurationError as exc:
+            console.print(f"[red]Invalid profile '{source_profile}': {exc}[/red]")
+            raise typer.Exit(code=1)
         console.print(f"[dim]Loaded existing profile '{source_profile}' as base.[/dim]")
     else:
         from tradingagents.default_config import DEFAULT_CONFIG
@@ -61,8 +76,8 @@ def config_list():
     table.add_column("File")
 
     for name in profiles:
-        path = Path.home() / ".tradingagents" / "profiles" / f"{name}.yaml"
-        table.add_row(name, str(path))
+        path = _profile_file_for_display(name)
+        table.add_row(name, str(path) if path else "(missing)")
 
     console.print(table)
     console.print(f"\n[dim]Use 'tradingagents config show <name>' to view details.[/dim]")
@@ -77,20 +92,25 @@ def config_show(
     ),
 ):
     """Display the contents of a saved profile."""
+    path: Path | None = None
     if full:
-        config = load_profile(profile_name)
+        try:
+            config = load_profile(profile_name)
+        except ConfigurationError as exc:
+            console.print(f"[red]Invalid profile '{profile_name}': {exc}[/red]")
+            raise typer.Exit(code=1)
         yaml_str = yaml.safe_dump(config, default_flow_style=False,
                                   sort_keys=False, allow_unicode=True)
     else:
-        from pathlib import Path as P
-        path = P.home() / ".tradingagents" / "profiles" / f"{profile_name}.yaml"
-        if not path.exists():
+        path = _profile_file_for_display(profile_name)
+        if path is None:
             console.print(f"[red]Profile '{profile_name}' not found.[/red]")
             raise typer.Exit(code=1)
         yaml_str = path.read_text(encoding="utf-8")
 
+    syntax_lang = "toml" if (not full and path is not None and path.suffix == ".toml") else "yaml"
     console.print(Panel(
-        Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
+        Syntax(yaml_str, syntax_lang, theme="monokai", line_numbers=False),
         title=f"Profile: {profile_name}",
         border_style="cyan",
     ))
@@ -116,6 +136,68 @@ def config_delete(
         console.print(f"[green]Deleted profile:[/green] {profile_name}")
     else:
         console.print(f"[yellow]Profile '{profile_name}' not found.[/yellow]")
+
+
+@config_app.command("health")
+def config_health(
+    profile_name: str = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Inspect provider health using a specific profile.",
+    ),
+):
+    """Show provider enable/disable health and runtime resilience settings."""
+    if profile_name:
+        try:
+            cfg = load_profile(profile_name)
+        except ConfigurationError as exc:
+            console.print(f"[red]Invalid profile '{profile_name}': {exc}[/red]")
+            raise typer.Exit(code=1)
+    else:
+        cfg = None
+    snapshot = provider_health_snapshot(cfg)
+
+    providers_table = Table(title="Provider Status")
+    providers_table.add_column("Provider", style="cyan")
+    providers_table.add_column("Status")
+    for row in snapshot["providers"]:
+        status = row["status"]
+        color = "green" if status == "enabled" else "red"
+        providers_table.add_row(row["vendor"], f"[{color}]{status}[/{color}]")
+    console.print(providers_table)
+
+    cat_table = Table(title="Category Routing")
+    cat_table.add_column("Category", style="cyan")
+    cat_table.add_column("Configured")
+    cat_table.add_column("Enabled")
+    cat_table.add_column("Disabled")
+    for category, details in snapshot["categories"].items():
+        cat_table.add_row(
+            category,
+            ", ".join(details["configured"]) or "-",
+            ", ".join(details["enabled"]) or "-",
+            ", ".join(details["disabled"]) or "-",
+        )
+    console.print(cat_table)
+
+    runtime = snapshot.get("provider_runtime", {}) or {}
+    console.print(
+        Panel(
+            "\n".join(
+                [
+                    f"enabled: {runtime.get('enabled', True)}",
+                    f"timeout_sec: {runtime.get('timeout_sec', 20.0)}",
+                    f"retries: {runtime.get('retries', 2)}",
+                    f"backoff_base_sec: {runtime.get('backoff_base_sec', 0.35)}",
+                    f"backoff_max_sec: {runtime.get('backoff_max_sec', 2.5)}",
+                    f"rate_limit_per_sec: {runtime.get('rate_limit_per_sec', 8.0)}",
+                ]
+            ),
+            title="Provider Runtime Resilience",
+            border_style="magenta",
+        )
+    )
 
 
 def register_config(parent_app: typer.Typer) -> None:

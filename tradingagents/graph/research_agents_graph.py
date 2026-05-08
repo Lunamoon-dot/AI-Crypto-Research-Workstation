@@ -16,6 +16,7 @@ from tradingagents.llm_clients import create_llm_client
 
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.config_validation import validate_and_normalize_config
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import config_context
 from tradingagents.dataflows.utils import safe_ticker_component
@@ -150,7 +151,10 @@ class ResearchAgentsGraph:
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
         """
         self.debug = debug
-        self.config = config or DEFAULT_CONFIG
+        self.config = validate_and_normalize_config(
+            config or DEFAULT_CONFIG,
+            source="ResearchAgentsGraph.__init__",
+        )
         self.callbacks = callbacks or []
 
         # Config is now threaded via contextvars, not a global mutation.

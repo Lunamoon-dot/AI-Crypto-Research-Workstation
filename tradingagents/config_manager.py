@@ -1,9 +1,4 @@
-"""Configuration profile management — YAML save/load with deep merge.
-
-Profiles are stored in ``~/.tradingagents/profiles/{name}.yaml`` and
-contain only overrides relative to ``DEFAULT_CONFIG``, keeping them
-short and readable.
-"""
+"""Configuration profile management — YAML/TOML load with deep merge."""
 
 from __future__ import annotations
 
@@ -16,6 +11,8 @@ from typing import Any
 import yaml
 
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.config.loader import load_config_file
+from tradingagents.config.schema import validate_and_normalize_config
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +33,20 @@ def _profile_path(name: str) -> Path:
     if not safe.endswith(".yaml"):
         safe += ".yaml"
     return _profiles_dir() / safe
+
+
+def _resolve_profile_file(name: str) -> Path | None:
+    """Return the first existing profile file for *name* (.yaml/.yml/.toml)."""
+    base = name.replace("/", "_").replace("\\", "_").replace("..", "_")
+    candidates = [
+        _profiles_dir() / f"{base}.yaml",
+        _profiles_dir() / f"{base}.yml",
+        _profiles_dir() / f"{base}.toml",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +75,15 @@ def load_profile(name: str) -> dict:
 
     Returns DEFAULT_CONFIG unchanged if the profile does not exist.
     """
-    path = _profile_path(name)
+    path = _resolve_profile_file(name) or _profile_path(name)
     if not path.exists():
         logger.warning("Profile %r not found at %s — using defaults.", name, path)
         return deepcopy(DEFAULT_CONFIG)
 
-    with open(path, "r", encoding="utf-8") as fh:
-        overrides = yaml.safe_load(fh) or {}
+    overrides = load_config_file(path, validate=False)
 
-    return _deep_merge(DEFAULT_CONFIG, overrides)
+    merged = _deep_merge(DEFAULT_CONFIG, overrides)
+    return validate_and_normalize_config(merged, source=f"profile:{name}")
 
 
 def save_profile(config: dict, name: str) -> Path:
@@ -97,20 +108,23 @@ def save_profile(config: dict, name: str) -> Path:
 
 
 def list_profiles() -> list[str]:
-    """Return sorted list of available profile names (without .yaml suffix)."""
-    profiles = []
-    for p in _profiles_dir().glob("*.yaml"):
-        profiles.append(p.stem)
-    return sorted(profiles)
+    """Return sorted profile names (deduped across .yaml/.yml/.toml)."""
+    names = set()
+    for ext in ("*.yaml", "*.yml", "*.toml"):
+        for path in _profiles_dir().glob(ext):
+            names.add(path.stem)
+    return sorted(names)
 
 
 def delete_profile(name: str) -> bool:
     """Delete a named profile. Returns True if it existed."""
-    path = _profile_path(name)
-    if path.exists():
-        path.unlink()
-        return True
-    return False
+    removed = False
+    for ext in (".yaml", ".yml", ".toml"):
+        path = _profiles_dir() / f"{name}{ext}"
+        if path.exists():
+            path.unlink()
+            removed = True
+    return removed
 
 
 def resolve_config(
@@ -128,8 +142,7 @@ def resolve_config(
     config = deepcopy(DEFAULT_CONFIG)
 
     if config_path:
-        with open(config_path, "r", encoding="utf-8") as fh:
-            file_overrides = yaml.safe_load(fh) or {}
+        file_overrides = load_config_file(config_path, validate=False)
         config = _deep_merge(config, file_overrides)
     elif profile:
         config = load_profile(profile)
@@ -137,4 +150,5 @@ def resolve_config(
     if cli_overrides:
         config = _deep_merge(config, cli_overrides)
 
-    return config
+    source = f"config_path:{config_path}" if config_path else (f"profile:{profile}" if profile else "defaults")
+    return validate_and_normalize_config(config, source=source)

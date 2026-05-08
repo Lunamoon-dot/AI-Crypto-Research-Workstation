@@ -7,8 +7,10 @@ import pytest
 from tradingagents.dataflows import interface
 from tradingagents.domain import ResearchRun
 from tradingagents.observability.logging import (
+    SecretRedactionFilter,
     bind_observability_context,
     configure_plain_observability_logging,
+    install_secret_redaction_filter,
     log_event,
     observability_context,
     observability_run_event_persistence,
@@ -41,6 +43,16 @@ def test_configure_plain_observability_logging_is_idempotent():
     ]
     assert len(plain_after) == 1
     assert plain_after[0].level == logging.WARNING
+    assert any(isinstance(f, SecretRedactionFilter) for f in plain_after[0].filters)
+
+
+def test_install_secret_redaction_filter_applies_to_root_logger():
+    root = logging.getLogger()
+    before = len(root.filters)
+    install_secret_redaction_filter()
+    after = len(root.filters)
+    assert after >= before
+    assert any(isinstance(f, SecretRedactionFilter) for f in root.filters)
 
 
 def _json_messages(caplog):
@@ -124,7 +136,7 @@ def test_route_to_vendor_emits_provider_observability_events(monkeypatch, caplog
     assert [event["status"] for event in events] == ["failed", "success"]
     assert events[0]["event"] == "data_provider_call"
     assert events[0]["vendor"] == "bad"
-    assert events[0]["error_type"] == "RuntimeError"
+    assert events[0]["error_type"] == "ProviderRetryExhaustedError"
     assert events[1]["vendor"] == "good"
 
 

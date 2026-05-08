@@ -62,6 +62,23 @@ DEFAULT_CONFIG = {
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {},
+    # Disable one or more providers globally (applies before fallback routing).
+    # Example: ["ccxt"] to hard-disable all CCXT data calls.
+    "disabled_data_vendors": [],
+    # Config validation policy: "fail_fast" (raise) or "warn" (log and continue).
+    "config_validation": {
+        "mode": "fail_fast",
+        "validate_llm_keys": False,
+    },
+    # Cross-provider resilience wrapper for route_to_vendor.
+    "provider_runtime": {
+        "enabled": True,
+        "timeout_sec": 20.0,
+        "retries": 2,
+        "backoff_base_sec": 0.35,
+        "backoff_max_sec": 2.5,
+        "rate_limit_per_sec": 8.0,
+    },
     # Signal / quant layer configuration
     "signal_weights": {
         "funding_oi": 0.20,

@@ -28,6 +28,10 @@ _SECRET_KEY_RE = re.compile(
     r"(api[_-]?key|token|secret|password|authorization|auth|credential|client[_-]?secret)",
     re.IGNORECASE,
 )
+_SECRET_INLINE_RE = re.compile(
+    r"((?:api[_-]?key|token|secret|password|authorization|auth)\s*[:=]\s*)([^\s,;]+)",
+    re.IGNORECASE,
+)
 
 
 def redact_secrets(value: Any) -> Any:
@@ -42,6 +46,27 @@ def redact_secrets(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(redact_secrets(item) for item in value)
     return value
+
+
+class SecretRedactionFilter(logging.Filter):
+    """Best-effort global redaction filter for all logger records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        try:
+            if isinstance(record.msg, Mapping):
+                record.msg = json.dumps(redact_secrets(record.msg), default=_json_default)
+                record.args = ()
+            elif isinstance(record.msg, str):
+                record.msg = _SECRET_INLINE_RE.sub(r"\1[REDACTED]", record.msg)
+                if record.args:
+                    record.args = tuple(
+                        redact_secrets(arg) if isinstance(arg, Mapping) else arg
+                        for arg in record.args
+                    )
+        except Exception:
+            # Logging must never fail because redaction fails.
+            pass
+        return True
 
 
 def _json_default(value: Any) -> str:
@@ -114,7 +139,21 @@ def configure_plain_observability_logging(level: int | None = None) -> None:
     handler.setLevel(level)
     handler.setFormatter(logging.Formatter("%(message)s"))
     handler._tradingagents_plain_stderr = True  # type: ignore[attr-defined]
+    handler.addFilter(SecretRedactionFilter())
     log.addHandler(handler)
+
+
+def install_secret_redaction_filter() -> None:
+    """Install a global redaction filter on root and tradingagents loggers."""
+    redaction_filter = SecretRedactionFilter()
+    for logger_name in ("", "tradingagents"):
+        target = logging.getLogger(logger_name)
+        has_filter = any(
+            isinstance(existing, SecretRedactionFilter)
+            for existing in getattr(target, "filters", [])
+        )
+        if not has_filter:
+            target.addFilter(redaction_filter)
 
 
 def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:

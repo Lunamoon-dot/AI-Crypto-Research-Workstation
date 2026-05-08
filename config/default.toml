@@ -1,0 +1,21 @@
+[config_validation]
+mode = "fail_fast"
+validate_llm_keys = false
+
+disabled_data_vendors = []
+
+[data_vendors]
+technical_indicators = "ccxt"
+news_data = "ccxt"
+crypto_ohlcv = "ccxt"
+crypto_onchain = "ccxt,coingecko"
+
+[tool_vendors]
+
+[provider_runtime]
+enabled = true
+timeout_sec = 20.0
+retries = 2
+backoff_base_sec = 0.35
+backoff_max_sec = 2.5
+rate_limit_per_sec = 8.0

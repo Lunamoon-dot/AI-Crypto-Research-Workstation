@@ -1,4 +1,7 @@
 import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import perf_counter
 from typing import Annotated
 
@@ -22,10 +25,18 @@ from .stockstats_utils import StockstatsUtils
 
 # Configuration and routing logic
 from .config import get_config
+from tradingagents.exceptions import (
+    DataProviderError,
+    ProviderDisabledError,
+    ProviderRetryExhaustedError,
+    ProviderTimeoutError,
+)
 from tradingagents.observability import log_event
 
 
 logger = logging.getLogger(__name__)
+_RATE_LIMIT_LOCK = threading.Lock()
+_VENDOR_NEXT_ALLOWED_AT: dict[str, float] = {}
 
 
 # -- thin wrappers that keep the VENDOR_METHODS pattern working ----------
@@ -188,12 +199,21 @@ def get_vendor(category: str, method: str = None) -> str:
 
 def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
-    category = get_category_for_method(method)
+    config = get_config()
+    try:
+        category = get_category_for_method(method)
+    except ValueError as exc:
+        raise DataProviderError(str(exc)) from exc
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
+    disabled_vendors = {
+        str(v).strip().lower()
+        for v in config.get("disabled_data_vendors", [])
+        if str(v).strip()
+    }
 
     if method not in VENDOR_METHODS:
-        raise ValueError(f"Method '{method}' not supported")
+        raise DataProviderError(f"Method '{method}' not supported")
 
     # Build fallback chain: primary vendors first, then remaining available vendors
     all_available_vendors = list(VENDOR_METHODS[method].keys())
@@ -204,6 +224,27 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     last_error = None
     for vendor in fallback_vendors:
+        if vendor in disabled_vendors:
+            logger.warning(
+                "Vendor '%s' is disabled by config; skipping method '%s'",
+                vendor, method,
+            )
+            log_event(
+                logger,
+                "data_provider_call",
+                level=logging.WARNING,
+                method=method,
+                category=category,
+                vendor=vendor,
+                status="disabled",
+                duration_ms=0.0,
+                error_type="VendorDisabled",
+                error="provider is disabled by config",
+            )
+            last_error = ProviderDisabledError(
+                f"Provider '{vendor}' is disabled by config"
+            )
+            continue
         if vendor not in VENDOR_METHODS[method]:
             continue
 
@@ -211,7 +252,14 @@ def route_to_vendor(method: str, *args, **kwargs):
         started = perf_counter()
 
         try:
-            result = impl_func(*args, **kwargs)
+            result = _invoke_with_resilience(
+                impl_func,
+                vendor=vendor,
+                method=method,
+                args=args,
+                kwargs=kwargs,
+                runtime_cfg=config.get("provider_runtime", {}),
+            )
             log_event(
                 logger,
                 "data_provider_call",
@@ -242,5 +290,71 @@ def route_to_vendor(method: str, *args, **kwargs):
             )
             continue  # try next vendor on any error
 
-    detail = f"{last_error}" if last_error else "no vendor configured"
-    raise RuntimeError(f"No available vendor for '{method}': {detail}")
+    if disabled_vendors:
+        detail = (
+            f"{last_error}" if last_error else
+            f"all configured providers disabled or unavailable (disabled={sorted(disabled_vendors)})"
+        )
+    else:
+        detail = f"{last_error}" if last_error else "no vendor configured"
+    raise DataProviderError(f"No available vendor for '{method}': {detail}")
+
+
+def _apply_vendor_rate_limit(vendor: str, rate_limit_per_sec: float) -> None:
+    if rate_limit_per_sec <= 0:
+        return
+    interval = 1.0 / rate_limit_per_sec
+    with _RATE_LIMIT_LOCK:
+        now = perf_counter()
+        next_allowed = _VENDOR_NEXT_ALLOWED_AT.get(vendor, now)
+        wait = max(0.0, next_allowed - now)
+        scheduled = max(now, next_allowed) + interval
+        _VENDOR_NEXT_ALLOWED_AT[vendor] = scheduled
+    if wait > 0:
+        time.sleep(wait)
+
+
+def _invoke_with_resilience(
+    impl_func,
+    *,
+    vendor: str,
+    method: str,
+    args: tuple,
+    kwargs: dict,
+    runtime_cfg: dict,
+):
+    cfg = runtime_cfg or {}
+    enabled = bool(cfg.get("enabled", True))
+    timeout_sec = float(cfg.get("timeout_sec", 20.0))
+    retries = max(0, int(cfg.get("retries", 2)))
+    backoff_base = float(cfg.get("backoff_base_sec", 0.35))
+    backoff_max = float(cfg.get("backoff_max_sec", 2.5))
+    rate_limit = float(cfg.get("rate_limit_per_sec", 8.0))
+
+    if not enabled:
+        return impl_func(*args, **kwargs)
+
+    attempts = retries + 1
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        _apply_vendor_rate_limit(vendor, rate_limit)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(impl_func, *args, **kwargs)
+                return fut.result(timeout=timeout_sec)
+        except FuturesTimeoutError as exc:
+            last_error = ProviderTimeoutError(
+                f"{vendor}.{method} timed out after {timeout_sec}s"
+            )
+        except Exception as exc:
+            last_error = exc
+
+        if attempt < attempts:
+            sleep_sec = min(backoff_max, backoff_base * (2 ** (attempt - 1)))
+            time.sleep(max(0.0, sleep_sec))
+        else:
+            break
+
+    raise ProviderRetryExhaustedError(
+        f"{vendor}.{method} failed after {attempts} attempts: {last_error}"
+    ) from last_error
