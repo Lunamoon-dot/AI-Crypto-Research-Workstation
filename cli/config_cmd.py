@@ -17,7 +17,9 @@ from tradingagents.config_manager import (
     delete_profile,
 )
 from tradingagents.dataflows.health import provider_health_snapshot
+from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.exceptions import ConfigurationError, HealthCheckError
+from tradingagents.services.journal_service import resolve_journal_db_path
 
 console = Console()
 config_app = typer.Typer(help="Manage configuration profiles.")
@@ -219,6 +221,57 @@ def config_health(
         console.print("[yellow]Live check skipped (CCXT not available).[/yellow]")
     except Exception as exc:
         console.print(f"[yellow]Live check unavailable: {exc}[/yellow]")
+
+
+@config_app.command("setup")
+def config_setup() -> None:
+    """Show a first-run setup summary (journal path, disabled vendors, routing).
+
+    This is a read-only quick check — it does not create files, modify the
+    config, or call any provider live. Useful as the first command after
+    install to confirm where the journal will live and which vendors are
+    enabled by the active configuration.
+    """
+    db_path = resolve_journal_db_path(DEFAULT_CONFIG)
+    journal_enabled = bool(DEFAULT_CONFIG.get("journal", {}).get("enabled", True))
+    snapshot = provider_health_snapshot(DEFAULT_CONFIG)
+    disabled = snapshot.get("disabled_data_vendors") or []
+
+    summary_lines = [
+        f"Journal path: {db_path}",
+        f"Journal enabled: {'yes' if journal_enabled else 'no'}",
+        "",
+        f"Disabled data vendors: {', '.join(disabled) if disabled else 'none'}",
+    ]
+
+    routing_lines: list[str] = []
+    for category, details in (snapshot.get("categories") or {}).items():
+        enabled = details.get("enabled") or []
+        cat_disabled = details.get("disabled") or []
+        suffix = f" (disabled: {', '.join(cat_disabled)})" if cat_disabled else ""
+        routing_lines.append(
+            f"- {category}: {', '.join(enabled) if enabled else 'none'}{suffix}"
+        )
+    if routing_lines:
+        summary_lines.extend(["", "Active provider routing:"])
+        summary_lines.extend(routing_lines)
+
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title="TradingAgents Setup Summary",
+            border_style="cyan",
+        )
+    )
+    console.print(
+        Panel(
+            "- tradingagents research run\n"
+            "- tradingagents dashboard\n"
+            "- tradingagents config health",
+            title="Next Useful Commands",
+            border_style="blue",
+        )
+    )
 
 
 def register_config(parent_app: typer.Typer) -> None:

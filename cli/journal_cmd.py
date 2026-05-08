@@ -13,10 +13,13 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
     OutcomeResult,
     OutcomeReview,
+    TradeThesis,
     UserDecision,
     UserDecisionAction,
 )
 from tradingagents.services import JournalService
+
+from cli.json_emit import print_json_stdout
 
 console = Console()
 journal_app = typer.Typer(help="Inspect saved research runs.")
@@ -25,6 +28,91 @@ thesis_app = typer.Typer(help="Inspect and update saved trade theses.")
 
 def _service() -> JournalService:
     return JournalService(DEFAULT_CONFIG)
+
+
+def _workspace_evidence_lines(
+    *,
+    thesis: TradeThesis | None,
+    debate,
+) -> list[str]:
+    """Short supporting/contradiction summary aligned with Phase 7."""
+    lines: list[str] = ["Supporting vs contradicting (persisted):"]
+    if thesis:
+        sup_s = thesis.supporting_signal_ids
+        con_s = thesis.contradicting_signal_ids
+        lines.append(
+            f"- Classified signals: {len(sup_s)} supporting, {len(con_s)} contradicting "
+            "(see `signals show <id>` for provenance)."
+        )
+        evid = thesis.evidence or {}
+        sup_o = evid.get("supporting_opinion_ids") or []
+        con_o = evid.get("contradicting_opinion_ids") or []
+        lines.append(
+            f"- Classified analyst opinions: {len(sup_o)} supporting, {len(con_o)} contradicting."
+        )
+        if thesis.contradictions:
+            lines.append("- Thesis contradiction notes:")
+            lines.extend(f"  • {item}" for item in thesis.contradictions[:8])
+    else:
+        lines.append("- Thesis artifact not persisted for this run yet.")
+    if debate and debate.contradictions:
+        lines.append("- Debate contradiction notes:")
+        lines.extend(f"  • {item}" for item in debate.contradictions[:8])
+    return lines
+
+
+def _workspace_json_payload(service: JournalService, run_id: str) -> dict:
+    run = service.get_research_run(run_id)
+    if not run:
+        raise ValueError(run_id)
+
+    debate = service.get_debate(run.debate_id) if run.debate_id else None
+    thesis = service.get_thesis(run.thesis_id) if run.thesis_id else None
+    opinions = (
+        service.list_agent_opinions(debate_id=debate.id) if debate and debate.id else []
+    )
+    scenarios = (
+        service.list_scenarios(thesis_id=thesis.id) if thesis and thesis.id else []
+    )
+    events = service.list_timeline_events(research_run_id=run.id)
+    signal_snap = {}
+    market_snap = {}
+    if run.signal_snapshot_id:
+        ss = service.get_signal_snapshot(run.signal_snapshot_id)
+        if ss:
+            signal_snap = ss.model_dump(mode="json")
+    if run.market_snapshot_id:
+        ms = service.get_market_snapshot(run.market_snapshot_id)
+        if ms:
+            market_snap = ms.model_dump(mode="json")
+
+    return {
+        "run": run.model_dump(mode="json"),
+        "market_snapshot": market_snap or None,
+        "signal_snapshot": signal_snap or None,
+        "debate": debate.model_dump(mode="json") if debate else None,
+        "agent_opinions": [o.model_dump(mode="json") for o in opinions],
+        "trade_thesis": thesis.model_dump(mode="json") if thesis else None,
+        "scenarios": [s.model_dump(mode="json") for s in scenarios],
+        "timeline_events": [e.model_dump(mode="json") for e in events],
+        "evidence_notes": _workspace_evidence_lines(thesis=thesis, debate=debate),
+        "next_commands": [
+            f"tradingagents journal timeline {run.id}",
+            *(
+                [
+                    f"tradingagents thesis show {run.thesis_id}",
+                    f"tradingagents watchlist add-thesis {run.thesis_id}",
+                ]
+                if run.thesis_id
+                else []
+            ),
+            *(
+                [f"tradingagents journal debate {run.debate_id}"]
+                if run.debate_id
+                else []
+            ),
+        ],
+    }
 
 
 @journal_app.command("path")
@@ -37,11 +125,19 @@ def journal_path():
 @journal_app.command("list")
 def journal_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
+    json_out: bool = typer.Option(False, "--json", help="Print runs as JSON."),
 ):
     """List recent research runs."""
     runs = _service().list_research_runs(limit=limit)
     if not runs:
-        console.print("[yellow]No research runs saved yet.[/yellow]")
+        if json_out:
+            print_json_stdout([])
+        else:
+            console.print("[yellow]No research runs saved yet.[/yellow]")
+        return
+
+    if json_out:
+        print_json_stdout({"runs": [run.model_dump(mode="json") for run in runs]})
         return
 
     table = Table(title="Research Runs")
@@ -65,12 +161,17 @@ def journal_list(
 @journal_app.command("show")
 def journal_show(
     run_id: str = typer.Argument(..., help="Research run id."),
+    json_out: bool = typer.Option(False, "--json", help="Print run as JSON."),
 ):
     """Show a saved research run."""
     run = _service().get_research_run(run_id)
     if not run:
         console.print(f"[red]Research run not found:[/red] {run_id}")
         raise typer.Exit(1)
+
+    if json_out:
+        print_json_stdout({"run": run.model_dump(mode="json")})
+        return
 
     lines = [
         f"ID: {run.id}",
@@ -108,6 +209,7 @@ def journal_timeline(
 @journal_app.command("workspace")
 def journal_workspace(
     run_id: str = typer.Argument(..., help="Research run id."),
+    json_out: bool = typer.Option(False, "--json", help="Emit workspace snapshot as JSON."),
 ):
     """Show a full research workspace summary for one run."""
     service = _service()
@@ -115,6 +217,10 @@ def journal_workspace(
     if not run:
         console.print(f"[red]Research run not found:[/red] {run_id}")
         raise typer.Exit(1)
+
+    if json_out:
+        print_json_stdout(_workspace_json_payload(service, run_id))
+        return
 
     lines = [
         f"ID: {run.id}",
@@ -180,6 +286,13 @@ def journal_workspace(
         if thesis.evidence.get("confidence_adjustment_reason"):
             thesis_lines.extend(["", thesis.evidence["confidence_adjustment_reason"]])
         console.print(Panel("\n".join(thesis_lines), title="Trade Thesis", border_style="green"))
+        console.print(
+            Panel(
+                "\n".join(_workspace_evidence_lines(thesis=thesis, debate=debate)),
+                title="Supporting / Contradicting evidence",
+                border_style="blue",
+            )
+        )
 
         scenarios = service.list_scenarios(thesis_id=thesis.id)
         if scenarios:
@@ -198,6 +311,14 @@ def journal_workspace(
             console.print("[yellow]No scenarios saved for this thesis yet.[/yellow]")
     else:
         console.print("[yellow]No thesis saved for this run yet.[/yellow]")
+        if debate:
+            console.print(
+                Panel(
+                    "\n".join(_workspace_evidence_lines(thesis=None, debate=debate)),
+                    title="Supporting / Contradicting evidence",
+                    border_style="blue",
+                )
+            )
 
     events = service.list_timeline_events(research_run_id=run.id)
     if events:
@@ -390,11 +511,19 @@ def journal_retrospective(
 @thesis_app.command("list")
 def thesis_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
+    json_out: bool = typer.Option(False, "--json", help="Print theses as JSON."),
 ):
     """List recent trade theses."""
     theses = _service().list_theses(limit=limit)
     if not theses:
-        console.print("[yellow]No theses saved yet.[/yellow]")
+        if json_out:
+            print_json_stdout([])
+        else:
+            console.print("[yellow]No theses saved yet.[/yellow]")
+        return
+
+    if json_out:
+        print_json_stdout({"theses": [th.model_dump(mode="json") for th in theses]})
         return
 
     table = Table(title="Trade Theses")
@@ -419,12 +548,17 @@ def thesis_list(
 @thesis_app.command("show")
 def thesis_show(
     thesis_id: str = typer.Argument(..., help="Trade thesis id."),
+    json_out: bool = typer.Option(False, "--json", help="Print thesis as JSON."),
 ):
     """Show a saved trade thesis."""
     thesis = _service().get_thesis(thesis_id)
     if not thesis:
         console.print(f"[red]Thesis not found:[/red] {thesis_id}")
         raise typer.Exit(1)
+
+    if json_out:
+        print_json_stdout({"thesis": thesis.model_dump(mode="json")})
+        return
 
     confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
     created = thesis.created_at.strftime("%Y-%m-%d %H:%M UTC") if thesis.created_at else "N/A"

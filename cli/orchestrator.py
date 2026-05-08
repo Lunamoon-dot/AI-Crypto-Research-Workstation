@@ -174,6 +174,10 @@ class AnalysisOrchestrator:
             )
             raise typer.Exit(code=1) from None
 
+        graph.begin_cli_journal_persistence(
+            selections["ticker"], selections["analysis_date"], final_state
+        )
+
         decision = graph.process_signal(final_state["final_trade_decision"])
 
         # Legacy helper path kept for compatibility with older integrations.
@@ -184,6 +188,18 @@ class AnalysisOrchestrator:
             self.message_buffer.execution_result = exec_result
             msg = _exec_result_to_str(exec_result)
             self.message_buffer.add_message("Thesis Plan", msg)
+
+        graph.finalize_cli_journal_persistence(selections["analysis_date"], final_state)
+
+        from cli.research_completion import emit_research_run_complete_panel
+
+        emit_research_run_complete_panel(
+            console,
+            graph=graph,
+            selections=selections,
+            rating=decision,
+            config=config,
+        )
 
         for agent in self.message_buffer.agent_status:
             self.message_buffer.update_agent_status(agent, "completed")
@@ -256,20 +272,14 @@ class AnalysisOrchestrator:
                     console.print(f"[red]Error saving report: {e}[/red]")
 
         if non_interactive:
-            lines = [
-                f"Symbol: {selections['ticker']}",
-                f"Date: {selections['analysis_date']}",
-                f"Decision: {decision}",
-            ]
             if report_file:
-                lines.append(f"Report: {report_file}")
-            console.print(
-                Panel(
-                    "\n".join(lines),
-                    title="Research Run Summary",
-                    border_style="cyan",
+                console.print(
+                    Panel(
+                        str(report_file),
+                        title="Markdown report artifact",
+                        border_style="dim",
+                    )
                 )
-            )
             return final_state
 
         # Prompt to display full report

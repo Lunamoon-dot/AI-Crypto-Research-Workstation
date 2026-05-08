@@ -738,6 +738,118 @@ class ResearchAgentsGraph:
         """
         return self._build_trade_plan(final_state)
 
+    def begin_cli_journal_persistence(
+        self,
+        company_name: str,
+        trade_date: str,
+        final_state: dict,
+    ) -> None:
+        """Persist quant signals and structured debate once ``final_state`` exists.
+
+        Call this *before* :meth:`_build_trade_plan` so ``current_signals`` is
+        populated for thesis classification inside planning helpers.
+        """
+        bridge = getattr(self, "journal_bridge", None)
+        service = getattr(bridge, "service", None) if isinstance(bridge, JournalBridge) else None
+        journal_enabled = bool(service) and self.config.get("journal", {}).get("enabled", True)
+
+        asset_class = self.config.get("asset_class", "crypto")
+        resolved_symbol = company_name
+        if asset_class == "crypto":
+            try:
+                resolved_symbol = _validate_symbol_on_exchange(company_name, self.config)
+            except Exception as exc:
+                logger.warning(
+                    "CLI journal begin skipped symbol normalization for %s: %s",
+                    company_name,
+                    exc,
+                )
+
+        self.ticker = resolved_symbol
+        self.curr_state = final_state
+
+        if not journal_enabled:
+            return
+
+        try:
+            self.current_trade_thesis = None
+            self.current_agent_opinions = []
+            self.current_debate = None
+            self.current_research_run = ResearchRun(
+                symbol=resolved_symbol,
+                asset_class=asset_class,
+                timeframe=str(trade_date),
+                status=ResearchRunStatus.RUNNING,
+            )
+            self.current_research_run.symbol = resolved_symbol
+            self._start_journal_run()
+            bind_observability_context(run_id=getattr(self.current_research_run, "id", None))
+            self._save_journal_quant_signals()
+            self._save_journal_agent_research(final_state)
+        except Exception as exc:
+            logger.warning("CLI journal begin failed: %s", exc)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="begin_cli_journal",
+                error_type=type(exc).__name__,
+                error=str(exc)[:500],
+            )
+
+    def finalize_cli_journal_persistence(self, trade_date: str, final_state: dict) -> None:
+        """Finalize thesis persistence, filesystem logs, and SQLite run completion."""
+        bridge = getattr(self, "journal_bridge", None)
+        service = getattr(bridge, "service", None) if isinstance(bridge, JournalBridge) else None
+        journal_enabled = bool(service) and self.config.get("journal", {}).get("enabled", True)
+        resolved_symbol = self.ticker or final_state.get("company_of_interest", "")
+        planning_cfg = _planning_config(self.config)
+
+        try:
+            if journal_enabled and self.current_research_run:
+                if self.current_trade_thesis is None:
+                    self.current_trade_thesis = self._build_trade_thesis(final_state)
+
+            self._log_state(trade_date, final_state)
+
+            self.memory_log.store_decision(
+                ticker=str(resolved_symbol),
+                trade_date=trade_date,
+                final_trade_decision=final_state.get("final_trade_decision", ""),
+                market_type=planning_cfg.get("market_type", "spot"),
+            )
+
+            if self.config.get("checkpoint_enabled"):
+                clear_checkpoint(
+                    self.config["data_cache_dir"],
+                    str(resolved_symbol),
+                    str(trade_date),
+                )
+
+            if journal_enabled and self.current_research_run:
+                self.current_research_run.status = ResearchRunStatus.COMPLETED
+                final_sig = self.process_signal(final_state.get("final_trade_decision", ""))
+                log_event(
+                    logger,
+                    "research_run_completed",
+                    run_id=getattr(self.current_research_run, "id", None),
+                    symbol=str(resolved_symbol),
+                    trade_date=str(trade_date),
+                    final_signal=final_sig,
+                    checkpoint_enabled=bool(self.config.get("checkpoint_enabled")),
+                    quick_think_llm=self.config.get("quick_think_llm"),
+                    deep_think_llm=self.config.get("deep_think_llm"),
+                )
+                self._complete_journal_run()
+        except Exception as exc:
+            logger.warning("CLI journal finalize failed: %s", exc)
+            log_event(
+                logger,
+                "storage_operation_failed",
+                operation="finalize_cli_journal",
+                error_type=type(exc).__name__,
+                error=str(exc)[:500],
+            )
+
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
         return self.signal_processor.process_signal(full_signal)

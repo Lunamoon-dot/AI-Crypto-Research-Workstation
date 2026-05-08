@@ -1,6 +1,8 @@
+import json
+
 from typer.testing import CliRunner
 
-from cli import config_cmd, dashboard, main
+from cli import config_cmd, dashboard, journal_cmd, main
 from tradingagents.domain import ResearchRun, TradeThesis
 from tradingagents.services import JournalService, WatchlistService
 
@@ -37,6 +39,12 @@ class _FakeResearchGraph:
         return "Hold"
 
     def _build_trade_plan(self, final_state):
+        return None
+
+    def begin_cli_journal_persistence(self, ticker, analysis_date, final_state):
+        return None
+
+    def finalize_cli_journal_persistence(self, trade_date, final_state):
         return None
 
 
@@ -86,7 +94,7 @@ def test_analyze_noninteractive_uses_flags_without_prompts(tmp_path, monkeypatch
     )
 
     assert result.exit_code == 0
-    assert "Research Run Summary" in result.output
+    assert "Research run complete" in result.output
     assert "BTC/USDT" in result.output
     assert "Save report?" not in result.output
 
@@ -184,3 +192,182 @@ def test_dashboard_renders_terminal_home(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Research Workspace" in result.output
     assert "BTC/USDT" in result.output
+
+
+def test_config_setup_renders_first_run_summary_panel(tmp_path, monkeypatch):
+    """`config setup` shows a Panel with journal path + disabled-vendor info."""
+    fake_path = tmp_path / "journal.sqlite"
+    fake_snapshot = {
+        "providers": [
+            {"vendor": "ccxt", "status": "enabled"},
+            {"vendor": "coingecko", "status": "disabled"},
+        ],
+        "categories": {
+            "crypto_ohlcv": {
+                "configured": ["ccxt"],
+                "enabled": ["ccxt"],
+                "disabled": [],
+            },
+            "crypto_onchain": {
+                "configured": ["ccxt", "coingecko"],
+                "enabled": ["ccxt"],
+                "disabled": ["coingecko"],
+            },
+        },
+        "disabled_data_vendors": ["coingecko"],
+        "provider_runtime": {},
+    }
+    monkeypatch.setattr(
+        config_cmd, "resolve_journal_db_path", lambda _cfg: fake_path
+    )
+    monkeypatch.setattr(
+        config_cmd, "provider_health_snapshot", lambda _cfg: fake_snapshot
+    )
+    monkeypatch.setenv("COLUMNS", "240")
+    runner = CliRunner()
+
+    result = runner.invoke(config_cmd.config_app, ["setup"])
+
+    assert result.exit_code == 0
+    assert "TradingAgents Setup Summary" in result.output
+    assert "Journal path:" in result.output
+    # The journal path may wrap across lines in narrow terminals; assert the
+    # filename is rendered (path is always wide on Windows tmp dirs).
+    assert "journal.sqlite" in result.output
+    assert "Disabled data vendors: coingecko" in result.output
+    assert "Active provider routing:" in result.output
+    assert "crypto_onchain: ccxt (disabled: coingecko)" in result.output
+    assert "Next Useful Commands" in result.output
+    assert "tradingagents research run" in result.output
+
+
+def test_config_setup_handles_no_disabled_vendors(monkeypatch):
+    """`config setup` says 'none' when no vendors are disabled."""
+    monkeypatch.setattr(
+        config_cmd,
+        "provider_health_snapshot",
+        lambda _cfg: {
+            "providers": [],
+            "categories": {},
+            "disabled_data_vendors": [],
+            "provider_runtime": {},
+        },
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(config_cmd.config_app, ["setup"])
+
+    assert result.exit_code == 0
+    assert "Disabled data vendors: none" in result.output
+
+
+def _patch_journal_default_config(monkeypatch, tmp_path):
+    """Redirect journal_cmd's DEFAULT_CONFIG journal db_path to tmp_path."""
+    monkeypatch.setitem(
+        journal_cmd.DEFAULT_CONFIG,
+        "journal",
+        {"enabled": True, "db_path": str(tmp_path / "journal.sqlite")},
+    )
+    monkeypatch.setitem(
+        journal_cmd.DEFAULT_CONFIG, "data_cache_dir", str(tmp_path / "cache")
+    )
+
+
+def test_journal_list_json_emits_empty_array_when_no_runs(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(journal_cmd.journal_app, ["list", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output.strip())
+    assert payload == []
+
+
+def test_thesis_list_json_emits_empty_array_when_no_theses(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(journal_cmd.thesis_app, ["list", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output.strip())
+    assert payload == []
+
+
+def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    config = {
+        "data_cache_dir": str(tmp_path / "cache"),
+        "journal": {
+            "enabled": True,
+            "db_path": str(tmp_path / "journal.sqlite"),
+        },
+    }
+    journal = JournalService(config)
+    run = journal.start_research_run(ResearchRun(symbol="ETH/USDT"))
+    thesis = journal.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="ETH/USDT",
+            thesis_text="Reclaim 4k.",
+        )
+    )
+    run.thesis_id = thesis.id
+    journal.update_research_run(run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        journal_cmd.journal_app, ["workspace", run.id, "--json"]
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output.strip())
+    assert set(payload.keys()) >= {
+        "run",
+        "trade_thesis",
+        "scenarios",
+        "timeline_events",
+        "evidence_notes",
+        "next_commands",
+    }
+    assert payload["run"]["id"] == run.id
+    assert payload["run"]["symbol"] == "ETH/USDT"
+    assert payload["trade_thesis"]["id"] == thesis.id
+    assert any(
+        cmd.startswith("tradingagents thesis show ") for cmd in payload["next_commands"]
+    )
+
+
+def test_journal_workspace_text_panel_includes_evidence_section(
+    tmp_path, monkeypatch
+):
+    """Default (non-JSON) workspace prints the new evidence panel."""
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    config = {
+        "data_cache_dir": str(tmp_path / "cache"),
+        "journal": {
+            "enabled": True,
+            "db_path": str(tmp_path / "journal.sqlite"),
+        },
+    }
+    journal = JournalService(config)
+    run = journal.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = journal.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            thesis_text="Hold above 100k.",
+        )
+    )
+    run.thesis_id = thesis.id
+    journal.update_research_run(run)
+
+    runner = CliRunner()
+    result = runner.invoke(journal_cmd.journal_app, ["workspace", run.id])
+
+    assert result.exit_code == 0
+    assert "Research Workspace" in result.output
+    assert "Supporting / Contradicting evidence" in result.output
+    assert "Next Useful Commands" in result.output
+    assert "tradingagents thesis show" in result.output

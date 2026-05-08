@@ -12,6 +12,8 @@ from rich.table import Table
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.services import JournalService
 
+from cli.json_emit import print_json_stdout
+
 console = Console()
 signals_app = typer.Typer(help="Inspect saved signal provenance.")
 
@@ -24,11 +26,19 @@ def _service() -> JournalService:
 def signals_list(
     symbol: Optional[str] = typer.Argument(None, help="Optional symbol filter, e.g. BTC/USDT."),
     limit: int = typer.Option(50, "--limit", "-n", min=1, max=200),
+    json_out: bool = typer.Option(False, "--json", help="Emit signals as JSON."),
 ):
     """List recent saved signals."""
     signals = _service().list_signals(symbol=symbol, limit=limit)
     if not signals:
-        console.print("[yellow]No signals saved yet.[/yellow]")
+        if json_out:
+            print_json_stdout([])
+        else:
+            console.print("[yellow]No signals saved yet.[/yellow]")
+        return
+
+    if json_out:
+        print_json_stdout({"signals": [s.model_dump(mode="json") for s in signals]})
         return
 
     table = Table(title="Saved Signals")
@@ -64,12 +74,17 @@ def signals_list(
 @signals_app.command("show")
 def signals_show(
     signal_id: str = typer.Argument(..., help="Signal id."),
+    json_out: bool = typer.Option(False, "--json", help="Emit signal record as JSON."),
 ):
     """Show full saved signal provenance."""
     signal = _service().get_signal(signal_id)
     if not signal:
         console.print(f"[red]Signal not found:[/red] {signal_id}")
         raise typer.Exit(1)
+
+    if json_out:
+        print_json_stdout({"signal": signal.model_dump(mode="json")})
+        return
 
     lines = [
         f"ID: {signal.id}",

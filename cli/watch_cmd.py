@@ -9,6 +9,7 @@ from rich.table import Table
 
 from tradingagents.domain import WatchlistItem
 from tradingagents.services import WatchlistService
+from tradingagents.services.watchlist_service import BriefAlertRow, BriefThesisRow
 
 console = Console()
 app = typer.Typer(help="Manage thesis watchlists and local research alerts.")
@@ -173,7 +174,9 @@ def brief(
     _print_symbol_only_items(summary.symbol_only_items)
     _print_brief_theses(summary.theses)
     _print_brief_scenarios(summary.scenarios, evaluate_snapshots=evaluate_snapshots)
+    _print_scenario_activation_history(summary.alerts)
     _print_brief_alerts(summary.alerts)
+    _print_latest_snapshot_digest(summary.theses)
     for missing in summary.missing_items:
         console.print(f"[yellow]Missing item:[/yellow] {missing}")
     console.print(
@@ -212,6 +215,58 @@ def check(
         console.print(f"[cyan]{alert.alert_type.value}[/cyan] {alert.message}")
     for skipped in result.skipped_items:
         console.print(f"[dim]Skipped {skipped}[/dim]")
+
+
+def _print_latest_snapshot_digest(theses: list[BriefThesisRow]) -> None:
+    picked: dict[str, BriefThesisRow] = {}
+    for row in theses:
+        if not row.symbol or row.last_snapshot_at is None:
+            continue
+        prev = picked.get(row.symbol)
+        if prev is None or row.last_snapshot_at > prev.last_snapshot_at:
+            picked[row.symbol] = row
+
+    if not picked:
+        return
+
+    table = Table(title="Latest Persisted Snapshots (symbols on this brief)")
+    table.add_column("Symbol", style="cyan")
+    table.add_column("Price")
+    table.add_column("Source")
+    table.add_column("Captured")
+    for sym in sorted(picked.keys()):
+        row = picked[sym]
+        price_txt = (
+            f"{row.last_price:g}" if isinstance(row.last_price, (float, int)) else "-"
+        )
+        src = row.last_snapshot_source or "-"
+        cap = row.last_snapshot_at.isoformat() if row.last_snapshot_at else "-"
+        table.add_row(sym, price_txt, src, cap)
+    console.print(table)
+
+
+def _print_scenario_activation_history(alerts: list[BriefAlertRow]) -> None:
+    activated = sorted(
+        (a for a in alerts if a.alert_type == "scenario_activated"),
+        key=lambda a: a.created_at,
+        reverse=True,
+    )
+    if not activated:
+        return
+
+    table = Table(title="Scenario activation history (recent brief window)")
+    table.add_column("Created")
+    table.add_column("Symbol", style="cyan")
+    table.add_column("Thesis", style="dim")
+    table.add_column("Message")
+    for alert in activated[:15]:
+        table.add_row(
+            alert.created_at.isoformat(),
+            alert.symbol,
+            alert.thesis_id or "-",
+            _truncate(alert.message, 140),
+        )
+    console.print(table)
 
 
 def _parse_price_overrides(values: list[str]) -> dict[str, float]:
