@@ -7,6 +7,11 @@ from typing import Any
 
 import yaml
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
+
 from tradingagents.config.schema import validate_and_normalize_config
 from tradingagents.exceptions import ConfigurationError
 
@@ -21,8 +26,6 @@ def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, A
         if suffix in {".yaml", ".yml"}:
             content = yaml.safe_load(fh.read().decode("utf-8")) or {}
         elif suffix == ".toml":
-            import tomllib
-
             content = tomllib.loads(fh.read().decode("utf-8")) or {}
         else:
             raise ConfigurationError(
