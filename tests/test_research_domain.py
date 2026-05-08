@@ -9,7 +9,7 @@ from tradingagents.domain import (
     ThesisDirection,
     TradeThesis,
 )
-from tradingagents.graph.trading_graph import _make_planning_result
+from tradingagents.graph.planning import make_planning_result
 
 
 def test_research_run_defaults_to_crypto_research_lifecycle():
@@ -50,7 +50,7 @@ def test_trade_thesis_is_recommendation_not_order():
 
 
 def test_planning_result_uses_legacy_cli_shape_without_execution():
-    result = _make_planning_result(
+    result = make_planning_result(
         "planned",
         "BTC/USDT",
         "AI-generated thesis only.",
