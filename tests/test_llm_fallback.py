@@ -57,13 +57,13 @@ class TestCircuitBreakerMechanics:
 
         graph = MagicMock(spec=ResearchAgentsGraph)
         graph._circuit_state = {
-            "deepseek": {"failures": 3, "open": True, "opened_at": 0},
+            "deepseek": {"failures": 3, "open": True, "opened_at": time.monotonic() - 301},
         }
         graph._cb_threshold = 3
         graph._cb_window = 300
         graph._fallback_enabled = True
 
-        # Circuit opened at time 0, cooling window has passed
+        # Circuit opened past the cooldown window — should be half-open
         assert not ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
 
     def test_circuit_stays_open_within_cooldown(self):
