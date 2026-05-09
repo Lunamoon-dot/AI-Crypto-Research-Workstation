@@ -343,32 +343,11 @@ def selections_from_cli_options(
 
 
 def build_run_config(selections: dict, checkpoint: bool) -> dict:
-    """Create graph config from interactive or CLI selections."""
+    """Create graph config from interactive or CLI selections.
 
-    config = DEFAULT_CONFIG.copy()
-    config["max_debate_rounds"] = selections["research_depth"]
-    config["max_risk_discuss_rounds"] = selections["research_depth"]
-    config["quick_think_llm"] = selections["shallow_thinker"]
-    config["deep_think_llm"] = selections["deep_thinker"]
-    config["backend_url"] = selections["backend_url"]
-    config["llm_provider"] = selections["llm_provider"].lower()
-    config["google_thinking_level"] = selections.get("google_thinking_level")
-    config["openai_reasoning_effort"] = selections.get(
-        "openai_reasoning_effort"
-    )
-    config["anthropic_effort"] = selections.get("anthropic_effort")
-    config["output_language"] = selections.get("output_language", "English")
-    config["asset_class"] = selections.get("asset_class", "crypto")
-    if selections.get("crypto_exchange"):
-        config["crypto_exchange"] = selections["crypto_exchange"]
-    if selections.get("crypto_benchmark"):
-        config["crypto_benchmark"] = selections["crypto_benchmark"]
-    planning_cfg = selections.get("planning_config", {})
-    if planning_cfg:
-        config.setdefault("planning", {}).update(planning_cfg)
-    if selections.get("crypto_exchange"):
-        config.setdefault("planning", {})["exchange"] = selections[
-            "crypto_exchange"
-        ]
-    config["checkpoint_enabled"] = checkpoint
-    return config
+    Uses the unified ConfigLoader for deep-copy safety and validation.
+    """
+    from tradingagents.config.loader import ConfigLoader
+
+    loader = ConfigLoader()
+    return loader.build_runtime_config(selections, checkpoint=checkpoint)

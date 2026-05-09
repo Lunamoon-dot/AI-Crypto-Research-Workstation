@@ -5,21 +5,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-# Provider → required environment variable(s).
-# A tuple means ALL must be set.
-# None means no key needed (e.g. Ollama local).
-PROVIDER_KEY_MAP: dict[str, str | tuple[str, ...] | None] = {
-    "openai": "OPENAI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "xai": "XAI_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "qwen": "DASHSCOPE_API_KEY",
-    "glm": "ZHIPU_API_KEY",
-    "azure": ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"),
-    "openrouter": "OPENROUTER_API_KEY",
-    "ollama": None,
-}
+from tradingagents.config.providers import PROVIDER_REGISTRY, get_provider_env_vars
 
 
 def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str, list[str]]:
@@ -34,14 +20,17 @@ def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str
     warnings: list[str] = []
 
     provider_lower = provider.lower()
-    required = PROVIDER_KEY_MAP.get(provider_lower)
 
-    if required is None:
-        # No key needed (local provider)
+    # Look up required env vars from the canonical provider registry
+    entry = PROVIDER_REGISTRY.get(provider_lower)
+    if entry is None:
+        errors.append(f"Unknown LLM provider: {provider}")
         return {"errors": errors, "warnings": warnings}
 
-    if isinstance(required, str):
-        required = (required,)
+    required = entry.get("env_vars", [])
+    if not required:
+        # No key needed (e.g. Ollama)
+        return {"errors": errors, "warnings": warnings}
 
     missing = []
     for var in required:
@@ -51,6 +40,7 @@ def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str
 
     if missing:
         names = ", ".join(missing)
+        label = entry.get("label", provider.title())
         if provider_lower == "azure":
             errors.append(
                 f"Missing environment variable(s): {names}. "
@@ -59,8 +49,7 @@ def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str
             )
         else:
             errors.append(
-                f"Missing environment variable: {names}. "
-                f"Set it before using {provider.title()}.\n"
+                f"Missing environment variable(s): {names} for {label}.\n"
                 f"  export {missing[0] if len(missing) == 1 else names}=<your-key>"
             )
     elif provider_lower == "azure" and backend_url:

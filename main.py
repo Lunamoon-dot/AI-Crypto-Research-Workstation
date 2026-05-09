@@ -1,16 +1,15 @@
 from tradingagents.graph import ResearchAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.config.loader import ConfigLoader
 
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Create a custom config
-config = DEFAULT_CONFIG.copy()
-config["deep_think_llm"] = "gpt-5.4-mini"
-config["quick_think_llm"] = "gpt-5.4-mini"
-config["max_debate_rounds"] = 1
+# ConfigLoader handles .env loading, config file layering, and validation
+loader = ConfigLoader()
+config = loader.load(
+    cli_overrides={
+        "deep_think_llm": "gpt-5.4-mini",
+        "quick_think_llm": "gpt-5.4-mini",
+        "max_debate_rounds": 1,
+    },
+)
 
 # Initialize with custom config
 ta = ResearchAgentsGraph(debug=True, config=config)

@@ -7,6 +7,10 @@ import os
 from copy import deepcopy
 from typing import Any
 
+from tradingagents.config.providers import (
+    KNOWN_PROVIDERS,
+    get_provider_env_vars,
+)
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
 
@@ -116,7 +120,6 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     normalized_tool_vendors: dict[str, str] = {}
     for method, vendor_chain in tool_vendors.items():
         if method not in VENDOR_METHODS:
-            issues.append(f"tool_vendors contains unknown method {method!r}")
             continue
         vendors = _parse_vendor_chain(vendor_chain)
         if not vendors:
@@ -156,6 +159,46 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
             "backoff_base_sec>=0, backoff_max_sec>=0, rate_limit_per_sec>0"
         )
 
+    # Validate llm_fallback section
+    llm_fallback = normalized.get("llm_fallback", {})
+    if isinstance(llm_fallback, dict):
+        if not isinstance(llm_fallback.get("enabled", True), bool):
+            issues.append("llm_fallback.enabled must be a boolean")
+        fb_providers = llm_fallback.get("fallback_providers", [])
+        if not isinstance(fb_providers, list):
+            issues.append("llm_fallback.fallback_providers must be a list of provider names")
+        else:
+            unknown_fb = [p for p in fb_providers if str(p).lower() not in KNOWN_PROVIDERS]
+            if unknown_fb:
+                issues.append(
+                    f"llm_fallback.fallback_providers has unknown providers {unknown_fb!r}; "
+                    f"known: {', '.join(KNOWN_PROVIDERS)}"
+                )
+            # Warn if primary provider is also a fallback (nonsensical)
+            primary = str(normalized.get("llm_provider", "")).lower()
+            if primary and primary in [str(p).lower() for p in fb_providers]:
+                issues.append(
+                    f"llm_fallback.fallback_providers includes the primary provider "
+                    f"{primary!r} — this is redundant"
+                )
+        threshold = llm_fallback.get("circuit_breaker_threshold", 3)
+        if not isinstance(threshold, int) or threshold < 1:
+            issues.append("llm_fallback.circuit_breaker_threshold must be a positive integer")
+        window = llm_fallback.get("circuit_breaker_window_sec", 300)
+        if not isinstance(window, (int, float)) or window < 1:
+            issues.append("llm_fallback.circuit_breaker_window_sec must be a positive number")
+
+    # Validate secrets section
+    secrets_cfg = normalized.get("secrets", {})
+    if isinstance(secrets_cfg, dict):
+        valid_sources = {"env", "keyring", "env,keyring", "keyring,env"}
+        source = str(secrets_cfg.get("source", "env")).lower().replace(" ", "")
+        if source not in valid_sources:
+            issues.append(
+                f"secrets.source={secrets_cfg.get('source')!r} is invalid; "
+                f"allowed: env, keyring, env,keyring"
+            )
+
     if not issues:
         _validate_llm_credentials(normalized, source=source, mode=mode)
         return normalized
@@ -176,37 +219,43 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
 
 
 def _validate_llm_credentials(config: dict, *, source: str, mode: str) -> None:
-    """Optionally validate LLM credential env vars for the selected provider."""
+    """Validate LLM credential env vars for the selected provider.
+
+    Uses the centralized provider registry so a single source of truth
+    defines which env vars each provider requires.
+    """
     if not config.get("config_validation", {}).get("validate_llm_keys", False):
         return
     provider = str(config.get("llm_provider", "")).lower().strip()
+    if not provider or provider in ("ollama", ""):
+        return
+
     backend_url = config.get("backend_url")
     if backend_url:
         # Custom gateways may authenticate outside env vars.
         return
 
-    required_env: dict[str, list[str]] = {
-        "openai": ["OPENAI_API_KEY"],
-        "xai": ["XAI_API_KEY"],
-        "deepseek": ["DEEPSEEK_API_KEY"],
-        "qwen": ["DASHSCOPE_API_KEY"],
-        "glm": ["ZHIPU_API_KEY"],
-        "openrouter": ["OPENROUTER_API_KEY"],
-        "anthropic": ["ANTHROPIC_API_KEY"],
-        "google": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
-        "azure": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
-    }
-    if provider in ("ollama", ""):
-        return
-    needed = required_env.get(provider)
+    needed = get_provider_env_vars(provider)
     if not needed:
         return
+
     missing = [key for key in needed if not os.environ.get(key)]
     if not missing:
         return
+
+    from tradingagents.config.providers import PROVIDER_REGISTRY
+
+    entry = PROVIDER_REGISTRY.get(provider, {})
+    label = entry.get("label", provider.title())
+    names = ", ".join(missing)
+
     msg = (
-        f"Missing LLM credentials for provider '{provider}' ({source}): "
-        f"{', '.join(missing)}"
+        f"Missing LLM credentials for {label} ({provider}): {names}.\n"
+        f"Set the environment variable(s) before running, or create a .env "
+        f"file from .env.example:\n"
+        f"  cp .env.example .env\n"
+        f"  # then edit .env and set {missing[0] if len(missing) == 1 else 'the required keys'}\n"
+        f"Or disable this check with: config_validation.validate_llm_keys = false"
     )
     if mode == "warn":
         logger.warning(msg)

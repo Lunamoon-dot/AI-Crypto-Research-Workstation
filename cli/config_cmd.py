@@ -90,10 +90,33 @@ def config_show(
     profile_name: str = typer.Argument(..., help="Profile name to display"),
     full: bool = typer.Option(
         False, "--full",
-        help="Show the fully-resolved config (with defaults), not just overrides.",
+        help="Show the fully-resolved config (profile merged with defaults).",
+    ),
+    effective: bool = typer.Option(
+        False, "--effective",
+        help="Show the effective config (all layers: defaults + files + env + profile).",
     ),
 ):
-    """Display the contents of a saved profile."""
+    """Display the contents of a saved profile.
+
+    Use --full to see the profile merged with defaults.
+    Use --effective to see the full resolution chain (defaults + files + env vars + profile).
+    """
+    if effective:
+        from tradingagents.config.loader import ConfigLoader
+
+        loader = ConfigLoader()
+        config = loader.load(profile=profile_name, fail_fast=False)
+        display = _redact_secrets_in_config(config)
+        yaml_str = yaml.safe_dump(display, default_flow_style=False,
+                                  sort_keys=False, allow_unicode=True)
+        console.print(Panel(
+            Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
+            title=f"Effective Configuration (profile: {profile_name})",
+            border_style="cyan",
+        ))
+        return
+
     path: Path | None = None
     if full:
         try:
@@ -222,6 +245,50 @@ def config_health(
     except Exception as exc:
         console.print(f"[yellow]Live check unavailable: {exc}[/yellow]")
 
+    # LLM connectivity check (optional)
+    _check_llm_health(cfg)
+
+
+def _check_llm_health(config: dict | None) -> None:
+    """Test LLM provider connectivity with a minimal API call."""
+    from tradingagents.config.providers import PROVIDER_REGISTRY
+    from tradingagents.config.secrets import SecretsManager
+
+    cfg = config or DEFAULT_CONFIG
+    provider = cfg.get("llm_provider", "").lower()
+    if not provider or provider == "ollama":
+        return
+
+    secrets = SecretsManager()
+    api_key = secrets.resolve(provider)
+    if not api_key:
+        console.print("\n[yellow]LLM health check skipped: no API key found.[/yellow]")
+        console.print("[dim]Set your API key and run 'tradingagents config health' again.[/dim]")
+        return
+
+    entry = PROVIDER_REGISTRY.get(provider, {})
+    label = entry.get("label", provider.title())
+    console.print(f"\n[bold]LLM connectivity check ({label})...[/bold]")
+
+    try:
+        from tradingagents.llm_clients import create_llm_client
+
+        quick_model = cfg.get("quick_think_llm", "")
+        client = create_llm_client(
+            provider=provider,
+            model=quick_model,
+            base_url=cfg.get("backend_url"),
+            api_key=api_key,
+            max_tokens=5,
+        )
+        llm = client.get_llm()
+        # Minimal smoke test: just invoke with a trivial prompt
+        llm.invoke("Hi")
+        console.print(f"[green]  {label}: healthy[/green]")
+    except Exception as exc:
+        msg = str(exc)[:120]
+        console.print(f"[red]  {label}: {msg}[/red]")
+
 
 @config_app.command("setup")
 def config_setup() -> None:
@@ -272,6 +339,184 @@ def config_setup() -> None:
             border_style="blue",
         )
     )
+
+
+@config_app.command("validate")
+def config_validate(
+    profile_name: str = typer.Option(
+        None, "--profile", "-p", help="Validate a specific profile.",
+    ),
+    fail_fast: bool = typer.Option(
+        True, "--fail-fast/--warn", help="Fail on first error (default) or collect warnings.",
+    ),
+):
+    """Validate the effective configuration (defaults + overrides merged)."""
+    from tradingagents.config.loader import ConfigLoader
+    from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
+
+    loader = ConfigLoader()
+    try:
+        config = loader.load(profile=profile_name, fail_fast=fail_fast)
+        console.print("[green]Configuration is valid.[/green]")
+
+        # Summary
+        console.print(f"  LLM Provider: [cyan]{config.get('llm_provider')}[/cyan]")
+        console.print(f"  Deep thinker: [cyan]{config.get('deep_think_llm')}[/cyan]")
+        console.print(f"  Quick thinker: [cyan]{config.get('quick_think_llm')}[/cyan]")
+        console.print(f"  Asset class: [cyan]{config.get('asset_class')}[/cyan]")
+        fb = config.get("llm_fallback", {})
+        if fb.get("enabled"):
+            console.print(
+                f"  LLM fallback: [green]enabled[/green] "
+                f"({' → '.join(fb.get('fallback_providers', []))})"
+            )
+        else:
+            console.print("  LLM fallback: [dim]disabled[/dim]")
+
+        secrets_cfg = config.get("secrets", {})
+        console.print(f"  Secrets source: [cyan]{secrets_cfg.get('source', 'env')}[/cyan]")
+
+    except (ConfigurationValidationError, LLMCredentialError, ConfigurationError) as exc:
+        console.print(f"[red]Configuration validation failed:[/red]\n{exc}")
+        raise typer.Exit(code=1)
+
+
+@config_app.command("init")
+def config_init():
+    """Interactively create config/local.toml with your custom settings.
+
+    This walks through the most common settings and writes a local config
+    file that overrides the defaults without modifying the project files.
+    """
+    from pathlib import Path
+    from tradingagents.config.loader import load_config_file
+    from tradingagents.config.providers import PROVIDER_REGISTRY
+
+    local_path = Path.cwd() / "config" / "local.toml"
+    if local_path.exists():
+        overwrite = typer.confirm(
+            "config/local.toml already exists. Overwrite?"
+        )
+        if not overwrite:
+            console.print("[dim]Cancelled.[/dim]")
+            raise typer.Exit()
+
+    overrides: dict = {}
+
+    # LLM provider
+    provider_choices = [
+        f"{key} ({entry['label']})" for key, entry in PROVIDER_REGISTRY.items()
+    ]
+    console.print("\n[bold]LLM Provider[/bold]")
+    console.print("Available: " + ", ".join(provider_choices))
+    llm_provider = typer.prompt("Primary LLM provider", default="deepseek")
+    if llm_provider.lower() not in PROVIDER_REGISTRY:
+        console.print(f"[yellow]Warning: '{llm_provider}' is not a known provider.[/yellow]")
+    else:
+        overrides["llm_provider"] = llm_provider.lower()
+
+    # Deep thinker model
+    deep_model = typer.prompt("Deep-thinking model", default="")
+    if deep_model:
+        overrides["deep_think_llm"] = deep_model
+
+    # Quick thinker model
+    quick_model = typer.prompt("Quick-thinking model", default="")
+    if quick_model:
+        overrides["quick_think_llm"] = quick_model
+
+    # Fallback providers
+    console.print("\n[bold]LLM Fallback[/bold]")
+    enable_fb = typer.confirm("Enable provider fallback on failure?", default=True)
+    if enable_fb:
+        fb_str = typer.prompt(
+            "Fallback providers (comma-separated)", default="openrouter,openai"
+        )
+        fb_list = [p.strip().lower() for p in fb_str.split(",") if p.strip()]
+        if fb_list:
+            overrides.setdefault("llm_fallback", {})["enabled"] = True
+            overrides.setdefault("llm_fallback", {})["fallback_providers"] = fb_list
+    else:
+        overrides.setdefault("llm_fallback", {})["enabled"] = False
+
+    # Output language
+    output_lang = typer.prompt("Output language", default="English")
+    if output_lang.lower() != "english":
+        overrides["output_language"] = output_lang
+
+    # Write the file
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    content_lines = []
+    _write_toml_section(content_lines, overrides, 0)
+    local_path.write_text("\n".join(content_lines) + "\n", encoding="utf-8")
+    console.print(f"\n[green]Config written to[/green] {local_path}")
+    console.print("[dim]Run 'tradingagents config validate' to check your settings.[/dim]")
+
+
+def _write_toml_section(lines: list[str], data: dict, indent: int) -> None:
+    """Write a dict as TOML lines (simple, no array-of-tables needed)."""
+    prefix = "  " * indent
+    for key, value in data.items():
+        if isinstance(value, dict):
+            if indent == 0:
+                lines.append(f"\n[{key}]")
+            else:
+                lines.append(f"{prefix}[{key}]")
+            _write_toml_section(lines, value, indent + 1)
+        elif isinstance(value, list):
+            lines.append(f"{prefix}{key} = [")
+            for item in value:
+                lines.append(f'{prefix}  "{item}",')
+            lines.append(f"{prefix}]")
+        elif isinstance(value, bool):
+            lines.append(f"{prefix}{key} = {str(value).lower()}")
+        elif isinstance(value, (int, float)):
+            lines.append(f"{prefix}{key} = {value}")
+        elif isinstance(value, str):
+            lines.append(f'{prefix}{key} = "{value}"')
+        else:
+            lines.append(f'{prefix}{key} = "{value}"')
+
+
+@config_app.command("effective")
+def config_effective(
+    profile_name: str = typer.Option(
+        None, "--profile", "-p", help="Include a specific profile.",
+    ),
+):
+    """Show the fully resolved effective configuration (all layers merged).
+
+    Unlike ``config show --full`` which shows only profile+defaults, this
+    includes env vars, local.toml, and CLI overrides in the merged result.
+    """
+    from tradingagents.config.loader import ConfigLoader
+
+    loader = ConfigLoader()
+    config = loader.load(profile=profile_name, fail_fast=False)
+
+    # Redact any secret-like values for safe display
+    display = _redact_secrets_in_config(config)
+
+    yaml_str = yaml.safe_dump(display, default_flow_style=False,
+                              sort_keys=False, allow_unicode=True)
+    console.print(Panel(
+        Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
+        title="Effective Configuration",
+        border_style="cyan",
+    ))
+
+
+def _redact_secrets_in_config(config: dict) -> dict:
+    """Return a copy of config with API-key-like values redacted for display."""
+    from copy import deepcopy
+    result = deepcopy(config)
+    _secret_keywords = ("api_key", "token", "secret", "password", "key", "credential")
+    for key in list(result.keys()):
+        val = result[key]
+        if isinstance(val, str) and any(kw in key.lower() for kw in _secret_keywords):
+            if len(val) > 8:
+                result[key] = val[:4] + "..." + val[-4:]
+    return result
 
 
 def register_config(parent_app: typer.Typer) -> None:

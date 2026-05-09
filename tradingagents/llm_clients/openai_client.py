@@ -6,6 +6,7 @@ from typing import Any, Optional
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from tradingagents.config.providers import get_provider_defaults
 from tradingagents.exceptions import RateLimitError
 
 from .base_client import (
@@ -162,15 +163,8 @@ _PASSTHROUGH_KWARGS = (
     "api_key", "callbacks", "http_client", "http_async_client",
 )
 
-# Provider base URLs and API key env vars
-_PROVIDER_CONFIG = {
-    "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
-    "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
-    "qwen": ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
-    "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
-    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
-    "ollama": ("http://localhost:11434/v1", None),
-}
+# Provider config is now centralized in tradingagents.config.providers.
+# The old _PROVIDER_CONFIG dict is removed — import get_provider_defaults instead.
 
 
 class OpenAIClient(BaseLLMClient):
@@ -203,14 +197,17 @@ class OpenAIClient(BaseLLMClient):
         # Provider-specific base URL and auth. An explicit base_url on the
         # client (e.g. a corporate proxy) takes precedence over the
         # provider default so users can route through their own gateway.
-        if self.provider in _PROVIDER_CONFIG:
-            default_base, api_key_env = _PROVIDER_CONFIG[self.provider]
-            llm_kwargs["base_url"] = self.base_url or default_base
-            if api_key_env:
-                api_key = os.environ.get(api_key_env)
-                if api_key:
-                    llm_kwargs["api_key"] = api_key
-            else:
+        default_base, env_vars = get_provider_defaults(self.provider)
+        if default_base or env_vars:
+            llm_kwargs["base_url"] = self.base_url or default_base or llm_kwargs.get("base_url")
+            # Resolved credentials via SecretsManager take precedence,
+            # then explicit api_key kwarg, then os.environ fallback.
+            api_key = self.kwargs.get("api_key")
+            if not api_key and env_vars:
+                api_key = os.environ.get(env_vars[0])
+            if api_key:
+                llm_kwargs["api_key"] = api_key
+            elif self.provider == "ollama":
                 llm_kwargs["api_key"] = "ollama"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url

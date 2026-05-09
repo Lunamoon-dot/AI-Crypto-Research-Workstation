@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import typer
 from pathlib import Path
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -17,12 +16,11 @@ from tqdm import tqdm
 
 from tradingagents.backtesting.runner import BacktestRunner
 from tradingagents.config_manager import resolve_config
+from tradingagents.config.secrets import get_default_secrets
 from tradingagents.domain import EvaluationMetricsRow, ThesisEvaluation
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
 from tradingagents.services import EvaluationService
 from cli.preflight import check_api_keys
-
-load_dotenv()
 
 console = Console()
 backtest_app = typer.Typer(
@@ -185,6 +183,8 @@ def run(
     if not quick_model and provider_models.get("quick"):
         config["quick_think_llm"] = provider_models["quick"][0][1]
 
+    # Ensure .env is loaded before checking API keys
+    get_default_secrets()
     # Validate API key before launching (avoids cryptic 401 deep in the stack)
     preflight = check_api_keys(config["llm_provider"], config.get("backend_url"))
     if preflight["errors"]:

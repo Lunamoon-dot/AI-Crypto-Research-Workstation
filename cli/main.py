@@ -13,13 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from dotenv import load_dotenv
 from rich.console import Console
 from typer import Context
-
-# Load environment variables
-load_dotenv()
-load_dotenv(".env.enterprise", override=False)
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph import ResearchAgentsGraph, TradingAgentsGraph

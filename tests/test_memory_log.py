@@ -768,10 +768,16 @@ class TestLegacyRemoval:
         mock_graph.propagator.create_initial_state.return_value = fake_state
         mock_graph.propagator.get_graph_args.return_value = {}
         mock_graph.signal_processor.process_signal.return_value = "Buy"
-        # Bind the real _run_graph so propagate's call to self._run_graph executes
-        # the actual write path instead of the auto-MagicMock.
+        # Disable the circuit breaker / fallback path so propagate calls
+        # _run_graph directly via _run_with_fallback.
+        mock_graph._fallback_enabled = False
+        # Bind the real implementations so propagate executes the actual
+        # write path instead of the auto-MagicMock.
         mock_graph._run_graph = functools.partial(
             TradingAgentsGraph._run_graph, mock_graph
+        )
+        mock_graph._run_with_fallback = functools.partial(
+            TradingAgentsGraph._run_with_fallback, mock_graph
         )
         TradingAgentsGraph.propagate(mock_graph, "NVDA", "2026-01-10")
         entries = mock_graph.memory_log.load_entries()

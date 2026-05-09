@@ -18,6 +18,11 @@ DEFAULT_CONFIG = {
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
+    # Config file search paths (relative to project root)
+    "config_search_paths": {
+        "default_toml": "config/default.toml",
+        "local_toml": "config/local.toml",
+    },
     # Asset class: crypto
     "asset_class": "crypto",
     # Crypto-specific settings
@@ -37,6 +42,14 @@ DEFAULT_CONFIG = {
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     "anthropic_effort": None,           # "high", "medium", "low"
+    # LLM provider fallback: if the primary provider is circuit-broken,
+    # these fallback providers are tried in order.
+    "llm_fallback": {
+        "enabled": True,
+        "fallback_providers": ["openrouter", "openai"],
+        "circuit_breaker_threshold": 3,     # consecutive failures before opening circuit
+        "circuit_breaker_window_sec": 300,   # cooling period before half-open attempt
+    },
     # Structured observability (Phase 11): JSON logs + optional journal run_events.
     "observability": {
         "persist_run_events": True,
@@ -71,7 +84,12 @@ DEFAULT_CONFIG = {
     # Config validation policy: "fail_fast" (raise) or "warn" (log and continue).
     "config_validation": {
         "mode": "fail_fast",
-        "validate_llm_keys": False,
+        "validate_llm_keys": True,  # fail-fast on missing API keys at startup
+    },
+    # Secrets / credential resolution
+    "secrets": {
+        "source": "env",             # "env" | "keyring" | "env,keyring"
+        "warn_on_plaintext_env": True,  # warn if .env exists but isn't gitignored
     },
     # Cross-provider resilience wrapper for route_to_vendor.
     "provider_runtime": {

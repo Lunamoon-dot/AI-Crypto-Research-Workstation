@@ -60,6 +60,13 @@ def test_validate_config_llm_key_optional_fail_fast(monkeypatch):
             "mode": "fail_fast",
             "validate_llm_keys": True,
         },
+        # Don't list openai as a fallback when it's already the primary
+        "llm_fallback": {
+            "enabled": True,
+            "fallback_providers": ["deepseek"],
+            "circuit_breaker_threshold": 3,
+            "circuit_breaker_window_sec": 300,
+        },
     }
     with pytest.raises(LLMCredentialError, match="Missing LLM credentials"):
         validate_and_normalize_config(cfg, source="unit-test")
@@ -74,6 +81,12 @@ def test_validate_config_llm_key_optional_warn(monkeypatch, caplog):
         "config_validation": {
             "mode": "warn",
             "validate_llm_keys": True,
+        },
+        "llm_fallback": {
+            "enabled": True,
+            "fallback_providers": ["deepseek"],
+            "circuit_breaker_threshold": 3,
+            "circuit_breaker_window_sec": 300,
         },
     }
     with caplog.at_level(logging.WARNING):

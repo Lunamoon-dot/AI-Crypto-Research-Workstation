@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from contextlib import nullcontext
 from pathlib import Path
 import json
@@ -13,6 +14,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 from tradingagents.llm_clients import create_llm_client
+from tradingagents.llm_clients.factory import create_llm_client_with_keys
 
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -186,7 +188,25 @@ class ResearchAgentsGraph:
 
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
-        
+
+        # ── Circuit breaker + LLM fallback ─────────────────────────────────
+        fallback_cfg = self.config.get("llm_fallback", {})
+        self._fallback_enabled = bool(fallback_cfg.get("enabled", True))
+        self._fallback_providers: list[str] = [
+            str(p).lower()
+            for p in fallback_cfg.get("fallback_providers", [])
+        ]
+        self._cb_threshold = int(fallback_cfg.get("circuit_breaker_threshold", 3))
+        self._cb_window = float(fallback_cfg.get("circuit_breaker_window_sec", 300))
+        # Per-provider circuit state: {"deepseek": {"failures": 2, "open": False}}
+        self._circuit_state: dict[str, dict] = {}
+        # Lazy-created fallback LLM instances: {provider: (deep_llm, quick_llm)}
+        self._fallback_llms: dict[str, tuple] = {}
+        # Resolved API keys, set after ConfigLoader.resolve_credentials()
+        self._resolved_keys: dict[str, str] = {}
+        # Track the currently active LLM provider
+        self._active_llm_provider: str = self.config.get("llm_provider", "").lower()
+
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes
@@ -257,6 +277,176 @@ class ResearchAgentsGraph:
                 kwargs["effort"] = effort
 
         return kwargs
+
+    # ── Circuit breaker + provider fallback ────────────────────────────────
+
+    def _is_circuit_open(self, provider: str) -> bool:
+        """Return True if *provider*'s circuit breaker is currently open."""
+        state = self._circuit_state.get(provider)
+        if not state or not state.get("open"):
+            return False
+        opened_at = state.get("opened_at", 0.0)
+        if time.monotonic() - opened_at >= self._cb_window:
+            # Cooling period elapsed — allow half-open attempt
+            state["open"] = False
+            return False
+        return True
+
+    def _record_provider_result(self, provider: str, success: bool) -> None:
+        """Record an LLM call outcome for circuit breaker tracking."""
+        if not self._fallback_enabled:
+            return
+        state = self._circuit_state.setdefault(provider, {})
+        if success:
+            state["failures"] = 0
+            state["open"] = False
+        else:
+            state["failures"] = state.get("failures", 0) + 1
+            if state["failures"] >= self._cb_threshold:
+                state["open"] = True
+                state["opened_at"] = time.monotonic()
+                log_event(
+                    logger,
+                    "circuit_opened",
+                    provider=provider,
+                    failures=state["failures"],
+                    threshold=self._cb_threshold,
+                )
+
+    def _is_retryable_provider_error(self, exc: Exception) -> bool:
+        """Return True if *exc* looks like a provider-level failure worth retrying."""
+        msg = str(exc).lower()
+        # Connection / timeout errors
+        if any(kw in msg for kw in ("connection", "timeout", "timed out", "refused",
+                                       "reset", "network", "dns", "name resolution")):
+            return True
+        # HTTP status errors that indicate temporary unavailability
+        if any(kw in msg for kw in ("429", "500", "502", "503", "504", "rate limit",
+                                       "server error", "internal error", "unavailable")):
+            return True
+        # Authentication errors are NOT retryable (bad key won't fix itself)
+        if any(kw in msg for kw in ("401", "403", "unauthorized", "forbidden",
+                                       "invalid api key", "authentication")):
+            return False
+        # Default: assume retryable
+        return True
+
+    def _ensure_fallback_llms(self) -> None:
+        """Lazily create fallback LLM instances for all configured fallback providers."""
+        if not self._fallback_enabled or not self._fallback_providers:
+            return
+
+        llm_kwargs = self._get_provider_kwargs()
+        primary = self._active_llm_provider
+
+        for fb_provider in self._fallback_providers:
+            if fb_provider in self._fallback_llms:
+                continue
+            if fb_provider == primary:
+                continue
+            if self._is_circuit_open(fb_provider):
+                continue
+            try:
+                deep_client = create_llm_client_with_keys(
+                    provider=fb_provider,
+                    model=self.config["deep_think_llm"],
+                    base_url=self.config.get("backend_url"),
+                    resolved_keys=self._resolved_keys,
+                    **llm_kwargs,
+                )
+                quick_client = create_llm_client_with_keys(
+                    provider=fb_provider,
+                    model=self.config["quick_think_llm"],
+                    base_url=self.config.get("backend_url"),
+                    resolved_keys=self._resolved_keys,
+                    **llm_kwargs,
+                )
+                self._fallback_llms[fb_provider] = (
+                    deep_client.get_llm(),
+                    quick_client.get_llm(),
+                )
+            except Exception as exc:
+                logger.warning("Could not create fallback LLM client for %s: %s", fb_provider, exc)
+                self._record_provider_result(fb_provider, False)
+
+    def _switch_llm_provider(self, new_provider: str) -> None:
+        """Switch active LLMs to *new_provider* and rebuild graph references.
+
+        Only switches if fallback LLM instances exist for the provider.
+        After switching, all LLM-holding components (graph, reflector,
+        signal processor) point to the new provider's instances.
+        """
+        cached = self._fallback_llms.get(new_provider)
+        if cached is None:
+            raise RuntimeError(f"No fallback LLM cached for provider {new_provider}")
+
+        old_provider = self._active_llm_provider
+        deep_llm, quick_llm = cached
+        self.deep_thinking_llm = deep_llm
+        self.quick_thinking_llm = quick_llm
+        self._active_llm_provider = new_provider
+        self.config["llm_provider"] = new_provider
+
+        # Update GraphSetup's LLM references
+        self.graph_setup.quick_thinking_llm = quick_llm
+        self.graph_setup.deep_thinking_llm = deep_llm
+
+        # Update other components that hold LLM references
+        self.reflector = Reflector(quick_llm)
+        self.signal_processor = SignalProcessor(quick_llm)
+
+        logger.warning(
+            "Switched LLM provider from %s to %s — all LLM references updated",
+            old_provider, new_provider,
+        )
+
+    def _run_with_fallback(
+        self, company_name, trade_date, node_callback=None, *, run_callbacks=None,
+    ):
+        """Execute graph, falling back to alternative providers on failure."""
+        if not self._fallback_enabled:
+            return self._run_graph(
+                company_name, trade_date,
+                node_callback=node_callback, run_callbacks=run_callbacks,
+            )
+
+        providers_to_try = [self._active_llm_provider] + [
+            p for p in self._fallback_providers if p != self._active_llm_provider
+        ]
+
+        last_error = None
+        for idx, provider in enumerate(providers_to_try):
+            if self._is_circuit_open(provider):
+                logger.info("Skipping %s — circuit is open", provider)
+                continue
+
+            if idx > 0:
+                try:
+                    self._ensure_fallback_llms()
+                    self._switch_llm_provider(provider)
+                except Exception as exc:
+                    logger.warning("Failed to switch to fallback %s: %s", provider, exc)
+                    continue
+
+            try:
+                result = self._run_graph(
+                    company_name, trade_date,
+                    node_callback=node_callback, run_callbacks=run_callbacks,
+                )
+                self._record_provider_result(provider, True)
+                if idx > 0:
+                    log_event(logger, "fallback_succeeded", provider=provider,
+                              original=self.config.get("llm_provider", ""))
+                return result
+            except Exception as exc:
+                last_error = exc
+                self._record_provider_result(provider, False)
+                if not self._is_retryable_provider_error(exc):
+                    # Non-provider errors (e.g., symbol validation) should not
+                    # trigger a fallback attempt.
+                    raise
+
+        raise last_error  # type: ignore[misc]
 
     def _start_journal_run(self) -> None:
         bridge = getattr(self, "journal_bridge", None)
@@ -490,7 +680,7 @@ class ResearchAgentsGraph:
                 ):
                     with persist_ctx:
                         try:
-                            return self._run_graph(
+                            return self._run_with_fallback(
                                 company_name,
                                 trade_date,
                                 node_callback=node_callback,
