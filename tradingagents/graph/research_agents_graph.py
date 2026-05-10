@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+import uuid
 from contextlib import nullcontext
 from pathlib import Path
 import json
@@ -752,6 +753,17 @@ class ResearchAgentsGraph:
         quant_signal_text = self._precompute_quant_signal(company_name, trade_date)
         self._save_journal_quant_signals()
 
+        vendor_list = sorted(self.config.get("data_vendors", {}).values())
+        log_event(
+            logger,
+            "data_fetched",
+            run_id=getattr(self.current_research_run, "id", None),
+            decision_id=getattr(self.current_research_run, "decision_id", None),
+            symbol=company_name,
+            trade_date=str(trade_date),
+            vendor=", ".join(vendor_list) if vendor_list else "unknown",
+        )
+
         # Portfolio/account state is intentionally not injected during the
         # research-workstation reset; future assisted execution must use a
         # separate user-approved context.
@@ -824,6 +836,7 @@ class ResearchAgentsGraph:
             logger,
             "research_run_completed",
             run_id=getattr(self.current_research_run, "id", None),
+            decision_id=getattr(self.current_research_run, "decision_id", None),
             symbol=company_name,
             trade_date=str(trade_date),
             final_signal=final_signal,
@@ -903,7 +916,7 @@ class ResearchAgentsGraph:
 
     def _build_trade_thesis(self, final_state: dict) -> TradeThesis:
         """Create the journal thesis artifact from the final graph state."""
-        return build_trade_thesis(
+        thesis = build_trade_thesis(
             final_state,
             process_signal=self.process_signal,
             quant_signal_result=getattr(self, "quant_signal_result", None),
@@ -913,6 +926,22 @@ class ResearchAgentsGraph:
             current_debate=self.current_debate,
             ticker=self.ticker,
         )
+        if self.current_research_run and not self.current_research_run.decision_id:
+            self.current_research_run.decision_id = str(uuid.uuid4())
+        log_event(
+            logger,
+            "decision_created",
+            run_id=getattr(self.current_research_run, "id", None),
+            decision_id=getattr(self.current_research_run, "decision_id", None),
+            symbol=self.ticker,
+            thesis_id=thesis.id,
+            thesis_direction=thesis.direction.value,
+            setup_type=thesis.setup_type,
+            confidence=thesis.confidence,
+            supporting_signal_count=len(thesis.supporting_signal_ids),
+            contradicting_signal_count=len(thesis.contradicting_signal_ids),
+        )
+        return thesis
 
     def _classify_thesis_signals(
         self,
@@ -938,6 +967,19 @@ class ResearchAgentsGraph:
             self.current_trade_thesis = thesis
             if self.current_research_run:
                 self.current_research_run.thesis_id = thesis.id
+        if plan is not None:
+            log_event(
+                logger,
+                "order_submitted",
+                run_id=getattr(self.current_research_run, "id", None),
+                decision_id=getattr(self.current_research_run, "decision_id", None),
+                symbol=self.ticker,
+                thesis_id=getattr(self.current_trade_thesis, "id", None),
+                action=plan.get("action", "unknown"),
+                rating=plan.get("rating", "unknown"),
+                status=plan.get("status", "planned"),
+                confidence=plan.get("confidence"),
+            )
         return plan
 
     def _execute_decision(self, final_state: dict) -> Optional[dict]:
@@ -1042,6 +1084,7 @@ class ResearchAgentsGraph:
                     logger,
                     "research_run_completed",
                     run_id=getattr(self.current_research_run, "id", None),
+                    decision_id=getattr(self.current_research_run, "decision_id", None),
                     symbol=str(resolved_symbol),
                     trade_date=str(trade_date),
                     final_signal=final_sig,

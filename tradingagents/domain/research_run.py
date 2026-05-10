@@ -31,6 +31,7 @@ class ResearchRun(BaseModel):
     signal_ids: list[str] = Field(default_factory=list)
     debate_id: str | None = None
     thesis_id: str | None = None
+    decision_id: str | None = None
     user_decision_id: str | None = None
     outcome_review_id: str | None = None
     status: ResearchRunStatus = ResearchRunStatus.CREATED

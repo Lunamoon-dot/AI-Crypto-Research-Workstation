@@ -243,3 +243,187 @@ def test_log_event_persist_writes_sqlite_when_run_exists(tmp_path, caplog):
     assert timeline[-1].event_type == "run.started"
     assert timeline[-1].payload["symbol"] == "BTC/USDT"
     assert timeline[-1].payload["timeline_event_type"] == "run.started"
+
+
+def test_timeline_message_data_fetched():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message("data.fetched", {"vendor": "ccxt, coingecko"})
+    assert "ccxt" in msg
+    assert "fetched" in msg.lower()
+
+
+def test_timeline_message_signal_generated():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message(
+        "signal.generated",
+        {"composite_score": "Buy", "composite_direction": "bullish"},
+    )
+    assert "bullish" in msg
+    assert "Buy" in msg
+
+
+def test_timeline_message_decision_created():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message(
+        "decision.created", {"thesis_direction": "LONG"}
+    )
+    assert "LONG" in msg
+
+
+def test_timeline_message_risk_checked():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message(
+        "risk.checked",
+        {"consensus_stance": "bullish", "conflict_level": "low"},
+    )
+    assert "bullish" in msg
+    assert "low" in msg
+
+
+def test_timeline_message_order_submitted():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message(
+        "order.submitted", {"action": "plan_long"}
+    )
+    assert "plan_long" in msg
+
+
+def test_log_event_data_fetched(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "data_fetched",
+            run_id="run-df",
+            decision_id="dec-df",
+            symbol="ETH/USDT",
+            vendor="ccxt",
+        )
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["event"] == "data_fetched"
+    assert payload["run_id"] == "run-df"
+    assert payload["decision_id"] == "dec-df"
+    assert payload["vendor"] == "ccxt"
+
+
+def test_log_event_signal_generated(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "signal_generated",
+            run_id="run-sg",
+            decision_id="dec-sg",
+            symbol="SOL/USDT",
+            composite_score="Buy",
+            composite_direction="bullish",
+            confidence=0.72,
+            signal_count=7,
+            bullish_count=4,
+            bearish_count=2,
+            neutral_count=1,
+            stale_count=0,
+        )
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["event"] == "signal_generated"
+    assert payload["composite_score"] == "Buy"
+    assert payload["composite_direction"] == "bullish"
+    assert payload["confidence"] == 0.72
+    assert payload["bullish_count"] == 4
+
+
+def test_log_event_decision_created(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "decision_created",
+            run_id="run-dc",
+            decision_id="dec-uuid",
+            symbol="BTC/USDT",
+            thesis_id="thesis_abc",
+            thesis_direction="LONG",
+            setup_type="breakout",
+            confidence=0.85,
+            supporting_signal_count=5,
+            contradicting_signal_count=1,
+        )
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["event"] == "decision_created"
+    assert payload["decision_id"] == "dec-uuid"
+    assert payload["thesis_direction"] == "LONG"
+    assert payload["setup_type"] == "breakout"
+
+
+def test_log_event_risk_checked(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "risk_checked",
+            run_id="run-rc",
+            decision_id="dec-rc",
+            symbol="BTC/USDT",
+            debate_id="debate_xyz",
+            consensus_stance="bullish",
+            conflict_level="low",
+            opinion_count=3,
+            stance_counts={"bullish": 2, "bearish": 1},
+        )
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["event"] == "risk_checked"
+    assert payload["consensus_stance"] == "bullish"
+    assert payload["conflict_level"] == "low"
+    assert payload["opinion_count"] == 3
+
+
+def test_log_event_order_submitted(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "order_submitted",
+            run_id="run-os",
+            decision_id="dec-os",
+            symbol="BTC/USDT",
+            thesis_id="thesis_def",
+            action="plan_long",
+            rating="Buy",
+            status="planned",
+            confidence=0.78,
+        )
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["event"] == "order_submitted"
+    assert payload["action"] == "plan_long"
+    assert payload["rating"] == "Buy"
+    assert payload["status"] == "planned"
+
+
+def test_decision_id_in_observability_context(caplog):
+    logger = logging.getLogger("tests.observability")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        with observability_context(run_id="run-ctx", decision_id="dec-ctx", symbol="BTC/USDT"):
+            log_event(logger, "research_run_started", status="running")
+    payload = json.loads(caplog.records[-1].getMessage())
+    assert payload["run_id"] == "run-ctx"
+    assert payload["decision_id"] == "dec-ctx"
+    assert payload["symbol"] == "BTC/USDT"
+
+
+def test_all_new_timeline_event_types_are_mapped():
+    from tradingagents.observability.logging import _TIMELINE_EVENT_TYPES
+
+    for name in (
+        "data_fetched",
+        "signal_generated",
+        "decision_created",
+        "risk_checked",
+        "order_submitted",
+    ):
+        assert name in _TIMELINE_EVENT_TYPES, f"{name} missing from _TIMELINE_EVENT_TYPES"
+        assert "." in _TIMELINE_EVENT_TYPES[name], f"{name} should map to dot.case"

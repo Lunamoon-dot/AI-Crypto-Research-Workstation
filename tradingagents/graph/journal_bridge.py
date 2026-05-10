@@ -109,6 +109,21 @@ class JournalBridge:
                 stale_ratio=round(stale_ratio, 4),
                 status=status,
             )
+            log_event(
+                logger,
+                "signal_generated",
+                run_id=run.id,
+                decision_id=run.decision_id,
+                symbol=run.symbol,
+                composite_score=result.score.value,
+                composite_direction=result.trend_direction,
+                confidence=result.confidence,
+                signal_count=total_count,
+                bullish_count=signal_snapshot.bullish_count,
+                bearish_count=signal_snapshot.bearish_count,
+                neutral_count=signal_snapshot.neutral_count,
+                stale_count=stale_count,
+            )
             return run, signals
         except Exception as e:
             logger.warning("Could not save quant signals to journal: %s", e)
@@ -197,6 +212,18 @@ class JournalBridge:
             debate = self.service.save_debate(debate)
             run.debate_id = debate.id
             run = self.service.update_research_run(run)
+            log_event(
+                logger,
+                "risk_checked",
+                run_id=run.id,
+                decision_id=run.decision_id,
+                symbol=run.symbol,
+                debate_id=debate.id,
+                consensus_stance=debate.consensus_stance.value,
+                conflict_level=debate.conflict_level.value,
+                opinion_count=len(opinions),
+                stance_counts=debate.stance_counts,
+            )
             return run, opinions, debate
         except Exception as e:
             logger.warning("Could not save structured agent research: %s", e)

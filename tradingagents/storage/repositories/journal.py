@@ -51,9 +51,9 @@ class JournalRepository:
             INSERT INTO research_runs (
                 id, symbol, asset_class, timeframe, status, started_at,
                 completed_at, market_snapshot_id, signal_snapshot_id, debate_id,
-                thesis_id, user_decision_id, outcome_review_id, payload_json
+                thesis_id, decision_id, user_decision_id, outcome_review_id, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 symbol=excluded.symbol,
                 asset_class=excluded.asset_class,
@@ -64,6 +64,7 @@ class JournalRepository:
                 signal_snapshot_id=excluded.signal_snapshot_id,
                 debate_id=excluded.debate_id,
                 thesis_id=excluded.thesis_id,
+                decision_id=excluded.decision_id,
                 user_decision_id=excluded.user_decision_id,
                 outcome_review_id=excluded.outcome_review_id,
                 payload_json=excluded.payload_json
@@ -80,6 +81,7 @@ class JournalRepository:
                 run.signal_snapshot_id,
                 run.debate_id,
                 run.thesis_id,
+                run.decision_id,
                 run.user_decision_id,
                 run.outcome_review_id,
                 model_to_json(run),

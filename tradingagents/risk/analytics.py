@@ -122,7 +122,8 @@ def correlation_matrix(data: dict[str, list[float]]) -> dict:
             if prices[i - 1] > 0:
                 rets.append((prices[i] - prices[i - 1]) / prices[i - 1])
         if rets:
-            returns[sym] = rets[-min_len:]  # use same length
+            take = len(rets) if min_len == float("inf") else int(min_len)
+            returns[sym] = rets[-take:]
             min_len = min(min_len, len(rets))
 
     if len(returns) < 2:

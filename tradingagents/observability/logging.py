@@ -36,6 +36,11 @@ _TIMELINE_EVENT_TYPES = {
     "rate_limit_hit": "provider.rate_limit",
     "llm_output_failure": "llm.output_failure",
     "health_check_failed": "health.failed",
+    "data_fetched": "data.fetched",
+    "signal_generated": "signal.generated",
+    "decision_created": "decision.created",
+    "risk_checked": "risk.checked",
+    "order_submitted": "order.submitted",
 }
 
 
@@ -223,6 +228,23 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
         provider = payload.get("provider", "?")
         err_t = payload.get("error_type", "Error")
         return f"Health check failed [{provider}]: {err_t}"
+    if event_name == "data.fetched":
+        vendor = payload.get("vendor", "?")
+        return f"Data fetched [{vendor}]"
+    if event_name == "signal.generated":
+        score = payload.get("composite_score", "?")
+        direction = payload.get("composite_direction", "?")
+        return f"Signal generated → {direction} ({score})"
+    if event_name == "decision.created":
+        direction = payload.get("thesis_direction", "?")
+        return f"Decision created ({direction})"
+    if event_name == "risk.checked":
+        stance = payload.get("consensus_stance", "?")
+        conflict = payload.get("conflict_level", "?")
+        return f"Risk checked → {stance} (conflict: {conflict})"
+    if event_name == "order.submitted":
+        action = payload.get("action", "?")
+        return f"Order submitted → {action}"
     return event_name
 
 

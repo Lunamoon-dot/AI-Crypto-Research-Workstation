@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
     signal_snapshot_id TEXT,
     debate_id TEXT,
     thesis_id TEXT,
+    decision_id TEXT,
     user_decision_id TEXT,
     outcome_review_id TEXT,
     payload_json TEXT NOT NULL
