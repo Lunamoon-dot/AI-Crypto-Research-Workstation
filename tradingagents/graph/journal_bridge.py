@@ -142,6 +142,7 @@ class JournalBridge:
                         thesis,
                         debate=debate,
                         signals=signals or [],
+                        template_name=thesis.setup_type if thesis.setup_type != "unspecified" else None,
                     )
                     self.service.save_scenarios(scenarios)
                 except Exception as e:

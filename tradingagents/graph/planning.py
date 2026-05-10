@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from tradingagents.domain import (
     AgentOpinion,
@@ -16,6 +16,7 @@ from tradingagents.domain import (
     TradePlanRecommendation,
     TradeThesis,
 )
+from tradingagents.templates.registry import TemplateRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -121,12 +122,19 @@ def build_trade_thesis(
     )
     missing_data = _missing_data_summary(current_agent_opinions or [], current_debate)
 
+    detected_setup = _detect_setup_type(
+        final_state=final_state,
+        signals=current_signals,
+        opinions=current_agent_opinions or [],
+        debate=current_debate,
+    )
+
     return TradeThesis(
         research_run_id=current_research_run.id if current_research_run else None,
         debate_id=current_debate.id if current_debate else None,
         symbol=symbol,
         direction=direction,
-        setup_type="agent_debate",
+        setup_type=detected_setup,
         thesis_text=final_decision,
         confidence=confidence,
         risk_notes=[
@@ -369,3 +377,125 @@ def build_trade_plan(
         steps=steps,
     )
     return plan, thesis
+
+
+def _detect_setup_type(
+    *,
+    final_state: dict,
+    signals: list[Signal],
+    opinions: list[AgentOpinion],
+    debate: ResearchDebate | None,
+) -> str:
+    """Build a context dict from agent outputs and detect the best template.
+
+    Falls back to ``"agent_debate"`` when no template-specific keywords are found.
+    """
+    context: dict[str, Any] = {}
+
+    # Pull keywords from signal types and summaries
+    for sig in signals:
+        if sig.signal_type:
+            context[sig.signal_type] = sig.summary or sig.direction.value
+
+    # Pull keywords from opinion raw_text and key_evidence
+    opinion_parts: list[str] = []
+    for o in opinions:
+        if o.raw_text:
+            opinion_parts.append(o.raw_text)
+        opinion_parts.extend(o.key_evidence)
+    opinion_text = " ".join(opinion_parts).lower()
+
+    # Check for breakout / resistance / support keywords
+    breakout_keywords = [
+        "breakout", "resistance", "support break", "break above",
+        "break below", "level breach", "new high", "new low",
+    ]
+    if any(kw in opinion_text for kw in breakout_keywords):
+        context["resistance_level"] = "detected from analyst context"
+        context["volume_confirmation"] = "evaluate from volume profile signal"
+        context["funding_state"] = "evaluate from funding/oi signal"
+        context["invalidation_level"] = "determined from debate risk assessment"
+        context["higher_timeframe_trend"] = "evaluated from regime signal"
+
+    # Range / reversion keywords
+    range_keywords = [
+        "range", "consolidation", "reversion", "mean revert",
+        "oscillation", "channel", "sideways", "range bound",
+    ]
+    if any(kw in opinion_text for kw in range_keywords):
+        context["range_high"] = "detected from analyst context"
+        context["range_low"] = "detected from analyst context"
+        context["midpoint"] = "range equilibrium"
+        context["volume_profile"] = "evaluate from volume profile signal"
+        context["funding_state"] = "evaluate from funding/oi signal"
+
+    # Funding / squeeze keywords
+    funding_keywords = [
+        "funding", "squeeze", "overleveraged", "liquidation cascade",
+        "open interest spike", "oi spike", "perp premium",
+    ]
+    if any(kw in opinion_text for kw in funding_keywords):
+        context["funding_rate"] = "evaluate from funding/oi signal"
+        context["oi_delta"] = "evaluate from OI change data"
+        context["spot_cvd"] = "evaluate from CVD signal"
+        context["liquidation_clusters"] = "evaluated from liquidation data"
+        context["squeeze_direction"] = "determined from positioning skew"
+
+    # Trend / pullback keywords
+    trend_keywords = [
+        "pullback", "retracement", "dip buy", "correction in trend",
+        "bull trend", "bear trend", "trend continuation",
+    ]
+    if any(kw in opinion_text for kw in trend_keywords):
+        context["trend_direction"] = "evaluated from regime + higher timeframe"
+        context["pullback_depth"] = "determined from price action"
+        context["support_zone"] = "determined from structure + fib levels"
+        context["volume_dry_up"] = "evaluate from volume profile signal"
+        context["continuation_trigger"] = "determined from price action setup"
+
+    # News event keywords
+    news_keywords = [
+        "news", "announcement", "headline", "regulatory",
+        "sec", "cftc", "etf", "filing", "partnership",
+    ]
+    if any(kw in opinion_text for kw in news_keywords):
+        context["event_type"] = "news catalyst"
+        context["sentiment_shift"] = "evaluate from sentiment signals"
+        context["volume_spike"] = "evaluate from volume profile"
+        context["initial_reaction"] = "evaluated from price action"
+        context["fade_risk"] = "assess based on event significance"
+
+    # Macro event keywords
+    macro_keywords = [
+        "fomc", "cpi", "nfp", "gdp", "fed", "macro",
+        "dxy", "yield", "rate decision", "inflation",
+    ]
+    if any(kw in opinion_text for kw in macro_keywords):
+        context["event_name"] = "macro catalyst"
+        context["expected_impact"] = "evaluate from volatility context"
+        context["market_reaction"] = "evaluated from cross-asset data"
+        context["correlation_break"] = "evaluated from correlation data"
+        context["risk_assets_direction"] = "evaluated from broader market"
+
+    # Liquidity sweep keywords
+    sweep_keywords = [
+        "stop hunt", "liquidity grab", "sweep", "wick",
+        "equal lows", "equal highs", "stop run", "fakeout",
+    ]
+    if any(kw in opinion_text for kw in sweep_keywords):
+        context["sweep_level"] = "detected from price structure"
+        context["prior_range"] = "detected from prior consolidation"
+        context["reclaim_level"] = "determined from sweep reversal level"
+        context["volume_signature"] = "evaluated from volume + CVD pattern"
+        context["trapped_trader_direction"] = "determined from sweep direction"
+
+    # Include debate contradictions as additional signal
+    if debate and debate.contradictions:
+        context["contradictions"] = "; ".join(debate.contradictions[:3])
+
+    # Include final decision text for keyword extraction
+    final_text = final_state.get("final_trade_decision", "")
+    if final_text:
+        context["_decision_text"] = final_text[:500]
+
+    return TemplateRegistry.detect(context)

@@ -37,16 +37,92 @@ Setup/config
 -> Retrospective
 ```
 
-## 3. Setup Và Kiểm Tra Journal
+## 3. Setup Và Cấu Hình
 
-Xem config profiles:
+### File cấu hình
+
+TradingAgents dùng một chuỗi ưu tiên thống nhất (lowest → highest):
+
+1. Code defaults (`tradingagents/default_config.py`)
+2. `config/default.toml` (auto-load nếu có)
+3. `config/local.toml` (override cá nhân, gitignored, auto-load nếu có)
+4. Profile từ `~/.tradingagents/profiles/<name>.yaml`
+5. Biến môi trường prefix `TRADINGAGENTS_`
+6. CLI / programmatic overrides
+
+### API Keys
+
+Tạo file `.env` từ template:
+
+```bash
+cp .env.example .env
+# sửa .env và điền API keys bạn dùng
+```
+
+Các biến được hỗ trợ: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `XAI_API_KEY`, `DASHSCOPE_API_KEY`, `ZHIPU_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `CRYPTOPANIC_API_TOKEN`, `COINGECKO_API_KEY`.
+
+Override key cho riêng TradingAgents: `TRADINGAGENTS_DEEPSEEK_API_KEY`, `TRADINGAGENTS_OPENAI_API_KEY`, v.v.
+
+### Validate cấu hình
+
+Kiểm tra config hiện tại có hợp lệ không:
+
+```bash
+tradingagents config validate
+```
+
+Lệnh này kiểm tra: provider hợp lệ, data vendor routing, API key có mặt (fail-fast nếu thiếu), LLM fallback setup.
+
+Dùng `--warn` để thấy tất cả warnings thay vì fail ở lỗi đầu tiên:
+
+```bash
+tradingagents config validate --warn
+```
+
+### Xem effective config
+
+Xem config đã resolve đầy đủ (tất cả layers merged):
+
+```bash
+tradingagents config show <profile_name> --effective
+tradingagents config effective
+```
+
+Không có profile sẽ hiển thị defaults + local.toml + env vars.
+
+### Tạo local config interactively
+
+```bash
+tradingagents config init
+```
+
+Lệnh này sẽ hỏi từng bước (LLM provider, model, fallback, language) và ghi ra `config/local.toml`.
+
+### Profile management
 
 ```bash
 tradingagents config list
+tradingagents config save <profile_name>
 tradingagents config show <profile_name>
+tradingagents config show <profile_name> --full       # merge với defaults
+tradingagents config show <profile_name> --effective  # tất cả layers
+tradingagents config delete <profile_name>
 ```
 
-Xem file SQLite journal đang lưu ở đâu:
+### Health check (data + LLM)
+
+```bash
+tradingagents config health
+```
+
+Hiển thị:
+- Provider status (enabled/disabled)
+- Category routing (configured → enabled → disabled)
+- Runtime resilience settings (timeout, retries, backoff, rate limit)
+- **Live connectivity check** cho data vendors (CCXT, CoinGecko)
+- **LLM connectivity check** cho provider đang configured (smoke test với 1 prompt nhỏ)
+
+### Xem file SQLite journal đang lưu ở đâu
 
 ```bash
 tradingagents journal path
@@ -111,6 +187,29 @@ tradingagents research run BTC/USDT \
   --save-report \
   --save-path reports/BTC_manual_run
 ```
+
+### Provider Fallback & Circuit Breaker
+
+Khi LLM provider chính gặp lỗi (timeout, connection, rate limit), TradingAgents tự động thử fallback providers (mặc định: `openrouter` → `openai`). Sau 3 lần fail liên tiếp, circuit breaker mở — provider bị skip trong 5 phút trước khi thử lại (half-open).
+
+Cấu hình trong `config/local.toml`:
+
+```toml
+[llm_fallback]
+enabled = true
+fallback_providers = ["openrouter", "openai"]
+circuit_breaker_threshold = 3
+circuit_breaker_window_sec = 300
+```
+
+Tắt fallback:
+
+```toml
+[llm_fallback]
+enabled = false
+```
+
+Các lỗi authentication (401, 403, invalid API key) không trigger fallback — sửa key sai không tự động chuyển provider.
 
 ## 5. Research Namespace
 

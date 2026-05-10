@@ -18,6 +18,7 @@ from .research_run import ResearchRun, ResearchRunStatus
 from .scenario import Scenario, ScenarioProbabilityBand
 from .signal import Signal, SignalDirection
 from .snapshot import MarketSnapshot, SignalSnapshot
+from .template import SetupTemplate, TemplateField
 from .thesis import ThesisDirection, TradeThesis
 from .timeline import TimelineEvent
 from .watchlist import Alert, AlertType, Watchlist, WatchlistItem, WatchlistItemType
@@ -41,12 +42,14 @@ __all__ = [
     "RetrospectiveInsight",
     "Scenario",
     "ScenarioProbabilityBand",
+    "SetupTemplate",
     "Signal",
     "SignalDirection",
     "MarketSnapshot",
     "MarketBrief",
     "SignalSnapshot",
     "SignalProvenance",
+    "TemplateField",
     "ThesisDirection",
     "EvaluationAnalytics",
     "EvaluationMetricsRow",
