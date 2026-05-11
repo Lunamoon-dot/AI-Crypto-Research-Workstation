@@ -2,6 +2,7 @@
 mode = "warn"
 validate_llm_keys = true
 
+runtime_environment = "local"
 disabled_data_vendors = []
 
 [data_vendors]
@@ -25,6 +26,7 @@ rate_limit_per_sec = 8.0
 persist_run_events = true
 persist_data_provider_calls = true
 persist_llm_calls = true
+persist_data_freshness_checks = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 0.25
 

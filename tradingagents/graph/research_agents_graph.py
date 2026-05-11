@@ -87,6 +87,38 @@ def _extract_thesis_list_field(text: str, field: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _first_nonempty_line(text: str) -> str:
+    for line in (text or "").splitlines():
+        clean = line.strip(" -*#\t")
+        if clean:
+            return clean[:500]
+    return ""
+
+
+def _signal_evidence(signals: list[Signal], signal_ids: list[str]) -> list[str]:
+    wanted = set(signal_ids)
+    evidence: list[str] = []
+    for signal in signals:
+        if not signal.id or signal.id not in wanted:
+            continue
+        detail = signal.summary or str(signal.evidence.get("detail") or "")
+        if not detail:
+            detail = f"{signal.signal_type}: {signal.direction.value}"
+        evidence.append(detail[:500])
+    return evidence
+
+
+def _stale_or_missing_data_notes(signals: list[Signal]) -> list[str]:
+    notes: list[str] = []
+    for signal in signals:
+        freshness = getattr(
+            signal.provenance.freshness, "value", signal.provenance.freshness
+        )
+        if freshness in ("stale", "unknown"):
+            notes.append(f"{signal.signal_type}: {freshness}")
+    return notes
+
+
 class ResearchAgentsGraph(JournalPersistenceMixin):
     """Main class that orchestrates the research-workstation graph."""
 
@@ -219,6 +251,33 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         # Extract debate artifacts
         contradictions = getattr(debate, "contradictions", None) or []
         consensus = getattr(debate, "consensus", None) or {}
+        signals = getattr(self, "current_signals", []) or []
+        supporting_evidence = _signal_evidence(signals, supporting_ids)
+        contradicting_evidence = _signal_evidence(signals, contradicting_ids)
+        stale_or_missing_data = _stale_or_missing_data_notes(signals)
+        why_this_thesis = _first_nonempty_line(final_decision) or (
+            f"{direction.value} thesis generated from agent debate"
+        )
+        monitor_next = [
+            item
+            for item in [
+                f"entry: {entry_zone}" if entry_zone else "",
+                f"invalidation: {invalidation_level}" if invalidation_level else "",
+                *[f"target: {target}" for target in target_zones],
+            ]
+            if item
+        ]
+        confidence_rationale = (
+            f"Quant confidence={confidence:.2f}; "
+            f"{len(supporting_ids)} supporting signal(s), "
+            f"{len(contradicting_ids)} contradicting signal(s)."
+            if confidence is not None
+            else (
+                f"{len(supporting_ids)} supporting signal(s), "
+                f"{len(contradicting_ids)} contradicting signal(s); "
+                "quant confidence unavailable."
+            )
+        )
 
         thesis = TradeThesis(
             id=str(uuid.uuid4()),
@@ -242,12 +301,31 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                 "opinions_linked": len(opinion_ids),
                 "debate_linked": debate_id is not None,
             },
+            why_this_thesis=why_this_thesis,
+            supporting_evidence=supporting_evidence,
+            contradicting_evidence=contradicting_evidence,
+            stale_or_missing_data=stale_or_missing_data,
+            invalidation=invalidation_level or "",
+            monitor_next=monitor_next,
+            confidence_rationale=confidence_rationale,
             risk_notes=["Manual review required before any action."],
         )
 
         if self.current_research_run and not self.current_research_run.decision_id:
             self.current_research_run.decision_id = str(uuid.uuid4())
 
+        log_event(
+            logger,
+            "thesis_generated",
+            run_id=getattr(self.current_research_run, "id", None),
+            thesis_id=thesis.id,
+            symbol=self.ticker,
+            thesis_direction=thesis.direction.value,
+            confidence=thesis.confidence,
+            supporting_evidence_count=len(thesis.supporting_evidence),
+            contradicting_evidence_count=len(thesis.contradicting_evidence),
+            stale_or_missing_data_count=len(thesis.stale_or_missing_data),
+        )
         log_event(
             logger,
             "decision_created",
@@ -322,6 +400,9 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                 journal_service,
                 persist_provider_calls=obs_cfg.get("persist_data_provider_calls", True),
                 persist_llm_calls=obs_cfg.get("persist_llm_calls", True),
+                persist_data_freshness_checks=obs_cfg.get(
+                    "persist_data_freshness_checks", True
+                ),
                 persist_snapshot_health=obs_cfg.get("persist_snapshot_health", True),
                 data_provider_call_sample_rate=obs_cfg.get(
                     "data_provider_call_sample_rate", 1.0
@@ -414,6 +495,8 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
     ):
         """Execute the graph and write the resulting state to disk."""
         self.current_research_run = ResearchRun(
+            id=(self.config.get("_engine") or {}).get("run_id")
+            or self.config.get("run_id"),
             symbol=company_name,
             asset_class=self.config.get("asset_class", "crypto"),
             timeframe=str(trade_date),

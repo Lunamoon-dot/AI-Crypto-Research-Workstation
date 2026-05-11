@@ -106,6 +106,18 @@ def signal_result_to_domain_signals(
         symbol=result.symbol,
         source="signal_engine",
     )
+    log_event(
+        logger,
+        "data_freshness_check",
+        symbol=result.symbol,
+        source="signal_engine",
+        source_timestamp=source_timestamp,
+        observed_timestamp=observed_at,
+        age_seconds=freshness_seconds,
+        threshold_seconds=int(FRESHNESS_WINDOW.total_seconds()),
+        freshness=freshness.value,
+        status=freshness.value,
+    )
 
     signals = [
         _composite_signal(

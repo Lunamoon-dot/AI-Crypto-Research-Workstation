@@ -96,3 +96,19 @@ def test_validate_config_llm_key_optional_warn(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         validate_and_normalize_config(cfg, source="unit-test")
     assert "Missing LLM credentials" in caplog.text
+
+
+def test_validate_config_production_requires_fail_fast_and_key_validation():
+    cfg = {
+        **DEFAULT_CONFIG,
+        "runtime_environment": "production",
+        "config_validation": {
+            "mode": "warn",
+            "validate_llm_keys": False,
+        },
+    }
+    with pytest.raises(ConfigurationValidationError) as exc_info:
+        validate_and_normalize_config(cfg, source="unit-test")
+    msg = str(exc_info.value)
+    assert "production runtime_environment requires fail_fast" in msg
+    assert "production runtime_environment requires LLM key validation" in msg

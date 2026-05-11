@@ -25,6 +25,7 @@ class ObservabilityConfig(BaseModel):
     persist_run_events: bool = True
     persist_data_provider_calls: bool = True
     persist_llm_calls: bool = True
+    persist_data_freshness_checks: bool = True
     persist_snapshot_health: bool = True
     data_provider_call_sample_rate: float = 1.0
     opentelemetry_enabled: bool = False

@@ -32,6 +32,7 @@ _TIMELINE_EVENT_TYPES = {
     "research_run_failed": "run.failed",
     "data_provider_call": "provider.call",
     "llm_call": "llm.call",
+    "data_freshness_check": "data.freshness",
     "snapshot_health": "snapshot.health",
     "stale_data_detected": "data.stale",
     "storage_operation_failed": "storage.failed",
@@ -40,6 +41,7 @@ _TIMELINE_EVENT_TYPES = {
     "health_check_failed": "health.failed",
     "data_fetched": "data.fetched",
     "signal_generated": "signal.generated",
+    "thesis_generated": "thesis.generated",
     "decision_created": "decision.created",
     "risk_checked": "risk.checked",
     "plan_recorded": "plan.recorded",
@@ -126,6 +128,7 @@ def observability_run_event_persistence(
     *,
     persist_provider_calls: bool = True,
     persist_llm_calls: bool = True,
+    persist_data_freshness_checks: bool = True,
     persist_snapshot_health: bool = True,
     data_provider_call_sample_rate: float = 1.0,
 ) -> Iterator[None]:
@@ -138,6 +141,7 @@ def observability_run_event_persistence(
         "service": service,
         "persist_provider_calls": persist_provider_calls,
         "persist_llm_calls": persist_llm_calls,
+        "persist_data_freshness_checks": persist_data_freshness_checks,
         "persist_snapshot_health": persist_snapshot_health,
         "data_provider_call_sample_rate": max(
             0.0, min(1.0, float(data_provider_call_sample_rate))
@@ -214,6 +218,10 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
         model = payload.get("model", "?")
         status = payload.get("status", "success")
         return f"LLM call [{model}] {status}"
+    if event_name == "data.freshness":
+        source = payload.get("source", "?")
+        status = payload.get("freshness") or payload.get("status", "unknown")
+        return f"Data freshness [{source}] {status}"
     if event_name == "snapshot.health":
         health = payload.get("status", "unknown")
         return f"Snapshot health: {health}"
@@ -243,6 +251,9 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
         score = payload.get("composite_score", "?")
         direction = payload.get("composite_direction", "?")
         return f"Signal generated → {direction} ({score})"
+    if event_name == "thesis.generated":
+        direction = payload.get("thesis_direction", "?")
+        return f"Thesis generated ({direction})"
     if event_name == "decision.created":
         direction = payload.get("thesis_direction", "?")
         return f"Decision created ({direction})"
@@ -283,26 +294,32 @@ def log_event(
     if not persist_cfg or not persist_cfg.get("service"):
         return
 
-    run_id = payload.get("run_id")
-    if not run_id:
-        return
-
     if event == "data_provider_call" and not persist_cfg.get(
         "persist_provider_calls", True
     ):
         return
     if event == "llm_call" and not persist_cfg.get("persist_llm_calls", True):
         return
+    if event == "data_freshness_check" and not persist_cfg.get(
+        "persist_data_freshness_checks", True
+    ):
+        return
     if event == "snapshot_health" and not persist_cfg.get(
         "persist_snapshot_health", True
     ):
         return
+    safe_payload = redact_secrets(dict(payload))
+    _persist_observability_record(persist_cfg["service"], event, safe_payload)
+
+    run_id = safe_payload.get("run_id")
+    if not run_id:
+        return
+
     if event == "data_provider_call":
         sample_rate = float(persist_cfg.get("data_provider_call_sample_rate", 1.0))
         if sample_rate < 1.0 and random.random() > sample_rate:
             return
 
-    safe_payload = redact_secrets(dict(payload))
     canonical_event = _TIMELINE_EVENT_TYPES.get(event, event)
     safe_payload.setdefault("timeline_schema", "v1")
     safe_payload.setdefault("timeline_event_type", canonical_event)
@@ -318,3 +335,23 @@ def log_event(
         )
     except Exception as exc:
         _MODULE_LOGGER.debug("Skipping run_events persist for %s: %s", event, exc)
+
+
+def _persist_observability_record(
+    service: Any, event: str, payload: dict[str, Any]
+) -> None:
+    try:
+        if event == "data_provider_call" and hasattr(
+            service, "record_provider_health_from_payload"
+        ):
+            service.record_provider_health_from_payload(payload)
+        elif event == "llm_call" and hasattr(service, "record_llm_call_from_payload"):
+            service.record_llm_call_from_payload(payload)
+        elif event == "data_freshness_check" and hasattr(
+            service, "record_data_freshness_from_payload"
+        ):
+            service.record_data_freshness_from_payload(payload)
+    except Exception as exc:
+        _MODULE_LOGGER.debug(
+            "Skipping observability record persist for %s: %s", event, exc
+        )

@@ -13,6 +13,8 @@ from tradingagents.domain import (
     MarketBrief,
     MarketSnapshot,
     OutcomeReview,
+    ProviderHealthRecord,
+    LLMCallRecord,
     ResearchDebate,
     ResearchRun,
     ResearchRunStatus,
@@ -23,6 +25,7 @@ from tradingagents.domain import (
     TimelineEvent,
     TradeThesis,
     UserDecision,
+    DataFreshnessCheck,
     Watchlist,
     WatchlistItem,
 )
@@ -1270,6 +1273,182 @@ class JournalRepository:
             message=row["message"],
             payload=json.loads(row["payload_json"] or "{}"),
         )
+
+    def save_provider_health(
+        self, record: ProviderHealthRecord, *, _conn=None
+    ) -> ProviderHealthRecord:
+        if not record.id:
+            record.id = _new_id("provider_health")
+        self.store.execute(
+            """
+            INSERT INTO provider_health (
+                id, provider, component, status, checked_at, latency_ms,
+                error_type, error_message, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.id,
+                record.provider,
+                record.component,
+                record.status,
+                _iso(record.checked_at),
+                record.latency_ms,
+                record.error_type,
+                record.error_message,
+                model_to_json(record),
+            ),
+            _conn=_conn,
+        )
+        return record
+
+    def list_provider_health(
+        self,
+        *,
+        provider: str | None = None,
+        limit: int = 100,
+    ) -> list[ProviderHealthRecord]:
+        if provider:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM provider_health
+                WHERE provider = ?
+                ORDER BY checked_at DESC
+                LIMIT ?
+                """,
+                (provider, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM provider_health
+                ORDER BY checked_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [
+            model_from_json(ProviderHealthRecord, row["payload_json"]) for row in rows
+        ]
+
+    def save_llm_call(self, record: LLMCallRecord, *, _conn=None) -> LLMCallRecord:
+        if not record.id:
+            record.id = _new_id("llm_call")
+        self.store.execute(
+            """
+            INSERT INTO llm_calls (
+                id, research_run_id, thesis_id, provider, model, stage, agent,
+                input_tokens, output_tokens, latency_ms, status, error_type,
+                error_message, created_at, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.id,
+                record.research_run_id,
+                record.thesis_id,
+                record.provider,
+                record.model,
+                record.stage,
+                record.agent,
+                record.input_tokens,
+                record.output_tokens,
+                record.latency_ms,
+                record.status,
+                record.error_type,
+                record.error_message,
+                _iso(record.created_at),
+                model_to_json(record),
+            ),
+            _conn=_conn,
+        )
+        return record
+
+    def list_llm_calls(
+        self,
+        *,
+        research_run_id: str | None = None,
+        limit: int = 100,
+    ) -> list[LLMCallRecord]:
+        if research_run_id:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM llm_calls
+                WHERE research_run_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (research_run_id, limit),
+            )
+        else:
+            rows = self.store.fetchall(
+                """
+                SELECT payload_json FROM llm_calls
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        return [model_from_json(LLMCallRecord, row["payload_json"]) for row in rows]
+
+    def save_data_freshness_check(
+        self, record: DataFreshnessCheck, *, _conn=None
+    ) -> DataFreshnessCheck:
+        if not record.id:
+            record.id = _new_id("freshness")
+        self.store.execute(
+            """
+            INSERT INTO data_freshness_checks (
+                id, research_run_id, symbol, source, source_timestamp,
+                observed_timestamp, age_seconds, threshold_seconds, status,
+                payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.id,
+                record.research_run_id,
+                record.symbol,
+                record.source,
+                _iso(record.source_timestamp),
+                _iso(record.observed_timestamp),
+                record.age_seconds,
+                record.threshold_seconds,
+                record.status,
+                model_to_json(record),
+            ),
+            _conn=_conn,
+        )
+        return record
+
+    def list_data_freshness_checks(
+        self,
+        *,
+        research_run_id: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> list[DataFreshnessCheck]:
+        conditions = []
+        params: list[object] = []
+        if research_run_id:
+            conditions.append("research_run_id = ?")
+            params.append(research_run_id)
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.store.fetchall(
+            f"""
+            SELECT payload_json FROM data_freshness_checks
+            {where_clause}
+            ORDER BY observed_timestamp DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        return [
+            model_from_json(DataFreshnessCheck, row["payload_json"]) for row in rows
+        ]
 
     # ------------------------------------------------------------------
     # Phase 4 (tail): Reliability snapshots

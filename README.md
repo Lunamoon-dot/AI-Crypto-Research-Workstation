@@ -299,6 +299,7 @@ Start at [ROADMAP.md](ROADMAP.md) (hub). Detailed docs:
 
 - [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md) — phases 1–9 (implementation)
 - [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md) — phases 10–14 (reliability, API/cloud, monetization)
+- [docs/postgres-migration-strategy.md](docs/postgres-migration-strategy.md) — SQLite local mode to Postgres hosted mode
 - [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) — current production-readiness verdict and blockers
 
 Abbreviated direction:

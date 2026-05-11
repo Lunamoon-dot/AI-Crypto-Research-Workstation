@@ -49,7 +49,8 @@ circuit_breaker_window_sec = 300
 source = "env"         # "env" | "keyring" | "env,keyring"
 warn_on_plaintext_env = true
 
-# ── Asset class ──────────────────────────────────────────────────────────────
+# ── Runtime environment / asset class ────────────────────────────────────────
+runtime_environment = "local" # "local" | "dev" | "production"
 asset_class = "crypto"
 crypto_exchange = "binance"
 crypto_benchmark = "BTC/USDT"
@@ -120,6 +121,7 @@ max_age_hours = 24.0
 persist_run_events = true
 persist_data_provider_calls = true
 persist_llm_calls = true
+persist_data_freshness_checks = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
 opentelemetry_enabled = false

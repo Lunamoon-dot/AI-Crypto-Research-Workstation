@@ -7,15 +7,19 @@ talking to SQLite directly.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
     AgentOpinion,
+    DataFreshnessCheck,
+    LLMCallRecord,
     MarketSnapshot,
     OutcomeAnalytics,
     OutcomeReview,
+    ProviderHealthRecord,
     ResearchDebate,
     ResearchRun,
     RetrospectiveInsight,
@@ -329,6 +333,95 @@ class JournalService:
             limit=limit,
         )
 
+    def record_provider_health_from_payload(
+        self, payload: dict[str, Any]
+    ) -> ProviderHealthRecord:
+        record = ProviderHealthRecord(
+            provider=str(payload.get("provider") or "unknown"),
+            component=_optional_text(payload.get("method") or payload.get("component")),
+            status=str(payload.get("status") or "unknown"),
+            latency_ms=_optional_float(
+                payload.get("duration_ms") or payload.get("latency_ms")
+            ),
+            error_type=_optional_text(payload.get("error_type")),
+            error_message=_optional_text(payload.get("error")),
+            payload=dict(payload),
+        )
+        return self.repo.save_provider_health(record)
+
+    def list_provider_health(
+        self,
+        *,
+        provider: str | None = None,
+        limit: int = 100,
+    ) -> list[ProviderHealthRecord]:
+        return self.repo.list_provider_health(provider=provider, limit=limit)
+
+    def record_llm_call_from_payload(self, payload: dict[str, Any]) -> LLMCallRecord:
+        record = LLMCallRecord(
+            research_run_id=_optional_text(payload.get("run_id")),
+            thesis_id=_optional_text(payload.get("thesis_id")),
+            provider=str(payload.get("provider") or "unknown"),
+            model=str(payload.get("model") or "unknown"),
+            stage=_optional_text(payload.get("stage")),
+            agent=_optional_text(payload.get("agent") or payload.get("agent_name")),
+            input_tokens=_non_negative_int(payload.get("input_tokens")),
+            output_tokens=_non_negative_int(payload.get("output_tokens")),
+            latency_ms=_optional_float(
+                payload.get("duration_ms") or payload.get("latency_ms")
+            ),
+            status=str(payload.get("status") or "unknown"),
+            error_type=_optional_text(payload.get("error_type")),
+            error_message=_optional_text(payload.get("error")),
+            payload=dict(payload),
+        )
+        return self.repo.save_llm_call(record)
+
+    def list_llm_calls(
+        self,
+        *,
+        research_run_id: str | None = None,
+        limit: int = 100,
+    ) -> list[LLMCallRecord]:
+        return self.repo.list_llm_calls(
+            research_run_id=research_run_id,
+            limit=limit,
+        )
+
+    def record_data_freshness_from_payload(
+        self, payload: dict[str, Any]
+    ) -> DataFreshnessCheck:
+        observed = _optional_datetime(
+            payload.get("observed_timestamp") or payload.get("observed_at")
+        ) or datetime.now(timezone.utc)
+        record = DataFreshnessCheck(
+            research_run_id=_optional_text(payload.get("run_id")),
+            symbol=_optional_text(payload.get("symbol")),
+            source=str(payload.get("source") or "unknown"),
+            source_timestamp=_optional_datetime(payload.get("source_timestamp")),
+            observed_timestamp=observed,
+            age_seconds=_optional_int(
+                payload.get("age_seconds") or payload.get("freshness_seconds")
+            ),
+            threshold_seconds=_optional_int(payload.get("threshold_seconds")),
+            status=str(payload.get("freshness") or payload.get("status") or "unknown"),
+            payload=dict(payload),
+        )
+        return self.repo.save_data_freshness_check(record)
+
+    def list_data_freshness_checks(
+        self,
+        *,
+        research_run_id: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> list[DataFreshnessCheck]:
+        return self.repo.list_data_freshness_checks(
+            research_run_id=research_run_id,
+            source=source,
+            limit=limit,
+        )
+
     def list_research_runs(self, limit: int = 20) -> list[ResearchRun]:
         return self.repo.list_research_runs(limit=limit)
 
@@ -532,6 +625,55 @@ def _rate(numerator: int, denominator: int) -> float | None:
     if denominator == 0:
         return None
     return numerator / denominator
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _non_negative_int(value: Any) -> int:
+    parsed = _optional_int(value)
+    if parsed is None or parsed < 0:
+        return 0
+    return parsed
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    text = _optional_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _average(values: list[float]) -> float | None:
