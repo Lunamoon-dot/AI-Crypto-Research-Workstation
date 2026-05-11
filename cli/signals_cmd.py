@@ -12,7 +12,7 @@ from rich.table import Table
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.services import JournalService
 
-from cli.json_emit import print_json_stdout
+from cli.json_emit import ensure_single_output_mode, print_json_stdout, print_plain_stdout
 
 console = Console()
 signals_app = typer.Typer(help="Inspect saved signal provenance.")
@@ -29,18 +29,39 @@ def signals_list(
     ),
     limit: int = typer.Option(50, "--limit", "-n", min=1, max=200),
     json_out: bool = typer.Option(False, "--json", help="Emit signals as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Emit signals as plain text."),
 ):
     """List recent saved signals."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     signals = _service().list_signals(symbol=symbol, limit=limit)
     if not signals:
         if json_out:
             print_json_stdout([])
+        elif plain:
+            print_plain_stdout([])
         else:
             console.print("[yellow]No signals saved yet.[/yellow]")
         return
 
     if json_out:
         print_json_stdout({"signals": [s.model_dump(mode="json") for s in signals]})
+        return
+    if plain:
+        lines = ["id\tsymbol\tsignal_type\tdirection\tconfidence\tobserved_at"]
+        lines.extend(
+            "\t".join(
+                [
+                    signal.id or "",
+                    signal.symbol,
+                    signal.signal_type,
+                    signal.direction.value,
+                    "" if signal.confidence is None else f"{signal.confidence:.4f}",
+                    signal.observed_at.isoformat(),
+                ]
+            )
+            for signal in signals
+        )
+        print_plain_stdout(lines)
         return
 
     table = Table(title="Saved Signals")
@@ -87,8 +108,10 @@ def signals_list(
 def signals_show(
     signal_id: str = typer.Argument(..., help="Signal id."),
     json_out: bool = typer.Option(False, "--json", help="Emit signal record as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Emit signal as plain text."),
 ):
     """Show full saved signal provenance."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     signal = _service().get_signal(signal_id)
     if not signal:
         console.print(f"[red]Signal not found:[/red] {signal_id}")
@@ -96,6 +119,13 @@ def signals_show(
 
     if json_out:
         print_json_stdout({"signal": signal.model_dump(mode="json")})
+        return
+    if plain:
+        payload = signal.model_dump(mode="json")
+        lines = []
+        for key, value in payload.items():
+            lines.append(f"{key}: {value}")
+        print_plain_stdout(lines)
         return
 
     lines = [

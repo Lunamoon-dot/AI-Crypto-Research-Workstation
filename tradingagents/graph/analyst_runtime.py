@@ -5,12 +5,16 @@ from __future__ import annotations
 # deepcopy removed — shallow copy is sufficient since only messages are mutated
 from typing import Any, Callable
 
+from tradingagents.domain import render_agent_opinion
+
 
 def make_analyst_runner(
     analyst_node: Callable[[dict], dict],
     tool_node: Any,
     *,
     report_key: str,
+    opinion_key: str | None = None,
+    opinion_builder: Callable[[dict, str], Any] | None = None,
     max_tool_rounds: int = 6,
 ) -> Callable[[dict], dict]:
     """Wrap an analyst node so it completes its own tool loop in one graph step."""
@@ -41,6 +45,11 @@ def make_analyst_runner(
             local_messages.extend(list(tool_out.get("messages", [])))
 
         result: dict[str, Any] = {report_key: report}
+        if opinion_key and opinion_builder and report:
+            opinion = opinion_builder(local_state, report)
+            if opinion is not None:
+                result[opinion_key] = opinion
+                result[report_key] = render_agent_opinion(opinion)
         if last_ai_message is not None:
             result["messages"] = [last_ai_message]
         return result

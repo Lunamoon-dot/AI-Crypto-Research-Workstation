@@ -7,18 +7,23 @@ Practical checklist for moving TradingAgents from local research workstation to 
 
 See also: [Production readiness review](PRODUCTION_READINESS_REVIEW.md).
 
+Release evidence directory: [0.3.0-2026-05-12](release-evidence/0.3.0-2026-05-12/).
+
 ## Current Evidence
 
 | Gate | Result |
 |------|--------|
-| Ruff lint | PASS: `python -m ruff check .` |
-| Ruff format | PASS: `python -m ruff format --check .` |
-| Pytest | PASS: `503 passed, 1 skipped, 42 subtests passed` |
-| Mypy | PASS: `python -m mypy tradingagents cli` |
-| Compile | PASS: `python -m compileall tradingagents cli tests` |
-| Dependency check | PASS: `python -m pip check`; local interpreter reports stale invalid-distribution warnings |
-
-The skipped test is caused by missing `hypothesis` in the current interpreter. A clean `pip install -e ".[dev]"` should install it before release.
+| Clean clone install | PASS: `pip install -e ".[dev]"`; see [clean-clone summary](release-evidence/0.3.0-2026-05-12/clean-clone-summary.md) |
+| Ruff lint | PASS: `python -m ruff check .`; see [clean-clone summary](release-evidence/0.3.0-2026-05-12/clean-clone-summary.md) |
+| Ruff format | PASS after rerun: `python -m ruff format --check .`; see [format rerun](release-evidence/0.3.0-2026-05-12/clean-clone-ruff-format-check-rerun.log) |
+| Pytest | PASS: `507 passed, 42 subtests passed`; see [pytest log](release-evidence/0.3.0-2026-05-12/clean-clone-pytest.log) |
+| Property tests | PASS: `4 passed` with `hypothesis` installed; see [property log](release-evidence/0.3.0-2026-05-12/clean-clone-property-tests-rerun.log) |
+| Mypy | PASS: `python -m mypy tradingagents cli`; see [mypy log](release-evidence/0.3.0-2026-05-12/clean-clone-mypy.log) |
+| Compile | PASS: `python -m compileall tradingagents cli tests`; see [compile log](release-evidence/0.3.0-2026-05-12/clean-clone-compileall.log) |
+| Dependency check | PASS: `python -m pip check`; see [pip check log](release-evidence/0.3.0-2026-05-12/clean-clone-pip-check.log) |
+| CI matrix | BLOCKED: GitHub Actions result could not be authenticated from this workstation; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
+| Dependency audit | PASS: `pip-audit`; see [audit log](release-evidence/0.3.0-2026-05-12/dependency-audit-pip-audit.log) |
+| Secret scan | PASS after manual triage of placeholders/test fixtures; see [scan log](release-evidence/0.3.0-2026-05-12/secret-scan-detect-secrets.log) and [triage](release-evidence/0.3.0-2026-05-12/secret-scan-triage.md) |
 
 ## Release Gates
 
@@ -29,41 +34,46 @@ The skipped test is caused by missing `hypothesis` in the current interpreter. A
 - [x] Local pytest passes.
 - [x] Local mypy passes.
 - [x] Local compile check passes.
-- [ ] Clean clone install verified with `pip install -e ".[dev]"`.
+- [x] Clean clone install verified with `pip install -e ".[dev]"`.
 - [ ] CI matrix passes on Python 3.10, 3.11, and 3.12.
-- [ ] Property-based tests run with `hypothesis` installed, with no unexpected skips.
-- [ ] Real-provider smoke run completed and attached to release evidence.
-- [ ] Journal migration verified on a copy of an older real journal DB.
-- [ ] Journal backup and restore procedure verified.
-- [ ] Dependency/security audit completed.
-- [ ] Secret scan completed.
-- [ ] Release notes include known limitations and research-only positioning.
+- [x] Property-based tests run with `hypothesis` installed, with no unexpected skips.
+- [x] Real-provider smoke run completed and attached to release evidence.
+- [x] Journal migration verified on a copy of an older real journal DB.
+- [x] Journal backup and restore procedure verified.
+- [x] Dependency/security audit completed.
+- [x] Secret scan completed.
+- [x] Release notes include known limitations and research-only positioning.
 - [ ] Second reviewer signs off.
 
 ### Operational Drills
 
-- [ ] Provider outage runbook executed.
-- [ ] LLM deprecation runbook executed.
-- [ ] API key rotation runbook executed.
-- [ ] Credential leak tabletop completed.
-- [ ] User-facing incident message template prepared.
+- [x] Provider outage runbook executed.
+- [x] LLM deprecation runbook executed.
+- [x] API key rotation runbook executed.
+- [x] Credential leak tabletop completed.
+- [x] User-facing incident message template prepared.
 
 ### Product Boundaries
 
 - [x] README states the project is not an autonomous trading bot.
 - [x] Core repo has no exchange order placement path.
 - [x] Historical evaluation is described as thesis-quality evaluation, not broker-accurate backtesting.
-- [ ] Retention/deletion guidance for journal DB and generated reports is documented.
-- [ ] Cloud/local data boundary is documented before any hosted tier.
+- [x] Retention/deletion guidance for journal DB and generated reports is documented.
+- [x] Cloud/local data boundary is documented before any hosted tier.
 
 ## Production Blockers To Close
 
-- Finish release evidence from clean environments, not only the current workstation.
-- Drill runbooks and record reviewer sign-off.
+- Authenticate and record GitHub Actions CI matrix evidence for Python 3.10, 3.11, and 3.12.
+- Record second reviewer sign-off.
 - Wire graph-stage budget/timeline observability into real runs.
-- Verify migrations, backup, and restore against realistic journal data.
-- Complete dependency audit and secret scanning.
 - Keep assisted execution out of scope until explicit approval, confirmation, and immutable audit trails exist.
+
+## Evidence Notes
+
+- DeepSeek real-provider smoke passed after fixing the smoke script to pass `DEFAULT_CONFIG` into the Portfolio Manager and use ASCII-safe section labels on Windows.
+- The clean verification clone is based on commit `c403b148d6bf11d174ef36ff201728f16a497143` and includes the test-only Hypothesis health-check patch from this release workspace. The unpatched base commit exposed a cold-environment Hypothesis health-check flake.
+- Journal migration and backup/restore ran against DB copies outside the repo; raw journal DB files are not committed.
+- CI remains unchecked because `gh` is unavailable and the unauthenticated GitHub Actions API returned 404 for the requested commit.
 
 ## Sign-Off Template
 

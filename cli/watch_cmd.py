@@ -10,6 +10,12 @@ from rich.table import Table
 from tradingagents.domain import WatchlistItem
 from tradingagents.services import WatchlistService
 from tradingagents.services.watchlist_service import BriefAlertRow, BriefThesisRow
+from cli.json_emit import (
+    ensure_single_output_mode,
+    print_json_stdout,
+    print_plain_stdout,
+    to_jsonable,
+)
 
 console = Console()
 app = typer.Typer(help="Manage thesis watchlists and local research alerts.")
@@ -67,13 +73,35 @@ def list_items(
     ),
     all_items: bool = typer.Option(False, "--all", help="Include disabled items"),
     limit: int = typer.Option(100, "--limit", min=1, help="Maximum items to show"),
+    json_out: bool = typer.Option(False, "--json", help="Emit items as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Emit items as plain text."),
 ) -> None:
     """List watchlist items."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     items = _service().list_items(
         watchlist_name=watchlist,
         enabled_only=not all_items,
         limit=limit,
     )
+    if json_out:
+        print_json_stdout({"watchlist": watchlist, "items": items})
+        return
+    if plain:
+        lines = ["id\titem_type\tsymbol\tthesis_id\tenabled"]
+        lines.extend(
+            "\t".join(
+                [
+                    item.id or "",
+                    item.item_type.value,
+                    item.symbol or "",
+                    item.thesis_id or "",
+                    "yes" if item.enabled else "no",
+                ]
+            )
+            for item in items
+        )
+        print_plain_stdout(lines)
+        return
     table = Table(title=f"Watchlist: {watchlist}")
     table.add_column("Item ID", style="dim")
     table.add_column("Type", style="cyan")
@@ -110,14 +138,37 @@ def alerts(
     ),
     unread_only: bool = typer.Option(False, "--unread", help="Show only unread alerts"),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum alerts to show"),
+    json_out: bool = typer.Option(False, "--json", help="Emit alerts as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Emit alerts as plain text."),
 ) -> None:
     """List stored research alerts."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     rows = _service().list_alerts(
         symbol=symbol,
         thesis_id=thesis_id,
         unread_only=unread_only,
         limit=limit,
     )
+    if json_out:
+        print_json_stdout({"alerts": rows})
+        return
+    if plain:
+        lines = ["id\tcreated_at\talert_type\tsymbol\tthesis_id\tmessage"]
+        lines.extend(
+            "\t".join(
+                [
+                    alert.id or "",
+                    alert.created_at.isoformat(),
+                    alert.alert_type.value,
+                    alert.symbol,
+                    alert.thesis_id or "",
+                    alert.message,
+                ]
+            )
+            for alert in rows
+        )
+        print_plain_stdout(lines)
+        return
     table = Table(title="Research Alerts")
     table.add_column("Created")
     table.add_column("Type", style="cyan")
@@ -149,14 +200,32 @@ def brief(
         "--evaluate-snapshots",
         help="Evaluate scenario status using only the last persisted market snapshot.",
     ),
+    json_out: bool = typer.Option(False, "--json", help="Emit brief as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Emit brief as plain text."),
 ) -> None:
     """Show a persisted-data brief for active watchlist theses."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     summary = _service().build_brief(
         watchlist_name=watchlist,
         alerts_limit=alerts_limit,
         unread_only=unread_only,
         evaluate_snapshots=evaluate_snapshots,
     )
+    if json_out:
+        print_json_stdout({"brief": to_jsonable(summary)})
+        return
+    if plain:
+        payload = to_jsonable(summary)
+        lines = [
+            f"watchlist_name: {payload['watchlist_name']}",
+            f"item_count: {payload['item_count']}",
+            f"thesis_count: {payload['thesis_count']}",
+            f"scenario_count: {len(payload['scenarios'])}",
+            f"alert_count: {len(payload['alerts'])}",
+            f"evaluated_from_snapshots: {payload['evaluated_from_snapshots']}",
+        ]
+        print_plain_stdout(lines)
+        return
     console.print(
         Panel(
             f"Watchlist: [bold]{summary.watchlist_name}[/bold]\n"

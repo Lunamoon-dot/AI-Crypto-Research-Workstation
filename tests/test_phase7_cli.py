@@ -2,8 +2,15 @@ import json
 
 from typer.testing import CliRunner
 
-from cli import config_cmd, dashboard, journal_cmd, main
-from tradingagents.domain import ResearchRun, TradeThesis
+from cli import config_cmd, dashboard, journal_cmd, main, signals_cmd, watch_cmd
+from tradingagents.domain import (
+    DataFreshness,
+    ResearchRun,
+    Signal,
+    SignalDirection,
+    SignalProvenance,
+    TradeThesis,
+)
 from tradingagents.services import JournalService, WatchlistService
 
 
@@ -382,3 +389,130 @@ def test_journal_workspace_text_panel_includes_evidence_section(tmp_path, monkey
     assert "Supporting / Contradicting evidence" in result.output
     assert "Next Useful Commands" in result.output
     assert "tradingagents thesis show" in result.output
+
+
+def test_journal_and_thesis_plain_modes_are_line_oriented(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    journal = JournalService(
+        {
+            "data_cache_dir": str(tmp_path / "cache"),
+            "journal": {"enabled": True, "db_path": str(tmp_path / "journal.sqlite")},
+        }
+    )
+    run = journal.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = journal.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            thesis_text="Plain output test.",
+        )
+    )
+    runner = CliRunner()
+
+    run_result = runner.invoke(journal_cmd.journal_app, ["show", run.id, "--plain"])
+    thesis_result = runner.invoke(
+        journal_cmd.thesis_app, ["show", thesis.id, "--plain"]
+    )
+
+    assert run_result.exit_code == 0
+    assert "symbol: BTC/USDT" in run_result.output
+    assert "╭" not in run_result.output
+    assert thesis_result.exit_code == 0
+    assert "thesis_text: Plain output test." in thesis_result.output
+
+
+def test_json_plain_modes_are_mutually_exclusive(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(journal_cmd.journal_app, ["list", "--json", "--plain"])
+
+    assert result.exit_code != 0
+    assert "Use only one output mode" in result.output
+
+
+def test_signals_json_and_plain_modes(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    journal = JournalService(
+        {
+            "data_cache_dir": str(tmp_path / "cache"),
+            "journal": {"enabled": True, "db_path": str(tmp_path / "journal.sqlite")},
+        }
+    )
+    signal = journal.save_signal(
+        Signal(
+            symbol="BTC/USDT",
+            signal_type="momentum",
+            direction=SignalDirection.BULLISH,
+            confidence=0.8,
+            provenance=SignalProvenance(
+                source="test", freshness=DataFreshness.FRESH
+            ),
+        )
+    )
+    runner = CliRunner()
+
+    json_result = runner.invoke(signals_cmd.signals_app, ["list", "--json"])
+    plain_result = runner.invoke(signals_cmd.signals_app, ["show", signal.id, "--plain"])
+
+    assert json_result.exit_code == 0
+    assert json.loads(json_result.output)["signals"][0]["symbol"] == "BTC/USDT"
+    assert plain_result.exit_code == 0
+    assert "symbol: BTC/USDT" in plain_result.output
+    assert "╭" not in plain_result.output
+
+
+def test_watchlist_list_and_brief_json_modes(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    WatchlistService(
+        {
+            "data_cache_dir": str(tmp_path / "cache"),
+            "journal": {"enabled": True, "db_path": str(tmp_path / "journal.sqlite")},
+        }
+    ).add_symbol("BTC/USDT")
+    runner = CliRunner()
+
+    list_result = runner.invoke(watch_cmd.app, ["list", "--json"])
+    brief_result = runner.invoke(watch_cmd.app, ["brief", "--json"])
+
+    assert list_result.exit_code == 0
+    assert json.loads(list_result.output)["items"][0]["symbol"] == "BTC/USDT"
+    assert brief_result.exit_code == 0
+    assert json.loads(brief_result.output)["brief"]["item_count"] == 1
+
+
+def test_research_run_yes_profile_is_noninteractive(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_analysis(**kwargs):
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(main, "run_analysis", fake_run_analysis)
+    monkeypatch.setattr(
+        main.typer,
+        "prompt",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("prompted")),
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main.app,
+        [
+            "research",
+            "run",
+            "BTC/USDT",
+            "--date",
+            "2026-05-08",
+            "--profile",
+            "default",
+            "--yes",
+            "--plain",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["non_interactive"] is True
+    assert captured["plain"] is True
+    assert captured["selections"]["profile"] == "default"
+    assert captured["selections"]["ticker"] == "BTC/USDT"

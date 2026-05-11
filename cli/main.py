@@ -113,6 +113,12 @@ def analyze(
         "--llm-provider",
         help="LLM provider key. Defaults to config.",
     ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Configuration profile to load.",
+    ),
     backend_url: Optional[str] = typer.Option(
         None,
         "--backend-url",
@@ -136,6 +142,7 @@ def analyze(
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
+        "--yes",
         "-y",
         help="Run from flags without prompts.",
     ),
@@ -178,6 +185,7 @@ def analyze(
             analysts=analysts,
             research_depth=research_depth,
             llm_provider=llm_provider,
+            profile=profile,
             backend_url=backend_url,
             quick_model=quick_model,
             deep_model=deep_model,
@@ -224,11 +232,21 @@ def research_run(
     ),
     research_depth: int = typer.Option(1, "--research-depth", min=1),
     llm_provider: Optional[str] = typer.Option(None, "--llm-provider"),
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-p", help="Configuration profile to load."
+    ),
     backend_url: Optional[str] = typer.Option(None, "--backend-url"),
     quick_model: Optional[str] = typer.Option(None, "--quick-model"),
     deep_model: Optional[str] = typer.Option(None, "--deep-model"),
     output_language: str = typer.Option("English", "--output-language"),
     checkpoint: bool = typer.Option(False, "--checkpoint"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "--non-interactive",
+        "-y",
+        help="Run from arguments/options without prompts.",
+    ),
     plain: bool = typer.Option(
         True,
         "--plain/--live",
@@ -244,6 +262,8 @@ def research_run(
 ) -> None:
     """Run research through the terminal-first research namespace."""
     if not ticker:
+        if yes:
+            raise typer.BadParameter("Ticker is required when using --yes.")
         run_analysis(checkpoint=checkpoint, dry_run=dry_run)
         return
     selections = selections_from_cli_options(
@@ -254,6 +274,7 @@ def research_run(
         analysts=analysts,
         research_depth=research_depth,
         llm_provider=llm_provider,
+        profile=profile,
         backend_url=backend_url,
         quick_model=quick_model,
         deep_model=deep_model,

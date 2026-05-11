@@ -22,6 +22,7 @@ from tradingagents.agents import (
     create_trader,
 )
 from tradingagents.agents.utils.agent_states import AgentState
+from tradingagents.agents.utils.agent_utils import create_analyst_opinion_builder
 
 from .analyst_runtime import make_analyst_runner
 from .conditional_logic import ConditionalLogic
@@ -77,6 +78,13 @@ class GraphSetup:
                     create_market_analyst(self.quick_thinking_llm, config=self.config),
                     ToolKey.MARKET,
                     ReportKey.MARKET,
+                    "market_opinion",
+                    create_analyst_opinion_builder(
+                        llm=self.quick_thinking_llm,
+                        agent_name="Market Analyst",
+                        role="market_analyst",
+                        source_report_type="market",
+                    ),
                 )
             )
         if "social" in selected_analysts:
@@ -88,6 +96,13 @@ class GraphSetup:
                     ),
                     ToolKey.SOCIAL,
                     ReportKey.SENTIMENT,
+                    "sentiment_opinion",
+                    create_analyst_opinion_builder(
+                        llm=self.quick_thinking_llm,
+                        agent_name="Sentiment Analyst",
+                        role="sentiment_analyst",
+                        source_report_type="sentiment",
+                    ),
                 )
             )
         if "news" in selected_analysts:
@@ -97,6 +112,13 @@ class GraphSetup:
                     create_news_analyst(self.quick_thinking_llm, config=self.config),
                     ToolKey.NEWS,
                     ReportKey.NEWS,
+                    "news_opinion",
+                    create_analyst_opinion_builder(
+                        llm=self.quick_thinking_llm,
+                        agent_name="News Analyst",
+                        role="news_analyst",
+                        source_report_type="news",
+                    ),
                 )
             )
         if "onchain" in selected_analysts:
@@ -106,6 +128,13 @@ class GraphSetup:
                     create_onchain_analyst(self.quick_thinking_llm, config=self.config),
                     ToolKey.ONCHAIN,
                     ReportKey.FUNDAMENTALS,
+                    "fundamentals_opinion",
+                    create_analyst_opinion_builder(
+                        llm=self.quick_thinking_llm,
+                        agent_name="Onchain Analyst",
+                        role="onchain_analyst",
+                        source_report_type="onchain",
+                    ),
                 )
             )
         if not analyst_specs:
@@ -140,11 +169,13 @@ class GraphSetup:
         analyst_names = []
 
         # Add analyst nodes (each wraps its own internal tool loop).
-        for node_name, node_fn, tool_key, report_key in analyst_specs:
+        for node_name, node_fn, tool_key, report_key, opinion_key, opinion_fn in analyst_specs:
             runner = make_analyst_runner(
                 node_fn,
                 self.tool_nodes[tool_key],
                 report_key=report_key,
+                opinion_key=opinion_key,
+                opinion_builder=opinion_fn,
             )
             workflow.add_node(node_name, runner)
             analyst_names.append(node_name)

@@ -5,7 +5,7 @@ research runs, evidence-backed signals, AI-generated theses, user decisions,
 outcome reviews, scenarios, and assisted planning artifacts.
 """
 
-from .agent_opinion import AgentOpinion, AgentStance
+from .agent_opinion import AgentOpinion, AgentStance, render_agent_opinion
 from .brief import BriefAssetSummary, BriefThesisUpdate, MarketBrief
 from .calibration import (
     AgentCalibration,
@@ -58,6 +58,7 @@ __all__ = [
     "DataFreshness",
     "AgentOpinion",
     "AgentStance",
+    "render_agent_opinion",
     "ConflictLevel",
     "FactorReliability",
     "FactorReliabilityEntry",

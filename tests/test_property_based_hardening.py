@@ -24,6 +24,7 @@ scalar = st.one_of(
 )
 
 
+@hypothesis.settings(suppress_health_check=[hypothesis.HealthCheck.too_slow])
 @hypothesis.given(st.dictionaries(simple_key, scalar, max_size=8))
 def test_toml_writer_round_trips_scalar_dicts(data):
     lines = []

@@ -210,17 +210,24 @@ class ConfigLoader:
         overrides: dict[str, Any] = {
             "max_debate_rounds": selections.get("research_depth", 1),
             "max_risk_discuss_rounds": selections.get("research_depth", 1),
-            "quick_think_llm": selections.get("shallow_thinker"),
-            "deep_think_llm": selections.get("deep_thinker"),
-            "backend_url": selections.get("backend_url"),
-            "llm_provider": selections.get("llm_provider", "deepseek").lower(),
-            "google_thinking_level": selections.get("google_thinking_level"),
-            "openai_reasoning_effort": selections.get("openai_reasoning_effort"),
-            "anthropic_effort": selections.get("anthropic_effort"),
             "output_language": selections.get("output_language", "English"),
             "asset_class": selections.get("asset_class", "crypto"),
             "checkpoint_enabled": checkpoint,
         }
+        optional_overrides = {
+            "quick_think_llm": selections.get("shallow_thinker"),
+            "deep_think_llm": selections.get("deep_thinker"),
+            "backend_url": selections.get("backend_url"),
+            "google_thinking_level": selections.get("google_thinking_level"),
+            "openai_reasoning_effort": selections.get("openai_reasoning_effort"),
+            "anthropic_effort": selections.get("anthropic_effort"),
+        }
+        provider = selections.get("llm_provider")
+        if provider:
+            optional_overrides["llm_provider"] = str(provider).lower()
+        overrides.update(
+            {key: value for key, value in optional_overrides.items() if value is not None}
+        )
         if selections.get("crypto_exchange"):
             overrides["crypto_exchange"] = selections["crypto_exchange"]
         if selections.get("crypto_benchmark"):

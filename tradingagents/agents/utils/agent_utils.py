@@ -1,7 +1,12 @@
 # Import tools from separate utility files
+import logging
 import unicodedata
+from typing import Callable
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from tradingagents.domain import AgentOpinion, render_agent_opinion
+from tradingagents.agents.utils.structured import bind_structured
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 from tradingagents.agents.utils.news_data_tools import get_news, get_global_news
 from tradingagents.agents.utils.multi_timeframe_tools import (
@@ -12,6 +17,9 @@ from tradingagents.agents.utils.sentiment_tools import (
     get_social_sentiment,
     get_news_sentiment_aggregate,
 )
+from tradingagents.observability import log_event
+
+logger = logging.getLogger(__name__)
 
 
 def get_language_instruction(config=None) -> str:
@@ -194,6 +202,110 @@ def create_analyst(
     return analyst_node
 
 
+def create_analyst_opinion_builder(
+    *,
+    llm,
+    agent_name: str,
+    role: str,
+    source_report_type: str,
+) -> Callable[[dict, str], AgentOpinion | None]:
+    """Create the post-tool-loop structured-opinion step for an analyst."""
+
+    structured_llm = bind_structured(llm, AgentOpinion, agent_name)
+
+    def build_opinion(state: dict, report: str) -> AgentOpinion | None:
+        report = (report or "").strip()
+        if not report:
+            return None
+
+        prompt = [
+            {
+                "role": "system",
+                "content": (
+                    "Convert the analyst report into a strict AgentOpinion. "
+                    "Use only the supplied report as evidence. Keep evidence, "
+                    "risks, invalidation conditions, and missing data concise. "
+                    "Do not invent facts not present in the report."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Instrument: {state.get('company_of_interest', '')}\n"
+                    f"Trade date: {state.get('trade_date', '')}\n"
+                    f"Agent name: {agent_name}\n"
+                    f"Role: {role}\n"
+                    f"Source report type: {source_report_type}\n\n"
+                    "Analyst report:\n"
+                    f"{report}"
+                ),
+            },
+        ]
+
+        if structured_llm is not None:
+            try:
+                raw = structured_llm.invoke(prompt)
+                opinion = _coerce_agent_opinion(
+                    raw,
+                    agent_name=agent_name,
+                    role=role,
+                    source_report_type=source_report_type,
+                    raw_text=report,
+                )
+                log_event(
+                    logger,
+                    "structured_output_call",
+                    agent_name=agent_name,
+                    status="success",
+                )
+                return opinion
+            except Exception as exc:
+                log_event(
+                    logger,
+                    "structured_output_call",
+                    agent_name=agent_name,
+                    status="fallback",
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:500],
+                )
+                logger.warning(
+                    "%s: structured analyst opinion failed (%s); using prose fallback",
+                    agent_name,
+                    exc,
+                )
+
+        from tradingagents.graph.opinions import opinion_from_text
+
+        return opinion_from_text(
+            agent_name,
+            report,
+            research_run_id=None,
+            role=role,
+            source_report_type=source_report_type,
+        )
+
+    return build_opinion
+
+
+def _coerce_agent_opinion(
+    raw: object,
+    *,
+    agent_name: str,
+    role: str,
+    source_report_type: str,
+    raw_text: str,
+) -> AgentOpinion:
+    opinion = raw if isinstance(raw, AgentOpinion) else AgentOpinion.model_validate(raw)
+    return opinion.model_copy(
+        update={
+            "agent_name": agent_name,
+            "role": role,
+            "source_report_type": source_report_type,
+            "raw_text": opinion.raw_text or raw_text,
+        }
+    )
+
+
 __all__ = [
     "get_indicators",
     "get_news",
@@ -207,4 +319,6 @@ __all__ = [
     "build_instrument_context",
     "guard_untrusted_context",
     "create_analyst",
+    "create_analyst_opinion_builder",
+    "render_agent_opinion",
 ]

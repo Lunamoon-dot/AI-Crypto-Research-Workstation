@@ -22,7 +22,12 @@ from tradingagents.domain import (
 )
 from tradingagents.services import JournalService
 
-from cli.json_emit import print_json_stdout
+from cli.json_emit import (
+    ensure_single_output_mode,
+    print_json_stdout,
+    print_plain_stdout,
+    to_jsonable,
+)
 
 console = Console()
 journal_app = typer.Typer(help="Inspect saved research runs.")
@@ -31,6 +36,25 @@ thesis_app = typer.Typer(help="Inspect and update saved trade theses.")
 
 def _service() -> JournalService:
     return JournalService(DEFAULT_CONFIG)
+
+
+def _plain_model_lines(payload: dict) -> list[str]:
+    lines: list[str] = []
+    for key, value in to_jsonable(payload).items():
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False)
+        lines.append(f"{key}: {value}")
+    return lines
+
+
+def _plain_rows(rows: list[dict], fields: list[str]) -> list[str]:
+    if not rows:
+        return []
+    out = ["\t".join(fields)]
+    for row in rows:
+        item = to_jsonable(row)
+        out.append("\t".join(str(item.get(field, "") or "") for field in fields))
+    return out
 
 
 def _workspace_evidence_lines(
@@ -137,18 +161,30 @@ def journal_migrate():
 def journal_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
     json_out: bool = typer.Option(False, "--json", help="Print runs as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print runs as plain text."),
 ):
     """List recent research runs."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     runs = _service().list_research_runs(limit=limit)
     if not runs:
         if json_out:
             print_json_stdout([])
+        elif plain:
+            print_plain_stdout([])
         else:
             console.print("[yellow]No research runs saved yet.[/yellow]")
         return
 
     if json_out:
         print_json_stdout({"runs": [run.model_dump(mode="json") for run in runs]})
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [run.model_dump(mode="json") for run in runs],
+                ["id", "symbol", "status", "started_at", "thesis_id"],
+            )
+        )
         return
 
     table = Table(title="Research Runs")
@@ -173,8 +209,10 @@ def journal_list(
 def journal_show(
     run_id: str = typer.Argument(..., help="Research run id."),
     json_out: bool = typer.Option(False, "--json", help="Print run as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print run as plain text."),
 ):
     """Show a saved research run."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     run = _service().get_research_run(run_id)
     if not run:
         console.print(f"[red]Research run not found:[/red] {run_id}")
@@ -182,6 +220,9 @@ def journal_show(
 
     if json_out:
         print_json_stdout({"run": run.model_dump(mode="json")})
+        return
+    if plain:
+        print_plain_stdout(_plain_model_lines(run.model_dump(mode="json")))
         return
 
     lines = [
@@ -207,13 +248,27 @@ def journal_show(
 def journal_timeline(
     run_id: str = typer.Argument(..., help="Research run id."),
     limit: int = typer.Option(200, "--limit", "-n", min=1, max=500),
+    json_out: bool = typer.Option(False, "--json", help="Print timeline as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print timeline as plain text."),
 ):
     """Show the persisted timeline for a research run."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     if not service.get_research_run(run_id):
         console.print(f"[red]Research run not found:[/red] {run_id}")
         raise typer.Exit(1)
     events = service.list_timeline_events(research_run_id=run_id, limit=limit)
+    if json_out:
+        print_json_stdout({"events": [event.model_dump(mode="json") for event in events]})
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [event.model_dump(mode="json") for event in events],
+                ["created_at", "event_type", "message", "thesis_id"],
+            )
+        )
+        return
     _print_timeline(events, title=f"Research Run Timeline: {run_id}")
 
 
@@ -255,8 +310,10 @@ def journal_workspace(
     json_out: bool = typer.Option(
         False, "--json", help="Emit workspace snapshot as JSON."
     ),
+    plain: bool = typer.Option(False, "--plain", help="Print workspace as plain text."),
 ):
     """Show a full research workspace summary for one run."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     run = service.get_research_run(run_id)
     if not run:
@@ -265,6 +322,17 @@ def journal_workspace(
 
     if json_out:
         print_json_stdout(_workspace_json_payload(service, run_id))
+        return
+    if plain:
+        payload = _workspace_json_payload(service, run_id)
+        lines = _plain_model_lines(payload["run"])
+        thesis = payload.get("trade_thesis")
+        if thesis:
+            lines.extend(["", "trade_thesis:"])
+            lines.extend(_plain_model_lines(thesis))
+        lines.extend(["", "next_commands:"])
+        lines.extend(str(command) for command in payload.get("next_commands", []))
+        print_plain_stdout(lines)
         return
 
     lines = [
@@ -394,12 +462,21 @@ def journal_workspace(
 @journal_app.command("market-snapshot")
 def journal_market_snapshot(
     snapshot_id: str = typer.Argument(..., help="Market snapshot id."),
+    json_out: bool = typer.Option(False, "--json", help="Print snapshot as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print snapshot as plain text."),
 ):
     """Show a saved market snapshot."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     snapshot = _service().get_market_snapshot(snapshot_id)
     if not snapshot:
         console.print(f"[red]Market snapshot not found:[/red] {snapshot_id}")
         raise typer.Exit(1)
+    if json_out:
+        print_json_stdout({"market_snapshot": snapshot.model_dump(mode="json")})
+        return
+    if plain:
+        print_plain_stdout(_plain_model_lines(snapshot.model_dump(mode="json")))
+        return
 
     lines = [
         f"ID: {snapshot.id}",
@@ -423,12 +500,21 @@ def journal_market_snapshot(
 @journal_app.command("signal-snapshot")
 def journal_signal_snapshot(
     snapshot_id: str = typer.Argument(..., help="Signal snapshot id."),
+    json_out: bool = typer.Option(False, "--json", help="Print snapshot as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print snapshot as plain text."),
 ):
     """Show a saved signal snapshot."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     snapshot = _service().get_signal_snapshot(snapshot_id)
     if not snapshot:
         console.print(f"[red]Signal snapshot not found:[/red] {snapshot_id}")
         raise typer.Exit(1)
+    if json_out:
+        print_json_stdout({"signal_snapshot": snapshot.model_dump(mode="json")})
+        return
+    if plain:
+        print_plain_stdout(_plain_model_lines(snapshot.model_dump(mode="json")))
+        return
 
     lines = [
         f"ID: {snapshot.id}",
@@ -452,13 +538,46 @@ def journal_signal_snapshot(
 @journal_app.command("debate")
 def journal_debate(
     debate_id: str = typer.Argument(..., help="Research debate id."),
+    json_out: bool = typer.Option(False, "--json", help="Print debate as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print debate as plain text."),
 ):
     """Show a saved research debate and its structured opinions."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     debate = service.get_debate(debate_id)
     if not debate:
         console.print(f"[red]Research debate not found:[/red] {debate_id}")
         raise typer.Exit(1)
+    opinions = service.list_agent_opinions(debate_id=debate.id)
+    if json_out:
+        print_json_stdout(
+            {
+                "debate": debate.model_dump(mode="json"),
+                "agent_opinions": [
+                    opinion.model_dump(mode="json") for opinion in opinions
+                ],
+            }
+        )
+        return
+    if plain:
+        lines = _plain_model_lines(debate.model_dump(mode="json"))
+        if opinions:
+            lines.extend(["", "agent_opinions:"])
+            lines.extend(
+                "\t".join(
+                    [
+                        opinion.agent_name,
+                        opinion.role,
+                        opinion.stance.value,
+                        ""
+                        if opinion.confidence is None
+                        else f"{opinion.confidence:.4f}",
+                    ]
+                )
+                for opinion in opinions
+            )
+        print_plain_stdout(lines)
+        return
 
     confidence = (
         f"{debate.consensus_confidence:.0%}"
@@ -482,7 +601,6 @@ def journal_debate(
         lines.extend(f"- {item}" for item in debate.missing_data)
     console.print(Panel("\n".join(lines), title="Research Debate", border_style="cyan"))
 
-    opinions = service.list_agent_opinions(debate_id=debate.id)
     if opinions:
         _print_opinions_table(opinions)
 
@@ -493,12 +611,33 @@ def journal_outcomes(
         None, "--symbol", "-s", help="Filter by symbol."
     ),
     limit: int = typer.Option(50, "--limit", "-n", min=1, max=500),
+    json_out: bool = typer.Option(False, "--json", help="Print outcomes as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print outcomes as plain text."),
 ):
     """List saved thesis outcome reviews."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     reviews = service.list_outcome_reviews(symbol=symbol, limit=limit)
     if not reviews:
-        console.print("[yellow]No outcome reviews saved yet.[/yellow]")
+        if json_out:
+            print_json_stdout([])
+        elif plain:
+            print_plain_stdout([])
+        else:
+            console.print("[yellow]No outcome reviews saved yet.[/yellow]")
+        return
+    if json_out:
+        print_json_stdout(
+            {"outcomes": [review.model_dump(mode="json") for review in reviews]}
+        )
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [review.model_dump(mode="json") for review in reviews],
+                ["id", "thesis_id", "result", "invalidated", "reviewed_at"],
+            )
+        )
         return
 
     table = Table(title="Outcome Reviews")
@@ -528,9 +667,19 @@ def journal_retrospective(
         None, "--symbol", "-s", help="Filter by symbol."
     ),
     limit: int = typer.Option(100, "--limit", "-n", min=1, max=500),
+    json_out: bool = typer.Option(False, "--json", help="Print analytics as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print analytics as plain text."),
 ):
     """Show outcome analytics and retrospective insights."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     analytics = _service().build_outcome_analytics(symbol=symbol, limit=limit)
+    payload = to_jsonable(analytics)
+    if json_out:
+        print_json_stdout({"analytics": payload})
+        return
+    if plain:
+        print_plain_stdout(_plain_model_lines(payload))
+        return
     lines = [
         f"Symbol: {analytics.symbol or 'All'}",
         f"Reviewed Outcomes: {analytics.sample_size}",
@@ -579,18 +728,30 @@ def journal_retrospective(
 def thesis_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
     json_out: bool = typer.Option(False, "--json", help="Print theses as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print theses as plain text."),
 ):
     """List recent trade theses."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     theses = _service().list_theses(limit=limit)
     if not theses:
         if json_out:
             print_json_stdout([])
+        elif plain:
+            print_plain_stdout([])
         else:
             console.print("[yellow]No theses saved yet.[/yellow]")
         return
 
     if json_out:
         print_json_stdout({"theses": [th.model_dump(mode="json") for th in theses]})
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [thesis.model_dump(mode="json") for thesis in theses],
+                ["id", "symbol", "direction", "confidence", "created_at"],
+            )
+        )
         return
 
     table = Table(title="Trade Theses")
@@ -618,8 +779,10 @@ def thesis_list(
 def thesis_show(
     thesis_id: str = typer.Argument(..., help="Trade thesis id."),
     json_out: bool = typer.Option(False, "--json", help="Print thesis as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print thesis as plain text."),
 ):
     """Show a saved trade thesis."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     thesis = _service().get_thesis(thesis_id)
     if not thesis:
         console.print(f"[red]Thesis not found:[/red] {thesis_id}")
@@ -627,6 +790,9 @@ def thesis_show(
 
     if json_out:
         print_json_stdout({"thesis": thesis.model_dump(mode="json")})
+        return
+    if plain:
+        print_plain_stdout(_plain_model_lines(thesis.model_dump(mode="json")))
         return
 
     confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
@@ -776,13 +942,27 @@ def thesis_show(
 def thesis_timeline(
     thesis_id: str = typer.Argument(..., help="Trade thesis id."),
     limit: int = typer.Option(200, "--limit", "-n", min=1, max=500),
+    json_out: bool = typer.Option(False, "--json", help="Print timeline as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print timeline as plain text."),
 ):
     """Show the persisted lifecycle timeline for a thesis."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     if not service.get_thesis(thesis_id):
         console.print(f"[red]Thesis not found:[/red] {thesis_id}")
         raise typer.Exit(1)
     events = service.list_timeline_events(thesis_id=thesis_id, limit=limit)
+    if json_out:
+        print_json_stdout({"events": [event.model_dump(mode="json") for event in events]})
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [event.model_dump(mode="json") for event in events],
+                ["created_at", "event_type", "message", "research_run_id"],
+            )
+        )
+        return
     _print_timeline(events, title=f"Thesis Timeline: {thesis_id}")
 
 
@@ -790,8 +970,11 @@ def thesis_timeline(
 def thesis_scenarios(
     thesis_id: str = typer.Argument(..., help="Trade thesis id."),
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=100),
+    json_out: bool = typer.Option(False, "--json", help="Print scenarios as JSON."),
+    plain: bool = typer.Option(False, "--plain", help="Print scenarios as plain text."),
 ):
     """Show structured scenarios attached to a thesis."""
+    ensure_single_output_mode(json_out=json_out, plain=plain)
     service = _service()
     if not service.get_thesis(thesis_id):
         console.print(f"[red]Thesis not found:[/red] {thesis_id}")
@@ -799,7 +982,25 @@ def thesis_scenarios(
 
     scenarios = service.list_scenarios(thesis_id=thesis_id, limit=limit)
     if not scenarios:
-        console.print("[yellow]No scenarios saved for this thesis yet.[/yellow]")
+        if json_out:
+            print_json_stdout([])
+        elif plain:
+            print_plain_stdout([])
+        else:
+            console.print("[yellow]No scenarios saved for this thesis yet.[/yellow]")
+        return
+    if json_out:
+        print_json_stdout(
+            {"scenarios": [scenario.model_dump(mode="json") for scenario in scenarios]}
+        )
+        return
+    if plain:
+        print_plain_stdout(
+            _plain_rows(
+                [scenario.model_dump(mode="json") for scenario in scenarios],
+                ["id", "probability_band", "condition", "suggested_user_action"],
+            )
+        )
         return
 
     table = Table(title=f"Thesis Scenarios: {thesis_id}")

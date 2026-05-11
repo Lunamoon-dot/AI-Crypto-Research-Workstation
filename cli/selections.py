@@ -32,8 +32,6 @@ from cli.utils import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
-
 console = Console()
 
 
@@ -274,6 +272,7 @@ def selections_from_cli_options(
     quick_model: str | None,
     deep_model: str | None,
     output_language: str,
+    profile: str | None = None,
 ) -> dict:
     """Build the same selection shape as the interactive wizard."""
 
@@ -286,21 +285,18 @@ def selections_from_cli_options(
     if not selected_ticker:
         raise typer.BadParameter("Ticker is required for non-interactive runs.")
 
-    provider = (llm_provider or DEFAULT_CONFIG["llm_provider"]).lower()
-    crypto_exchange = exchange or DEFAULT_CONFIG.get("crypto_exchange")
+    provider = llm_provider.lower() if llm_provider else None
+    crypto_exchange = exchange
     return {
         "ticker": selected_ticker,
         "analysis_date": _validate_analysis_date(analysis_date),
         "analysts": _parse_analysts(analysts),
         "research_depth": research_depth,
         "llm_provider": provider,
-        "backend_url": (
-            backend_url
-            if backend_url is not None
-            else DEFAULT_CONFIG.get("backend_url")
-        ),
-        "shallow_thinker": quick_model or DEFAULT_CONFIG["quick_think_llm"],
-        "deep_thinker": deep_model or DEFAULT_CONFIG["deep_think_llm"],
+        "profile": profile,
+        "backend_url": backend_url,
+        "shallow_thinker": quick_model,
+        "deep_thinker": deep_model,
         "google_thinking_level": None,
         "openai_reasoning_effort": None,
         "anthropic_effort": None,
@@ -309,11 +305,7 @@ def selections_from_cli_options(
         "crypto_exchange": (
             crypto_exchange if selected_asset_class == "crypto" else None
         ),
-        "crypto_benchmark": (
-            DEFAULT_CONFIG.get("crypto_benchmark")
-            if selected_asset_class == "crypto"
-            else None
-        ),
+        "crypto_benchmark": None,
     }
 
 

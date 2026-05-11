@@ -14,7 +14,7 @@ Usage:
     DEEPSEEK_API_KEY=... python scripts/smoke_structured_output.py deepseek
 
 The script does NOT call propagate(), to keep the surface tight and the
-cost low — it exercises only the three structured-output calls we just
+cost low - it exercises only the three structured-output calls we just
 added, plus the heuristic SignalProcessor.
 """
 
@@ -26,6 +26,7 @@ import sys
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.trader.trader import create_trader
+from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.signal_processing import SignalProcessor
 from tradingagents.llm_clients import create_llm_client
 
@@ -47,7 +48,7 @@ Bull Analyst: NVDA's data-center revenue grew 60% YoY last quarter, driven by
 Blackwell ramp; sovereign AI deals with multiple governments add a $40B+
 multi-year tailwind. Margins remain above peer average.
 
-Bear Analyst: Concentration risk is real — top three customers are >40% of
+Bear Analyst: Concentration risk is real - top three customers are >40% of
 revenue. Any pause in hyperscaler capex would compress the multiple. China
 export restrictions still cap a meaningful portion of demand.
 """
@@ -128,24 +129,24 @@ def main() -> int:
     rm = create_research_manager(deep_llm)
     rm_result = rm(_make_rm_state())
     investment_plan = rm_result["investment_plan"]
-    _print_section("[1] Research Manager — investment_plan", investment_plan)
+    _print_section("[1] Research Manager - investment_plan", investment_plan)
 
     # 2) Trader (consumes RM's plan)
     trader = create_trader(quick_llm)
     trader_result = trader(_make_trader_state(investment_plan))
     trader_plan = trader_result["trader_investment_plan"]
-    _print_section("[2] Trader — trader_investment_plan", trader_plan)
+    _print_section("[2] Trader - trader_investment_plan", trader_plan)
 
     # 3) Portfolio Manager (consumes both)
-    pm = create_portfolio_manager(deep_llm)
+    pm = create_portfolio_manager(deep_llm, config=DEFAULT_CONFIG)
     pm_result = pm(_make_pm_state(investment_plan, trader_plan))
     final_decision = pm_result["final_trade_decision"]
-    _print_section("[3] Portfolio Manager — final_trade_decision", final_decision)
+    _print_section("[3] Portfolio Manager - final_trade_decision", final_decision)
 
     # 4) SignalProcessor extracts the rating with zero LLM calls.
     sp = SignalProcessor()
     rating = sp.process_signal(final_decision)
-    _print_section("[4] SignalProcessor → rating", rating)
+    _print_section("[4] SignalProcessor -> rating", rating)
 
     # 5) Lightweight checks: each rendered output should carry the expected
     #    section headers so downstream consumers (memory log, CLI display,
@@ -172,7 +173,7 @@ def main() -> int:
         print(f"Smoke FAILED: {failures} structure check(s) missing.")
         return 1
     print(
-        "Smoke PASSED: structured output → rendered markdown chain works for",
+        "Smoke PASSED: structured output -> rendered markdown chain works for",
         args.provider,
     )
     return 0

@@ -34,3 +34,35 @@ class AgentOpinion(BaseModel):
     raw_text: str = ""
     source_report_type: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+def render_agent_opinion(opinion: AgentOpinion) -> str:
+    """Render an AgentOpinion as stable markdown for downstream agents."""
+
+    confidence = (
+        f"{opinion.confidence:.0%}" if opinion.confidence is not None else "N/A"
+    )
+    lines = [
+        f"**Agent**: {opinion.agent_name}",
+        f"**Role**: {opinion.role}",
+        f"**Stance**: {opinion.stance.value}",
+        f"**Confidence**: {confidence}",
+        "",
+        "**Key Evidence**:",
+    ]
+    lines.extend(_render_list(opinion.key_evidence))
+    lines.extend(["", "**Risks**:"])
+    lines.extend(_render_list(opinion.risks))
+    lines.extend(["", "**Invalidation Conditions**:"])
+    lines.extend(_render_list(opinion.invalidation_conditions))
+    lines.extend(["", "**Missing Data**:"])
+    lines.extend(_render_list(opinion.missing_data))
+    if opinion.raw_text:
+        lines.extend(["", "**Source Report**:", opinion.raw_text])
+    return "\n".join(lines)
+
+
+def _render_list(values: list[str]) -> list[str]:
+    if not values:
+        return ["- None identified."]
+    return [f"- {value}" for value in values]

@@ -98,23 +98,39 @@ def build_agent_opinions(
             "market",
             "market_analyst",
             final_state.get("market_report", ""),
+            final_state.get("market_opinion"),
         ),
         (
             "Sentiment Analyst",
             "sentiment",
             "sentiment_analyst",
             final_state.get("sentiment_report", ""),
+            final_state.get("sentiment_opinion"),
         ),
-        ("News Analyst", "news", "news_analyst", final_state.get("news_report", "")),
+        (
+            "News Analyst",
+            "news",
+            "news_analyst",
+            final_state.get("news_report", ""),
+            final_state.get("news_opinion"),
+        ),
         (
             "Onchain Analyst",
             "onchain",
             "onchain_analyst",
             final_state.get("fundamentals_report", ""),
+            final_state.get("fundamentals_opinion"),
         ),
     ]
-    for agent_name, report_type, role, text in report_sources:
-        opinion = _text_opinion(
+    for agent_name, report_type, role, text, structured in report_sources:
+        opinion = _structured_state_opinion(
+            structured,
+            agent_name,
+            research_run_id=research_run_id,
+            role=role,
+            source_report_type=report_type,
+            raw_text=text,
+        ) or opinion_from_text(
             agent_name,
             text,
             research_run_id=research_run_id,
@@ -288,6 +304,56 @@ def _text_opinion(
         missing_data=_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=3),
         raw_text=text,
         source_report_type=source_report_type,
+    )
+
+
+def opinion_from_text(
+    agent_name: str,
+    text: str,
+    *,
+    research_run_id: str | None,
+    role: str,
+    source_report_type: str,
+    stance_override: AgentStance | None = None,
+) -> AgentOpinion | None:
+    """Build a best-effort AgentOpinion from legacy prose text."""
+    return _text_opinion(
+        agent_name,
+        text,
+        research_run_id=research_run_id,
+        role=role,
+        source_report_type=source_report_type,
+        stance_override=stance_override,
+    )
+
+
+def _structured_state_opinion(
+    value: object,
+    agent_name: str,
+    *,
+    research_run_id: str | None,
+    role: str,
+    source_report_type: str,
+    raw_text: str,
+) -> AgentOpinion | None:
+    if value is None:
+        return None
+    try:
+        opinion = (
+            value
+            if isinstance(value, AgentOpinion)
+            else AgentOpinion.model_validate(value)
+        )
+    except Exception:
+        return None
+    return opinion.model_copy(
+        update={
+            "research_run_id": research_run_id,
+            "agent_name": agent_name,
+            "role": role,
+            "source_report_type": source_report_type,
+            "raw_text": opinion.raw_text or raw_text,
+        }
     )
 
 

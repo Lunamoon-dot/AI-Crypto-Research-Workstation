@@ -2,6 +2,8 @@ from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph import MessagesState
 
+from tradingagents.domain import AgentOpinion
+
 
 # Researcher team state
 class InvestDebateState(TypedDict):
@@ -58,6 +60,14 @@ class AgentState(MessagesState):
         str, "Report from the News Researcher of current world affairs"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
+    market_opinion: Annotated[AgentOpinion | None, "Structured Market Analyst opinion"]
+    sentiment_opinion: Annotated[
+        AgentOpinion | None, "Structured Social Media Analyst opinion"
+    ]
+    news_opinion: Annotated[AgentOpinion | None, "Structured News Analyst opinion"]
+    fundamentals_opinion: Annotated[
+        AgentOpinion | None, "Structured Onchain Analyst opinion"
+    ]
 
     # researcher team discussion step
     investment_debate_state: Annotated[
