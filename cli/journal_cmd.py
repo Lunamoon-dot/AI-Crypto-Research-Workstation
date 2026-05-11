@@ -125,6 +125,14 @@ def journal_path():
     console.print(str(service.db_path))
 
 
+@journal_app.command("migrate")
+def journal_migrate():
+    """Apply idempotent journal database migrations."""
+    service = _service()
+    path = service.migrate()
+    console.print(f"[green]Journal migrated:[/green] {path}")
+
+
 @journal_app.command("list")
 def journal_list(
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),

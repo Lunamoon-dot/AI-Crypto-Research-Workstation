@@ -32,6 +32,18 @@ class AlertType(str, Enum):
     SCENARIO_ACTIVATED = "scenario_activated"
 
 
+class AlertTriggerPayload(BaseModel):
+    """Typed public payload for deduplicated thesis/watchlist alerts."""
+
+    trigger_key: str
+    current_price: float
+    trigger_level: float
+    direction: str
+    scenario_id: str | None = None
+    scenario_condition: str | None = None
+    suggested_user_action: str | None = None
+
+
 class Watchlist(BaseModel):
     """A named collection of symbols, theses, or setup types to monitor."""
 
@@ -65,6 +77,7 @@ class Alert(BaseModel):
     message: str
     thesis_id: str | None = None
     watchlist_item_id: str | None = None
+    trigger_key: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     read_at: datetime | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

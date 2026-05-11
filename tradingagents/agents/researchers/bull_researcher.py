@@ -1,3 +1,6 @@
+from tradingagents.agents.utils.agent_utils import guard_untrusted_context
+
+
 def create_bull_researcher(llm, config=None):
     def bull_node(state) -> dict:
         instrument = "cryptocurrency"
@@ -23,12 +26,12 @@ Key points to focus on:
 - Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
 
 Resources available:
-Market research report (includes quant signal): {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-Fundamentals report: {fundamentals_report}
-Conversation history of the debate: {history}
-Last bear argument: {current_response}
+Market research report (includes quant signal): {guard_untrusted_context("market_report", market_research_report)}
+Social media sentiment report: {guard_untrusted_context("sentiment_report", sentiment_report)}
+Latest world affairs news: {guard_untrusted_context("news_report", news_report)}
+Fundamentals report: {guard_untrusted_context("fundamentals_report", fundamentals_report)}
+Conversation history of the debate: {guard_untrusted_context("debate_history", history)}
+Last bear argument: {guard_untrusted_context("last_bear_argument", current_response)}
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
 """
 

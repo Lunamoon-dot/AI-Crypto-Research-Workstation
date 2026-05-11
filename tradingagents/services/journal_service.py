@@ -27,6 +27,7 @@ from tradingagents.domain import (
     UserDecision,
 )
 from tradingagents.storage.repositories import JournalRepository
+from tradingagents.storage.migrations import migrate_path
 from tradingagents.storage.sqlite import SQLiteStore
 
 
@@ -49,6 +50,12 @@ class JournalService:
 
     @property
     def db_path(self) -> Path:
+        return self.store.path
+
+    def migrate(self) -> Path:
+        """Run idempotent journal schema migrations."""
+        migrate_path(self.store.path)
+        self.store.initialize()
         return self.store.path
 
     def start_research_run(self, run: ResearchRun) -> ResearchRun:

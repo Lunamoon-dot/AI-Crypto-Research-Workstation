@@ -14,6 +14,7 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.templates.registry import TemplateRegistry
+from tradingagents.utils.collections import dedupe
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _invalidation_scenario(
             else ScenarioProbabilityBand.LOW
         ),
         invalidation="This scenario is invalid if price reclaims confirmation with improving evidence.",
-        risk_map=_dedupe(risks)[:5],
+        risk_map=dedupe(risks)[:5],
         suggested_user_action="stand aside or reassess",
     )
 
@@ -215,7 +216,7 @@ def _neutral_wait_scenario(
         expected_market_behavior=expected,
         probability_band=ScenarioProbabilityBand.MEDIUM,
         invalidation="Invalid if a directional confirmation or invalidation scenario triggers first.",
-        risk_map=_dedupe(risks)[:5],
+        risk_map=dedupe(risks)[:5],
         suggested_user_action="watch",
     )
 
@@ -245,7 +246,7 @@ def _contradiction_scenario(
         ),
         probability_band=ScenarioProbabilityBand.MEDIUM,
         invalidation="Invalid if the contradiction fades and supporting evidence broadens.",
-        risk_map=_dedupe(risks)[:5],
+        risk_map=dedupe(risks)[:5],
         suggested_user_action="reduce confidence and review evidence",
     )
 
@@ -298,7 +299,7 @@ def _risk_map(thesis: TradeThesis, signals: list[Signal]) -> list[str]:
         if signal.provenance.freshness.value in ("stale", "unknown")
     ]
     risks = thesis.risk_notes + thesis.contradictions + stale_or_unknown
-    return _dedupe(risks or ["Manual review required before acting on this scenario."])[
+    return dedupe(risks or ["Manual review required before acting on this scenario."])[
         :5
     ]
 
@@ -312,16 +313,4 @@ def _dedupe_scenarios(scenarios: list[Scenario]) -> list[Scenario]:
             continue
         seen.add(key)
         result.append(scenario)
-    return result
-
-
-def _dedupe(values: list[str]) -> list[str]:
-    seen = set()
-    result = []
-    for value in values:
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
     return result

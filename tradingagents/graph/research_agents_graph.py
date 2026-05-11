@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import uuid
+import asyncio
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -12,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.config_validation import validate_and_normalize_config
 from tradingagents.dataflows.config import config_context
@@ -39,9 +39,11 @@ from tradingagents.domain import (
 from tradingagents.reporting import ReportGenerator
 from tradingagents.observability import (
     bind_observability_context,
+    configure_opentelemetry,
     log_event,
     observability_context,
     observability_run_event_persistence,
+    start_span,
 )
 from tradingagents.graph.journal_bridge import JournalBridge
 from tradingagents.graph.journal_mixin import JournalPersistenceMixin
@@ -100,6 +102,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             config or DEFAULT_CONFIG,
             source="ResearchAgentsGraph.__init__",
         )
+        configure_opentelemetry(self.config)
         self.callbacks = callbacks or []
 
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
@@ -329,14 +332,19 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                 ):
                     with persist_ctx:
                         try:
-                            return self.orchestrator.execute_with_fallback(
-                                lambda: self._run_graph(
-                                    company_name,
-                                    trade_date,
-                                    node_callback=node_callback,
-                                    run_callbacks=run_callbacks,
+                            with start_span(
+                                "research.propagate",
+                                symbol=company_name,
+                                trade_date=str(trade_date),
+                            ):
+                                return self.orchestrator.execute_with_fallback(
+                                    lambda: self._run_graph(
+                                        company_name,
+                                        trade_date,
+                                        node_callback=node_callback,
+                                        run_callbacks=run_callbacks,
+                                    )
                                 )
-                            )
                         except Exception as exc:
                             log_event(
                                 logger,
@@ -352,6 +360,23 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                 self._checkpointer_ctx.__exit__(None, None, None)
                 self._checkpointer_ctx = None
                 self.graph = self.workflow.compile()
+
+    async def apropagate(
+        self,
+        company_name,
+        trade_date,
+        node_callback=None,
+        *,
+        run_callbacks=None,
+    ):
+        """Async boundary wrapper for :meth:`propagate`."""
+        return await asyncio.to_thread(
+            self.propagate,
+            company_name,
+            trade_date,
+            node_callback,
+            run_callbacks=run_callbacks,
+        )
 
     def _run_graph(
         self,

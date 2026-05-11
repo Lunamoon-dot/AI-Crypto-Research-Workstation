@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 import typer
 from rich.console import Console
@@ -18,10 +19,11 @@ from tradingagents.config_manager import (
     load_profile,
     delete_profile,
 )
-from tradingagents.dataflows.health import provider_health_snapshot
+from tradingagents.dataflows.health import build_system_health_report, provider_health_snapshot
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.exceptions import ConfigurationError, HealthCheckError
+from tradingagents.exceptions import ConfigurationError
 from tradingagents.services.journal_service import resolve_journal_db_path
+from cli.json_emit import print_json_stdout
 
 console = Console()
 config_app = typer.Typer(help="Manage configuration profiles.")
@@ -191,6 +193,17 @@ def config_health(
         "-p",
         help="Inspect provider health using a specific profile.",
     ),
+    json_out: bool = typer.Option(False, "--json", help="Print health as JSON."),
+    live: bool = typer.Option(
+        True,
+        "--live/--no-live",
+        help="Include live provider connectivity checks.",
+    ),
+    llm_check: bool = typer.Option(
+        True,
+        "--llm/--no-llm",
+        help="Include local LLM credential checks.",
+    ),
 ):
     """Show provider enable/disable health and runtime resilience settings."""
     if profile_name:
@@ -201,7 +214,11 @@ def config_health(
             raise typer.Exit(code=1)
     else:
         cfg = DEFAULT_CONFIG
-    snapshot = provider_health_snapshot(cfg)
+    report = build_system_health_report(cfg, live=live, llm=llm_check)
+    if json_out:
+        print_json_stdout(report.model_dump(mode="json"))
+        return
+    snapshot = report.provider_snapshot.model_dump(mode="json")
 
     providers_table = Table(title="Provider Status")
     providers_table.add_column("Provider", style="cyan")
@@ -244,29 +261,19 @@ def config_health(
         )
     )
 
-    # Live connectivity check
-    try:
-        from tradingagents.dataflows.interface import check_provider_health
-
-        console.print("\n[bold]Live connectivity check...[/bold]")
-        results = check_provider_health(timeout_sec=5.0)
-        live_table = Table(title="Live Provider Connectivity")
-        live_table.add_column("Provider", style="cyan")
-        live_table.add_column("Status")
-        for vendor, status in results.items():
-            color = "green" if status == "healthy" else "red"
-            live_table.add_row(vendor, f"[{color}]{status}[/{color}]")
-        console.print(live_table)
-    except HealthCheckError as exc:
-        console.print(f"[red]Health check failed: {exc}[/red]")
-        raise typer.Exit(code=2)
-    except ImportError:
-        console.print("[yellow]Live check skipped (CCXT not available).[/yellow]")
-    except Exception as exc:
-        console.print(f"[yellow]Live check unavailable: {exc}[/yellow]")
-
-    # LLM connectivity check (optional)
-    _check_llm_health(cfg)
+    checks_table = Table(title=f"System Health: {report.status}")
+    checks_table.add_column("Check", style="cyan")
+    checks_table.add_column("Status")
+    checks_table.add_column("Details")
+    for check in report.checks:
+        color = "green" if check.status == "healthy" else "yellow"
+        if check.status == "critical":
+            color = "red"
+        details = ", ".join(
+            f"{key}={value}" for key, value in check.details.items() if value not in ([], {}, None, "")
+        )
+        checks_table.add_row(check.name, f"[{color}]{check.status}[/{color}]", details)
+    console.print(checks_table)
 
 
 def _check_llm_health(config: dict | None) -> None:
@@ -490,29 +497,55 @@ def config_init():
     )
 
 
-def _write_toml_section(lines: list[str], data: dict, indent: int) -> None:
-    """Write a dict as TOML lines (simple, no array-of-tables needed)."""
-    prefix = "  " * indent
+def _write_toml_section(
+    lines: list[str],
+    data: dict,
+    indent: int,
+    path: tuple[str, ...] = (),
+) -> None:
+    """Write a nested dict as valid TOML dotted sections."""
+    scalar_items = []
+    nested_items = []
     for key, value in data.items():
         if isinstance(value, dict):
-            if indent == 0:
-                lines.append(f"\n[{key}]")
-            else:
-                lines.append(f"{prefix}[{key}]")
-            _write_toml_section(lines, value, indent + 1)
-        elif isinstance(value, list):
-            lines.append(f"{prefix}{key} = [")
-            for item in value:
-                lines.append(f'{prefix}  "{item}",')
-            lines.append(f"{prefix}]")
-        elif isinstance(value, bool):
-            lines.append(f"{prefix}{key} = {str(value).lower()}")
-        elif isinstance(value, (int, float)):
-            lines.append(f"{prefix}{key} = {value}")
-        elif isinstance(value, str):
-            lines.append(f'{prefix}{key} = "{value}"')
+            nested_items.append((str(key), value))
         else:
-            lines.append(f'{prefix}{key} = "{value}"')
+            scalar_items.append((str(key), value))
+
+    if path:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(f"[{'.'.join(_toml_key(part) for part in path)}]")
+
+    for key, value in scalar_items:
+        lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
+
+    for key, value in nested_items:
+        _write_toml_section(lines, value, indent + 1, (*path, key))
+
+
+def _toml_key(key: str) -> str:
+    if key and all(ch.isalnum() or ch in "_-" for ch in key):
+        return key
+    return json.dumps(key)
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if value is None:
+        return '""'
+    return _toml_string(str(value))
+
+
+def _toml_string(value: str) -> str:
+    # JSON escaping is valid for TOML basic strings except DEL, which JSON may
+    # leave literal while TOML rejects it.
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
 @config_app.command("effective")

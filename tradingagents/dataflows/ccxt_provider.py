@@ -193,10 +193,7 @@ def get_crypto_ohlcv(
     """
     df = _get_crypto_ohlcv_df(symbol, start_date, end_date)
     return df.to_csv(index=False)
-
-    # CCXT expects milliseconds
-    since = exchange.parse8601(start_dt.strftime("%Y-%m-%dT00:00:00Z"))
-    end_ms = exchange.parse8601(end_dt.strftime("%Y-%m-%dT23:59:59Z"))
+    """
 
     # Fetch candles — CCXT returns list of [ts, open, high, low, close, volume]
     all_candles: list = []
@@ -240,6 +237,7 @@ def get_crypto_ohlcv(
         )
 
     return df.to_csv()
+    """
 
 
 # ---------------------------------------------------------------------------

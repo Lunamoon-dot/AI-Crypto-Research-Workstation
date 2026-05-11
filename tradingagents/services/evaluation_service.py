@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import timedelta
 from io import StringIO
-import re
 from typing import Any, Callable
 
 import pandas as pd
@@ -34,10 +33,10 @@ from tradingagents.domain import (
 from tradingagents.services.journal_service import resolve_journal_db_path
 from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.sqlite import SQLiteStore
+from tradingagents.utils.numbers import extract_numbers
 
 
 PriceLoader = Callable[[str, str, str], str]
-_NUMBER_RE = re.compile(r"(?<![A-Za-z])[-+]?\d+(?:,\d{3})*(?:\.\d+)?")
 
 
 class EvaluationService:
@@ -774,11 +773,7 @@ def _extract_first_level(value: str | None) -> float | None:
 def _extract_levels(values: list[str]) -> list[float]:
     levels = []
     for value in values:
-        for match in _NUMBER_RE.findall(value or ""):
-            try:
-                levels.append(float(match.replace(",", "")))
-            except ValueError:
-                continue
+        levels.extend(extract_numbers(value))
     return levels
 
 

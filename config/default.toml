@@ -122,3 +122,5 @@ persist_data_provider_calls = true
 persist_llm_calls = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
+opentelemetry_enabled = false
+service_name = "tradingagents"

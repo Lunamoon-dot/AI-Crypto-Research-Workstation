@@ -12,6 +12,7 @@ from tradingagents.agents.aggregation import (
 from tradingagents.domain import AgentOpinion, AgentStance, ResearchDebate
 from tradingagents.graph.node_names import OpinionSource
 from tradingagents.signals.base import SignalResult, SignalScore
+from tradingagents.utils.collections import dedupe
 
 
 BULLISH_TERMS = (
@@ -220,7 +221,7 @@ def build_research_debate(
         stance_counts=stance_counts,
         opinion_ids=[opinion.id for opinion in opinions if opinion.id],
         contradictions=detect_contradictions(opinions),
-        missing_data=_dedupe(missing_data)[:10],
+        missing_data=dedupe(missing_data)[:10],
     )
 
 
@@ -311,7 +312,7 @@ def _extract_evidence(text: str, *, limit: int) -> list[str]:
     if len(evidence) >= limit:
         return evidence
     fallback = _extract_sentences(text, terms=(), limit=limit)
-    return _dedupe(evidence + fallback)[:limit]
+    return dedupe(evidence + fallback)[:limit]
 
 
 def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list[str]:
@@ -329,7 +330,7 @@ def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list
         selected.append(sentence[:240])
         if len(selected) >= limit:
             break
-    return _dedupe(selected)
+    return dedupe(selected)
 
 
 def _quant_missing_data(result: SignalResult) -> list[str]:
@@ -351,13 +352,3 @@ def _count_stale_mentions(opinions: list[AgentOpinion]) -> int:
     )
 
 
-def _dedupe(values: list[str]) -> list[str]:
-    seen = set()
-    deduped = []
-    for value in values:
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(value)
-    return deduped

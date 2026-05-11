@@ -37,6 +37,7 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
     Safe to run repeatedly against both empty and existing databases.
     """
     conn.execute("PRAGMA foreign_keys = ON")
+    _preensure_legacy_columns(conn)
     conn.executescript(SCHEMA_SQL)
     ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
     ensure_column(conn, "research_runs", "debate_id", "TEXT")
@@ -46,6 +47,16 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
         conn.execute(sql)
     backfill_alert_trigger_keys(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
+    if _table_exists(conn, "research_runs"):
+        ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
+        ensure_column(conn, "research_runs", "debate_id", "TEXT")
+    if _table_exists(conn, "run_events"):
+        ensure_column(conn, "run_events", "thesis_id", "TEXT")
+    if _table_exists(conn, "alerts"):
+        ensure_column(conn, "alerts", "trigger_key", "TEXT")
 
 
 def migrate_path(path: str | Path) -> None:
@@ -67,6 +78,14 @@ def ensure_column(
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in existing:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
 
 
 def backfill_alert_trigger_keys(conn: sqlite3.Connection) -> None:

@@ -49,7 +49,7 @@ def _emit_llm_event(
     output_tokens: int = 0,
     error: Exception | None = None,
 ) -> None:
-    from tradingagents.observability import log_event
+    from tradingagents.observability import log_event, start_span
 
     fields: dict[str, Any] = {
         "provider": provider,
@@ -63,7 +63,14 @@ def _emit_llm_event(
     else:
         fields["error_type"] = type(error).__name__ if error else "Unknown"
         fields["error"] = str(error)[:500] if error else ""
-    log_event(llm_logger, "llm_call", **fields)
+    with start_span(
+        "llm.call",
+        provider=provider,
+        model=model,
+        status=status,
+        duration_ms=round(duration_ms, 2),
+    ):
+        log_event(llm_logger, "llm_call", **fields)
 
 
 class BaseLLMClient(ABC):

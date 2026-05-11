@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-import re
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
     Alert,
+    AlertTriggerPayload,
     AlertType,
     Scenario,
     ThesisDirection,
@@ -20,9 +20,7 @@ from tradingagents.domain import (
 from tradingagents.services.journal_service import resolve_journal_db_path
 from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.sqlite import SQLiteStore
-
-
-_NUMBER_RE = re.compile(r"(?<![A-Za-z])[-+]?\d+(?:,\d{3})*(?:\.\d+)?")
+from tradingagents.utils.numbers import extract_numbers
 
 
 @dataclass(frozen=True)
@@ -472,12 +470,14 @@ class WatchlistService:
         ):
             return None
 
-        payload = {
-            "trigger_key": trigger_key,
-            "current_price": current_price,
-            "trigger_level": trigger_level,
-            "direction": thesis.direction.value,
-        }
+        trigger_payload = AlertTriggerPayload(
+            trigger_key=trigger_key,
+            current_price=current_price,
+            trigger_level=trigger_level,
+            direction=thesis.direction.value,
+            **(extra_payload or {}),
+        )
+        payload = trigger_payload.model_dump(exclude_none=True)
         if extra_payload:
             payload.update(extra_payload)
 
@@ -487,6 +487,7 @@ class WatchlistService:
                 symbol=thesis.symbol,
                 thesis_id=thesis.id,
                 watchlist_item_id=item.id,
+                trigger_key=trigger_key,
                 message=message,
                 payload=payload,
             )
@@ -523,8 +524,7 @@ def _brief_alert(alert: Alert) -> BriefAlertRow:
 def _extract_levels(values: list[str]) -> list[float]:
     levels: list[float] = []
     for value in values:
-        for match in _NUMBER_RE.findall(value or ""):
-            levels.append(float(match.replace(",", "")))
+        levels.extend(extract_numbers(value))
     return levels
 
 

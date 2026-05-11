@@ -27,6 +27,7 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.config.schema import validate_and_normalize_config
 from tradingagents.config.secrets import SecretsManager, get_default_secrets
 from tradingagents.exceptions import ConfigurationError
+from tradingagents.utils.collections import deep_merge
 
 logger = logging.getLogger(__name__)
 
@@ -132,18 +133,7 @@ def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, A
 # ── Deep merge ────────────────────────────────────────────────────────────
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge *override* into *base*, returning a new dict.
-
-    Both *base* and *override* are deep-copied first so neither is mutated.
-    """
-    result = deepcopy(base)
-    for key, val in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = _deep_merge(result[key], val)
-        else:
-            result[key] = deepcopy(val)
-    return result
+_deep_merge = deep_merge
 
 
 # ── Unified Config Loader ─────────────────────────────────────────────────

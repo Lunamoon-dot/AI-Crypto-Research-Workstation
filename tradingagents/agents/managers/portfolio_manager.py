@@ -14,6 +14,7 @@ from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_language_instruction,
+    guard_untrusted_context,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -51,12 +52,16 @@ def create_portfolio_manager(llm, config=None):
 
         past_context = state.get("past_context", "")
         lessons_line = (
-            f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
+            "- Lessons from prior decisions and outcomes:\n"
+            f"{guard_untrusted_context('past_context', past_context)}\n"
             if past_context
             else ""
         )
 
-        feedback_context = _get_feedback_context(config)
+        feedback_context = guard_untrusted_context(
+            "performance_feedback",
+            _get_feedback_context(config),
+        )
 
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
@@ -72,13 +77,13 @@ def create_portfolio_manager(llm, config=None):
 - **Sell**: Exit position or avoid entry
 
 **Context:**
-- Research Manager's investment plan: **{research_plan}**
-- Trader's transaction proposal: **{trader_plan}**
+- Research Manager's investment plan: {guard_untrusted_context("research_plan", research_plan)}
+- Trader's transaction proposal: {guard_untrusted_context("trader_plan", trader_plan)}
 {lessons_line}
 {feedback_context}
 
 **Risk Analysts Debate History:**
-{history}
+{guard_untrusted_context("risk_debate_history", history)}
 
 ---
 

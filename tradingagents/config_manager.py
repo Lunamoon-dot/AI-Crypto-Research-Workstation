@@ -12,6 +12,7 @@ import yaml
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.config.loader import load_config_file
 from tradingagents.config.schema import validate_and_normalize_config
+from tradingagents.utils.collections import deep_merge
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +54,7 @@ def _resolve_profile_file(name: str) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge *override* into *base*, returning a new dict."""
-    result = deepcopy(base)
-    for key, val in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = _deep_merge(result[key], val)
-        else:
-            result[key] = deepcopy(val)
-    return result
+_deep_merge = deep_merge
 
 
 # ---------------------------------------------------------------------------

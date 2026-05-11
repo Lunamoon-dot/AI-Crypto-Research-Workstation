@@ -70,6 +70,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "persist_llm_calls": True,
         "persist_snapshot_health": True,
         "data_provider_call_sample_rate": 1.0,
+        "opentelemetry_enabled": False,
+        "service_name": "tradingagents",
     },
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.

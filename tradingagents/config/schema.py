@@ -11,6 +11,7 @@ from tradingagents.config.providers import (
     KNOWN_PROVIDERS,
     get_provider_env_vars,
 )
+from tradingagents.config.models import RuntimeConfigSections
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
 
@@ -255,6 +256,13 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
                 f"secrets.source={secrets_cfg.get('source')!r} is invalid; "
                 f"allowed: env, keyring, env,keyring"
             )
+
+    sections = RuntimeConfigSections.from_config(normalized)
+    normalized["journal"] = sections.journal.model_dump()
+    normalized["provider_runtime"] = sections.provider_runtime.model_dump()
+    normalized["observability"] = sections.observability.model_dump()
+    normalized["config_validation"] = sections.config_validation.model_dump()
+    normalized["llm_fallback"] = sections.llm_fallback.model_dump()
 
     if not issues:
         _validate_llm_credentials(normalized, source=source, mode=mode)

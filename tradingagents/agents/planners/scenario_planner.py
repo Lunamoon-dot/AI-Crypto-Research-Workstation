@@ -13,7 +13,10 @@ import logging
 from langchain_core.messages import AIMessage
 
 from tradingagents.agents.schemas import ScenarioPlan, render_scenario_plan
-from tradingagents.agents.utils.agent_utils import build_instrument_context
+from tradingagents.agents.utils.agent_utils import (
+    build_instrument_context,
+    guard_untrusted_context,
+)
 from tradingagents.agents.utils.structured import bind_structured
 from tradingagents.templates.registry import TemplateRegistry
 
@@ -132,7 +135,9 @@ def create_scenario_planner(llm):
         }
 
         reports_block = "\n\n".join(
-            f"=== {k} ===\n{v}" for k, v in research_reports.items() if v
+            f"=== {k} ===\n{guard_untrusted_context(k, v)}"
+            for k, v in research_reports.items()
+            if v
         )
 
         # --- Phase 5: pre-LLM template field validation ---
@@ -176,8 +181,9 @@ def create_scenario_planner(llm):
                     f"Produce exactly 3–4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
                     f"invalidation / adverse path, neutral/wait, and (if debate shows conflict) "
                     f"a contradiction branch.\n\n"
-                    f"Portfolio Manager decision (truncated):\n{pm_decision[:6000]}\n\n"
-                    f"Investment plan:\n{investment_plan}\n\n"
+                    "Portfolio Manager decision (truncated):\n"
+                    f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
+                    f"Investment plan:\n{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
                     f"Research context:\n{reports_block}"
                 ),
             },
@@ -218,10 +224,10 @@ For each scenario, describe:
 Base your scenarios on the research reports and investment plan below.
 
 Research Reports:
-{reports_block}
+{guard_untrusted_context("research_reports", reports_block)}
 
 Investment Plan:
-{investment_plan}
+{guard_untrusted_context("investment_plan", investment_plan)}
 """
         response = llm.invoke(fallback_prompt)
         content = response.content if hasattr(response, "content") else str(response)

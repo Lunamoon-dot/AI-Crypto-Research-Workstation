@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -37,7 +38,7 @@ from tradingagents.exceptions import (
     ProviderRetryExhaustedError,
     ProviderTimeoutError,
 )
-from tradingagents.observability import log_event
+from tradingagents.observability import log_event, start_span
 
 from .historical_contract import (
     DataWindow,
@@ -305,14 +306,15 @@ def route_to_vendor(method: str, *args, **kwargs):
         started = perf_counter()
 
         try:
-            result = _invoke_with_resilience(
-                impl_func,
-                vendor=vendor,
-                method=method,
-                args=args,
-                kwargs=kwargs,
-                runtime_cfg=config.get("provider_runtime", {}),
-            )
+            with start_span("data_provider.call", vendor=vendor, method=method):
+                result = _invoke_with_resilience(
+                    impl_func,
+                    vendor=vendor,
+                    method=method,
+                    args=args,
+                    kwargs=kwargs,
+                    runtime_cfg=config.get("provider_runtime", {}),
+                )
             log_event(
                 logger,
                 "data_provider_call",
@@ -354,6 +356,11 @@ def route_to_vendor(method: str, *args, **kwargs):
     else:
         detail = f"{last_error}" if last_error else "no vendor configured"
     raise DataProviderError(f"No available vendor for '{method}': {detail}")
+
+
+async def async_route_to_vendor(method: str, *args, **kwargs):
+    """Async boundary wrapper for provider routing."""
+    return await asyncio.to_thread(route_to_vendor, method, *args, **kwargs)
 
 
 def route_to_vendor_historical(

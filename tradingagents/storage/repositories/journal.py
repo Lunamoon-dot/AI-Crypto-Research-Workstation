@@ -819,14 +819,19 @@ class JournalRepository:
     def save_alert(self, alert: Alert) -> Alert:
         if not alert.id:
             alert.id = _new_id("alert")
+        trigger_key = alert.trigger_key or alert.payload.get("trigger_key")
+        if trigger_key is not None:
+            alert.trigger_key = str(trigger_key)
+            alert.payload.setdefault("trigger_key", alert.trigger_key)
         self.store.execute(
             """
             INSERT INTO alerts (
-                id, alert_type, symbol, thesis_id, watchlist_item_id,
+                id, alert_type, symbol, thesis_id, watchlist_item_id, trigger_key,
                 created_at, read_at, message, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                trigger_key=excluded.trigger_key,
                 read_at=excluded.read_at,
                 message=excluded.message,
                 payload_json=excluded.payload_json
@@ -837,6 +842,7 @@ class JournalRepository:
                 alert.symbol,
                 alert.thesis_id,
                 alert.watchlist_item_id,
+                alert.trigger_key,
                 _iso(alert.created_at),
                 _iso(alert.read_at),
                 alert.message,
@@ -866,14 +872,14 @@ class JournalRepository:
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self.store.fetchall(
             f"""
-            SELECT payload_json FROM alerts
+            SELECT trigger_key, payload_json FROM alerts
             {where_clause}
             ORDER BY created_at DESC
             LIMIT ?
             """,
             (*params, limit),
         )
-        return [model_from_json(Alert, row["payload_json"]) for row in rows]
+        return [self._alert_from_row(row) for row in rows]
 
     def has_alert(
         self,
@@ -883,32 +889,39 @@ class JournalRepository:
         watchlist_item_id: str | None,
         trigger_key: str,
     ) -> bool:
-        rows = self.store.fetchall(
+        row = self.store.fetchone(
             """
-            SELECT payload_json FROM alerts
+            SELECT 1 FROM alerts
             WHERE alert_type = ?
+              AND trigger_key = ?
               AND COALESCE(thesis_id, '') = COALESCE(?, '')
               AND COALESCE(watchlist_item_id, '') = COALESCE(?, '')
+            LIMIT 1
             """,
-            (alert_type, thesis_id, watchlist_item_id),
+            (alert_type, trigger_key, thesis_id, watchlist_item_id),
         )
-        for row in rows:
-            payload = json.loads(row["payload_json"] or "{}")
-            if payload.get("payload", {}).get("trigger_key") == trigger_key:
-                return True
-        return False
+        return row is not None
 
     def mark_alert_read(
         self, alert_id: str, read_at: datetime | None = None
     ) -> Alert | None:
         row = self.store.fetchone(
-            "SELECT payload_json FROM alerts WHERE id = ?", (alert_id,)
+            "SELECT trigger_key, payload_json FROM alerts WHERE id = ?", (alert_id,)
         )
         if not row:
             return None
-        alert = model_from_json(Alert, row["payload_json"])
+        alert = self._alert_from_row(row)
         alert.read_at = read_at or datetime.now(timezone.utc)
         return self.save_alert(alert)
+
+    @staticmethod
+    def _alert_from_row(row) -> Alert:
+        alert = model_from_json(Alert, row["payload_json"])
+        if not alert.trigger_key:
+            trigger_key = row["trigger_key"] if "trigger_key" in row.keys() else None
+            if trigger_key:
+                alert.trigger_key = trigger_key
+        return alert
 
     def save_market_brief(self, brief: MarketBrief) -> MarketBrief:
         if not brief.id:

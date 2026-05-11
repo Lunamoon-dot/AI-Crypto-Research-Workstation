@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Generator, Iterable
 
 from tradingagents.exceptions import StorageError
+from tradingagents.observability import start_span
 
-from .schema import SCHEMA_SQL
+from .migrations import ensure_column, migrate_sqlite
 
 
 class SQLiteStore:
@@ -37,10 +38,7 @@ class SQLiteStore:
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute("PRAGMA busy_timeout = 5000")
             conn.execute("PRAGMA foreign_keys = ON")
-            conn.executescript(SCHEMA_SQL)
-            self._ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
-            self._ensure_column(conn, "research_runs", "debate_id", "TEXT")
-            self._ensure_column(conn, "run_events", "thesis_id", "TEXT")
+            migrate_sqlite(conn)
 
     @staticmethod
     def _ensure_column(
@@ -49,33 +47,33 @@ class SQLiteStore:
         column: str,
         column_type: str,
     ) -> None:
-        existing = {
-            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-        if column not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+        ensure_column(conn, table, column, column_type)
 
     def execute(self, sql: str, params: Iterable = (), *, _conn: sqlite3.Connection | None = None) -> None:
         try:
             if _conn is not None:
-                _conn.execute(sql, tuple(params))
+                with start_span("sqlite.execute", db_path=str(self.path)):
+                    _conn.execute(sql, tuple(params))
                 return
             with self.connect() as conn:
-                conn.execute(sql, tuple(params))
+                with start_span("sqlite.execute", db_path=str(self.path)):
+                    conn.execute(sql, tuple(params))
         except sqlite3.Error as exc:
             raise StorageError(f"SQLite execute failed: {exc}") from exc
 
     def fetchone(self, sql: str, params: Iterable = ()) -> sqlite3.Row | None:
         try:
             with self.connect() as conn:
-                return conn.execute(sql, tuple(params)).fetchone()
+                with start_span("sqlite.fetchone", db_path=str(self.path)):
+                    return conn.execute(sql, tuple(params)).fetchone()
         except sqlite3.Error as exc:
             raise StorageError(f"SQLite fetch failed: {exc}") from exc
 
     def fetchall(self, sql: str, params: Iterable = ()) -> list[sqlite3.Row]:
         try:
             with self.connect() as conn:
-                return list(conn.execute(sql, tuple(params)).fetchall())
+                with start_span("sqlite.fetchall", db_path=str(self.path)):
+                    return list(conn.execute(sql, tuple(params)).fetchall())
         except sqlite3.Error as exc:
             raise StorageError(f"SQLite fetch failed: {exc}") from exc
 
@@ -92,9 +90,10 @@ class SQLiteStore:
         """
         conn = self.connect()
         try:
-            conn.execute("BEGIN")
-            yield conn
-            conn.commit()
+            with start_span("sqlite.transaction", db_path=str(self.path)):
+                conn.execute("BEGIN")
+                yield conn
+                conn.commit()
         except Exception:
             conn.rollback()
             raise

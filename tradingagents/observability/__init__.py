@@ -9,13 +9,16 @@ from .logging import (
     log_event,
     redact_secrets,
 )
+from .tracing import configure_opentelemetry, start_span
 
 __all__ = [
     "bind_observability_context",
     "configure_plain_observability_logging",
+    "configure_opentelemetry",
     "install_secret_redaction_filter",
     "log_event",
     "observability_context",
     "observability_run_event_persistence",
     "redact_secrets",
+    "start_span",
 ]

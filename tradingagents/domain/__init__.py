@@ -35,10 +35,18 @@ from .template import SetupTemplate, TemplateField
 from .thesis import ThesisDirection, TradeThesis
 from .timeline import TimelineEvent
 from .trending import HealthReport, TrendPoint
-from .watchlist import Alert, AlertType, Watchlist, WatchlistItem, WatchlistItemType
+from .watchlist import (
+    Alert,
+    AlertTriggerPayload,
+    AlertType,
+    Watchlist,
+    WatchlistItem,
+    WatchlistItemType,
+)
 
 __all__ = [
     "Alert",
+    "AlertTriggerPayload",
     "AlertType",
     "AgentCalibration",
     "AgentCalibrationReport",
