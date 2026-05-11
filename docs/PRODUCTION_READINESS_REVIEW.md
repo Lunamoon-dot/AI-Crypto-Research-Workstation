@@ -82,7 +82,7 @@ It is not ready for:
 - Reduce `ResearchAgentsGraph` ownership of mutable run state; split graph running, thesis building, and journal coordination.
 - Finish dependency-injection boundaries for services that currently instantiate collaborators internally.
 - Continue batch-fetch/JOIN cleanup for remaining read-heavy analytics paths.
-- Replace execution-like event names such as `order.submitted` with research/planning terminology unless real audited assisted execution is deliberately added later.
+- Keep observability event names in research/planning terminology unless real audited assisted execution is deliberately added later.
 
 ### P2 Product And Operations
 

@@ -2,7 +2,11 @@ import asyncio
 from pathlib import Path
 import json
 import sqlite3
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from typer.testing import CliRunner
 

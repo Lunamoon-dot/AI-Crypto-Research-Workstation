@@ -1,17 +1,33 @@
-﻿# CI Matrix Status
+# CI Matrix Status
 
 Date: 2026-05-12
-Commit requested: `c403b148d6bf11d174ef36ff201728f16a497143`
+Pull request: https://github.com/Lunamoon-dot/AI-Crypto-Research-Workstation/pull/1
+Branch: `release-readiness-gates-codex`
+Head commit: `83dfdf3db0ca7c70f93915d66ae7c7f6a007c066`
 Workflow: `.github/workflows/ci.yml`
+Workflow run: `25699827162`
+Run number: `36`
 
-Result: BLOCKED. The repository workflow defines Python 3.10, 3.11, and 3.12 matrix jobs, but this workstation cannot confirm the GitHub Actions run result for the commit.
+Result: PASS. GitHub Actions completed successfully for the release-candidate
+branch after fixing the Python 3.10 test import fallback.
 
-Evidence collected:
+## Job Results
 
-```text
-gh --version: command not found
-GitHub API: GET https://api.github.com/repos/Lunamoon-dot/AI-Crypto-Research-Workstation/actions/runs?head_sha=c403b148d6bf11d174ef36ff201728f16a497143&per_page=20
-Result: 404 Not Found, likely unauthenticated/private Actions metadata or unavailable repository API access from this environment.
-```
+| Job | Job ID | Conclusion | Evidence |
+|---|---:|---|---|
+| Lint & Format | `75457127472` | success | Ruff full lint and Ruff format check completed successfully. |
+| Type Check (mypy) | `75457127455` | success | `Run mypy` completed successfully. |
+| Python 3.10 | `75457324606` | success | Install, import smoke, compile, unit tests, and remaining tests completed successfully. |
+| Python 3.11 | `75457324579` | success | Install, import smoke, compile, unit tests, and remaining tests completed successfully. |
+| Python 3.12 | `75457324544` | success | Install, import smoke, compile, unit tests, and remaining tests completed successfully. |
 
-Readiness handling: do not mark the CI matrix gate as passed until an authenticated GitHub Actions run for this commit or the release commit shows green `Python 3.10`, `Python 3.11`, and `Python 3.12` jobs.
+## Superseded Failed Run
+
+Earlier run `25699596393` failed on the `Python 3.10` job because
+`tests/test_phase34_hardening.py` and `tests/test_property_based_hardening.py`
+imported `tomllib` directly. Python 3.10 does not provide `tomllib`; the fix
+uses `tomllib` with a `tomli` fallback, matching the existing
+`tomli>=2.0.0; python_version < "3.11"` dependency.
+
+Readiness handling: the CI matrix gate is now satisfied for this release
+candidate. Second-reviewer sign-off is still required before a release tag.

@@ -226,7 +226,11 @@ class ConfigLoader:
         if provider:
             optional_overrides["llm_provider"] = str(provider).lower()
         overrides.update(
-            {key: value for key, value in optional_overrides.items() if value is not None}
+            {
+                key: value
+                for key, value in optional_overrides.items()
+                if value is not None
+            }
         )
         if selections.get("crypto_exchange"):
             overrides["crypto_exchange"] = selections["crypto_exchange"]

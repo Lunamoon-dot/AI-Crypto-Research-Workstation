@@ -2,7 +2,15 @@ import json
 
 from typer.testing import CliRunner
 
-from cli import config_cmd, dashboard, journal_cmd, main, signals_cmd, watch_cmd
+from cli import (
+    config_cmd,
+    dashboard,
+    journal_cmd,
+    main,
+    orchestrator,
+    signals_cmd,
+    watch_cmd,
+)
 from tradingagents.domain import (
     DataFreshness,
     ResearchRun,
@@ -11,7 +19,7 @@ from tradingagents.domain import (
     SignalProvenance,
     TradeThesis,
 )
-from tradingagents.services import JournalService, WatchlistService
+from tradingagents.services import JournalService, ResearchRunResult, WatchlistService
 
 
 class _FakePropagator:
@@ -35,8 +43,6 @@ class _FakeCompiledGraph:
 
 
 class _FakeResearchGraph:
-    execution_result = None
-
     def __init__(self, *args, **kwargs):
         self.propagator = _FakePropagator()
         self.graph = _FakeCompiledGraph()
@@ -87,6 +93,48 @@ class _FakeFailingResearchGraph(_FakeResearchGraph):
         raise _FakeProviderStatusError("Insufficient Balance")
 
 
+class _FakeResearchService:
+    graph_class = _FakeResearchGraph
+
+    def run(
+        self,
+        *,
+        ticker,
+        analysis_date,
+        selected_analyst_keys,
+        config,
+        callbacks=None,
+        node_callback=None,
+        run_callbacks=None,
+        debug=True,
+    ):
+        graph = self.graph_class(
+            selected_analyst_keys,
+            config=config,
+            debug=debug,
+            callbacks=callbacks,
+        )
+        final_state, decision = graph.propagate(
+            ticker,
+            analysis_date,
+            node_callback=node_callback,
+            run_callbacks=run_callbacks,
+        )
+        return ResearchRunResult(final_state, decision, graph)
+
+
+class _FakeFailingResearchService(_FakeResearchService):
+    graph_class = _FakeFailingResearchGraph
+
+
+def test_orchestrator_supports_legacy_graph_class_injection():
+    analysis_orchestrator = orchestrator.AnalysisOrchestrator(_FakeResearchGraph)
+
+    service = analysis_orchestrator._research_service_class()
+
+    assert service._graph_class is _FakeResearchGraph
+
+
 def _patch_default_config(monkeypatch, tmp_path):
     monkeypatch.setitem(main.DEFAULT_CONFIG, "results_dir", str(tmp_path / "logs"))
     monkeypatch.setitem(main.DEFAULT_CONFIG, "data_cache_dir", str(tmp_path / "cache"))
@@ -99,7 +147,7 @@ def _patch_default_config(monkeypatch, tmp_path):
 
 def test_analyze_noninteractive_uses_flags_without_prompts(tmp_path, monkeypatch):
     _patch_default_config(monkeypatch, tmp_path)
-    monkeypatch.setattr(main, "ResearchAgentsGraph", _FakeResearchGraph)
+    monkeypatch.setattr(main, "ResearchService", _FakeResearchService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -125,7 +173,7 @@ def test_analyze_reports_provider_balance_error_without_traceback(
     tmp_path, monkeypatch
 ):
     _patch_default_config(monkeypatch, tmp_path)
-    monkeypatch.setattr(main, "ResearchAgentsGraph", _FakeFailingResearchGraph)
+    monkeypatch.setattr(main, "ResearchService", _FakeFailingResearchService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -445,15 +493,15 @@ def test_signals_json_and_plain_modes(tmp_path, monkeypatch):
             signal_type="momentum",
             direction=SignalDirection.BULLISH,
             confidence=0.8,
-            provenance=SignalProvenance(
-                source="test", freshness=DataFreshness.FRESH
-            ),
+            provenance=SignalProvenance(source="test", freshness=DataFreshness.FRESH),
         )
     )
     runner = CliRunner()
 
     json_result = runner.invoke(signals_cmd.signals_app, ["list", "--json"])
-    plain_result = runner.invoke(signals_cmd.signals_app, ["show", signal.id, "--plain"])
+    plain_result = runner.invoke(
+        signals_cmd.signals_app, ["show", signal.id, "--plain"]
+    )
 
     assert json_result.exit_code == 0
     assert json.loads(json_result.output)["signals"][0]["symbol"] == "BTC/USDT"

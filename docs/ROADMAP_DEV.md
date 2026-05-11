@@ -68,8 +68,8 @@ Finish the identity shift from trading bot to research workstation.
 Some modules still use old language:
 
 - `TradingGraph`;
-- `TradeIntent`;
-- `execution_config`;
+- pre-reset trade-intent models;
+- execution-oriented configuration names;
 - `backtest`;
 - `position`;
 - `portfolio`;
@@ -84,8 +84,8 @@ Rename and isolate domain concepts:
 | Current Concept | Target Concept |
 |---|---|
 | `TradingGraph` | `ResearchGraph` or `ResearchRunGraph` |
-| `TradeIntent` | `TradeThesis` or `ThesisRecommendation` |
-| `execution_config` | `planning_config` |
+| pre-reset trade-intent models | `TradeThesis` or `ThesisRecommendation` |
+| execution-oriented configuration | `planning_config` |
 | `backtest` | `historical_evaluation` |
 | `position` | `hypothetical_position` or `tracked_thesis` |
 | `decision` | `thesis_decision` |

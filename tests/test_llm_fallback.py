@@ -252,6 +252,35 @@ class TestConfigLoaderFallbackDefaults:
 
         assert created == [("openai", "gpt-4o"), ("openai", "gpt-4o-mini")]
 
+    def test_fallback_llms_receive_callbacks(self):
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        callbacks = [object()]
+        seen_callbacks = []
+
+        def _fake_create(provider, model, **kwargs):
+            seen_callbacks.append(kwargs.get("callbacks"))
+            return _FakeLLMClient(provider, model)
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["openai"],
+            },
+        }
+        orch = LLMOrchestrator(config, callbacks=callbacks)
+
+        with patch(
+            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            side_effect=_fake_create,
+        ):
+            orch.ensure_fallback_llms()
+
+        assert seen_callbacks == [callbacks, callbacks]
+
     def test_missing_fallback_model_map_skips_provider_with_warning(self, caplog):
         import logging
 

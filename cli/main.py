@@ -17,7 +17,7 @@ from rich.console import Console
 from typer import Context
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.graph import ResearchAgentsGraph
+from tradingagents.services import ResearchService
 
 # -- Post-split imports --------------------------------------------------
 from cli.orchestrator import run_analysis as _run_analysis
@@ -363,10 +363,10 @@ def run_analysis(
     save_path: Path | None = None,
     dry_run: bool = False,
 ):
-    """Thin wrapper that injects ``main.ResearchAgentsGraph``.
+    """Thin wrapper that injects ``main.ResearchService``.
 
     This is intentionally a module-level function (not a direct import from
-    ``orchestrator``) so that tests can monkeypatch ``main.ResearchAgentsGraph``
+    ``orchestrator``) so that tests can monkeypatch ``main.ResearchService``
     and the patched class flows through to the orchestrator.
     """
     return _run_analysis(
@@ -377,7 +377,7 @@ def run_analysis(
         save_report=save_report,
         save_path=save_path,
         dry_run=dry_run,
-        _graph_class=ResearchAgentsGraph,
+        _research_service_class=ResearchService,
     )
 
 

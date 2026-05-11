@@ -78,6 +78,9 @@ EVIDENCE_TERMS = (
     "evidence",
     "data",
 )
+_BULLET_BOUNDARY_RE = re.compile(r"(?:^|\n)\s*[-*]\s+")
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+")
+_INLINE_WHITESPACE_RE = re.compile(r"[ \t\r\f\v]+")
 
 
 def build_agent_opinions(
@@ -384,21 +387,51 @@ def _extract_evidence(text: str, *, limit: int) -> list[str]:
 
 
 def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list[str]:
-    cleaned = re.sub(r"\s+", " ", text.replace("|", " ")).strip()
-    if not cleaned:
-        return []
-    pieces = re.split(r"(?<=[.!?])\s+|(?:\n|^)\s*[-*]\s+", cleaned)
     selected = []
-    for piece in pieces:
-        sentence = piece.strip(" -")
-        if not sentence:
-            continue
+    for sentence in _iter_sentence_candidates(text):
         if terms and not any(term in sentence.lower() for term in terms):
             continue
         selected.append(sentence[:240])
         if len(selected) >= limit:
             break
     return dedupe(selected)
+
+
+def _iter_sentence_candidates(text: str):
+    cleaned = text.strip()
+    if not cleaned:
+        return
+
+    cleaned = _BULLET_BOUNDARY_RE.sub("\n", cleaned)
+    for line in cleaned.splitlines():
+        for candidate in _iter_line_candidates(line):
+            candidate = _INLINE_WHITESPACE_RE.sub(" ", candidate).strip(" -")
+            if not candidate:
+                continue
+            for sentence in _SENTENCE_BOUNDARY_RE.split(candidate):
+                sentence = sentence.strip(" -")
+                if sentence:
+                    yield sentence
+
+
+def _iter_line_candidates(line: str):
+    stripped = line.strip()
+    if not stripped or set(stripped) <= {"-", ":", "|", " "}:
+        return
+
+    if "|" in stripped:
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        cells = [cell for cell in cells if cell]
+        if len(cells) > 1 and len(cells) % 2 == 0:
+            for index in range(0, len(cells), 2):
+                yield f"{cells[index]}: {cells[index + 1]}"
+            return
+        if len(cells) > 1:
+            for cell in cells:
+                yield cell
+            return
+
+    yield stripped
 
 
 def _quant_missing_data(result: SignalResult) -> list[str]:

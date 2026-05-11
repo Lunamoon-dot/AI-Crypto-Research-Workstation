@@ -1,67 +1,60 @@
 """Token and latency budget tracking per graph stage.
 
-Tracks cumulative token consumption and wall-clock latency across
-pipeline stages (analysts, debate, risk, portfolio) and compares
-against configurable budgets.  Exceeded budgets emit warnings via
-structured logging but do NOT abort the run — budgets are soft limits
-for observability, not hard enforcement.
+Budgets are soft observability limits. They emit structured events when
+exceeded, but they do not stop a research run.
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any
+
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import LLMResult
 
 from tradingagents.observability import log_event
 
 logger = logging.getLogger(__name__)
 
 
-# Default budgets — overridden by config
 _DEFAULT_BUDGETS: dict[str, dict[str, float]] = {
-    # Per-analyst budgets (applied to each of market, social, news, onchain)
     "analyst": {
-        "max_tokens": 20_000,  # combined input+output tokens
-        "max_latency_sec": 60.0,  # wall-clock seconds
+        "max_tokens": 20_000,
+        "max_latency_sec": 60.0,
     },
-    # Total analyst phase budget (sum of all analysts)
     "analysts_total": {
         "max_tokens": 80_000,
         "max_latency_sec": 240.0,
     },
-    # Research debate phase (all rounds)
     "debate": {
         "max_tokens": 40_000,
         "max_latency_sec": 120.0,
     },
-    # Research manager
     "research_manager": {
         "max_tokens": 15_000,
         "max_latency_sec": 45.0,
     },
-    # Trader
     "trader": {
         "max_tokens": 10_000,
         "max_latency_sec": 30.0,
     },
-    # Risk debate phase (all rounds)
     "risk_debate": {
         "max_tokens": 50_000,
         "max_latency_sec": 150.0,
     },
-    # Portfolio manager
     "portfolio_manager": {
         "max_tokens": 15_000,
         "max_latency_sec": 45.0,
     },
-    # Scenario planner
     "scenario_planner": {
         "max_tokens": 10_000,
         "max_latency_sec": 30.0,
     },
-    # Whole run
     "total": {
         "max_tokens": 250_000,
         "max_latency_sec": 600.0,
@@ -70,7 +63,7 @@ _DEFAULT_BUDGETS: dict[str, dict[str, float]] = {
 
 
 class StageBudget:
-    """Per-stage token and latency tracking with budget enforcement."""
+    """Per-stage token and latency tracking with budget checks."""
 
     def __init__(self, stage: str, max_tokens: float, max_latency_sec: float):
         self.stage = stage
@@ -86,10 +79,14 @@ class StageBudget:
     def add_tokens(self, count: int) -> None:
         self.tokens += count
 
+    def add_latency(self, latency_sec: float) -> None:
+        self._latency_sec += latency_sec
+
     def stop(self) -> float:
-        """Stop timing and return latency in seconds."""
+        """Stop timing and return cumulative latency in seconds."""
         if self._started is not None:
-            self._latency_sec = time.perf_counter() - self._started
+            self.add_latency(time.perf_counter() - self._started)
+            self._started = None
         return self._latency_sec
 
     @property
@@ -105,7 +102,7 @@ class StageBudget:
         return self.max_latency_sec - self._latency_sec
 
     def check_budgets(self) -> list[str]:
-        """Return list of exceeded budget messages (empty if within budget)."""
+        """Return exceeded-budget messages, or an empty list."""
         exceeded: list[str] = []
         if self.tokens > self.max_tokens:
             exceeded.append(
@@ -130,23 +127,17 @@ class StageBudget:
 
 
 class BudgetTracker:
-    """Tracks token/latency budgets across all pipeline stages.
-
-    Usage::
-
-        tracker = BudgetTracker(config)
-        with tracker.stage("analyst", analyst_name="market"):
-            # ... analyst work ...
-            tracker.add_tokens(500, 200)  # input, output
-    """
+    """Tracks token and latency budgets across graph pipeline stages."""
 
     def __init__(self, config: dict[str, Any] | None = None):
         config = config or {}
         budgets_cfg = config.get("budgets", {})
         self._budgets: dict[str, StageBudget] = {}
-        self._stage_stack: list[str] = []
+        self._stage_stack: contextvars.ContextVar[tuple[str, ...]] = (
+            contextvars.ContextVar("tradingagents_budget_stage_stack", default=())
+        )
+        self._lock = threading.Lock()
 
-        # Build per-stage budgets from config (falling back to defaults)
         for stage_name, defaults in _DEFAULT_BUDGETS.items():
             stage_cfg = budgets_cfg.get(stage_name, {})
             self._budgets[stage_name] = StageBudget(
@@ -159,20 +150,22 @@ class BudgetTracker:
 
     @contextmanager
     def stage(self, stage: str, **ctx_fields):
-        """Context manager for a pipeline stage. Starts/stops the budget clock."""
+        """Context manager for a pipeline stage."""
         budget = self._budgets.get(stage)
         if budget is None:
-            # Unknown stage — create a temporary one with permissive budgets
             budget = StageBudget(stage, max_tokens=1_000_000, max_latency_sec=3600)
 
-        budget.start()
-        self._stage_stack.append(stage)
+        started_at = time.perf_counter()
+        stack = self._stage_stack.get()
+        token = self._stage_stack.set((*stack, stage))
         try:
             yield budget
         finally:
-            budget.stop()
-            self._stage_stack.pop()
-            exceeded = budget.check_budgets()
+            latency_sec = time.perf_counter() - started_at
+            self._stage_stack.reset(token)
+            with self._lock:
+                budget.add_latency(latency_sec)
+                exceeded = budget.check_budgets()
             if exceeded:
                 for msg in exceeded:
                     logger.warning(msg)
@@ -189,21 +182,37 @@ class BudgetTracker:
                 )
 
     def add_tokens(self, input_tokens: int, output_tokens: int) -> None:
-        """Add token counts to the current (innermost) stage budget."""
+        """Add token counts to the current stage and total run budget."""
         total = input_tokens + output_tokens
-        if self._stage_stack:
-            stage = self._stage_stack[-1]
-            budget = self._budgets.get(stage)
-            if budget:
-                budget.add_tokens(total)
-        # Also add to total
-        total_budget = self._budgets.get("total")
-        if total_budget:
-            total_budget.add_tokens(total)
+        stack = self._stage_stack.get()
+        with self._lock:
+            if stack:
+                stage = stack[-1]
+                budget = self._budgets.get(stage)
+                if budget:
+                    budget.add_tokens(total)
+                if stage == "analyst":
+                    analysts_total = self._budgets.get("analysts_total")
+                    if analysts_total:
+                        analysts_total.add_tokens(total)
+            else:
+                stage = None
+
+            total_budget = self._budgets.get("total")
+            if total_budget and stage != "total":
+                total_budget.add_tokens(total)
+
+    def current_stage(self) -> str | None:
+        stack = self._stage_stack.get()
+        return stack[-1] if stack else None
 
     def summary(self) -> list[dict[str, Any]]:
-        """Return a summary of all stage budgets."""
+        """Return a summary of all configured stage budgets."""
         return [b.summary() for b in self._budgets.values()]
+
+    def log_summary(self, **fields: Any) -> None:
+        """Emit one structured event with the final budget summary."""
+        log_event(logger, "budget_summary", summary=self.summary(), **fields)
 
     def check_total_budget(self) -> list[str]:
         """Check the total run budget and return exceeded messages."""
@@ -213,12 +222,57 @@ class BudgetTracker:
         return []
 
 
-def merge_budget_config(config: dict[str, Any]) -> dict[str, dict[str, float]]:
-    """Merge user budget config with defaults, returning complete budget dict.
+class BudgetCallbackHandler(BaseCallbackHandler):
+    """LangChain callback that forwards LLM token usage to a tracker."""
 
-    This is used by ``default_config.py`` to provide a complete set of
-    budget defaults while allowing partial overrides.
-    """
+    def __init__(self, tracker: BudgetTracker) -> None:
+        super().__init__()
+        self.tracker = tracker
+
+    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
+        usage = _extract_llm_usage(response)
+        if usage["input_tokens"] or usage["output_tokens"]:
+            self.tracker.add_tokens(
+                usage["input_tokens"],
+                usage["output_tokens"],
+            )
+
+
+def _extract_llm_usage(response: LLMResult) -> dict[str, int]:
+    """Extract token usage from common LangChain response shapes."""
+    usage_metadata = None
+    try:
+        generation = response.generations[0][0]
+    except (IndexError, TypeError):
+        generation = None
+
+    if generation is not None and hasattr(generation, "message"):
+        message = generation.message
+        if isinstance(message, AIMessage):
+            usage_metadata = getattr(message, "usage_metadata", None)
+
+    if usage_metadata:
+        return {
+            "input_tokens": int(usage_metadata.get("input_tokens", 0) or 0),
+            "output_tokens": int(usage_metadata.get("output_tokens", 0) or 0),
+        }
+
+    llm_output = getattr(response, "llm_output", None) or {}
+    token_usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+    return {
+        "input_tokens": int(
+            token_usage.get("input_tokens") or token_usage.get("prompt_tokens") or 0
+        ),
+        "output_tokens": int(
+            token_usage.get("output_tokens")
+            or token_usage.get("completion_tokens")
+            or 0
+        ),
+    }
+
+
+def merge_budget_config(config: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """Merge user budget config with defaults."""
     merged: dict[str, dict[str, float]] = {}
     for stage_name, defaults in _DEFAULT_BUDGETS.items():
         user = config.get("budgets", {}).get(stage_name, {})

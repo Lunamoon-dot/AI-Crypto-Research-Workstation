@@ -42,7 +42,9 @@ _TIMELINE_EVENT_TYPES = {
     "signal_generated": "signal.generated",
     "decision_created": "decision.created",
     "risk_checked": "risk.checked",
-    "order_submitted": "order.submitted",
+    "plan_recorded": "plan.recorded",
+    "budget_exceeded": "budget.exceeded",
+    "budget_summary": "budget.summary",
 }
 
 
@@ -248,9 +250,14 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
         stance = payload.get("consensus_stance", "?")
         conflict = payload.get("conflict_level", "?")
         return f"Risk checked → {stance} (conflict: {conflict})"
-    if event_name == "order.submitted":
+    if event_name == "plan.recorded":
         action = payload.get("action", "?")
-        return f"Order submitted → {action}"
+        return f"Plan recorded → {action}"
+    if event_name == "budget.exceeded":
+        stage = payload.get("stage", "?")
+        return f"Budget exceeded [{stage}]"
+    if event_name == "budget.summary":
+        return "Budget summary recorded"
     return event_name
 
 

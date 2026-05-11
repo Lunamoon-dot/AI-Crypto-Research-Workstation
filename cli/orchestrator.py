@@ -7,6 +7,7 @@ Extracted as part of the God-file split.
 from __future__ import annotations
 
 import datetime
+import inspect
 import time
 from functools import wraps
 from pathlib import Path
@@ -31,17 +32,44 @@ from cli.preflight import check_api_keys
 console = Console()
 
 
+def _make_research_service_factory(research_service_class=None, graph_class=None):
+    if (
+        graph_class is None
+        and research_service_class is not None
+        and hasattr(research_service_class, "propagate")
+    ):
+        graph_class = research_service_class
+        research_service_class = None
+
+    if research_service_class is None:
+        from tradingagents.services import ResearchService as research_service_class
+
+    if graph_class is None:
+        return research_service_class
+
+    try:
+        parameters = inspect.signature(research_service_class).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+
+    if "graph_class" not in parameters:
+        return research_service_class
+
+    return lambda: research_service_class(graph_class=graph_class)
+
+
 class AnalysisOrchestrator:
     """Owns per-run state and orchestrates the full research pipeline.
 
-    *graph_class* is injected so callers (e.g. tests) can monkeypatch
-    ``main.ResearchAgentsGraph`` without affecting this module's imports.
+    *research_service_class* is injected so callers (e.g. tests) can monkeypatch
+    ``main.ResearchService`` without affecting this module's imports.
     """
 
-    def __init__(self, graph_class=None):
-        if graph_class is None:
-            from tradingagents.graph import ResearchAgentsGraph as graph_class
-        self._graph_class = graph_class
+    def __init__(self, research_service_class=None, graph_class=None):
+        self._research_service_class = _make_research_service_factory(
+            research_service_class,
+            graph_class,
+        )
         self.message_buffer = MessageBuffer()
         self.stats_handler: StatsCallbackHandler | None = None
         self.chunk_processor = ChunkProcessor(self.message_buffer)
@@ -61,7 +89,7 @@ class AnalysisOrchestrator:
         save_path: Path | None = None,
         dry_run: bool = False,
     ):
-        """Execute the full research analysis pipeline.
+        """Run the full research analysis pipeline.
 
         Returns the final state dict from the graph run.
         """
@@ -83,7 +111,7 @@ class AnalysisOrchestrator:
             console.print(f"[yellow]{warn}[/yellow]")
 
         if dry_run:
-            self._execute_dry_run(selections, config)
+            self._run_dry_run(selections, config)
             return {}
 
         install_secret_redaction_filter()
@@ -101,14 +129,6 @@ class AnalysisOrchestrator:
         # Normalize analyst selection to predefined order
         selected_set = {analyst.value for analyst in selections["analysts"]}
         selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
-
-        # Initialize the graph with callbacks bound to LLMs
-        graph = self._graph_class(
-            selected_analyst_keys,
-            config=config,
-            debug=True,
-            callbacks=[self.stats_handler],
-        )
 
         # Initialize message buffer with selected analysts
         self.message_buffer.init_for_analysis(selected_analyst_keys)
@@ -133,8 +153,11 @@ class AnalysisOrchestrator:
 
         try:
             if plain:
-                final_state, decision = self._run_stream(
-                    graph, selections, selected_analyst_keys, plain=plain
+                final_state, decision, graph = self._run_stream(
+                    selections,
+                    selected_analyst_keys,
+                    config,
+                    plain=plain,
                 )
             else:
                 layout = create_layout()
@@ -151,10 +174,10 @@ class AnalysisOrchestrator:
                         )
 
                     update_live()
-                    final_state, decision = self._run_stream(
-                        graph,
+                    final_state, decision, graph = self._run_stream(
                         selections,
                         selected_analyst_keys,
+                        config,
                         update_live=update_live,
                         plain=plain,
                     )
@@ -340,13 +363,13 @@ class AnalysisOrchestrator:
 
     def _run_stream(
         self,
-        graph,
         selections,
         selected_analyst_keys,
+        config,
         update_live=None,
         plain=False,
     ):
-        """Run ``ResearchAgentsGraph.propagate`` while streaming CLI progress."""
+        """Run research service propagation while streaming CLI progress."""
         self.message_buffer.add_message(
             "System", f"Selected ticker: {selections['ticker']}"
         )
@@ -382,14 +405,18 @@ class AnalysisOrchestrator:
             if update_live:
                 update_live()
 
-        final_state, decision = graph.propagate(
-            selections["ticker"],
-            selections["analysis_date"],
+        service = self._research_service_class()
+        result = service.run(
+            ticker=selections["ticker"],
+            analysis_date=selections["analysis_date"],
+            selected_analyst_keys=selected_analyst_keys,
+            config=config,
+            callbacks=[self.stats_handler],
             node_callback=node_callback,
             run_callbacks=[self.stats_handler],
         )
 
-        return final_state, decision
+        return result.final_state, result.decision, result.graph
 
     @staticmethod
     def _format_provider_runtime_error(exc: Exception, config: dict) -> str | None:
@@ -438,7 +465,7 @@ class AnalysisOrchestrator:
         return None
 
     @staticmethod
-    def _execute_dry_run(selections: dict, config: dict) -> None:
+    def _run_dry_run(selections: dict, config: dict) -> None:
         """Print a validation summary and exit without running the pipeline."""
         from rich.table import Table
 
@@ -490,9 +517,7 @@ class AnalysisOrchestrator:
             console.print(f"  [yellow]⚠[/yellow] Could not probe providers: {exc}")
 
         console.print("\n[green]Dry-run complete — configuration is valid.[/green]")
-        console.print(
-            "[dim]Remove --dry-run to execute the full research pipeline.[/dim]"
-        )
+        console.print("[dim]Remove --dry-run to run the full research pipeline.[/dim]")
 
 
 # ------------------------------------------------------------------
@@ -509,6 +534,7 @@ def run_analysis(
     save_report: bool = False,
     save_path: Path | None = None,
     dry_run: bool = False,
+    _research_service_class=None,
     _graph_class=None,
 ):
     """Thin module-level wrapper that delegates to AnalysisOrchestrator.
@@ -516,12 +542,11 @@ def run_analysis(
     Preserved for backward compatibility — ``analyze()`` and
     ``research_run()`` in ``cli/main.py`` call this function.
 
-    *_graph_class* allows tests to inject a fake via
-    ``monkeypatch.setattr(main, "ResearchAgentsGraph", ...)``.
+    *_research_service_class* allows tests to inject a fake via
+    ``monkeypatch.setattr(main, "ResearchService", ...)``. *_graph_class*
+    preserves the legacy graph injection surface.
     """
-    if _graph_class is None:
-        from tradingagents.graph import ResearchAgentsGraph as _graph_class
-    orchestrator = AnalysisOrchestrator(_graph_class)
+    orchestrator = AnalysisOrchestrator(_research_service_class, _graph_class)
     return orchestrator.run(
         checkpoint=checkpoint,
         selections=selections,

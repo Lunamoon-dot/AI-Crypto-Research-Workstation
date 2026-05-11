@@ -32,6 +32,7 @@ from cli.utils import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
+
 console = Console()
 
 
