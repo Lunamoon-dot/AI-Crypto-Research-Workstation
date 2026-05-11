@@ -1,3 +1,5 @@
+import pytest
+
 from tradingagents.domain import (
     AgentOpinion,
     AgentStance,
@@ -287,6 +289,48 @@ def test_journal_service_persists_market_and_signal_snapshots(tmp_path):
     assert loaded_run.signal_snapshot_id == signal_snapshot.id
     assert loaded_market.current_price == 100000.0
     assert loaded_signals.signal_ids == ["sig_1", "sig_2"]
+
+
+def test_quant_signal_bundle_rolls_back_when_event_write_fails(tmp_path, monkeypatch):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    signal = Signal(
+        symbol="BTC/USDT",
+        signal_type="regime",
+        direction=SignalDirection.BULLISH,
+        confidence=0.7,
+        provenance=SignalProvenance(source="signal_engine"),
+    )
+    market_snapshot = MarketSnapshot(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+        current_price=100000.0,
+    )
+    signal_snapshot = SignalSnapshot(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+    )
+
+    def _fail_event(*args, **kwargs):
+        raise RuntimeError("event write failed")
+
+    monkeypatch.setattr(service.repo, "add_run_event", _fail_event)
+
+    with pytest.raises(RuntimeError, match="event write failed"):
+        service.save_quant_signal_bundle(
+            run,
+            [signal],
+            market_snapshot,
+            signal_snapshot,
+        )
+
+    loaded_run = service.get_research_run(run.id)
+    assert service.list_signals(symbol="BTC/USDT") == []
+    assert service.get_market_snapshot(market_snapshot.id) is None
+    assert service.get_signal_snapshot(signal_snapshot.id) is None
+    assert loaded_run.market_snapshot_id is None
+    assert loaded_run.signal_snapshot_id is None
+    assert loaded_run.signal_ids == []
 
 
 def test_journal_service_persists_agent_opinions_and_debate(tmp_path):

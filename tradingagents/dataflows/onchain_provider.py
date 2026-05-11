@@ -245,7 +245,7 @@ def fetch_nvt_approximation(symbol: str) -> str:
         market_cap_rank = market_data.get("market_cap_rank", "N/A")
 
         if total_volume > 0:
-            nvt = market_cap / (total_volume / 24)
+            nvt = market_cap / total_volume
         else:
             nvt = float("inf")
 
@@ -389,7 +389,7 @@ def fetch_exchange_reserves(symbol: str) -> str:
             )
 
         lines.append("")
-        if turnover_24h > 1.0:
+        if turnover_24h > 10.0:
             lines.append("🔴 Extremely high turnover — speculative activity elevated.")
         elif turnover_24h > 0.3:
             lines.append(

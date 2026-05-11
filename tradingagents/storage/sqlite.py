@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable
+from typing import Generator, Iterable
 
 from tradingagents.exceptions import StorageError
 
@@ -23,10 +24,19 @@ class SQLiteStore:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def initialize(self) -> None:
         with sqlite3.connect(self.path) as conn:
+            # Persist WAL mode so every connection (including other
+            # processes) benefits from concurrent-read behaviour.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA busy_timeout = 5000")
+            conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA_SQL)
             self._ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
             self._ensure_column(conn, "research_runs", "debate_id", "TEXT")
@@ -45,8 +55,11 @@ class SQLiteStore:
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
-    def execute(self, sql: str, params: Iterable = ()) -> None:
+    def execute(self, sql: str, params: Iterable = (), *, _conn: sqlite3.Connection | None = None) -> None:
         try:
+            if _conn is not None:
+                _conn.execute(sql, tuple(params))
+                return
             with self.connect() as conn:
                 conn.execute(sql, tuple(params))
         except sqlite3.Error as exc:
@@ -65,3 +78,25 @@ class SQLiteStore:
                 return list(conn.execute(sql, tuple(params)).fetchall())
         except sqlite3.Error as exc:
             raise StorageError(f"SQLite fetch failed: {exc}") from exc
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        """Context manager that wraps operations in a single transaction.
+
+        Usage::
+
+            with store.transaction() as conn:
+                conn.execute("INSERT INTO ...", ...)
+                conn.execute("INSERT INTO ...", ...)
+                # auto-commits on exit; rollback on exception
+        """
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN")
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

@@ -9,31 +9,37 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .retry import (
+    DEFAULT_BACKOFF_BASE,
+    DEFAULT_BACKOFF_MAX,
+    DEFAULT_RETRIES,
+    DEFAULT_TIMEOUT,
+    compute_backoff,
+    is_retryable_http_status,
+    retry_sleep,
+)
+
 logger = logging.getLogger(__name__)
 
-# Mirrors default_config.py provider_runtime values so callers without
-# a config context still get sensible behaviour.
-_DEFAULT_TIMEOUT = 10.0
-_DEFAULT_RETRIES = 2
-_DEFAULT_BACKOFF_BASE = 0.5
-_DEFAULT_BACKOFF_MAX = 5.0
-
-# HTTP status codes that are safe to retry.
+# Re-export for callers that imported these from http_utils.
+_DEFAULT_TIMEOUT = DEFAULT_TIMEOUT
+_DEFAULT_RETRIES = DEFAULT_RETRIES
+_DEFAULT_BACKOFF_BASE = DEFAULT_BACKOFF_BASE
+_DEFAULT_BACKOFF_MAX = DEFAULT_BACKOFF_MAX
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 def fetch_json_with_retry(
     url: str,
     *,
-    timeout: float = _DEFAULT_TIMEOUT,
-    max_retries: int = _DEFAULT_RETRIES,
-    backoff_base: float = _DEFAULT_BACKOFF_BASE,
-    backoff_max: float = _DEFAULT_BACKOFF_MAX,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_retries: int = DEFAULT_RETRIES,
+    backoff_base: float = DEFAULT_BACKOFF_BASE,
+    backoff_max: float = DEFAULT_BACKOFF_MAX,
 ) -> Optional[dict]:
     """Fetch JSON from *url* with exponential backoff on transient failures.
 
@@ -54,8 +60,8 @@ def fetch_json_with_retry(
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             last_error = e
-            if e.code in _RETRYABLE_STATUSES and attempt < max_retries:
-                wait = min(backoff_max, backoff_base * (2**attempt))
+            if is_retryable_http_status(e.code) and attempt < max_retries:
+                wait = compute_backoff(attempt, base=backoff_base, cap=backoff_max)
                 logger.warning(
                     "HTTP %s from %s (attempt %s/%s), retrying in %.1fs",
                     e.code,
@@ -64,7 +70,7 @@ def fetch_json_with_retry(
                     attempts,
                     wait,
                 )
-                time.sleep(wait)
+                retry_sleep(wait)
                 continue
             logger.warning(
                 "HTTP %s from %s (non-retryable or retries exhausted)",
@@ -75,7 +81,7 @@ def fetch_json_with_retry(
         except (URLError, OSError) as e:
             last_error = e
             if attempt < max_retries:
-                wait = min(backoff_max, backoff_base * (2**attempt))
+                wait = compute_backoff(attempt, base=backoff_base, cap=backoff_max)
                 logger.warning(
                     "Network error from %s (attempt %s/%s): %s, retrying in %.1fs",
                     url,
@@ -84,7 +90,7 @@ def fetch_json_with_retry(
                     e,
                     wait,
                 )
-                time.sleep(wait)
+                retry_sleep(wait)
                 continue
             logger.warning("Network error from %s (retries exhausted): %s", url, e)
             return None

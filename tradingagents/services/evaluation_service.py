@@ -26,6 +26,7 @@ from tradingagents.domain import (
     OutcomeResult,
     OutcomeReview,
     Signal,
+    SignalDirection,
     ThesisDirection,
     ThesisEvaluation,
     TradeThesis,
@@ -146,6 +147,20 @@ class EvaluationService:
     ) -> EvaluationAnalytics:
         evaluations = self.list_evaluations(symbol=symbol, limit=limit)
         theses = _thesis_map(self.repo, evaluations)
+
+        # Batch-fetch all referenced signals and opinions (avoids N+1 queries)
+        all_signal_ids: set[str] = set()
+        all_opinion_ids: set[str] = set()
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if thesis:
+                all_signal_ids.update(thesis.supporting_signal_ids)
+                all_signal_ids.update(thesis.contradicting_signal_ids)
+                all_opinion_ids.update(thesis.agent_opinion_ids)
+
+        signals_map = self.repo.get_signals_by_ids(list(all_signal_ids))
+        opinions_map = self.repo.get_agent_opinions_by_ids(list(all_opinion_ids))
+
         grouped_symbol: dict[str, list[ThesisEvaluation]] = defaultdict(list)
         grouped_setup: dict[str, list[ThesisEvaluation]] = defaultdict(list)
         grouped_confidence: dict[str, list[ThesisEvaluation]] = defaultdict(list)
@@ -165,12 +180,12 @@ class EvaluationService:
                     thesis.supporting_signal_ids + thesis.contradicting_signal_ids
                 )
                 for signal_id in signal_ids:
-                    signal = self.repo.get_signal(signal_id)
+                    signal = signals_map.get(signal_id)
                     key = _signal_key(signal, signal_id)
                     grouped_signal[key].append(evaluation)
 
                 for opinion_id in set(thesis.agent_opinion_ids):
-                    opinion = self.repo.get_agent_opinion(opinion_id)
+                    opinion = opinions_map.get(opinion_id)
                     key = opinion.agent_name if opinion else f"unknown:{opinion_id}"
                     grouped_agent[key].append(evaluation)
             else:
@@ -200,6 +215,17 @@ class EvaluationService:
         """Compute per-factor hit rate and directional accuracy."""
         evaluations = self.list_evaluations(symbol=symbol, limit=limit)
         theses = _thesis_map(self.repo, evaluations)
+
+        # Batch-fetch all signal IDs upfront (avoids N+1 queries)
+        all_signal_ids: set[str] = set()
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if thesis:
+                all_signal_ids.update(thesis.supporting_signal_ids)
+                all_signal_ids.update(thesis.contradicting_signal_ids)
+
+        signals_map = self.repo.get_signals_by_ids(list(all_signal_ids))
+
         factor_evals: dict[str, list[ThesisEvaluation]] = defaultdict(list)
         for evaluation in evaluations:
             thesis = theses.get(evaluation.thesis_id)
@@ -213,7 +239,7 @@ class EvaluationService:
                 factor_evals["no_signals"].append(evaluation)
                 continue
             for signal_id in signal_ids:
-                signal = self.repo.get_signal(signal_id)
+                signal = signals_map.get(signal_id)
                 key = signal.signal_type if signal else f"unknown:{signal_id}"
                 factor_evals[key].append(evaluation)
 
@@ -242,16 +268,23 @@ class EvaluationService:
                     if thesis.confidence is not None:
                         confidences.append(thesis.confidence)
                 if e.result.value == "hit_target" and thesis:
-                    hit_signal_ids = (
+                    for signal_id in set(
                         thesis.supporting_signal_ids + thesis.contradicting_signal_ids
-                    )
-                    if hit_signal_ids:
-                        signal = self.repo.get_signal(hit_signal_ids[0])
-                        if signal and signal.direction.value in (
-                            "strong_buy",
-                            "strong_sell",
+                    ):
+                        signal = signals_map.get(signal_id)
+                        if not signal:
+                            continue
+                        signal_factor = signal.signal_type
+                        if signal_factor != factor_name:
+                            continue
+                        if (
+                            signal.direction
+                            in (SignalDirection.BULLISH, SignalDirection.BEARISH)
+                            and signal.strength is not None
+                            and signal.strength >= 0.7
                         ):
                             strong_hits += 1
+                            break
 
             factors.append(
                 FactorReliability(
@@ -284,6 +317,16 @@ class EvaluationService:
         """Compute per-agent stance calibration metrics."""
         evaluations = self.list_evaluations(symbol=symbol, limit=limit)
         theses = _thesis_map(self.repo, evaluations)
+
+        # Batch-fetch all agent opinions upfront (avoids N+1 queries)
+        all_opinion_ids: set[str] = set()
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if thesis:
+                all_opinion_ids.update(thesis.agent_opinion_ids)
+
+        opinions_map = self.repo.get_agent_opinions_by_ids(list(all_opinion_ids))
+
         agent_evals: dict[str, list[ThesisEvaluation]] = defaultdict(list)
         agent_roles: dict[str, str] = {}
         for evaluation in evaluations:
@@ -291,7 +334,7 @@ class EvaluationService:
             if not thesis:
                 continue
             for opinion_id in set(thesis.agent_opinion_ids):
-                opinion = self.repo.get_agent_opinion(opinion_id)
+                opinion = opinions_map.get(opinion_id)
                 key = opinion.agent_name if opinion else f"unknown:{opinion_id}"
                 agent_evals[key].append(evaluation)
                 if opinion and key not in agent_roles:
@@ -453,6 +496,13 @@ class EvaluationService:
         """Analyze whether agent disagreements help or hurt outcomes."""
         evaluations = self.list_evaluations(symbol=symbol, limit=limit)
         theses = _thesis_map(self.repo, evaluations)
+
+        # Batch-fetch all agent opinions upfront to avoid N+1 queries.
+        all_opinion_ids: set[str] = set()
+        for thesis in theses.values():
+            all_opinion_ids.update(thesis.agent_opinion_ids)
+        opinions_map = self.repo.get_agent_opinions_by_ids(list(all_opinion_ids))
+
         low_conflict: list[ThesisEvaluation] = []
         medium_conflict: list[ThesisEvaluation] = []
         high_conflict: list[ThesisEvaluation] = []
@@ -464,7 +514,7 @@ class EvaluationService:
             if not thesis:
                 continue
             opinions = [
-                self.repo.get_agent_opinion(oid) for oid in thesis.agent_opinion_ids
+                opinions_map.get(oid) for oid in thesis.agent_opinion_ids
             ]
             resolved: list[AgentOpinion] = [o for o in opinions if o is not None]
             bullish = sum(
@@ -736,14 +786,9 @@ def _thesis_map(
     repo: JournalRepository,
     evaluations: list[ThesisEvaluation],
 ) -> dict[str, TradeThesis]:
-    mapping: dict[str, TradeThesis] = {}
-    for evaluation in evaluations:
-        if evaluation.thesis_id in mapping:
-            continue
-        thesis = repo.get_thesis(evaluation.thesis_id)
-        if thesis:
-            mapping[evaluation.thesis_id] = thesis
-    return mapping
+    """Batch-fetch theses to avoid N+1 queries."""
+    unique_ids = list({evaluation.thesis_id for evaluation in evaluations})
+    return repo.get_theses_by_ids(unique_ids)
 
 
 def _signal_key(signal: Signal | None, fallback_id: str) -> str:

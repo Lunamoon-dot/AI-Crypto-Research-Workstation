@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.factory import create_llm_client_with_keys
+from tradingagents.llm_clients.model_catalog import get_default_fallback_model_map
 from tradingagents.observability import log_event
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class LLMOrchestrator:
     ):
         self.config = config
         self.callbacks = callbacks or []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Circuit breaker config
         fallback_cfg = config.get("llm_fallback", {})
@@ -51,9 +52,43 @@ class LLMOrchestrator:
         self._fallback_llms: dict[str, tuple] = {}
         self._resolved_keys: dict[str, str] = {}
         self._active_llm_provider: str = config.get("llm_provider", "").lower()
+        self._fallback_model_map = self._build_fallback_model_map(
+            fallback_cfg.get("fallback_model_map", {})
+        )
 
         # Callback invoked when provider switches: fn(deep_llm, quick_llm, new_provider)
         self.on_provider_switched: Callable[[Any, Any, str], None] | None = None
+
+    @staticmethod
+    def _build_fallback_model_map(
+        overrides: dict[str, dict[str, str]] | None,
+    ) -> dict[str, dict[str, str]]:
+        model_map = get_default_fallback_model_map()
+        for provider, entry in (overrides or {}).items():
+            provider_key = str(provider).lower().strip()
+            if not provider_key or not isinstance(entry, dict):
+                continue
+            merged = dict(model_map.get(provider_key, {}))
+            for mode in ("deep", "quick"):
+                value = entry.get(mode)
+                if isinstance(value, str) and value.strip():
+                    merged[mode] = value.strip()
+            if merged:
+                model_map[provider_key] = merged
+        return model_map
+
+    def _resolve_fallback_models(self, provider: str) -> tuple[str, str] | None:
+        model_map = self._fallback_model_map.get(provider.lower(), {})
+        deep_model = model_map.get("deep")
+        quick_model = model_map.get("quick")
+        if not deep_model or not quick_model:
+            logger.warning(
+                "Skipping fallback provider %s because no complete fallback model map "
+                "is configured for it",
+                provider,
+            )
+            return None
+        return deep_model, quick_model
 
     # -- Provider kwargs -------------------------------------------------------
 
@@ -82,38 +117,75 @@ class LLMOrchestrator:
     # -- Circuit breaker -------------------------------------------------------
 
     def is_circuit_open(self, provider: str) -> bool:
-        """Return True if *provider*'s circuit breaker is currently open."""
+        """Return True if *provider*'s circuit breaker is currently open.
+
+        Implements a proper 3-state breaker: CLOSED → OPEN → HALF_OPEN → CLOSED.
+        """
         with self._lock:
-            state = self._circuit_state.get(provider)
-            if not state or not state.get("open"):
+            cb = self._circuit_state.get(provider)
+            if not cb:
                 return False
-            opened_at = state.get("opened_at", 0.0)
-            if time.monotonic() - opened_at >= self._cb_window:
-                state["open"] = False
+
+            current_state = cb.get("state", "closed")
+
+            if current_state == "closed":
                 return False
-            return True
+
+            if current_state == "open":
+                opened_at = cb.get("opened_at", 0.0)
+                if time.monotonic() - opened_at >= self._cb_window:
+                    cb["state"] = "half_open"
+                    logger.info(
+                        "Circuit for %s transitioned OPEN → HALF_OPEN", provider
+                    )
+                    return False
+                return True
+
+            # half_open — allow one probe request through
+            return False
 
     def record_result(self, provider: str, success: bool) -> None:
         """Record an LLM call outcome for circuit breaker tracking."""
         if not self._fallback_enabled:
             return
         with self._lock:
-            state = self._circuit_state.setdefault(provider, {})
+            cb = self._circuit_state.setdefault(provider, {})
+            current_state = cb.get("state", "closed")
+
             if success:
-                state["failures"] = 0
-                state["open"] = False
-            else:
-                state["failures"] = state.get("failures", 0) + 1
-                if state["failures"] >= self._cb_threshold:
-                    state["open"] = True
-                    state["opened_at"] = time.monotonic()
+                if current_state == "half_open":
                     log_event(
                         logger,
-                        "circuit_opened",
+                        "circuit_closed",
                         provider=provider,
-                        failures=state["failures"],
-                        threshold=self._cb_threshold,
+                        previous_state="half_open",
                     )
+                cb["state"] = "closed"
+                cb["failures"] = 0
+            else:
+                if current_state == "half_open":
+                    # Probe failed — go back to open, reset the cooldown
+                    cb["state"] = "open"
+                    cb["opened_at"] = time.monotonic()
+                    log_event(
+                        logger,
+                        "circuit_retripped",
+                        provider=provider,
+                        reason="half_open_probe_failed",
+                    )
+                else:
+                    # closed or already open — accumulate failures
+                    cb["failures"] = cb.get("failures", 0) + 1
+                    if cb["failures"] >= self._cb_threshold:
+                        cb["state"] = "open"
+                        cb["opened_at"] = time.monotonic()
+                        log_event(
+                            logger,
+                            "circuit_opened",
+                            provider=provider,
+                            failures=cb["failures"],
+                            threshold=self._cb_threshold,
+                        )
 
     # -- Error classification --------------------------------------------------
 
@@ -206,16 +278,21 @@ class LLMOrchestrator:
                 if self.is_circuit_open(fb_provider):
                     continue
                 try:
+                    models = self._resolve_fallback_models(fb_provider)
+                    if models is None:
+                        continue
+                    deep_model, quick_model = models
+
                     deep_client = create_llm_client_with_keys(
                         provider=fb_provider,
-                        model=self.config["deep_think_llm"],
+                        model=deep_model,
                         base_url=self.config.get("backend_url"),
                         resolved_keys=self._resolved_keys,
                         **llm_kwargs,
                     )
                     quick_client = create_llm_client_with_keys(
                         provider=fb_provider,
-                        model=self.config["quick_think_llm"],
+                        model=quick_model,
                         base_url=self.config.get("backend_url"),
                         resolved_keys=self._resolved_keys,
                         **llm_kwargs,

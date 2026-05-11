@@ -48,7 +48,7 @@ class JournalRepository:
     def __init__(self, store: SQLiteStore):
         self.store = store
 
-    def save_research_run(self, run: ResearchRun) -> ResearchRun:
+    def save_research_run(self, run: ResearchRun, *, _conn=None) -> ResearchRun:
         if not run.id:
             run.id = _new_id("run")
         self.store.execute(
@@ -90,14 +90,16 @@ class JournalRepository:
                 run.user_decision_id,
                 run.outcome_review_id,
                 model_to_json(run),
-            ),
+            ), _conn=_conn,
         )
         return run
 
-    def complete_research_run(self, run: ResearchRun) -> ResearchRun:
+    def complete_research_run(
+        self, run: ResearchRun, *, _conn=None
+    ) -> ResearchRun:
         run.status = ResearchRunStatus.COMPLETED
         run.completed_at = datetime.now(timezone.utc)
-        return self.save_research_run(run)
+        return self.save_research_run(run, _conn=_conn)
 
     def get_research_run(self, run_id: str) -> ResearchRun | None:
         row = self.store.fetchone(
@@ -116,7 +118,9 @@ class JournalRepository:
         )
         return [model_from_json(ResearchRun, row["payload_json"]) for row in rows]
 
-    def save_market_snapshot(self, snapshot: MarketSnapshot) -> MarketSnapshot:
+    def save_market_snapshot(
+        self, snapshot: MarketSnapshot, *, _conn=None
+    ) -> MarketSnapshot:
         if not snapshot.id:
             snapshot.id = _new_id("market_snapshot")
         self.store.execute(
@@ -141,6 +145,7 @@ class JournalRepository:
                 _iso(snapshot.source_timestamp),
                 model_to_json(snapshot),
             ),
+            _conn=_conn,
         )
         return snapshot
 
@@ -162,7 +167,7 @@ class JournalRepository:
         )
         return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
 
-    def save_signal(self, signal: Signal) -> Signal:
+    def save_signal(self, signal: Signal, *, _conn=None) -> Signal:
         if not signal.id:
             signal.id = _new_id("sig")
         self.store.execute(
@@ -188,17 +193,84 @@ class JournalRepository:
                 _iso(signal.provenance.source_timestamp),
                 model_to_json(signal),
             ),
+            _conn=_conn,
         )
         return signal
 
-    def save_signals(self, signals: list[Signal]) -> list[Signal]:
-        return [self.save_signal(signal) for signal in signals]
+    def save_signals(self, signals: list[Signal], *, _conn=None) -> list[Signal]:
+        """Persist a batch of signals in a single transaction.
+
+        Avoids the N+1 connection-open pattern of calling :meth:`save_signal`
+        in a loop.  Falls back to individual saves when the batch is tiny.
+        """
+        if not signals:
+            return []
+        if len(signals) == 1:
+            return [self.save_signal(signals[0], _conn=_conn)]
+
+        # Assign ids before entering the transaction.
+        for signal in signals:
+            if not signal.id:
+                signal.id = _new_id("sig")
+
+        params_seq = [
+            (
+                signal.id,
+                signal.symbol,
+                signal.signal_type,
+                signal.direction.value,
+                signal.confidence,
+                _iso(signal.observed_at),
+                signal.provenance.source,
+                _iso(signal.provenance.source_timestamp),
+                model_to_json(signal),
+            )
+            for signal in signals
+        ]
+
+        def _execute(conn):
+            conn.executemany(
+                """
+                INSERT INTO signals (
+                    id, symbol, signal_type, direction, confidence, observed_at,
+                    source, source_timestamp, payload_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    direction=excluded.direction,
+                    confidence=excluded.confidence,
+                    payload_json=excluded.payload_json
+                """,
+                params_seq,
+            )
+        if _conn is not None:
+            _execute(_conn)
+        else:
+            with self.store.transaction() as conn:
+                _execute(conn)
+        return signals
 
     def get_signal(self, signal_id: str) -> Signal | None:
         row = self.store.fetchone(
             "SELECT payload_json FROM signals WHERE id = ?", (signal_id,)
         )
         return model_from_json(Signal, row["payload_json"]) if row else None
+
+    def get_signals_by_ids(self, signal_ids: list[str]) -> dict[str, Signal]:
+        """Batch-fetch multiple signals by ID. Returns {id: Signal}."""
+        if not signal_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(signal_ids))
+        rows = self.store.fetchall(
+            f"SELECT payload_json FROM signals WHERE id IN ({placeholders})",
+            tuple(signal_ids),
+        )
+        result: dict[str, Signal] = {}
+        for row in rows:
+            signal = model_from_json(Signal, row["payload_json"])
+            if signal and signal.id:
+                result[signal.id] = signal
+        return result
 
     def list_signals(
         self,
@@ -227,7 +299,9 @@ class JournalRepository:
             )
         return [model_from_json(Signal, row["payload_json"]) for row in rows]
 
-    def save_signal_snapshot(self, snapshot: SignalSnapshot) -> SignalSnapshot:
+    def save_signal_snapshot(
+        self, snapshot: SignalSnapshot, *, _conn=None
+    ) -> SignalSnapshot:
         if not snapshot.id:
             snapshot.id = _new_id("signal_snapshot")
         self.store.execute(
@@ -262,6 +336,7 @@ class JournalRepository:
                 snapshot.unknown_freshness_count,
                 model_to_json(snapshot),
             ),
+            _conn=_conn,
         )
         return snapshot
 
@@ -271,7 +346,7 @@ class JournalRepository:
         )
         return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
 
-    def save_agent_opinion(self, opinion: AgentOpinion) -> AgentOpinion:
+    def save_agent_opinion(self, opinion: AgentOpinion, *, _conn=None) -> AgentOpinion:
         if not opinion.id:
             opinion.id = _new_id("opinion")
         self.store.execute(
@@ -298,17 +373,88 @@ class JournalRepository:
                 _iso(opinion.created_at),
                 model_to_json(opinion),
             ),
+            _conn=_conn,
         )
         return opinion
 
-    def save_agent_opinions(self, opinions: list[AgentOpinion]) -> list[AgentOpinion]:
-        return [self.save_agent_opinion(opinion) for opinion in opinions]
+    def save_agent_opinions(
+        self, opinions: list[AgentOpinion], *, _conn=None
+    ) -> list[AgentOpinion]:
+        """Persist a batch of agent opinions in a single transaction.
+
+        Avoids the N+1 connection-open pattern.  Falls back to individual
+        saves when the batch is tiny.
+        """
+        if not opinions:
+            return []
+        if len(opinions) == 1:
+            return [self.save_agent_opinion(opinions[0], _conn=_conn)]
+
+        for opinion in opinions:
+            if not opinion.id:
+                opinion.id = _new_id("opinion")
+
+        params_seq = [
+            (
+                opinion.id,
+                opinion.research_run_id,
+                opinion.debate_id,
+                opinion.agent_name,
+                opinion.role,
+                opinion.stance.value,
+                opinion.confidence,
+                _iso(opinion.created_at),
+                model_to_json(opinion),
+            )
+            for opinion in opinions
+        ]
+
+        def _execute(conn):
+            conn.executemany(
+                """
+                INSERT INTO agent_opinions (
+                    id, research_run_id, debate_id, agent_name, role, stance,
+                    confidence, created_at, payload_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    debate_id=excluded.debate_id,
+                    stance=excluded.stance,
+                    confidence=excluded.confidence,
+                    payload_json=excluded.payload_json
+                """,
+                params_seq,
+            )
+        if _conn is not None:
+            _execute(_conn)
+        else:
+            with self.store.transaction() as conn:
+                _execute(conn)
+        return opinions
 
     def get_agent_opinion(self, opinion_id: str) -> AgentOpinion | None:
         row = self.store.fetchone(
             "SELECT payload_json FROM agent_opinions WHERE id = ?", (opinion_id,)
         )
         return model_from_json(AgentOpinion, row["payload_json"]) if row else None
+
+    def get_agent_opinions_by_ids(
+        self, opinion_ids: list[str]
+    ) -> dict[str, AgentOpinion]:
+        """Batch-fetch multiple agent opinions by ID. Returns {id: AgentOpinion}."""
+        if not opinion_ids:
+            return {}
+        placeholders = ", ".join(["?"] * len(opinion_ids))
+        rows = self.store.fetchall(
+            f"SELECT payload_json FROM agent_opinions WHERE id IN ({placeholders})",
+            tuple(opinion_ids),
+        )
+        result: dict[str, AgentOpinion] = {}
+        for row in rows:
+            opinion = model_from_json(AgentOpinion, row["payload_json"])
+            if opinion and opinion.id:
+                result[opinion.id] = opinion
+        return result
 
     def list_agent_opinions(
         self,
@@ -348,7 +494,7 @@ class JournalRepository:
             )
         return [model_from_json(AgentOpinion, row["payload_json"]) for row in rows]
 
-    def save_debate(self, debate: ResearchDebate) -> ResearchDebate:
+    def save_debate(self, debate: ResearchDebate, *, _conn=None) -> ResearchDebate:
         if not debate.id:
             debate.id = _new_id("debate")
         self.store.execute(
@@ -371,7 +517,7 @@ class JournalRepository:
                 debate.conflict_level.value,
                 _iso(debate.created_at),
                 model_to_json(debate),
-            ),
+            ), _conn=_conn,
         )
         return debate
 
@@ -381,7 +527,7 @@ class JournalRepository:
         )
         return model_from_json(ResearchDebate, row["payload_json"]) if row else None
 
-    def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
+    def save_thesis(self, thesis: TradeThesis, *, _conn=None) -> TradeThesis:
         if not thesis.id:
             thesis.id = _new_id("thesis")
         self.store.execute(
@@ -406,7 +552,7 @@ class JournalRepository:
                 thesis.confidence,
                 _iso(thesis.created_at),
                 model_to_json(thesis),
-            ),
+            ), _conn=_conn,
         )
         return thesis
 
@@ -415,6 +561,26 @@ class JournalRepository:
             "SELECT payload_json FROM trade_theses WHERE id = ?", (thesis_id,)
         )
         return model_from_json(TradeThesis, row["payload_json"]) if row else None
+
+    def get_theses_by_ids(self, thesis_ids: list[str]) -> dict[str, TradeThesis]:
+        """Batch-fetch theses to avoid N+1 queries in evaluation analytics."""
+        if not thesis_ids:
+            return {}
+        # SQLite has a default limit of 999 host parameters; chunk if needed.
+        CHUNK = 900
+        result: dict[str, TradeThesis] = {}
+        for i in range(0, len(thesis_ids), CHUNK):
+            chunk = thesis_ids[i : i + CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.store.fetchall(
+                f"SELECT payload_json FROM trade_theses WHERE id IN ({placeholders})",
+                tuple(chunk),
+            )
+            for row in rows:
+                thesis = model_from_json(TradeThesis, row["payload_json"])
+                if thesis and thesis.id:
+                    result[thesis.id] = thesis
+        return result
 
     def list_theses(self, limit: int = 20) -> list[TradeThesis]:
         rows = self.store.fetchall(
@@ -430,7 +596,7 @@ class JournalRepository:
     def find_thesis_by_id(self, thesis_id: str) -> TradeThesis | None:
         return self.get_thesis(thesis_id)
 
-    def save_scenario(self, scenario: Scenario) -> Scenario:
+    def save_scenario(self, scenario: Scenario, *, _conn=None) -> Scenario:
         if not scenario.id:
             scenario.id = _new_id("scenario")
         self.store.execute(
@@ -450,12 +616,56 @@ class JournalRepository:
                 scenario.probability_band.value,
                 scenario.suggested_user_action,
                 model_to_json(scenario),
-            ),
+            ), _conn=_conn,
         )
         return scenario
 
-    def save_scenarios(self, scenarios: list[Scenario]) -> list[Scenario]:
-        return [self.save_scenario(scenario) for scenario in scenarios]
+    def save_scenarios(self, scenarios: list[Scenario], *, _conn=None) -> list[Scenario]:
+        """Persist a batch of scenarios in a single transaction.
+
+        Avoids the N+1 connection-open pattern of calling :meth:`save_scenario`
+        in a loop.  Falls back to individual saves when the batch is tiny.
+        """
+        if not scenarios:
+            return []
+        if len(scenarios) == 1:
+            return [self.save_scenario(scenarios[0], _conn=_conn)]
+
+        for scenario in scenarios:
+            if not scenario.id:
+                scenario.id = _new_id("scenario")
+
+        params_seq = [
+            (
+                scenario.id,
+                scenario.thesis_id,
+                scenario.probability_band.value,
+                scenario.suggested_user_action,
+                model_to_json(scenario),
+            )
+            for scenario in scenarios
+        ]
+
+        def _execute(conn):
+            conn.executemany(
+                """
+                INSERT INTO scenarios (
+                    id, thesis_id, probability_band, suggested_user_action, payload_json
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    probability_band=excluded.probability_band,
+                    suggested_user_action=excluded.suggested_user_action,
+                    payload_json=excluded.payload_json
+                """,
+                params_seq,
+            )
+        if _conn is not None:
+            _execute(_conn)
+        else:
+            with self.store.transaction() as conn:
+                _execute(conn)
+        return scenarios
 
     def get_scenario(self, scenario_id: str) -> Scenario | None:
         row = self.store.fetchone(
@@ -850,7 +1060,7 @@ class JournalRepository:
         )
         return [model_from_json(ThesisEvaluation, row["payload_json"]) for row in rows]
 
-    def save_user_decision(self, decision: UserDecision) -> UserDecision:
+    def save_user_decision(self, decision: UserDecision, *, _conn=None) -> UserDecision:
         if not decision.id:
             decision.id = _new_id("decision")
         self.store.execute(
@@ -871,11 +1081,11 @@ class JournalRepository:
                 _iso(decision.decided_at),
                 decision.user_notes,
                 model_to_json(decision),
-            ),
+            ), _conn=_conn,
         )
         return decision
 
-    def save_outcome_review(self, review: OutcomeReview) -> OutcomeReview:
+    def save_outcome_review(self, review: OutcomeReview, *, _conn=None) -> OutcomeReview:
         if not review.id:
             review.id = _new_id("outcome")
         self.store.execute(
@@ -896,7 +1106,7 @@ class JournalRepository:
                 _iso(review.reviewed_at),
                 1 if review.invalidated else 0,
                 model_to_json(review),
-            ),
+            ), _conn=_conn,
         )
         return review
 
@@ -941,6 +1151,7 @@ class JournalRepository:
         payload: dict | None = None,
         *,
         thesis_id: str | None = None,
+        _conn=None,
     ) -> TimelineEvent:
         event = TimelineEvent(
             id=_new_id("event"),
@@ -965,7 +1176,7 @@ class JournalRepository:
                 _iso(event.created_at),
                 event.message,
                 dumps_payload(event.payload),
-            ),
+            ), _conn=_conn,
         )
         return event
 
@@ -1029,7 +1240,7 @@ class JournalRepository:
     # Phase 4 (tail): Reliability snapshots
     # ------------------------------------------------------------------
 
-    def save_reliability_snapshot(self, snapshot) -> Any:
+    def save_reliability_snapshot(self, snapshot, *, _conn=None) -> Any:
         """Save a reliability snapshot as a payload_json row."""
         if not snapshot.id:
             snapshot.id = _new_id("rel_snap")
@@ -1054,6 +1265,7 @@ class JournalRepository:
                 snapshot.overall_sample_size,
                 model_to_json(snapshot),
             ),
+            _conn=_conn,
         )
         return snapshot
 

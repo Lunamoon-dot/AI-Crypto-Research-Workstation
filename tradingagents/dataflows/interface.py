@@ -25,6 +25,7 @@ from .stockstats_utils import StockstatsUtils
 
 # Configuration and routing logic
 from .config import get_config
+from .retry import compute_backoff
 from .crypto_news_provider import (
     format_cryptopanic_for_tool,
     format_global_cryptopanic_for_tool,
@@ -517,7 +518,7 @@ def _invoke_with_resilience(
             last_error = exc
 
         if attempt < attempts:
-            sleep_sec = min(backoff_max, backoff_base * (2 ** (attempt - 1)))
+            sleep_sec = compute_backoff(attempt - 1, base=backoff_base, cap=backoff_max)
             time.sleep(max(0.0, sleep_sec))
         else:
             break

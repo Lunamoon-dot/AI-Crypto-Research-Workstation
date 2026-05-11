@@ -29,6 +29,9 @@ ON research_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_runs_symbol
 ON research_runs(symbol);
 
+CREATE INDEX IF NOT EXISTS idx_research_runs_status
+ON research_runs(status, started_at DESC);
+
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id TEXT PRIMARY KEY,
     research_run_id TEXT,
@@ -194,6 +197,9 @@ ON run_events(research_run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_run_events_thesis
 ON run_events(thesis_id, created_at);
 
+CREATE INDEX IF NOT EXISTS idx_run_events_event_type
+ON run_events(event_type, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS watchlists (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -234,6 +240,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     symbol TEXT NOT NULL,
     thesis_id TEXT,
     watchlist_item_id TEXT,
+    trigger_key TEXT,
     created_at TEXT NOT NULL,
     read_at TEXT,
     message TEXT NOT NULL,
@@ -251,6 +258,12 @@ ON alerts(symbol, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_thesis
 ON alerts(thesis_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_alerts_watchlist_item
+ON alerts(watchlist_item_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_trigger_key
+ON alerts(alert_type, trigger_key, thesis_id, watchlist_item_id);
+
 CREATE TABLE IF NOT EXISTS market_briefs (
     id TEXT PRIMARY KEY,
     brief_date TEXT NOT NULL,
@@ -267,6 +280,9 @@ ON market_briefs(brief_date DESC, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_market_briefs_watchlist
 ON market_briefs(watchlist_name, brief_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_market_briefs_previous
+ON market_briefs(previous_brief_id);
 
 CREATE TABLE IF NOT EXISTS thesis_evaluations (
     id TEXT PRIMARY KEY,

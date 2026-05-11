@@ -154,6 +154,31 @@ def _get_configured_exchange():
 # ---------------------------------------------------------------------------
 
 
+def _get_crypto_ohlcv_df(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+) -> "pd.DataFrame":
+    """Fetch OHLCV price data for a crypto pair, returning a DataFrame.
+
+    Internal helper — callers that need structured data should use this
+    instead of the CSV-returning ``get_crypto_ohlcv``.
+    """
+    exchange = _get_configured_exchange()
+    symbol = _normalize_symbol(symbol, exchange)
+
+    since = exchange.parse8601(start_date + "T00:00:00Z")
+    raw = exchange.fetch_ohlcv(symbol, timeframe="1d", since=since, limit=365 * 2)
+
+    df = pd.DataFrame(
+        raw, columns=["timestamp", "open", "high", "low", "close", "volume"]
+    )
+    if not df.empty:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+        df.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    return df
+
+
 def get_crypto_ohlcv(
     symbol: str,
     start_date: str,
@@ -164,12 +189,10 @@ def get_crypto_ohlcv(
     Returns a CSV string matching the format produced by
     ``get_YFin_data_online`` so downstream consumers (particularly
     ``stockstats``) can read the result unchanged.
+    Prefer ``_get_crypto_ohlcv_df`` when you need a DataFrame directly.
     """
-    exchange = _get_configured_exchange()
-    symbol = _normalize_symbol(symbol, exchange)
-
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    df = _get_crypto_ohlcv_df(symbol, start_date, end_date)
+    return df.to_csv(index=False)
 
     # CCXT expects milliseconds
     since = exchange.parse8601(start_dt.strftime("%Y-%m-%dT00:00:00Z"))

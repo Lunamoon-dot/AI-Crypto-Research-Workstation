@@ -95,7 +95,7 @@ class TestBuildFactorReliability:
         evals = [_make_evaluation("t1"), _make_evaluation("t2")]
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=None):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={}):
                 report = svc.build_factor_reliability()
                 assert report.total_sample_size == 2
                 factor_names = {f.factor_name for f in report.factors}
@@ -122,12 +122,12 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_signal") as mock_get_signal:
-                    mock_get_signal.side_effect = lambda sid: {
-                        "s1": signal1,
-                        "s2": signal2,
-                    }.get(sid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo,
+                    "get_signals_by_ids",
+                    return_value={"s1": signal1, "s2": signal2},
+                ):
                     report = svc.build_factor_reliability()
                     factor_names = {f.factor_name for f in report.factors}
                     assert "rsi_divergence" in factor_names
@@ -155,12 +155,10 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis") as mock_thesis:
-                mock_thesis.side_effect = lambda tid: {
-                    "t1": thesis1,
-                    "t2": thesis2,
-                }.get(tid)
-                with patch.object(svc.repo, "get_signal", return_value=signal):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+                with patch.object(
+                    svc.repo, "get_signals_by_ids", return_value={"s1": signal}
+                ):
                     report = svc.build_factor_reliability()
                     rsi = next(
                         f for f in report.factors if f.factor_name == "rsi_divergence"
@@ -193,16 +191,12 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis") as mock_thesis:
-                mock_thesis.side_effect = lambda tid: {
-                    "t1": thesis1,
-                    "t2": thesis2,
-                }.get(tid)
-                with patch.object(svc.repo, "get_signal") as mock_sig:
-                    mock_sig.side_effect = lambda sid: {
-                        "s_best": signal_best,
-                        "s_worst": signal_worst,
-                    }.get(sid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+                with patch.object(
+                    svc.repo,
+                    "get_signals_by_ids",
+                    return_value={"s_best": signal_best, "s_worst": signal_worst},
+                ):
                     report = svc.build_factor_reliability()
                     # Verify hit rates per factor
                     best = next(
@@ -216,6 +210,54 @@ class TestBuildFactorReliability:
                     # best/worst identification
                     assert report.best_factor is not None
                     assert report.worst_factor is not None
+
+    def test_strong_signal_hit_rate_uses_direction_and_strength(self):
+        evals = [
+            _make_evaluation("t_bull", result=OutcomeResult.HIT_TARGET),
+            _make_evaluation("t_bear", result=OutcomeResult.HIT_TARGET),
+            _make_evaluation("t_weak", result=OutcomeResult.HIT_TARGET),
+        ]
+        theses = {
+            "t_bull": _make_thesis("t_bull", signal_ids=["s_bull"]),
+            "t_bear": _make_thesis("t_bear", signal_ids=["s_bear"]),
+            "t_weak": _make_thesis("t_weak", signal_ids=["s_weak"]),
+        }
+        signals = {
+            "s_bull": Signal(
+                id="s_bull",
+                symbol="BTC/USDT",
+                signal_type="momentum",
+                direction=SignalDirection.BULLISH,
+                strength=0.7,
+                provenance=SignalProvenance(source="test"),
+            ),
+            "s_bear": Signal(
+                id="s_bear",
+                symbol="BTC/USDT",
+                signal_type="momentum",
+                direction=SignalDirection.BEARISH,
+                strength=0.9,
+                provenance=SignalProvenance(source="test"),
+            ),
+            "s_weak": Signal(
+                id="s_weak",
+                symbol="BTC/USDT",
+                signal_type="momentum",
+                direction=SignalDirection.BULLISH,
+                strength=0.69,
+                provenance=SignalProvenance(source="test"),
+            ),
+        }
+
+        svc = EvaluationService()
+        with patch.object(svc, "list_evaluations", return_value=evals):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value=theses):
+                with patch.object(svc.repo, "get_signals_by_ids", return_value=signals):
+                    report = svc.build_factor_reliability()
+
+        momentum = next(f for f in report.factors if f.factor_name == "momentum")
+        assert momentum.sample_size == 3
+        assert momentum.strong_signal_hit_rate == pytest.approx(2 / 3)
 
 
 # ---------------------------------------------------------------------------
@@ -246,12 +288,12 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_agent_opinion") as mock_op:
-                    mock_op.side_effect = lambda oid: {
-                        "o1": opinion1,
-                        "o2": opinion2,
-                    }.get(oid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion1, "o2": opinion2},
+                ):
                     report = svc.build_agent_calibration()
                     agent_names = {a.agent_name for a in report.agents}
                     assert "Bull Researcher" in agent_names
@@ -272,9 +314,12 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis") as mock_t:
-                mock_t.side_effect = lambda tid: {"t1": thesis1, "t2": thesis2}.get(tid)
-                with patch.object(svc.repo, "get_agent_opinion", return_value=opinion):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+                with patch.object(
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion},
+                ):
                     report = svc.build_agent_calibration()
                     analyst = report.agents[0]
                     assert analyst.sample_size == 2
@@ -293,8 +338,12 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_agent_opinion", return_value=opinion):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion},
+                ):
                     report = svc.build_agent_calibration()
                     assert report.most_accurate_agent == "Good Analyst"
 
@@ -325,11 +374,7 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis") as mock_t:
-                mock_t.side_effect = lambda tid: {
-                    "t1": thesis_high,
-                    "t2": thesis_low,
-                }.get(tid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis_high, "t2": thesis_low}):
                 curve = svc.build_confidence_curve()
                 assert len(curve.buckets) == 6
                 high_bucket = next(
@@ -352,8 +397,7 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis") as mock_t:
-                mock_t.side_effect = lambda tid: {"t1": thesis1, "t2": thesis2}.get(tid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
                 curve = svc.build_confidence_curve()
                 assert curve.calibration_quality in (
                     "well_calibrated",
@@ -368,7 +412,7 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
                 curve = svc.build_confidence_curve()
                 for bucket in curve.buckets:
                     assert bucket.sample_size == 0
@@ -402,12 +446,11 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_agent_opinion") as mock_op:
-                    mock_op.side_effect = lambda oid: {
-                        "o1": opinion1,
-                        "o2": opinion2,
-                    }.get(oid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo, "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion1, "o2": opinion2},
+                ):
                     analysis = svc.build_contradiction_analysis()
                     assert analysis.low_conflict_sample == 1
                     assert analysis.high_conflict_sample == 0
@@ -425,12 +468,11 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_agent_opinion") as mock_op:
-                    mock_op.side_effect = lambda oid: {
-                        "o1": opinion1,
-                        "o2": opinion2,
-                    }.get(oid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo, "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion1, "o2": opinion2},
+                ):
                     analysis = svc.build_contradiction_analysis()
                     assert analysis.contradiction_count_avg == 1.0
                     assert analysis.high_conflict_sample == 1
@@ -451,15 +493,114 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_thesis", return_value=thesis):
-                with patch.object(svc.repo, "get_agent_opinion") as mock_op:
-                    mock_op.side_effect = lambda oid: {
-                        "o1": opinion1,
-                        "o2": opinion2,
-                        "o3": opinion3,
-                    }.get(oid)
+            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+                with patch.object(
+                    svc.repo, "get_agent_opinions_by_ids",
+                    return_value={"o1": opinion1, "o2": opinion2, "o3": opinion3},
+                ):
                     analysis = svc.build_contradiction_analysis()
                     # 1 bullish, 2 bearish → diversity = 1 - |1-2|/3 = 1 - 1/3 ≈ 0.667
                     assert analysis.stance_diversity_score == pytest.approx(
                         1.0 - 1.0 / 3, abs=0.01
                     )
+
+
+@pytest.mark.unit
+def test_analytics_paths_do_not_use_per_id_repo_calls():
+    evals = [
+        _make_evaluation("t1", result=OutcomeResult.HIT_TARGET),
+        _make_evaluation("t2", result=OutcomeResult.INVALIDATED),
+    ]
+    theses = {
+        "t1": _make_thesis(
+            "t1",
+            signal_ids=["s1"],
+            contradicting_ids=["s3"],
+            opinion_ids=["o1", "o2"],
+            direction=ThesisDirection.LONG,
+            confidence=0.8,
+        ),
+        "t2": _make_thesis(
+            "t2",
+            signal_ids=["s2"],
+            opinion_ids=["o3"],
+            direction=ThesisDirection.SHORT,
+            confidence=0.6,
+        ),
+    }
+    signals = {
+        "s1": Signal(
+            id="s1",
+            symbol="BTC/USDT",
+            signal_type="momentum",
+            direction=SignalDirection.BULLISH,
+            strength=0.8,
+            provenance=SignalProvenance(source="test"),
+        ),
+        "s2": Signal(
+            id="s2",
+            symbol="BTC/USDT",
+            signal_type="funding",
+            direction=SignalDirection.BEARISH,
+            strength=0.8,
+            provenance=SignalProvenance(source="test"),
+        ),
+        "s3": Signal(
+            id="s3",
+            symbol="BTC/USDT",
+            signal_type="volume",
+            direction=SignalDirection.NEUTRAL,
+            strength=0.5,
+            provenance=SignalProvenance(source="test"),
+        ),
+    }
+    opinions = {
+        "o1": AgentOpinion(
+            id="o1",
+            agent_name="Bull",
+            role="researcher",
+            stance=AgentStance.BULLISH,
+        ),
+        "o2": AgentOpinion(
+            id="o2",
+            agent_name="Bear",
+            role="researcher",
+            stance=AgentStance.BEARISH,
+        ),
+        "o3": AgentOpinion(
+            id="o3",
+            agent_name="Macro",
+            role="researcher",
+            stance=AgentStance.BEARISH,
+        ),
+    }
+
+    svc = EvaluationService()
+
+    def _per_id_call(*args, **kwargs):
+        raise AssertionError("analytics path used a per-id repository call")
+
+    with patch.object(svc, "list_evaluations", return_value=evals):
+        with patch.object(svc.repo, "get_theses_by_ids", return_value=theses):
+            with patch.object(svc.repo, "get_signals_by_ids", return_value=signals):
+                with patch.object(
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
+                    return_value=opinions,
+                ):
+                    with patch.object(svc.repo, "get_thesis", side_effect=_per_id_call):
+                        with patch.object(
+                            svc.repo,
+                            "get_signal",
+                            side_effect=_per_id_call,
+                        ):
+                            with patch.object(
+                                svc.repo,
+                                "get_agent_opinion",
+                                side_effect=_per_id_call,
+                            ):
+                                svc.build_analytics()
+                                svc.build_factor_reliability()
+                                svc.build_agent_calibration()
+                                svc.build_confidence_curve()
+                                svc.build_contradiction_analysis()

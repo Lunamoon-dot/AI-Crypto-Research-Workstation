@@ -195,6 +195,55 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
             issues.append(
                 "llm_fallback.circuit_breaker_window_sec must be a positive number"
             )
+        raw_model_map = llm_fallback.get("fallback_model_map", {})
+        normalized_model_map: dict[str, dict[str, str]] = {}
+        if raw_model_map in (None, ""):
+            raw_model_map = {}
+        if not isinstance(raw_model_map, dict):
+            issues.append("llm_fallback.fallback_model_map must be a mapping")
+        else:
+            for provider, entry in raw_model_map.items():
+                provider_key = str(provider).strip().lower()
+                if not provider_key:
+                    issues.append(
+                        "llm_fallback.fallback_model_map contains an empty provider key"
+                    )
+                    continue
+                if provider_key not in KNOWN_PROVIDERS:
+                    issues.append(
+                        f"llm_fallback.fallback_model_map has unknown provider "
+                        f"{provider!r}; known: {', '.join(KNOWN_PROVIDERS)}"
+                    )
+                    continue
+                if not isinstance(entry, dict):
+                    issues.append(
+                        f"llm_fallback.fallback_model_map[{provider!r}] must be a mapping"
+                    )
+                    continue
+                normalized_entry: dict[str, str] = {}
+                for mode_name in ("deep", "quick"):
+                    if mode_name not in entry:
+                        continue
+                    model_name = entry.get(mode_name)
+                    if not isinstance(model_name, str) or not model_name.strip():
+                        issues.append(
+                            "llm_fallback.fallback_model_map"
+                            f"[{provider!r}].{mode_name} must be a non-empty string"
+                        )
+                        continue
+                    normalized_entry[mode_name] = model_name.strip()
+                unexpected_modes = sorted(set(entry) - {"deep", "quick"})
+                if unexpected_modes:
+                    issues.append(
+                        f"llm_fallback.fallback_model_map[{provider!r}] has "
+                        f"unknown keys {unexpected_modes!r}; allowed: deep, quick"
+                    )
+                if normalized_entry:
+                    normalized_model_map[provider_key] = normalized_entry
+        llm_fallback["fallback_model_map"] = normalized_model_map
+        normalized["llm_fallback"] = llm_fallback
+    else:
+        issues.append("llm_fallback must be a mapping")
 
     # Validate secrets section
     secrets_cfg = normalized.get("secrets", {})

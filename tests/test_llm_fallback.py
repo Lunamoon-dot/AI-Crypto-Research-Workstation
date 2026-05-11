@@ -1,7 +1,18 @@
 """Tests for circuit breaker and LLM provider fallback."""
 
+from unittest.mock import patch
+
 from tradingagents.config.loader import ConfigLoader
 from tradingagents.default_config import DEFAULT_CONFIG
+
+
+class _FakeLLMClient:
+    def __init__(self, provider: str, model: str):
+        self.provider = provider
+        self.model = model
+
+    def get_llm(self):
+        return {"provider": self.provider, "model": self.model}
 
 
 class TestCircuitBreakerMechanics:
@@ -72,7 +83,7 @@ class TestCircuitBreakerMechanics:
         orch._circuit_state = {
             "deepseek": {
                 "failures": 3,
-                "open": True,
+                "state": "open",
                 "opened_at": time.monotonic() - 301,
             },
         }
@@ -94,7 +105,7 @@ class TestCircuitBreakerMechanics:
             }
         )
         orch._circuit_state = {
-            "deepseek": {"failures": 3, "open": True, "opened_at": now},
+            "deepseek": {"failures": 3, "state": "open", "opened_at": now},
         }
 
         assert orch.is_circuit_open("deepseek")
@@ -160,6 +171,113 @@ class TestConfigLoaderFallbackDefaults:
         primary = config.get("llm_provider", "")
         assert primary not in fallback.get("fallback_providers", [])
 
+    def test_loaded_defaults_do_not_override_openrouter_to_deepseek(self):
+        from tradingagents.llm_clients.model_catalog import (
+            get_default_fallback_model_map,
+        )
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        config = ConfigLoader().load(fail_fast=False)
+        orch = LLMOrchestrator(config)
+        catalog = get_default_fallback_model_map()
+
+        assert orch._fallback_model_map["openrouter"] == catalog["openrouter"]
+        assert "deepseek" not in orch._fallback_model_map["openrouter"]["deep"]
+        assert "deepseek" not in orch._fallback_model_map["openrouter"]["quick"]
+
+    def test_default_fallback_model_map_uses_target_provider_models(self):
+        from tradingagents.llm_clients.model_catalog import (
+            get_default_fallback_model_map,
+        )
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        created: list[tuple[str, str]] = []
+
+        def _fake_create(provider, model, **kwargs):
+            created.append((provider, model))
+            return _FakeLLMClient(provider, model)
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["openai", "openrouter"],
+            },
+        }
+        defaults = get_default_fallback_model_map()
+        orch = LLMOrchestrator(config)
+
+        with patch(
+            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            side_effect=_fake_create,
+        ):
+            orch.ensure_fallback_llms()
+
+        assert ("openai", defaults["openai"]["deep"]) in created
+        assert ("openai", defaults["openai"]["quick"]) in created
+        assert ("openrouter", defaults["openrouter"]["deep"]) in created
+        assert ("openrouter", defaults["openrouter"]["quick"]) in created
+        assert all("deepseek" not in model for _, model in created)
+
+    def test_fallback_model_map_config_override_wins(self):
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        created: list[tuple[str, str]] = []
+
+        def _fake_create(provider, model, **kwargs):
+            created.append((provider, model))
+            return _FakeLLMClient(provider, model)
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["openai"],
+                "fallback_model_map": {
+                    "openai": {"deep": "gpt-4o", "quick": "gpt-4o-mini"}
+                },
+            },
+        }
+        orch = LLMOrchestrator(config)
+
+        with patch(
+            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            side_effect=_fake_create,
+        ):
+            orch.ensure_fallback_llms()
+
+        assert created == [("openai", "gpt-4o"), ("openai", "gpt-4o-mini")]
+
+    def test_missing_fallback_model_map_skips_provider_with_warning(self, caplog):
+        import logging
+
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["azure"],
+            },
+        }
+        orch = LLMOrchestrator(config)
+
+        with caplog.at_level(logging.WARNING):
+            with patch(
+                "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys"
+            ) as mock_create:
+                orch.ensure_fallback_llms()
+
+        mock_create.assert_not_called()
+        assert "Skipping fallback provider azure" in caplog.text
+        assert "azure" not in orch._fallback_llms
+
 
 class TestValidationNewSections:
     def test_llm_fallback_validation(self):
@@ -216,3 +334,24 @@ class TestValidationNewSections:
         with caplog.at_level(logging.WARNING):
             validate_and_normalize_config(cfg, source="test")
         assert "redundant" in caplog.text.lower()
+
+    def test_fallback_model_map_validation_normalizes_provider_key(self):
+        from tradingagents.config.schema import validate_and_normalize_config
+
+        cfg = {
+            **DEFAULT_CONFIG,
+            "llm_provider": "deepseek",
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["openai"],
+                "fallback_model_map": {
+                    "OpenAI": {"deep": " gpt-4o ", "quick": "gpt-4o-mini"}
+                },
+            },
+            "config_validation": {"mode": "fail_fast", "validate_llm_keys": False},
+        }
+        resolved = validate_and_normalize_config(cfg, source="test")
+
+        assert resolved["llm_fallback"]["fallback_model_map"] == {
+            "openai": {"deep": "gpt-4o", "quick": "gpt-4o-mini"}
+        }

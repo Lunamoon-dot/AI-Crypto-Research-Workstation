@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
+# deepcopy removed — shallow copy is sufficient since only messages are mutated
 from typing import Any, Callable
 
 
@@ -16,7 +16,7 @@ def make_analyst_runner(
     """Wrap an analyst node so it completes its own tool loop in one graph step."""
 
     def _run(state: dict) -> dict:
-        local_state = deepcopy(state)
+        local_state = {**state}
         local_messages = list(local_state.get("messages", []))
         report = ""
         last_ai_message = None

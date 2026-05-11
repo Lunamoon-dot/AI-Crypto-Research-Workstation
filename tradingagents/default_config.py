@@ -59,6 +59,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fallback_providers": ["openrouter", "openai"],
         "circuit_breaker_threshold": 3,  # consecutive failures before opening circuit
         "circuit_breaker_window_sec": 300,  # cooling period before half-open attempt
+        # Optional overrides for the built-in catalog fallback model map.
+        # Missing providers use catalog defaults; providers without defaults are skipped.
+        "fallback_model_map": {},
     },
     # Structured observability (Phase 11): JSON logs + optional journal run_events.
     "observability": {

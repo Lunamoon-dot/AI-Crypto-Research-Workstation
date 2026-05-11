@@ -1,5 +1,7 @@
 # Import tools from separate utility files
 import unicodedata
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 from tradingagents.agents.utils.news_data_tools import get_news, get_global_news
 from tradingagents.agents.utils.multi_timeframe_tools import (
@@ -72,6 +74,106 @@ def build_instrument_context(ticker: str) -> str:
     )
 
 
+def run_analyst_chain(
+    *,
+    llm,
+    tools: list,
+    system_content: str,
+    state: dict,
+    report_key: str,
+    config=None,
+    inject_quant_signal: bool = False,
+    quant_signal_label: str | None = None,
+) -> dict:
+    """Centralised chain construction for analyst nodes.
+
+    Handles the common pattern shared by all analyst factories:
+    prompt → llm.bind_tools(tools) → invoke → extract report.
+    """
+    current_date = state["trade_date"]
+    instrument_context = build_instrument_context(state["company_of_interest"])
+
+    if inject_quant_signal:
+        quant_block = state.get("quant_signal", "")
+        if quant_block:
+            label = quant_signal_label or "PRE-COMPUTED QUANTITATIVE SIGNAL"
+            system_content += (
+                f"\n\n===== {label} =====\n"
+                f"{quant_block}\n"
+                f"===== END SIGNAL =====\n"
+            )
+
+    system_content += get_language_instruction(config=config)
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are a helpful AI assistant, collaborating with other assistants."
+                " Use the provided tools to progress towards answering the question."
+                " If you are unable to fully answer, that's OK; another assistant with different tools"
+                " will help where you left off. Execute what you can to make progress."
+                " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
+                " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
+                " You have access to the following tools: {tool_names}.\n{system_message}"
+                "For your reference, the current date is {current_date}. {instrument_context}",
+            ),
+            MessagesPlaceholder(variable_name="messages"),
+        ]
+    )
+
+    prompt = prompt.partial(system_message=system_content)
+    prompt = prompt.partial(tool_names=", ".join([t.name for t in tools]))
+    prompt = prompt.partial(current_date=current_date)
+    prompt = prompt.partial(instrument_context=instrument_context)
+
+    chain = prompt | llm.bind_tools(tools)
+    result = chain.invoke(state.get("messages", []))
+
+    # Capture content even when tool_calls are present — some LLMs emit
+    # reasoning text alongside tool_calls, and the analyst runner keeps
+    # the last AI message.  If content is genuinely empty the runner
+    # will fall back to the final non-tool message.
+    has_tool_calls = bool(getattr(result, "tool_calls", None))
+    content = getattr(result, "content", "") or ""
+    if has_tool_calls and not content.strip():
+        report = ""
+    else:
+        report = content
+    return {report_key: report, "messages": [result]}
+
+
+def create_analyst(
+    *,
+    llm,
+    config,
+    tools: list,
+    system_content: str,
+    report_key: str,
+    inject_quant_signal: bool = False,
+    quant_signal_label: str | None = None,
+):
+    """Unified analyst factory — eliminates duplication across the 4 analyst files.
+
+    Returns a callable node that wraps ``run_analyst_chain`` with the given
+    configuration. Each analyst file is now a thin wrapper calling this factory.
+    """
+
+    def analyst_node(state: dict) -> dict:
+        return run_analyst_chain(
+            llm=llm,
+            tools=tools,
+            system_content=system_content,
+            state=state,
+            report_key=report_key,
+            config=config,
+            inject_quant_signal=inject_quant_signal,
+            quant_signal_label=quant_signal_label,
+        )
+
+    return analyst_node
+
+
 __all__ = [
     "get_indicators",
     "get_news",
@@ -83,4 +185,5 @@ __all__ = [
     "get_language_instruction",
     "sanitize_ticker_for_prompt",
     "build_instrument_context",
+    "create_analyst",
 ]

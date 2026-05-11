@@ -44,6 +44,7 @@ from tradingagents.observability import (
     observability_run_event_persistence,
 )
 from tradingagents.graph.journal_bridge import JournalBridge
+from tradingagents.graph.journal_mixin import JournalPersistenceMixin
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ def _extract_thesis_list_field(text: str, field: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-class ResearchAgentsGraph:
+class ResearchAgentsGraph(JournalPersistenceMixin):
     """Main class that orchestrates the research-workstation graph."""
 
     def __init__(
@@ -169,50 +170,7 @@ class ResearchAgentsGraph:
         """Backward-compatible helper kept for older tests/callers."""
         return create_tool_nodes(self.config)
 
-    def _start_journal_run(self) -> None:
-        bridge = getattr(self, "journal_bridge", None)
-        if not isinstance(bridge, JournalBridge):
-            return
-        self.current_research_run = bridge.start_run(self.current_research_run)
-
-    def _save_journal_quant_signals(self) -> None:
-        bridge = getattr(self, "journal_bridge", None)
-        if not isinstance(bridge, JournalBridge):
-            return
-        self.current_research_run, self.current_signals = bridge.save_quant_signals(
-            self.current_research_run,
-            getattr(self, "quant_signal_result", None),
-        )
-
-    def _complete_journal_run(self) -> None:
-        bridge = getattr(self, "journal_bridge", None)
-        if not isinstance(bridge, JournalBridge):
-            return
-        scenario_plan = getattr(self, "current_scenario_plan", "") or ""
-        scenario_json = ""
-        curr_state = self.curr_state
-        if curr_state is not None:
-            scenario_json = curr_state.get("scenario_plan_json", "") or ""
-        self.current_research_run, self.current_trade_thesis = bridge.complete_run(
-            self.current_research_run,
-            self.current_trade_thesis,
-            scenario_plan_text=scenario_plan,
-            scenario_plan_json=scenario_json,
-        )
-
-    def _save_journal_agent_research(self, final_state: dict) -> None:
-        bridge = getattr(self, "journal_bridge", None)
-        if not isinstance(bridge, JournalBridge):
-            return
-        (
-            self.current_research_run,
-            self.current_agent_opinions,
-            self.current_debate,
-        ) = bridge.save_agent_research(
-            self.current_research_run,
-            final_state,
-            getattr(self, "quant_signal_result", None),
-        )
+    # _save_journal_agent_research is now provided by JournalPersistenceMixin
 
     def _build_trade_thesis(self, final_state: dict) -> TradeThesis:
         """Build a simplified thesis artifact for journal persistence."""

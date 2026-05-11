@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Dict, List, Tuple
 
 ModelOption = Tuple[str, str]
 ProviderModeOptions = Dict[str, Dict[str, List[ModelOption]]]
+FallbackModelMap = Dict[str, Dict[str, str]]
 
 
 MODEL_OPTIONS: ProviderModeOptions = {
@@ -148,6 +150,28 @@ MODEL_OPTIONS: ProviderModeOptions = {
         ],
     },
 }
+
+
+def _first_model(provider: str, mode: str) -> str:
+    return MODEL_OPTIONS[provider][mode][0][1]
+
+
+DEFAULT_FALLBACK_MODEL_MAP: FallbackModelMap = {
+    provider: {
+        "deep": _first_model(provider, "deep"),
+        "quick": _first_model(provider, "quick"),
+    }
+    for provider in MODEL_OPTIONS
+}
+DEFAULT_FALLBACK_MODEL_MAP["openrouter"] = {
+    "deep": f"openai/{_first_model('openai', 'deep')}",
+    "quick": f"openai/{_first_model('openai', 'quick')}",
+}
+
+
+def get_default_fallback_model_map() -> FallbackModelMap:
+    """Return provider-specific fallback model defaults."""
+    return deepcopy(DEFAULT_FALLBACK_MODEL_MAP)
 
 
 def get_model_options(provider: str, mode: str) -> List[ModelOption]:

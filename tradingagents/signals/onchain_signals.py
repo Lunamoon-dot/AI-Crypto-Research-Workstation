@@ -24,6 +24,9 @@ LS_EXTREME_SHORT = 0.4  # < 0.4 = extreme short (squeeze risk)
 NVT_OVERHEATED = 150  # > 150 = overvalued relative to usage
 NVT_UNDERVALUED = 50  # < 50 = potentially undervalued
 
+# Turnover thresholds use decimal ratios, not percentages.
+TURNOVER_SPECULATIVE = 0.10  # > 10% of market cap in 24h
+
 
 def compute_onchain_signal(
     symbol: str,
@@ -109,7 +112,7 @@ def compute_onchain_signal(
 
         if turnover is not None:
             detail.append(f"Turnover ratio: {turnover:.1%}")
-            if turnover > 1.0:
+            if turnover > TURNOVER_SPECULATIVE:
                 detail.append("Extreme turnover — speculative froth")
                 bear_score += w * 0.35
 
@@ -225,10 +228,13 @@ def _parse_exchange_metrics(text: str) -> tuple[Optional[float], Optional[float]
         reserves_delta = pct / 100.0
 
     # Turnover: "Turnover: 85.2%" or "turnover ratio: 0.45"
-    m = re.search(r"(?:[Tt]urnover|turnover\s*ratio)[:\s]*([\d.]+)\s*%?", text)
+    m = re.search(
+        r"(?:turnover\s*ratio|turnover)[:\s]*([+\-]?[\d.]+)\s*(%)?",
+        text,
+        re.IGNORECASE,
+    )
     if m:
         val = float(m.group(1))
-        # If > 1, it's likely a percentage; normalize
-        turnover = val / 100.0 if val > 1.0 else val
+        turnover = val / 100.0 if m.group(2) else val
 
     return reserves_delta, turnover

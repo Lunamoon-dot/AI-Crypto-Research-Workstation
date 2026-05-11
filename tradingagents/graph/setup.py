@@ -11,6 +11,14 @@ from tradingagents.agents.utils.agent_states import AgentState
 
 from .analyst_runtime import make_analyst_runner
 from .conditional_logic import ConditionalLogic
+from .node_names import (
+    AnalystNode,
+    DebateNode,
+    RiskNode,
+    PipelineNode,
+    ReportKey,
+    ToolKey,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -51,39 +59,39 @@ class GraphSetup:
         if "market" in selected_analysts:
             analyst_specs.append(
                 (
-                    "Market Analyst",
+                    AnalystNode.MARKET,
                     create_market_analyst(self.quick_thinking_llm, config=self.config),
-                    "market",
-                    "market_report",
+                    ToolKey.MARKET,
+                    ReportKey.MARKET,
                 )
             )
         if "social" in selected_analysts:
             analyst_specs.append(
                 (
-                    "Social Analyst",
+                    AnalystNode.SOCIAL,
                     create_social_media_analyst(
                         self.quick_thinking_llm, config=self.config
                     ),
-                    "social",
-                    "sentiment_report",
+                    ToolKey.SOCIAL,
+                    ReportKey.SENTIMENT,
                 )
             )
         if "news" in selected_analysts:
             analyst_specs.append(
                 (
-                    "News Analyst",
+                    AnalystNode.NEWS,
                     create_news_analyst(self.quick_thinking_llm, config=self.config),
-                    "news",
-                    "news_report",
+                    ToolKey.NEWS,
+                    ReportKey.NEWS,
                 )
             )
         if "onchain" in selected_analysts:
             analyst_specs.append(
                 (
-                    "Onchain Analyst",
+                    AnalystNode.ONCHAIN,
                     create_onchain_analyst(self.quick_thinking_llm, config=self.config),
-                    "onchain",
-                    "fundamentals_report",
+                    ToolKey.ONCHAIN,
+                    ReportKey.FUNDAMENTALS,
                 )
             )
         if not analyst_specs:
@@ -139,62 +147,62 @@ class GraphSetup:
 
         # Every analyst terminates at Bull Researcher.
         for name in analyst_names:
-            workflow.add_edge(name, "Bull Researcher")
+            workflow.add_edge(name, DebateNode.BULL_RESEARCHER)
 
         # Debate/risk pipeline
-        workflow.add_node("Bull Researcher", bull_researcher_node)
-        workflow.add_node("Bear Researcher", bear_researcher_node)
-        workflow.add_node("Research Manager", research_manager_node)
-        workflow.add_node("Trader", trader_node)
-        workflow.add_node("Aggressive Analyst", aggressive_analyst)
-        workflow.add_node("Neutral Analyst", neutral_analyst)
-        workflow.add_node("Conservative Analyst", conservative_analyst)
-        workflow.add_node("Portfolio Manager", portfolio_manager_node)
-        workflow.add_node("Scenario Planner", scenario_planner_node)
+        workflow.add_node(DebateNode.BULL_RESEARCHER, bull_researcher_node)
+        workflow.add_node(DebateNode.BEAR_RESEARCHER, bear_researcher_node)
+        workflow.add_node(DebateNode.RESEARCH_MANAGER, research_manager_node)
+        workflow.add_node(PipelineNode.TRADER, trader_node)
+        workflow.add_node(RiskNode.AGGRESSIVE, aggressive_analyst)
+        workflow.add_node(RiskNode.NEUTRAL, neutral_analyst)
+        workflow.add_node(RiskNode.CONSERVATIVE, conservative_analyst)
+        workflow.add_node(PipelineNode.PORTFOLIO_MANAGER, portfolio_manager_node)
+        workflow.add_node(PipelineNode.SCENARIO_PLANNER, scenario_planner_node)
         workflow.add_conditional_edges(
-            "Bull Researcher",
+            DebateNode.BULL_RESEARCHER,
             self.conditional_logic.should_continue_debate,
             {
-                "Bear Researcher": "Bear Researcher",
-                "Research Manager": "Research Manager",
+                DebateNode.BEAR_RESEARCHER: DebateNode.BEAR_RESEARCHER,
+                DebateNode.RESEARCH_MANAGER: DebateNode.RESEARCH_MANAGER,
             },
         )
         workflow.add_conditional_edges(
-            "Bear Researcher",
+            DebateNode.BEAR_RESEARCHER,
             self.conditional_logic.should_continue_debate,
             {
-                "Bull Researcher": "Bull Researcher",
-                "Research Manager": "Research Manager",
+                DebateNode.BULL_RESEARCHER: DebateNode.BULL_RESEARCHER,
+                DebateNode.RESEARCH_MANAGER: DebateNode.RESEARCH_MANAGER,
             },
         )
-        workflow.add_edge("Research Manager", "Trader")
-        workflow.add_edge("Trader", "Aggressive Analyst")
+        workflow.add_edge(DebateNode.RESEARCH_MANAGER, PipelineNode.TRADER)
+        workflow.add_edge(PipelineNode.TRADER, RiskNode.AGGRESSIVE)
         workflow.add_conditional_edges(
-            "Aggressive Analyst",
+            RiskNode.AGGRESSIVE,
             self.conditional_logic.should_continue_risk_analysis,
             {
-                "Conservative Analyst": "Conservative Analyst",
-                "Portfolio Manager": "Portfolio Manager",
-            },
-        )
-        workflow.add_conditional_edges(
-            "Conservative Analyst",
-            self.conditional_logic.should_continue_risk_analysis,
-            {
-                "Neutral Analyst": "Neutral Analyst",
-                "Portfolio Manager": "Portfolio Manager",
+                RiskNode.CONSERVATIVE: RiskNode.CONSERVATIVE,
+                PipelineNode.PORTFOLIO_MANAGER: PipelineNode.PORTFOLIO_MANAGER,
             },
         )
         workflow.add_conditional_edges(
-            "Neutral Analyst",
+            RiskNode.CONSERVATIVE,
             self.conditional_logic.should_continue_risk_analysis,
             {
-                "Aggressive Analyst": "Aggressive Analyst",
-                "Portfolio Manager": "Portfolio Manager",
+                RiskNode.NEUTRAL: RiskNode.NEUTRAL,
+                PipelineNode.PORTFOLIO_MANAGER: PipelineNode.PORTFOLIO_MANAGER,
+            },
+        )
+        workflow.add_conditional_edges(
+            RiskNode.NEUTRAL,
+            self.conditional_logic.should_continue_risk_analysis,
+            {
+                RiskNode.AGGRESSIVE: RiskNode.AGGRESSIVE,
+                PipelineNode.PORTFOLIO_MANAGER: PipelineNode.PORTFOLIO_MANAGER,
             },
         )
 
-        workflow.add_edge("Portfolio Manager", "Scenario Planner")
-        workflow.add_edge("Scenario Planner", END)
+        workflow.add_edge(PipelineNode.PORTFOLIO_MANAGER, PipelineNode.SCENARIO_PLANNER)
+        workflow.add_edge(PipelineNode.SCENARIO_PLANNER, END)
 
         return workflow

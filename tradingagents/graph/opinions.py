@@ -10,6 +10,7 @@ from tradingagents.agents.aggregation import (
     detect_contradictions,
 )
 from tradingagents.domain import AgentOpinion, AgentStance, ResearchDebate
+from tradingagents.graph.node_names import OpinionSource
 from tradingagents.signals.base import SignalResult, SignalScore
 
 
@@ -132,7 +133,7 @@ def build_agent_opinions(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="contrarian" if agent_name == "Contrarian Analyst" else "research",
+            role="contrarian" if agent_name == OpinionSource.BEAR_RESEARCHER else "research",
             source_report_type="investment_debate",
             stance_override=stance,
         )
@@ -245,7 +246,7 @@ def _quant_opinion(
     ][:5]
     return AgentOpinion(
         research_run_id=research_run_id,
-        agent_name="Quant Analyst",
+        agent_name=OpinionSource.QUANT_ANALYST,
         role="quant",
         stance=stance,
         confidence=result.confidence,

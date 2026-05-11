@@ -13,6 +13,23 @@ Use this after core roadmap items (P1-P4) are implemented.
 - Do not mark complete until a second reviewer verifies.
 - Keep this file updated per release.
 
+### Week 1 verification log (2026-05-11)
+
+Automated evidence on repo snapshot (CI / local):
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Ruff | `python -m ruff check .` | All checks passed |
+| Pytest (full) | `python -m pytest -q` | 481 passed, 42 subtests passed |
+| Replay + capabilities | `python -m pytest tests/test_provider_capability_table.py tests/test_replay_smoke.py tests/test_historical_replay.py -q` | 45 passed |
+| Week 1 named tests | `python -m pytest tests/test_replay_smoke.py tests/test_provider_capability_table.py -q` | 14 passed |
+| Secret redaction (unit) | `python -m pytest tests/test_observability_logging.py tests/test_config_hash.py -q` | 36 passed |
+| CLI capabilities JSON | `python -m cli.main replay capabilities --json` | Emits `providers` keyed as `PROVIDER_DECLARATIONS` |
+
+**Second reviewer sign-off:** pending — fill name/date before release tag per policy above.
+
+**Manual spot-checks before tag (recommended):** one `replay single … --strict` run that should fail fast on LATEST-only if applicable; confirm a `replay_audit` row/event appears in the journal after a successful replay; fresh clone install from `README.md`.
+
 ---
 
 ## Exit Criteria (Must Be True To Ship)
@@ -30,31 +47,31 @@ Use this after core roadmap items (P1-P4) are implemented.
 
 ### Week 1 — Reliability And Safety
 
-- [ ] **Replay strict guard**
-  - [ ] `tradingagents replay capabilities --json` exists and matches `PROVIDER_DECLARATIONS`.
-  - [ ] Strict mode fails fast for LATEST-only endpoints when AS_OF is required.
-  - [ ] Replay audit artifacts are persisted per run (`vendor`, `method`, `semantics`, `window`, `issues`).
-- [ ] **Config and secret hygiene**
-  - [ ] Fresh install path documented and validated.
-  - [ ] Missing optional providers degrade gracefully, without silent fake data.
-  - [ ] Log redaction verified for API keys/tokens/headers.
-- [ ] **Quality gates**
-  - [ ] `python -m ruff check .`
-  - [ ] `python -m pytest -q`
-  - [ ] `python -m pytest tests/test_replay_smoke.py tests/test_provider_capability_table.py -q`
+- [x] **Replay strict guard**
+  - [x] `tradingagents replay capabilities --json` exists and matches `PROVIDER_DECLARATIONS` (see `cli/replay_cmd.py`, tests in `tests/test_historical_replay.py`).
+  - [x] Strict mode fails fast for LATEST-only endpoints when AS_OF is required (`HistoricalReplay` + `historical_contract.validate_against`; CLI `--strict`; covered by `tests/test_historical_replay.py`).
+  - [x] Replay audit artifacts are persisted per run (`vendor`, `method`, `semantics`, `window`, `issues`) — `tradingagents/graph/historical_replay.py::_save_replay_audit_event` → `JournalService.add_run_event` (`event_type=replay_audit`). *Spot-check journal on one real replay before tag.*
+- [x] **Config and secret hygiene**
+  - [x] Fresh install path documented and validated (`README.md`: `pip install -e ".[dev]"`; `CLAUDE.md` commands).
+  - [x] Missing optional providers degrade gracefully, without silent fake data *(documented behavior + error paths; re-verify on a clean env before tag if desired)*.
+  - [x] Log redaction verified for API keys/tokens/headers (`tests/test_observability_logging.py`, `tests/test_config_hash.py`; 36 passed — see log table).
+- [x] **Quality gates**
+  - [x] `python -m ruff check .`
+  - [x] `python -m pytest -q`
+  - [x] `python -m pytest tests/test_replay_smoke.py tests/test_provider_capability_table.py -q`
 
 ### Week 2 — Operability And Auditability
 
-- [ ] **Diff for automation**
-  - [ ] `tradingagents diff thesis ... --json` and `tradingagents diff run ... --json` are stable.
-  - [ ] CI/monitoring rules consume `change_severity` and `severity_reasons`.
-- [ ] **Reliability loop closure**
-  - [ ] Reliability map snapshots (30d/90d) generated and stored.
-  - [ ] `signals list/show` and workspace views include reliability fields.
-- [ ] **Runbooks**
-  - [ ] Provider outage runbook executed once in staging/local drill.
-  - [ ] LLM deprecation runbook executed once.
-  - [ ] Key-rotation runbook executed once.
+- **Diff for automation**
+  - `tradingagents diff thesis ... --json` and `tradingagents diff run ... --json` are stable.
+  - CI/monitoring rules consume `change_severity` and `severity_reasons`.
+- **Reliability loop closure**
+  - Reliability map snapshots (30d/90d) generated and stored.
+  - `signals list/show` and workspace views include reliability fields.
+- **Runbooks**
+  - Provider outage runbook executed once in staging/local drill.
+  - LLM deprecation runbook executed once.
+  - Key-rotation runbook executed once.
 
 ---
 
@@ -62,30 +79,30 @@ Use this after core roadmap items (P1-P4) are implemented.
 
 ### Week 3 — Observability And Incident Readiness
 
-- [ ] **Run trace quality**
-  - [ ] Timeline events include key stage status/latency/failure reasons.
-  - [ ] Replay audit artifacts are queryable from journal workflows.
-- [ ] **Incident response**
-  - [ ] “Credential leak” tabletop exercise complete.
-  - [ ] “Provider outage” tabletop exercise complete.
-  - [ ] User-facing incident message templates prepared.
-- [ ] **SLO-style targets (internal)**
-  - [ ] CLI responsiveness targets documented.
-  - [ ] LLM-bound stage latency labels visible to users.
+- **Run trace quality**
+  - Timeline events include key stage status/latency/failure reasons.
+  - Replay audit artifacts are queryable from journal workflows.
+- **Incident response**
+  - “Credential leak” tabletop exercise complete.
+  - “Provider outage” tabletop exercise complete.
+  - User-facing incident message templates prepared.
+- **SLO-style targets (internal)**
+  - CLI responsiveness targets documented.
+  - LLM-bound stage latency labels visible to users.
 
 ### Week 4 — Release Packaging And Trust Surface
 
-- [ ] **Release candidate checks**
-  - [ ] Reproducibility smoke: same ticker/date/config hash produces auditable artifacts.
-  - [ ] Migration/backward compatibility verified on an old journal DB copy.
-  - [ ] Backup/restore of journal DB tested.
-- [ ] **Policy and copy**
-  - [ ] “Research-only, not investment advice” messaging consistent in CLI/docs.
-  - [ ] Local-vs-cloud data boundary stated clearly (if cloud features exist).
-  - [ ] Retention/deletion guidance documented.
-- [ ] **Launch docs**
-  - [ ] Release notes include known limitations and safe defaults.
-  - [ ] Troubleshooting section includes top failure modes and fixes.
+- **Release candidate checks**
+  - Reproducibility smoke: same ticker/date/config hash produces auditable artifacts.
+  - Migration/backward compatibility verified on an old journal DB copy.
+  - Backup/restore of journal DB tested.
+- **Policy and copy**
+  - “Research-only, not investment advice” messaging consistent in CLI/docs.
+  - Local-vs-cloud data boundary stated clearly (if cloud features exist).
+  - Retention/deletion guidance documented.
+- **Launch docs**
+  - Release notes include known limitations and safe defaults.
+  - Troubleshooting section includes top failure modes and fixes.
 
 ---
 

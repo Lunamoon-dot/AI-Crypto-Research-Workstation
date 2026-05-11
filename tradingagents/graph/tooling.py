@@ -44,14 +44,14 @@ def create_tool_nodes(config: dict) -> Dict[str, ToolNode]:
         return wrapper
 
     return {
-        "market": ToolNode(
+        ToolKey.MARKET: ToolNode(
             [
                 _with_config(get_crypto_ohlcv),
                 _with_config(get_indicators),
                 _with_config(get_multi_timeframe_analysis),
             ]
         ),
-        "social": ToolNode(
+        ToolKey.SOCIAL: ToolNode(
             [
                 _with_config(get_news),
                 _with_config(get_fear_greed_index),
@@ -59,14 +59,14 @@ def create_tool_nodes(config: dict) -> Dict[str, ToolNode]:
                 _with_config(get_news_sentiment_aggregate),
             ]
         ),
-        "news": ToolNode(
+        ToolKey.NEWS: ToolNode(
             [
                 _with_config(get_news),
                 _with_config(get_global_news),
                 _with_config(get_news_sentiment_aggregate),
             ]
         ),
-        "onchain": ToolNode(
+        ToolKey.ONCHAIN: ToolNode(
             [
                 _with_config(get_crypto_ticker),
                 _with_config(get_crypto_long_short_ratio),

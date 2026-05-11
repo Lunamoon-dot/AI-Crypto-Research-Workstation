@@ -32,6 +32,9 @@ class JournalBridge:
     def __init__(self, config: dict):
         self.service = None
         self.config = config
+        # Track persistence health so we can surface silent data loss.
+        self._persist_attempts: int = 0
+        self._persist_failures: int = 0
         if config.get("journal", {}).get("enabled", True):
             try:
                 self.service = JournalService(config)
@@ -45,12 +48,47 @@ class JournalBridge:
                     error=str(e)[:500],
                 )
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _record_persist_attempt(self, *, success: bool) -> None:
+        """Increment counters and emit a warning when the failure rate
+        crosses the alert threshold."""
+        self._persist_attempts += 1
+        if not success:
+            self._persist_failures += 1
+
+        # Alert when ≥3 failures AND failure rate ≥ 50%.
+        if (
+            self._persist_failures >= 3
+            and self._persist_attempts > 0
+            and (self._persist_failures / self._persist_attempts) >= 0.5
+        ):
+            logger.warning(
+                "Journal persistence is degraded: %d/%d operations failed (%.0f%%). "
+                "Check disk space, permissions, and SQLite locks.",
+                self._persist_failures,
+                self._persist_attempts,
+                100 * self._persist_failures / self._persist_attempts,
+            )
+            log_event(
+                logger,
+                "journal_persistence_degraded",
+                failures=self._persist_failures,
+                attempts=self._persist_attempts,
+                failure_rate=round(self._persist_failures / self._persist_attempts, 3),
+            )
+
     def start_run(self, run: ResearchRun | None) -> ResearchRun | None:
         if not self.service or not run:
             return run
         try:
-            return self.service.start_research_run(run)
+            result = self.service.start_research_run(run)
+            self._record_persist_attempt(success=True)
+            return result
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not save research run start: %s", e)
             log_event(
                 logger,
@@ -96,38 +134,26 @@ class JournalBridge:
             except Exception as exc:
                 logger.debug("Could not build reliability map: %s", exc)
 
-            signals = self.service.save_signals(
-                signal_result_to_domain_signals(
-                    result,
-                    stale_mode=stale_mode,
-                    reliability_map=reliability_map,
+            domain_signals = signal_result_to_domain_signals(
+                result,
+                stale_mode=stale_mode,
+                reliability_map=reliability_map,
+            )
+            market_snapshot = build_market_snapshot(result, research_run_id=run.id)
+            signal_snapshot = build_signal_snapshot(
+                research_run_id=run.id,
+                symbol=result.symbol,
+                signals=domain_signals,
+            )
+            run, signals, market_snapshot, signal_snapshot = (
+                self.service.save_quant_signal_bundle(
+                    run,
+                    domain_signals,
+                    market_snapshot,
+                    signal_snapshot,
                 )
             )
-            run.signal_ids = [signal.id for signal in signals if signal.id]
-            market_snapshot = self.service.save_market_snapshot(
-                build_market_snapshot(result, research_run_id=run.id)
-            )
-            signal_snapshot = self.service.save_signal_snapshot(
-                build_signal_snapshot(
-                    research_run_id=run.id,
-                    symbol=result.symbol,
-                    signals=signals,
-                )
-            )
-            run.market_snapshot_id = market_snapshot.id
-            run.signal_snapshot_id = signal_snapshot.id
-            run = self.service.update_research_run(run)
             assert run.id is not None
-            self.service.add_run_event(
-                run.id,
-                "snapshots_saved",
-                f"Saved market snapshot and {len(signals)} signal(s)",
-                {
-                    "market_snapshot_id": run.market_snapshot_id,
-                    "signal_snapshot_id": run.signal_snapshot_id,
-                    "signal_ids": run.signal_ids,
-                },
-            )
             stale_count = signal_snapshot.stale_count
             total_count = len(signal_snapshot.signal_ids or [])
             stale_ratio = (stale_count / total_count) if total_count else 0.0
@@ -164,8 +190,10 @@ class JournalBridge:
                 neutral_count=signal_snapshot.neutral_count,
                 stale_count=stale_count,
             )
+            self._record_persist_attempt(success=True)
             return run, signals
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not save quant signals to journal: %s", e)
             log_event(
                 logger,
@@ -188,43 +216,24 @@ class JournalBridge:
         if not self.service or not run:
             return run, thesis
         try:
+            parsed_scenarios: list[Scenario] = []
+            parsed_from_json = False
             if thesis:
                 thesis.research_run_id = run.id
-                thesis = self.service.save_thesis(thesis)
-                run.thesis_id = thesis.id
-            saved_scenarios: list[Scenario] = []
-            saved_from_json = False
-            if scenario_plan_json and thesis and thesis.id:
-                saved_scenarios = self.save_scenarios_from_json_plan(
-                    scenario_plan_json, thesis.id
-                )
-                saved_from_json = bool(saved_scenarios)
-            if not saved_from_json and scenario_plan_text and thesis and thesis.id:
-                saved_scenarios = self.save_scenarios_from_plan(
-                    scenario_plan_text, thesis.id
-                )
-            run = self.service.complete_research_run(run)
-
-            # --- Phase 5: template degradation run event ---
-            if run and run.id and saved_scenarios:
-                for scenario in saved_scenarios:
-                    tm = scenario.template_metadata or {}
-                    if tm.get("template_degraded"):
-                        self.service.add_run_event(
-                            run.id,
-                            "template_degraded",
-                            f"Template '{tm.get('requested_setup_type')}' degraded to "
-                            f"'{tm.get('setup_type')}' — {tm.get('degrade_reason', '')}",
-                            {
-                                "requested_setup_type": tm.get("requested_setup_type"),
-                                "effective_setup_type": tm.get("setup_type"),
-                                "missing_fields": tm.get("missing_fields", []),
-                                "available_fields": tm.get("available_fields", []),
-                                "degrade_reason": tm.get("degrade_reason", ""),
-                            },
-                            thesis_id=thesis.id if thesis else None,
-                        )
-                        break  # One event per degradation is sufficient
+                if scenario_plan_json:
+                    try:
+                        plan = ScenarioPlan.model_validate_json(scenario_plan_json)
+                        parsed_scenarios = scenarios_from_structured_plan(plan, "")
+                        parsed_from_json = bool(parsed_scenarios)
+                    except Exception as exc:
+                        logger.warning("Could not parse scenario_plan_json: %s", exc)
+                if not parsed_from_json and scenario_plan_text:
+                    parsed_scenarios = _parse_scenario_plan(scenario_plan_text, "")
+            run, thesis, _saved_scenarios = self.service.complete_research_run_bundle(
+                run,
+                thesis,
+                parsed_scenarios,
+            )
 
             # Best-effort: evaluate any matured theses that lack evaluations
             if run and run.id:
@@ -248,17 +257,21 @@ class JournalBridge:
                 try:
                     self.save_reliability_snapshot(
                         symbol=run.symbol,
+                        research_run_id=run.id,
                         rolling_window_days=30,
                     )
                     self.save_reliability_snapshot(
                         symbol=run.symbol,
+                        research_run_id=run.id,
                         rolling_window_days=90,
                     )
                 except Exception as exc:
                     logger.debug("Reliability snapshot skipped: %s", exc)
 
+            self._record_persist_attempt(success=True)
             return run, thesis
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not complete research journal entry: %s", e)
             log_event(
                 logger,
@@ -282,8 +295,11 @@ class JournalBridge:
         if not parsed:
             return []
         try:
-            return self.service.save_scenarios(parsed)
+            result = self.service.save_scenarios(parsed)
+            self._record_persist_attempt(success=True)
+            return result
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not save scenarios: %s", e)
             log_event(
                 logger,
@@ -311,8 +327,11 @@ class JournalBridge:
         if not parsed:
             return []
         try:
-            return self.service.save_scenarios(parsed)
+            result = self.service.save_scenarios(parsed)
+            self._record_persist_attempt(success=True)
+            return result
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not save scenarios from JSON plan: %s", e)
             log_event(
                 logger,
@@ -327,6 +346,7 @@ class JournalBridge:
         self,
         symbol: str,
         *,
+        research_run_id: str | None = None,
         rolling_window_days: int = 30,
     ) -> None:
         """Build and persist a reliability snapshot from recent evaluations.
@@ -367,7 +387,23 @@ class JournalBridge:
                 factors=entries,
             )
 
-            saved = self.service.save_reliability_snapshot(snapshot)
+            event_payload = {
+                "symbol": symbol,
+                "rolling_window_days": rolling_window_days,
+                "factor_count": len(entries),
+                "total_sample_size": factor_report.total_sample_size,
+            }
+            event_message = (
+                f"Reliability snapshot ({rolling_window_days}d) for {symbol}: "
+                f"{len(entries)} factors, "
+                f"sample={factor_report.total_sample_size}"
+            )
+            saved = self.service.save_reliability_snapshot(
+                snapshot,
+                research_run_id=research_run_id,
+                event_message=event_message if research_run_id else None,
+                event_payload=event_payload if research_run_id else None,
+            )
             if saved and saved.id:
                 logger.debug(
                     "Saved reliability snapshot %s for %s (%dd window, %d factors)",
@@ -375,22 +411,6 @@ class JournalBridge:
                     symbol,
                     rolling_window_days,
                     len(entries),
-                )
-                self.service.add_run_event(
-                    research_run_id="",
-                    event_type="reliability_snapshot",
-                    message=(
-                        f"Reliability snapshot ({rolling_window_days}d) for {symbol}: "
-                        f"{len(entries)} factors, "
-                        f"sample={factor_report.total_sample_size}"
-                    ),
-                    payload={
-                        "symbol": symbol,
-                        "rolling_window_days": rolling_window_days,
-                        "factor_count": len(entries),
-                        "total_sample_size": factor_report.total_sample_size,
-                        "snapshot_id": saved.id,
-                    },
                 )
         except Exception as exc:
             logger.debug("Could not save reliability snapshot: %s", exc)
@@ -410,20 +430,16 @@ class JournalBridge:
                 research_run_id=run.id,
                 quant_signal_result=quant_signal_result,
             )
-            opinions = self.service.save_agent_opinions(opinions)
             debate = build_research_debate(
                 symbol=run.symbol,
                 research_run_id=run.id,
                 opinions=opinions,
             )
-            debate = self.service.save_debate(debate)
-            for opinion in opinions:
-                opinion.debate_id = debate.id
-            opinions = self.service.save_agent_opinions(opinions)
-            debate.opinion_ids = [opinion.id for opinion in opinions if opinion.id]
-            debate = self.service.save_debate(debate)
-            run.debate_id = debate.id
-            run = self.service.update_research_run(run)
+            run, opinions, debate = self.service.save_agent_research_bundle(
+                run,
+                opinions,
+                debate,
+            )
             log_event(
                 logger,
                 "risk_checked",
@@ -436,8 +452,10 @@ class JournalBridge:
                 opinion_count=len(opinions),
                 stance_counts=debate.stance_counts,
             )
+            self._record_persist_attempt(success=True)
             return run, opinions, debate
         except Exception as e:
+            self._record_persist_attempt(success=False)
             logger.warning("Could not save structured agent research: %s", e)
             log_event(
                 logger,

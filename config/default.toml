@@ -31,6 +31,19 @@ fallback_providers = ["openrouter", "openai"]
 circuit_breaker_threshold = 3
 circuit_breaker_window_sec = 300
 
+# Cross-provider model mapping.  When the orchestrator switches to a
+# fallback provider it uses these model names instead of the primary
+# provider's models (which usually do not exist on the fallback).
+# Built-in defaults cover the common providers; uncomment and
+# customise if you need different models.
+[llm_fallback.fallback_model_map]
+# openai = { deep = "gpt-4o", quick = "gpt-4o-mini" }
+# openrouter = { deep = "openai/gpt-4o", quick = "openai/gpt-4o-mini" }
+# anthropic = { deep = "claude-sonnet-4-20250514", quick = "claude-haiku-3-5-20241022" }
+# google = { deep = "gemini-2.5-pro", quick = "gemini-2.5-flash" }
+# deepseek = { deep = "deepseek-chat", quick = "deepseek-chat" }
+
+
 # ── Secrets ──────────────────────────────────────────────────────────────────
 [secrets]
 source = "env"         # "env" | "keyring" | "env,keyring"
@@ -109,4 +122,3 @@ persist_data_provider_calls = true
 persist_llm_calls = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
-
