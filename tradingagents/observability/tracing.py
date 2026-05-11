@@ -29,7 +29,10 @@ def configure_opentelemetry(config: dict | None = None) -> bool:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export import (
+            ConsoleSpanExporter,
+            SimpleSpanProcessor,
+        )
     except Exception as exc:
         logger.info("OpenTelemetry disabled: package unavailable (%s)", exc)
         _TRACER = None
@@ -37,9 +40,7 @@ def configure_opentelemetry(config: dict | None = None) -> bool:
         return False
 
     service_name = cfg.get("service_name", "tradingagents")
-    provider = TracerProvider(
-        resource=Resource.create({"service.name": service_name})
-    )
+    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
     provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)
     _TRACER = trace.get_tracer("tradingagents")

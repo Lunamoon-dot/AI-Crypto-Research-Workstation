@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [Unreleased]
+
+### Added
+
+- Production readiness review and refreshed go-live checklist with current lint, type-check, compile, dependency, and test evidence.
+- Regression coverage for `ResearchRun` model/config provenance persistence and legacy journal migration.
+
+### Changed
+
+- Formatted the repository with Ruff so the configured format gate can pass.
+- `ResearchRun` provenance fields (`deep_think_model`, `quick_think_model`, `llm_provider`, `config_hash`) are now stored in structured SQLite columns as well as in `payload_json`.
+- Journal migrations now add provenance columns to older `research_runs` tables.
+- Developer docs now point to `pip install -e ".[dev]"` and include the release quality gates.
+
+### Removed
+
+- Stale technical-review/session-summary Markdown files and stale `llm_clients/TODO.md`.
+- Tracked root-level temporary inspection scripts.
+
 ## [0.2.4] — 2026-04-25
 
 ### Added

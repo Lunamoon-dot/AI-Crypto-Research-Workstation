@@ -19,7 +19,10 @@ from tradingagents.config_manager import (
     load_profile,
     delete_profile,
 )
-from tradingagents.dataflows.health import build_system_health_report, provider_health_snapshot
+from tradingagents.dataflows.health import (
+    build_system_health_report,
+    provider_health_snapshot,
+)
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.exceptions import ConfigurationError
 from tradingagents.services.journal_service import resolve_journal_db_path
@@ -270,7 +273,9 @@ def config_health(
         if check.status == "critical":
             color = "red"
         details = ", ".join(
-            f"{key}={value}" for key, value in check.details.items() if value not in ([], {}, None, "")
+            f"{key}={value}"
+            for key, value in check.details.items()
+            if value not in ([], {}, None, "")
         )
         checks_table.add_row(check.name, f"[{color}]{check.status}[/{color}]", details)
     console.print(checks_table)

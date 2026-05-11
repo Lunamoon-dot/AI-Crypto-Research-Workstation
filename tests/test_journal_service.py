@@ -36,7 +36,15 @@ def _config(tmp_path):
 def test_journal_service_persists_research_run_and_thesis(tmp_path):
     service = JournalService(_config(tmp_path))
 
-    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            deep_think_model="deepseek-v4-pro",
+            quick_think_model="deepseek-v4-flash",
+            llm_provider="deepseek",
+            config_hash="abc123def4567890",
+        )
+    )
     thesis = service.save_thesis(
         TradeThesis(
             research_run_id=run.id,
@@ -53,8 +61,19 @@ def test_journal_service_persists_research_run_and_thesis(tmp_path):
 
     assert loaded_run is not None
     assert loaded_run.thesis_id == thesis.id
+    assert loaded_run.deep_think_model == "deepseek-v4-pro"
+    assert loaded_run.quick_think_model == "deepseek-v4-flash"
+    assert loaded_run.llm_provider == "deepseek"
+    assert loaded_run.config_hash == "abc123def4567890"
     assert loaded_thesis is not None
     assert loaded_thesis.symbol == "BTC/USDT"
+
+    loaded_run.quick_think_model = "deepseek-v4-flash-updated"
+    loaded_run.config_hash = "fedcba9876543210"
+    service.update_research_run(loaded_run)
+    updated_run = service.get_research_run(run.id)
+    assert updated_run.quick_think_model == "deepseek-v4-flash-updated"
+    assert updated_run.config_hash == "fedcba9876543210"
 
 
 def test_journal_service_records_decision_and_outcome(tmp_path):

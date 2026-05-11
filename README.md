@@ -269,6 +269,14 @@ Run the full test suite:
 python -m pytest
 ```
 
+Run local quality gates:
+
+```bash
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy tradingagents cli
+```
+
 Run focused tests:
 
 ```bash
@@ -280,7 +288,8 @@ python -m pytest tests/test_snapshots.py
 CI runs:
 
 - install package with dev dependencies;
-- Ruff critical checks;
+- Ruff lint and format checks;
+- mypy type check;
 - compile modules;
 - pytest.
 
@@ -290,6 +299,7 @@ Start at [ROADMAP.md](ROADMAP.md) (hub). Detailed docs:
 
 - [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md) — phases 1–9 (implementation)
 - [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md) — phases 10–14 (reliability, API/cloud, monetization)
+- [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) — current production-readiness verdict and blockers
 
 Abbreviated direction:
 
@@ -300,7 +310,7 @@ Production (10–14): config/secrets → observability → service/API layer →
 
 ## Production Status
 
-This project is still early.
+This project is not production-ready yet. As of the 2026-05-12 readiness review, it is suitable for controlled local alpha/beta research use, but not for a broad production launch or hosted paid product.
 
 Reasonable current use:
 
@@ -315,8 +325,12 @@ Not production-ready for:
 - autonomous live trading;
 - leveraged futures automation;
 - broker/exchange order management;
+- unattended operation;
+- multi-tenant hosted cloud;
 - regulated investment advice;
 - unattended portfolio management.
+
+Current blockers are tracked in [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) and [docs/GO_LIVE_READINESS.md](docs/GO_LIVE_READINESS.md).
 
 ## Disclaimer
 

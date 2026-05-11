@@ -55,16 +55,22 @@ class JournalRepository:
             """
             INSERT INTO research_runs (
                 id, symbol, asset_class, timeframe, status, started_at,
-                completed_at, market_snapshot_id, signal_snapshot_id, debate_id,
-                thesis_id, decision_id, user_decision_id, outcome_review_id, payload_json
+                completed_at, deep_think_model, quick_think_model, llm_provider,
+                config_hash, market_snapshot_id, signal_snapshot_id, debate_id,
+                thesis_id, decision_id, user_decision_id, outcome_review_id,
+                payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 symbol=excluded.symbol,
                 asset_class=excluded.asset_class,
                 timeframe=excluded.timeframe,
                 status=excluded.status,
                 completed_at=excluded.completed_at,
+                deep_think_model=excluded.deep_think_model,
+                quick_think_model=excluded.quick_think_model,
+                llm_provider=excluded.llm_provider,
+                config_hash=excluded.config_hash,
                 market_snapshot_id=excluded.market_snapshot_id,
                 signal_snapshot_id=excluded.signal_snapshot_id,
                 debate_id=excluded.debate_id,
@@ -82,6 +88,10 @@ class JournalRepository:
                 run.status.value,
                 _iso(run.started_at),
                 _iso(run.completed_at),
+                run.deep_think_model,
+                run.quick_think_model,
+                run.llm_provider,
+                run.config_hash,
                 run.market_snapshot_id,
                 run.signal_snapshot_id,
                 run.debate_id,
@@ -90,13 +100,12 @@ class JournalRepository:
                 run.user_decision_id,
                 run.outcome_review_id,
                 model_to_json(run),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return run
 
-    def complete_research_run(
-        self, run: ResearchRun, *, _conn=None
-    ) -> ResearchRun:
+    def complete_research_run(self, run: ResearchRun, *, _conn=None) -> ResearchRun:
         run.status = ResearchRunStatus.COMPLETED
         run.completed_at = datetime.now(timezone.utc)
         return self.save_research_run(run, _conn=_conn)
@@ -243,6 +252,7 @@ class JournalRepository:
                 """,
                 params_seq,
             )
+
         if _conn is not None:
             _execute(_conn)
         else:
@@ -425,6 +435,7 @@ class JournalRepository:
                 """,
                 params_seq,
             )
+
         if _conn is not None:
             _execute(_conn)
         else:
@@ -517,7 +528,8 @@ class JournalRepository:
                 debate.conflict_level.value,
                 _iso(debate.created_at),
                 model_to_json(debate),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return debate
 
@@ -552,7 +564,8 @@ class JournalRepository:
                 thesis.confidence,
                 _iso(thesis.created_at),
                 model_to_json(thesis),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return thesis
 
@@ -616,11 +629,14 @@ class JournalRepository:
                 scenario.probability_band.value,
                 scenario.suggested_user_action,
                 model_to_json(scenario),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return scenario
 
-    def save_scenarios(self, scenarios: list[Scenario], *, _conn=None) -> list[Scenario]:
+    def save_scenarios(
+        self, scenarios: list[Scenario], *, _conn=None
+    ) -> list[Scenario]:
         """Persist a batch of scenarios in a single transaction.
 
         Avoids the N+1 connection-open pattern of calling :meth:`save_scenario`
@@ -660,6 +676,7 @@ class JournalRepository:
                 """,
                 params_seq,
             )
+
         if _conn is not None:
             _execute(_conn)
         else:
@@ -1094,11 +1111,14 @@ class JournalRepository:
                 _iso(decision.decided_at),
                 decision.user_notes,
                 model_to_json(decision),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return decision
 
-    def save_outcome_review(self, review: OutcomeReview, *, _conn=None) -> OutcomeReview:
+    def save_outcome_review(
+        self, review: OutcomeReview, *, _conn=None
+    ) -> OutcomeReview:
         if not review.id:
             review.id = _new_id("outcome")
         self.store.execute(
@@ -1119,7 +1139,8 @@ class JournalRepository:
                 _iso(review.reviewed_at),
                 1 if review.invalidated else 0,
                 model_to_json(review),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return review
 
@@ -1189,7 +1210,8 @@ class JournalRepository:
                 _iso(event.created_at),
                 event.message,
                 dumps_payload(event.payload),
-            ), _conn=_conn,
+            ),
+            _conn=_conn,
         )
         return event
 

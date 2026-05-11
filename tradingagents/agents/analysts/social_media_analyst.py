@@ -16,7 +16,12 @@ def create_social_media_analyst(llm, config=None):
     return create_analyst(
         llm=llm,
         config=config,
-        tools=[get_news, get_fear_greed_index, get_social_sentiment, get_news_sentiment_aggregate],
+        tools=[
+            get_news,
+            get_fear_greed_index,
+            get_social_sentiment,
+            get_news_sentiment_aggregate,
+        ],
         system_content=_SOCIAL_SYSTEM_CONTENT,
         report_key="sentiment_report",
     )

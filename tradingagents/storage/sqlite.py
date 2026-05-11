@@ -49,7 +49,13 @@ class SQLiteStore:
     ) -> None:
         ensure_column(conn, table, column, column_type)
 
-    def execute(self, sql: str, params: Iterable = (), *, _conn: sqlite3.Connection | None = None) -> None:
+    def execute(
+        self,
+        sql: str,
+        params: Iterable = (),
+        *,
+        _conn: sqlite3.Connection | None = None,
+    ) -> None:
         try:
             if _conn is not None:
                 with start_span("sqlite.execute", db_path=str(self.path)):

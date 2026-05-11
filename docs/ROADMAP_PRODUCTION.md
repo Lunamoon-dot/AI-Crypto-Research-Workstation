@@ -6,6 +6,9 @@ Reliability, observability, boundaries for assisted execution, cloud/monetizatio
 
 **See also:** [Developer roadmap](ROADMAP_DEV.md) · [Project hub](../ROADMAP.md)
 · [Go-live checklist](GO_LIVE_READINESS.md)
+· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
+
+**Current production verdict (2026-05-12):** not ready for broad production launch. The codebase is suitable for controlled local alpha/beta research use after the current quality gates pass, but production still requires clean-environment verification, runbook drills, migration/backup evidence, security audit, and release sign-off.
 
 ---
 

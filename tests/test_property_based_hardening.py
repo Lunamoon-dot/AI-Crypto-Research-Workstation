@@ -45,11 +45,16 @@ def test_dedupe_keeps_first_seen_case_insensitive_order(values):
     assert len(lowered) == len(set(lowered))
     for value in result:
         assert values.index(value) == min(
-            idx for idx, candidate in enumerate(values) if candidate.lower() == value.lower()
+            idx
+            for idx, candidate in enumerate(values)
+            if candidate.lower() == value.lower()
         )
 
 
-@hypothesis.given(st.dictionaries(simple_key, scalar, max_size=5), st.dictionaries(simple_key, scalar, max_size=5))
+@hypothesis.given(
+    st.dictionaries(simple_key, scalar, max_size=5),
+    st.dictionaries(simple_key, scalar, max_size=5),
+)
 def test_deep_merge_does_not_mutate_inputs(base, override):
     base_copy = dict(base)
     override_copy = dict(override)

@@ -39,6 +39,10 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys = ON")
     _preensure_legacy_columns(conn)
     conn.executescript(SCHEMA_SQL)
+    ensure_column(conn, "research_runs", "deep_think_model", "TEXT")
+    ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
+    ensure_column(conn, "research_runs", "llm_provider", "TEXT")
+    ensure_column(conn, "research_runs", "config_hash", "TEXT")
     ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
     ensure_column(conn, "research_runs", "debate_id", "TEXT")
     ensure_column(conn, "run_events", "thesis_id", "TEXT")
@@ -51,6 +55,10 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
 
 def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
     if _table_exists(conn, "research_runs"):
+        ensure_column(conn, "research_runs", "deep_think_model", "TEXT")
+        ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
+        ensure_column(conn, "research_runs", "llm_provider", "TEXT")
+        ensure_column(conn, "research_runs", "config_hash", "TEXT")
         ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
         ensure_column(conn, "research_runs", "debate_id", "TEXT")
     if _table_exists(conn, "run_events"):

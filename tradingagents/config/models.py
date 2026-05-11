@@ -58,9 +58,17 @@ class RuntimeConfigSections(BaseModel):
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "RuntimeConfigSections":
         return cls(
-            journal=config.get("journal", {}) or {},
-            provider_runtime=config.get("provider_runtime", {}) or {},
-            observability=config.get("observability", {}) or {},
-            config_validation=config.get("config_validation", {}) or {},
-            llm_fallback=config.get("llm_fallback", {}) or {},
+            journal=JournalConfig.model_validate(config.get("journal", {}) or {}),
+            provider_runtime=ProviderRuntimeConfig.model_validate(
+                config.get("provider_runtime", {}) or {}
+            ),
+            observability=ObservabilityConfig.model_validate(
+                config.get("observability", {}) or {}
+            ),
+            config_validation=ConfigValidationConfig.model_validate(
+                config.get("config_validation", {}) or {}
+            ),
+            llm_fallback=LLMFallbackConfig.model_validate(
+                config.get("llm_fallback", {}) or {}
+            ),
         )

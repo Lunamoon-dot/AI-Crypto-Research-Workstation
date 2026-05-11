@@ -134,7 +134,9 @@ def build_agent_opinions(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="contrarian" if agent_name == OpinionSource.BEAR_RESEARCHER else "research",
+            role="contrarian"
+            if agent_name == OpinionSource.BEAR_RESEARCHER
+            else "research",
             source_report_type="investment_debate",
             stance_override=stance,
         )
@@ -350,5 +352,3 @@ def _count_stale_mentions(opinions: list[AgentOpinion]) -> int:
         for opinion in opinions
         if any(term in opinion.raw_text.lower() for term in stale_terms)
     )
-
-

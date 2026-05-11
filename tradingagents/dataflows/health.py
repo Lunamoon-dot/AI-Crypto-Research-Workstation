@@ -53,7 +53,9 @@ def provider_health_snapshot(config: dict | None = None) -> dict:
     return provider_health_snapshot_model(config).model_dump(mode="json")
 
 
-def provider_health_snapshot_model(config: dict | None = None) -> ProviderHealthSnapshot:
+def provider_health_snapshot_model(
+    config: dict | None = None,
+) -> ProviderHealthSnapshot:
     if config is None:
         raise RuntimeError(
             "No config context bound. Wrap the call in config_context() or pass config explicitly."
@@ -64,12 +66,16 @@ def provider_health_snapshot_model(config: dict | None = None) -> ProviderHealth
         for v in cfg.get("disabled_data_vendors", [])
         if str(v).strip()
     }
-    runtime = cfg.get("provider_runtime", {}) or {}
+    runtime = ProviderRuntimeConfig.model_validate(
+        cfg.get("provider_runtime", {}) or {}
+    )
     categories = {}
     for category in TOOLS_CATEGORIES:
         vendors = [
             v.strip().lower()
-            for v in str(cfg.get("data_vendors", {}).get(category, "default")).split(",")
+            for v in str(cfg.get("data_vendors", {}).get(category, "default")).split(
+                ","
+            )
             if v.strip()
         ]
         categories[category] = CategoryRouting(
@@ -135,7 +141,9 @@ def journal_schema_health(config: dict) -> HealthCheckItem:
             existing = index_names(conn)
         missing_indexes = sorted(required_indexes - existing)
         missing_columns = sorted({"trigger_key"} - alert_columns)
-        status = "healthy" if not missing_indexes and not missing_columns else "critical"
+        status = (
+            "healthy" if not missing_indexes and not missing_columns else "critical"
+        )
         return HealthCheckItem(
             name="journal_schema",
             status=status,
@@ -158,7 +166,9 @@ def _live_provider_health() -> HealthCheckItem:
         from tradingagents.dataflows.interface import check_provider_health
 
         results = check_provider_health(timeout_sec=5.0)
-        status = "healthy" if any(v == "healthy" for v in results.values()) else "critical"
+        status = (
+            "healthy" if any(v == "healthy" for v in results.values()) else "critical"
+        )
         return HealthCheckItem(
             name="live_provider_connectivity",
             status=status,

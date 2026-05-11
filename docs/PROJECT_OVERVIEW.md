@@ -1,7 +1,7 @@
 # AI Crypto Research Workstation — Tổng Quan Dự Án
 
 > **Living document** — cập nhật khi kiến trúc thay đổi.
-> Lần sửa cuối: 2026-05-10 | Phiên bản dự án: 0.3.0
+> Lần sửa cuối: 2026-05-12 | Phiên bản dự án: 0.3.0
 
 ---
 
@@ -193,6 +193,7 @@ AI-Crypto-Research-Workstation/
 ├── docs/                           # Tài liệu dự án
 │   ├── ROADMAP_DEV.md              # Lộ trình kỹ thuật / contributor
 │   ├── ROADMAP_PRODUCTION.md       # Lộ trình production / cloud / reliability
+│   ├── PRODUCTION_READINESS_REVIEW.md # Đánh giá go/no-go hiện tại
 │   └── PROJECT_OVERVIEW.md         # File này
 │
 ├── tests/                          # Test suite (~30 files)
@@ -421,8 +422,8 @@ tradingagents evaluate
 | LLM providers | 10 (OpenAI, DeepSeek, Google, Anthropic, xAI, Qwen, GLM, Ollama, OpenRouter, Azure) |
 | Data vendors | 2 (CCXT, CoinGecko) + CryptoPanic |
 | Setup templates | 7 (breakout, range, squeeze, news, macro, pullback, sweep) |
-| Test files | ~30 |
-| Python version | 3.11+ |
+| Test files | 46 |
+| Python version | 3.10+ |
 
 ---
 

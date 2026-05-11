@@ -108,6 +108,7 @@ class JournalService:
             run.market_snapshot_id = saved_market.id
             run.signal_snapshot_id = saved_snapshot.id
             saved_run = self.repo.save_research_run(run, _conn=conn)
+            assert saved_run.id is not None
             self.repo.add_run_event(
                 saved_run.id,
                 "snapshots_saved",
@@ -259,7 +260,9 @@ class JournalService:
         reviews = self.repo.list_outcome_reviews(thesis_id=thesis_id, limit=limit)
         if not symbol:
             return reviews
-        thesis_map = self.repo.get_theses_by_ids([review.thesis_id for review in reviews])
+        thesis_map = self.repo.get_theses_by_ids(
+            [review.thesis_id for review in reviews]
+        )
         filtered = []
         for review in reviews:
             thesis = thesis_map.get(review.thesis_id)

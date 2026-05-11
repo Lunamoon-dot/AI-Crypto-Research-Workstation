@@ -498,8 +498,8 @@ class EvaluationService:
 
         # Batch-fetch all agent opinions upfront to avoid N+1 queries.
         all_opinion_ids: set[str] = set()
-        for thesis in theses.values():
-            all_opinion_ids.update(thesis.agent_opinion_ids)
+        for stored_thesis in theses.values():
+            all_opinion_ids.update(stored_thesis.agent_opinion_ids)
         opinions_map = self.repo.get_agent_opinions_by_ids(list(all_opinion_ids))
 
         low_conflict: list[ThesisEvaluation] = []
@@ -509,11 +509,11 @@ class EvaluationService:
         stance_diversities: list[float] = []
 
         for evaluation in evaluations:
-            thesis = theses.get(evaluation.thesis_id)
-            if not thesis:
+            current_thesis = theses.get(evaluation.thesis_id)
+            if not current_thesis:
                 continue
             opinions = [
-                opinions_map.get(oid) for oid in thesis.agent_opinion_ids
+                opinions_map.get(oid) for oid in current_thesis.agent_opinion_ids
             ]
             resolved: list[AgentOpinion] = [o for o in opinions if o is not None]
             bullish = sum(

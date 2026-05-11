@@ -5,12 +5,13 @@ Technical implementation phases (1–9), refactor priorities, and engineering ti
 **Audience:** engineers maintaining `tradingagents/`, CLI, and tests.
 
 **See also:** [Production roadmap](ROADMAP_PRODUCTION.md) · [Project hub](../ROADMAP.md)
+· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
 
 ---
 
 ## Current codebase snapshot
 
-**Last reviewed:** 2026-05-11.
+**Last reviewed:** 2026-05-12.
 
 This section replaces the old branch-specific narrative. Update it when architecture changes materially.
 
@@ -20,7 +21,7 @@ This section replaces the old branch-specific narrative. Update it when architec
 - **Config:** `signal_weights`, `signal_thresholds`, and `fixed_sizing` are **research / display knobs**, not live sizing engines.
 - **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts — parsed from graph state after each run.
 - **CLI:** Run `python -m cli.main --help` for truth; expect `analyze`, `research`, `journal`, `thesis`, `signals`, `watchlist`, `dashboard`, `config`, `brief`, `evaluate`.
-- **Tests:** `pytest -m "not integration"` is the primary fast gate.
+- **Tests:** `python -m pytest -q` currently passes locally with 503 tests passed, 1 skipped when `hypothesis` is missing, and 42 subtests passed. `ruff`, `ruff format --check`, and `mypy tradingagents cli` are required gates.
 
 Phase sections below state **intent**; partial implementations should track acceptance criteria as backlog.
 

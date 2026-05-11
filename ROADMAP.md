@@ -6,8 +6,10 @@ This file is the **entry point**. Detailed planning is split so engineers and pr
 |----------|----------|----------|
 | [**docs/ROADMAP_DEV.md**](docs/ROADMAP_DEV.md) | Contributors, implementers | Phases 1–9, codebase snapshot, **excellence backlog (reproducibility, agents, workflow)**, terminal UX, refactor priorities, timelines |
 | [**docs/ROADMAP_PRODUCTION.md**](docs/ROADMAP_PRODUCTION.md) | Shipping, security, future cloud | Positioning, phases 10–14, **excellence criteria (privacy, compliance framing, ops)**, MVP checklist, production readiness |
+| [**docs/PRODUCTION_READINESS_REVIEW.md**](docs/PRODUCTION_READINESS_REVIEW.md) | Maintainers, release reviewers | Current go/no-go verdict, verification evidence, blockers, and Markdown cleanup policy |
 
-**Last reviewed:** 2026-05-11.
+**Last reviewed:** 2026-05-12.
+**Current production verdict:** not ready for broad production launch; acceptable for controlled local alpha/beta research use.
 
 ---
 
@@ -90,6 +92,7 @@ ResearchRun domain
 
 1. **Implementing features or fixing architecture** → [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md)  
 2. **Reliability, secrets, observability, cloud, monetization** → [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md)
+3. **Current go-live decision and blockers** → [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md)
 
 ---
 

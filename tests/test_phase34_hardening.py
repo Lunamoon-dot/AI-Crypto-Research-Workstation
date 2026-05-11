@@ -45,7 +45,10 @@ def test_create_tool_nodes_uses_node_name_constants_without_name_error():
 
 def test_graph_modules_do_not_use_wildcard_agent_imports():
     root = Path(__file__).resolve().parents[1]
-    for rel in ("tradingagents/graph/setup.py", "tradingagents/graph/research_agents_graph.py"):
+    for rel in (
+        "tradingagents/graph/setup.py",
+        "tradingagents/graph/research_agents_graph.py",
+    ):
         text = (root / rel).read_text(encoding="utf-8")
         assert "from tradingagents.agents import *" not in text
 
@@ -85,9 +88,11 @@ def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
 
     assert "trigger_key" in columns
     assert trigger_key == "scenario_activated:abc:1"
-    assert store.connect().execute(
-        "SELECT name FROM sqlite_master WHERE name = 'idx_alerts_trigger_key'"
-    ).fetchone()
+    assert (
+        store.connect()
+        .execute("SELECT name FROM sqlite_master WHERE name = 'idx_alerts_trigger_key'")
+        .fetchone()
+    )
     assert store.path.exists()
 
     from tradingagents.storage.repositories import JournalRepository
@@ -112,6 +117,64 @@ def test_migration_is_idempotent(tmp_path):
     assert health.checks[0].details["missing_indexes"] == []
 
 
+def test_migration_adds_research_run_provenance_columns(tmp_path):
+    db_path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE research_runs (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                asset_class TEXT NOT NULL,
+                timeframe TEXT,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                market_snapshot_id TEXT,
+                signal_snapshot_id TEXT,
+                debate_id TEXT,
+                thesis_id TEXT,
+                decision_id TEXT,
+                user_decision_id TEXT,
+                outcome_review_id TEXT,
+                payload_json TEXT NOT NULL
+            );
+            """
+        )
+
+    service = JournalService(
+        {
+            "data_cache_dir": str(tmp_path),
+            "journal": {"enabled": True, "db_path": str(db_path)},
+        }
+    )
+    columns = {
+        row[1]
+        for row in service.store.connect().execute("PRAGMA table_info(research_runs)")
+    }
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            deep_think_model="deepseek-v4-pro",
+            quick_think_model="deepseek-v4-flash",
+            llm_provider="deepseek",
+            config_hash="abc123def4567890",
+        )
+    )
+
+    assert {
+        "deep_think_model",
+        "quick_think_model",
+        "llm_provider",
+        "config_hash",
+    } <= columns
+    loaded = service.get_research_run(run.id)
+    assert loaded.deep_think_model == "deepseek-v4-pro"
+    assert loaded.quick_think_model == "deepseek-v4-flash"
+    assert loaded.llm_provider == "deepseek"
+    assert loaded.config_hash == "abc123def4567890"
+
+
 def test_toml_writer_round_trips_nested_sections():
     lines = []
     _write_toml_section(
@@ -130,7 +193,10 @@ def test_toml_writer_round_trips_nested_sections():
 
     assert parsed["name"] == 'desk "alpha"'
     assert parsed["llm_fallback"]["enabled"] is True
-    assert parsed["llm_fallback"]["fallback_model_map"]["openai"]["quick"] == "gpt-4.1-mini"
+    assert (
+        parsed["llm_fallback"]["fallback_model_map"]["openai"]["quick"]
+        == "gpt-4.1-mini"
+    )
 
 
 def test_async_journal_service_matches_sync_journal_service(tmp_path):
@@ -183,7 +249,9 @@ def test_opentelemetry_disabled_or_missing_is_noop():
 def test_config_health_json_reports_typed_health(tmp_path, monkeypatch):
     cfg = _config(tmp_path)
     SQLiteStore(cfg["journal"]["db_path"])
-    monkeypatch.setitem(config_cmd.DEFAULT_CONFIG, "data_cache_dir", cfg["data_cache_dir"])
+    monkeypatch.setitem(
+        config_cmd.DEFAULT_CONFIG, "data_cache_dir", cfg["data_cache_dir"]
+    )
     monkeypatch.setitem(config_cmd.DEFAULT_CONFIG, "journal", cfg["journal"])
     runner = CliRunner()
 

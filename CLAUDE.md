@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install in dev mode
-pip install -e .
+pip install -e ".[dev]"
 
 # Run the CLI (interactive analysis)
 tradingagents
@@ -16,6 +16,11 @@ python -m cli.main
 pytest                          # all tests
 pytest -m unit                  # fast unit tests only
 pytest -m "not integration"     # skip tests needing external services
+
+# Quality gates used before release
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy tradingagents cli
 
 # Run a single ticker programmatically
 python main.py

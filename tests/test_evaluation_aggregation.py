@@ -122,7 +122,9 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
                     svc.repo,
                     "get_signals_by_ids",
@@ -155,7 +157,11 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+            with patch.object(
+                svc.repo,
+                "get_theses_by_ids",
+                return_value={"t1": thesis1, "t2": thesis2},
+            ):
                 with patch.object(
                     svc.repo, "get_signals_by_ids", return_value={"s1": signal}
                 ):
@@ -191,7 +197,11 @@ class TestBuildFactorReliability:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+            with patch.object(
+                svc.repo,
+                "get_theses_by_ids",
+                return_value={"t1": thesis1, "t2": thesis2},
+            ):
                 with patch.object(
                     svc.repo,
                     "get_signals_by_ids",
@@ -288,7 +298,9 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
                     svc.repo,
                     "get_agent_opinions_by_ids",
@@ -314,7 +326,11 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+            with patch.object(
+                svc.repo,
+                "get_theses_by_ids",
+                return_value={"t1": thesis1, "t2": thesis2},
+            ):
                 with patch.object(
                     svc.repo,
                     "get_agent_opinions_by_ids",
@@ -338,7 +354,9 @@ class TestBuildAgentCalibration:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
                     svc.repo,
                     "get_agent_opinions_by_ids",
@@ -374,7 +392,11 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis_high, "t2": thesis_low}):
+            with patch.object(
+                svc.repo,
+                "get_theses_by_ids",
+                return_value={"t1": thesis_high, "t2": thesis_low},
+            ):
                 curve = svc.build_confidence_curve()
                 assert len(curve.buckets) == 6
                 high_bucket = next(
@@ -397,7 +419,11 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis1, "t2": thesis2}):
+            with patch.object(
+                svc.repo,
+                "get_theses_by_ids",
+                return_value={"t1": thesis1, "t2": thesis2},
+            ):
                 curve = svc.build_confidence_curve()
                 assert curve.calibration_quality in (
                     "well_calibrated",
@@ -412,7 +438,9 @@ class TestBuildConfidenceCurve:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 curve = svc.build_confidence_curve()
                 for bucket in curve.buckets:
                     assert bucket.sample_size == 0
@@ -446,9 +474,12 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
-                    svc.repo, "get_agent_opinions_by_ids",
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
                     return_value={"o1": opinion1, "o2": opinion2},
                 ):
                     analysis = svc.build_contradiction_analysis()
@@ -468,9 +499,12 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
-                    svc.repo, "get_agent_opinions_by_ids",
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
                     return_value={"o1": opinion1, "o2": opinion2},
                 ):
                     analysis = svc.build_contradiction_analysis()
@@ -493,9 +527,12 @@ class TestBuildContradictionAnalysis:
 
         svc = EvaluationService()
         with patch.object(svc, "list_evaluations", return_value=evals):
-            with patch.object(svc.repo, "get_theses_by_ids", return_value={"t1": thesis}):
+            with patch.object(
+                svc.repo, "get_theses_by_ids", return_value={"t1": thesis}
+            ):
                 with patch.object(
-                    svc.repo, "get_agent_opinions_by_ids",
+                    svc.repo,
+                    "get_agent_opinions_by_ids",
                     return_value={"o1": opinion1, "o2": opinion2, "o3": opinion3},
                 ):
                     analysis = svc.build_contradiction_analysis()
