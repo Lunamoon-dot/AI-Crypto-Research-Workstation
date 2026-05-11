@@ -285,11 +285,20 @@ def test_timeline_message_risk_checked():
     assert "low" in msg
 
 
-def test_timeline_message_order_submitted():
+def test_timeline_message_plan_recorded():
     from tradingagents.observability.logging import _timeline_message
 
-    msg = _timeline_message("order.submitted", {"action": "plan_long"})
+    msg = _timeline_message("plan.recorded", {"action": "plan_long"})
     assert "plan_long" in msg
+
+
+def test_timeline_message_budget_events():
+    from tradingagents.observability.logging import _timeline_message
+
+    exceeded = _timeline_message("budget.exceeded", {"stage": "analyst"})
+    summary = _timeline_message("budget.summary", {})
+    assert "analyst" in exceeded
+    assert "Budget summary" in summary
 
 
 def test_log_event_data_fetched(caplog):
@@ -381,12 +390,12 @@ def test_log_event_risk_checked(caplog):
     assert payload["opinion_count"] == 3
 
 
-def test_log_event_order_submitted(caplog):
+def test_log_event_plan_recorded(caplog):
     logger = logging.getLogger("tests.observability")
     with caplog.at_level(logging.INFO, logger=logger.name):
         log_event(
             logger,
-            "order_submitted",
+            "plan_recorded",
             run_id="run-os",
             decision_id="dec-os",
             symbol="BTC/USDT",
@@ -397,7 +406,7 @@ def test_log_event_order_submitted(caplog):
             confidence=0.78,
         )
     payload = json.loads(caplog.records[-1].getMessage())
-    assert payload["event"] == "order_submitted"
+    assert payload["event"] == "plan_recorded"
     assert payload["action"] == "plan_long"
     assert payload["rating"] == "Buy"
     assert payload["status"] == "planned"
@@ -424,7 +433,9 @@ def test_all_new_timeline_event_types_are_mapped():
         "signal_generated",
         "decision_created",
         "risk_checked",
-        "order_submitted",
+        "plan_recorded",
+        "budget_exceeded",
+        "budget_summary",
     ):
         assert name in _TIMELINE_EVENT_TYPES, (
             f"{name} missing from _TIMELINE_EVENT_TYPES"

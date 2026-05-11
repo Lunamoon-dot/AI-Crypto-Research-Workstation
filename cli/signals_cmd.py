@@ -12,7 +12,11 @@ from rich.table import Table
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.services import JournalService
 
-from cli.json_emit import ensure_single_output_mode, print_json_stdout, print_plain_stdout
+from cli.json_emit import (
+    ensure_single_output_mode,
+    print_json_stdout,
+    print_plain_stdout,
+)
 
 console = Console()
 signals_app = typer.Typer(help="Inspect saved signal provenance.")

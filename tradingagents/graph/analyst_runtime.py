@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-# deepcopy removed — shallow copy is sufficient since only messages are mutated
 from typing import Any, Callable
 
 from tradingagents.domain import render_agent_opinion

@@ -20,7 +20,7 @@ from tradingagents.dataflows.utils import safe_ticker_component
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
 from .quant_signals import precompute_quant_signal
-from .setup import GraphSetup
+from .setup import DEFAULT_ANALYSTS, GraphSetup
 from .propagation import Propagator
 from .signal_processing import SignalProcessor
 from .tooling import create_tool_nodes
@@ -45,6 +45,7 @@ from tradingagents.observability import (
     observability_run_event_persistence,
     start_span,
 )
+from tradingagents.observability.budget import BudgetCallbackHandler, BudgetTracker
 from tradingagents.graph.journal_bridge import JournalBridge
 from tradingagents.graph.journal_mixin import JournalPersistenceMixin
 
@@ -91,7 +92,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "onchain"],
+        selected_analysts: str | list[str] | tuple[str, ...] | None = None,
         debug=False,
         config: Dict[str, Any] | None = None,
         callbacks: Optional[List] = None,
@@ -103,7 +104,11 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             source="ResearchAgentsGraph.__init__",
         )
         configure_opentelemetry(self.config)
-        self.callbacks = callbacks or []
+        self.budget_tracker = BudgetTracker(self.config)
+        self.callbacks = [
+            *(callbacks or []),
+            BudgetCallbackHandler(self.budget_tracker),
+        ]
 
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
         os.makedirs(self.config["results_dir"], exist_ok=True)
@@ -131,6 +136,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             self.tool_nodes,
             self.conditional_logic,
             config=self.config,
+            budget_tracker=self.budget_tracker,
         )
 
         self.propagator = Propagator()
@@ -151,7 +157,9 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         self.current_scenario_plan: str = ""
 
         # Set up the graph
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        self.workflow = self.graph_setup.setup_graph(
+            DEFAULT_ANALYSTS if selected_analysts is None else selected_analysts
+        )
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
 
@@ -337,14 +345,32 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                                 symbol=company_name,
                                 trade_date=str(trade_date),
                             ):
-                                return self.orchestrator.execute_with_fallback(
-                                    lambda: self._run_graph(
-                                        company_name,
-                                        trade_date,
-                                        node_callback=node_callback,
-                                        run_callbacks=run_callbacks,
+                                with self.budget_tracker.stage(
+                                    "total",
+                                    symbol=company_name,
+                                    trade_date=str(trade_date),
+                                ):
+                                    result = self.orchestrator.execute_with_fallback(
+                                        lambda: self._run_graph(
+                                            company_name,
+                                            trade_date,
+                                            node_callback=node_callback,
+                                            run_callbacks=run_callbacks,
+                                        )
                                     )
+                                self.budget_tracker.log_summary(
+                                    run_id=getattr(
+                                        self.current_research_run, "id", None
+                                    ),
+                                    decision_id=getattr(
+                                        self.current_research_run,
+                                        "decision_id",
+                                        None,
+                                    ),
+                                    symbol=company_name,
+                                    trade_date=str(trade_date),
                                 )
+                                return result
                         except Exception as exc:
                             log_event(
                                 logger,

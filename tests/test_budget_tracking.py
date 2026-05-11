@@ -2,13 +2,18 @@
 
 import time
 
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
+
 
 from tradingagents.observability.budget import (
+    BudgetCallbackHandler,
     BudgetTracker,
     StageBudget,
     merge_budget_config,
     _DEFAULT_BUDGETS,
 )
+from tradingagents.graph.setup import GraphSetup
 
 
 class TestStageBudget:
@@ -145,6 +150,56 @@ class TestBudgetTracker:
             tracker.add_tokens(200, 100)
         summary = {s["stage"]: s for s in tracker.summary()}
         assert summary["analyst"]["tokens"] == 450
+
+    def test_total_stage_does_not_double_count_direct_tokens(self):
+        tracker = BudgetTracker()
+        with tracker.stage("total"):
+            tracker.add_tokens(100, 50)
+        summary = {s["stage"]: s for s in tracker.summary()}
+        assert summary["total"]["tokens"] == 150
+
+    def test_analyst_tokens_roll_up_to_analysts_total(self):
+        tracker = BudgetTracker()
+        with tracker.stage("analyst", analyst_name="market"):
+            tracker.add_tokens(100, 50)
+        summary = {s["stage"]: s for s in tracker.summary()}
+        assert summary["analyst"]["tokens"] == 150
+        assert summary["analysts_total"]["tokens"] == 150
+
+    def test_budget_callback_handler_tracks_llm_usage_in_current_stage(self):
+        tracker = BudgetTracker()
+        handler = BudgetCallbackHandler(tracker)
+        message = AIMessage(
+            content="ok",
+            usage_metadata={
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18,
+            },
+        )
+        result = LLMResult(generations=[[ChatGeneration(message=message)]])
+
+        with tracker.stage("portfolio_manager"):
+            handler.on_llm_end(result)
+
+        summary = {s["stage"]: s for s in tracker.summary()}
+        assert summary["portfolio_manager"]["tokens"] == 18
+        assert summary["total"]["tokens"] == 18
+
+    def test_graph_setup_budgeted_node_sets_current_stage(self):
+        tracker = BudgetTracker()
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.budget_tracker = tracker
+        seen_stages = []
+
+        def node(state):
+            seen_stages.append(tracker.current_stage())
+            return state
+
+        wrapped = setup._budgeted_node(node, "scenario_planner")
+
+        assert wrapped({"ok": True}) == {"ok": True}
+        assert seen_stages == ["scenario_planner"]
 
 
 class TestMergeBudgetConfig:

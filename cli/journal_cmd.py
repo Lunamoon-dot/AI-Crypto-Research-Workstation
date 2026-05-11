@@ -259,7 +259,9 @@ def journal_timeline(
         raise typer.Exit(1)
     events = service.list_timeline_events(research_run_id=run_id, limit=limit)
     if json_out:
-        print_json_stdout({"events": [event.model_dump(mode="json") for event in events]})
+        print_json_stdout(
+            {"events": [event.model_dump(mode="json") for event in events]}
+        )
         return
     if plain:
         print_plain_stdout(
@@ -953,7 +955,9 @@ def thesis_timeline(
         raise typer.Exit(1)
     events = service.list_timeline_events(thesis_id=thesis_id, limit=limit)
     if json_out:
-        print_json_stdout({"events": [event.model_dump(mode="json") for event in events]})
+        print_json_stdout(
+            {"events": [event.model_dump(mode="json") for event in events]}
+        )
         return
     if plain:
         print_plain_stdout(

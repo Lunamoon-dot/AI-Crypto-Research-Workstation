@@ -266,6 +266,8 @@ class LLMOrchestrator:
             return
 
         llm_kwargs = self.get_provider_kwargs()
+        if self.callbacks:
+            llm_kwargs["callbacks"] = self.callbacks
 
         with self._lock:
             primary = self._active_llm_provider

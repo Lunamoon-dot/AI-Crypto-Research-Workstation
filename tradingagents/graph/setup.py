@@ -1,5 +1,7 @@
 # TradingAgents/graph/setup.py
 
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, Dict
 
 from langgraph.graph import END, START, StateGraph
@@ -36,6 +38,72 @@ from .node_names import (
 )
 
 
+DEFAULT_ANALYSTS = ("market", "social", "news", "onchain")
+
+
+@dataclass(frozen=True)
+class AnalystDefinition:
+    """Static metadata needed to register an analyst graph node."""
+
+    selection_key: str
+    node_name: AnalystNode
+    factory: Callable[..., Any]
+    tool_key: ToolKey
+    report_key: ReportKey
+    opinion_key: str
+    agent_name: str
+    role: str
+    source_report_type: str
+
+
+ANALYST_DEFINITIONS = (
+    AnalystDefinition(
+        selection_key="market",
+        node_name=AnalystNode.MARKET,
+        factory=create_market_analyst,
+        tool_key=ToolKey.MARKET,
+        report_key=ReportKey.MARKET,
+        opinion_key="market_opinion",
+        agent_name="Market Analyst",
+        role="market_analyst",
+        source_report_type="market",
+    ),
+    AnalystDefinition(
+        selection_key="social",
+        node_name=AnalystNode.SOCIAL,
+        factory=create_social_media_analyst,
+        tool_key=ToolKey.SOCIAL,
+        report_key=ReportKey.SENTIMENT,
+        opinion_key="sentiment_opinion",
+        agent_name="Sentiment Analyst",
+        role="sentiment_analyst",
+        source_report_type="sentiment",
+    ),
+    AnalystDefinition(
+        selection_key="news",
+        node_name=AnalystNode.NEWS,
+        factory=create_news_analyst,
+        tool_key=ToolKey.NEWS,
+        report_key=ReportKey.NEWS,
+        opinion_key="news_opinion",
+        agent_name="News Analyst",
+        role="news_analyst",
+        source_report_type="news",
+    ),
+    AnalystDefinition(
+        selection_key="onchain",
+        node_name=AnalystNode.ONCHAIN,
+        factory=create_onchain_analyst,
+        tool_key=ToolKey.ONCHAIN,
+        report_key=ReportKey.FUNDAMENTALS,
+        opinion_key="fundamentals_opinion",
+        agent_name="Onchain Analyst",
+        role="onchain_analyst",
+        source_report_type="onchain",
+    ),
+)
+
+
 # ---------------------------------------------------------------------------
 # GraphSetup
 # ---------------------------------------------------------------------------
@@ -51,6 +119,7 @@ class GraphSetup:
         tool_nodes: Dict[str, ToolNode],
         conditional_logic: ConditionalLogic,
         config: Dict[str, Any] | None = None,
+        budget_tracker: Any | None = None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
@@ -58,86 +127,31 @@ class GraphSetup:
         self.tool_nodes = tool_nodes
         self.conditional_logic = conditional_logic
         self.config: Dict[str, Any] = config or {}
+        self.budget_tracker = budget_tracker
 
-    def setup_graph(self, selected_analysts=["market", "social", "news", "onchain"]):
+    def setup_graph(self, selected_analysts: Sequence[str] | None = None):
         """Set up and compile the agent workflow graph.
 
         Analysts run in parallel via LangGraph's Send API. Each analyst
         receives the same initial state and writes to its own report key,
         so there are no cross-analyst data dependencies.
         """
-        if len(selected_analysts) == 0:
+        selected: tuple[str, ...]
+        if selected_analysts is None:
+            selected = DEFAULT_ANALYSTS
+        elif isinstance(selected_analysts, str):
+            selected = (selected_analysts,)
+        else:
+            selected = tuple(selected_analysts)
+        if len(selected) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
 
-        # -- Analyst nodes ----------------------------------------------------
-        analyst_specs = []
-        if "market" in selected_analysts:
-            analyst_specs.append(
-                (
-                    AnalystNode.MARKET,
-                    create_market_analyst(self.quick_thinking_llm, config=self.config),
-                    ToolKey.MARKET,
-                    ReportKey.MARKET,
-                    "market_opinion",
-                    create_analyst_opinion_builder(
-                        llm=self.quick_thinking_llm,
-                        agent_name="Market Analyst",
-                        role="market_analyst",
-                        source_report_type="market",
-                    ),
-                )
-            )
-        if "social" in selected_analysts:
-            analyst_specs.append(
-                (
-                    AnalystNode.SOCIAL,
-                    create_social_media_analyst(
-                        self.quick_thinking_llm, config=self.config
-                    ),
-                    ToolKey.SOCIAL,
-                    ReportKey.SENTIMENT,
-                    "sentiment_opinion",
-                    create_analyst_opinion_builder(
-                        llm=self.quick_thinking_llm,
-                        agent_name="Sentiment Analyst",
-                        role="sentiment_analyst",
-                        source_report_type="sentiment",
-                    ),
-                )
-            )
-        if "news" in selected_analysts:
-            analyst_specs.append(
-                (
-                    AnalystNode.NEWS,
-                    create_news_analyst(self.quick_thinking_llm, config=self.config),
-                    ToolKey.NEWS,
-                    ReportKey.NEWS,
-                    "news_opinion",
-                    create_analyst_opinion_builder(
-                        llm=self.quick_thinking_llm,
-                        agent_name="News Analyst",
-                        role="news_analyst",
-                        source_report_type="news",
-                    ),
-                )
-            )
-        if "onchain" in selected_analysts:
-            analyst_specs.append(
-                (
-                    AnalystNode.ONCHAIN,
-                    create_onchain_analyst(self.quick_thinking_llm, config=self.config),
-                    ToolKey.ONCHAIN,
-                    ReportKey.FUNDAMENTALS,
-                    "fundamentals_opinion",
-                    create_analyst_opinion_builder(
-                        llm=self.quick_thinking_llm,
-                        agent_name="Onchain Analyst",
-                        role="onchain_analyst",
-                        source_report_type="onchain",
-                    ),
-                )
-            )
-        if not analyst_specs:
+        analyst_definitions = [
+            definition
+            for definition in ANALYST_DEFINITIONS
+            if definition.selection_key in selected
+        ]
+        if not analyst_definitions:
             raise ValueError(
                 "Trading Agents Graph Setup Error: selected analysts are invalid!"
             )
@@ -169,16 +183,34 @@ class GraphSetup:
         analyst_names = []
 
         # Add analyst nodes (each wraps its own internal tool loop).
-        for node_name, node_fn, tool_key, report_key, opinion_key, opinion_fn in analyst_specs:
+        for definition in analyst_definitions:
+            node_fn = definition.factory(
+                self.quick_thinking_llm,
+                config=self.config,
+            )
+            opinion_fn = create_analyst_opinion_builder(
+                llm=self.quick_thinking_llm,
+                agent_name=definition.agent_name,
+                role=definition.role,
+                source_report_type=definition.source_report_type,
+            )
             runner = make_analyst_runner(
                 node_fn,
-                self.tool_nodes[tool_key],
-                report_key=report_key,
-                opinion_key=opinion_key,
+                self.tool_nodes[definition.tool_key],
+                report_key=definition.report_key,
+                opinion_key=definition.opinion_key,
                 opinion_builder=opinion_fn,
             )
-            workflow.add_node(node_name, runner)
-            analyst_names.append(node_name)
+            workflow.add_node(
+                definition.node_name,
+                self._budgeted_node(
+                    runner,
+                    "analyst",
+                    analyst_name=definition.selection_key,
+                    graph_node=str(definition.node_name),
+                ),
+            )
+            analyst_names.append(definition.node_name)
 
         # Fan-out: all analysts run concurrently from START.
         def _fan_out_analysts(state):
@@ -195,15 +227,78 @@ class GraphSetup:
             workflow.add_edge(name, DebateNode.BULL_RESEARCHER)
 
         # Debate/risk pipeline
-        workflow.add_node(DebateNode.BULL_RESEARCHER, bull_researcher_node)
-        workflow.add_node(DebateNode.BEAR_RESEARCHER, bear_researcher_node)
-        workflow.add_node(DebateNode.RESEARCH_MANAGER, research_manager_node)
-        workflow.add_node(PipelineNode.TRADER, trader_node)
-        workflow.add_node(RiskNode.AGGRESSIVE, aggressive_analyst)
-        workflow.add_node(RiskNode.NEUTRAL, neutral_analyst)
-        workflow.add_node(RiskNode.CONSERVATIVE, conservative_analyst)
-        workflow.add_node(PipelineNode.PORTFOLIO_MANAGER, portfolio_manager_node)
-        workflow.add_node(PipelineNode.SCENARIO_PLANNER, scenario_planner_node)
+        workflow.add_node(
+            DebateNode.BULL_RESEARCHER,
+            self._budgeted_node(
+                bull_researcher_node,
+                "debate",
+                graph_node=str(DebateNode.BULL_RESEARCHER),
+            ),
+        )
+        workflow.add_node(
+            DebateNode.BEAR_RESEARCHER,
+            self._budgeted_node(
+                bear_researcher_node,
+                "debate",
+                graph_node=str(DebateNode.BEAR_RESEARCHER),
+            ),
+        )
+        workflow.add_node(
+            DebateNode.RESEARCH_MANAGER,
+            self._budgeted_node(
+                research_manager_node,
+                "research_manager",
+                graph_node=str(DebateNode.RESEARCH_MANAGER),
+            ),
+        )
+        workflow.add_node(
+            PipelineNode.TRADER,
+            self._budgeted_node(
+                trader_node,
+                "trader",
+                graph_node=str(PipelineNode.TRADER),
+            ),
+        )
+        workflow.add_node(
+            RiskNode.AGGRESSIVE,
+            self._budgeted_node(
+                aggressive_analyst,
+                "risk_debate",
+                graph_node=str(RiskNode.AGGRESSIVE),
+            ),
+        )
+        workflow.add_node(
+            RiskNode.NEUTRAL,
+            self._budgeted_node(
+                neutral_analyst,
+                "risk_debate",
+                graph_node=str(RiskNode.NEUTRAL),
+            ),
+        )
+        workflow.add_node(
+            RiskNode.CONSERVATIVE,
+            self._budgeted_node(
+                conservative_analyst,
+                "risk_debate",
+                graph_node=str(RiskNode.CONSERVATIVE),
+            ),
+        )
+        workflow.add_node(
+            PipelineNode.PORTFOLIO_MANAGER,
+            self._budgeted_node(
+                portfolio_manager_node,
+                "portfolio_manager",
+                graph_node=str(PipelineNode.PORTFOLIO_MANAGER),
+            ),
+        )
+        workflow.add_node(
+            PipelineNode.SCENARIO_PLANNER,
+            self._budgeted_node(
+                scenario_planner_node,
+                "scenario_planner",
+                graph_node=str(PipelineNode.SCENARIO_PLANNER),
+            ),
+        )
         workflow.add_conditional_edges(
             DebateNode.BULL_RESEARCHER,
             self.conditional_logic.should_continue_debate,
@@ -251,3 +346,14 @@ class GraphSetup:
         workflow.add_edge(PipelineNode.SCENARIO_PLANNER, END)
 
         return workflow
+
+    def _budgeted_node(self, node_fn: Callable[[dict], dict], stage: str, **ctx):
+        tracker = self.budget_tracker
+        if tracker is None:
+            return node_fn
+
+        def _run(state: dict) -> dict:
+            with tracker.stage(stage, **ctx):
+                return node_fn(state)
+
+        return _run

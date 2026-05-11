@@ -8,6 +8,7 @@ Practical checklist for moving TradingAgents from local research workstation to 
 See also: [Production readiness review](PRODUCTION_READINESS_REVIEW.md).
 
 Release evidence directory: [0.3.0-2026-05-12](release-evidence/0.3.0-2026-05-12/).
+Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-05-12/completion-audit-2026-05-12.md).
 
 ## Current Evidence
 
@@ -17,11 +18,12 @@ Release evidence directory: [0.3.0-2026-05-12](release-evidence/0.3.0-2026-05-12
 | Ruff lint | PASS: `python -m ruff check .`; see [clean-clone summary](release-evidence/0.3.0-2026-05-12/clean-clone-summary.md) |
 | Ruff format | PASS after rerun: `python -m ruff format --check .`; see [format rerun](release-evidence/0.3.0-2026-05-12/clean-clone-ruff-format-check-rerun.log) |
 | Pytest | PASS: `507 passed, 42 subtests passed`; see [pytest log](release-evidence/0.3.0-2026-05-12/clean-clone-pytest.log) |
+| Current workspace rerun | PASS with `.\.venv\Scripts\python.exe`: ruff lint, ruff format, mypy, compile, and `524 passed`; see [workspace gates](release-evidence/0.3.0-2026-05-12/workspace-local-gates-2026-05-12.md) |
 | Property tests | PASS: `4 passed` with `hypothesis` installed; see [property log](release-evidence/0.3.0-2026-05-12/clean-clone-property-tests-rerun.log) |
 | Mypy | PASS: `python -m mypy tradingagents cli`; see [mypy log](release-evidence/0.3.0-2026-05-12/clean-clone-mypy.log) |
 | Compile | PASS: `python -m compileall tradingagents cli tests`; see [compile log](release-evidence/0.3.0-2026-05-12/clean-clone-compileall.log) |
 | Dependency check | PASS: `python -m pip check`; see [pip check log](release-evidence/0.3.0-2026-05-12/clean-clone-pip-check.log) |
-| CI matrix | BLOCKED: GitHub Actions result could not be authenticated from this workstation; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
+| CI matrix | BLOCKED: no verifiable GitHub Actions run/status exists for the current pushed commit, and current workspace edits are uncommitted; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
 | Dependency audit | PASS: `pip-audit`; see [audit log](release-evidence/0.3.0-2026-05-12/dependency-audit-pip-audit.log) |
 | Secret scan | PASS after manual triage of placeholders/test fixtures; see [scan log](release-evidence/0.3.0-2026-05-12/secret-scan-detect-secrets.log) and [triage](release-evidence/0.3.0-2026-05-12/secret-scan-triage.md) |
 
@@ -63,9 +65,8 @@ Release evidence directory: [0.3.0-2026-05-12](release-evidence/0.3.0-2026-05-12
 
 ## Production Blockers To Close
 
-- Authenticate and record GitHub Actions CI matrix evidence for Python 3.10, 3.11, and 3.12.
+- Push the release candidate and record authenticated GitHub Actions CI matrix evidence for Python 3.10, 3.11, and 3.12.
 - Record second reviewer sign-off.
-- Wire graph-stage budget/timeline observability into real runs.
 - Keep assisted execution out of scope until explicit approval, confirmation, and immutable audit trails exist.
 
 ## Evidence Notes
@@ -73,7 +74,9 @@ Release evidence directory: [0.3.0-2026-05-12](release-evidence/0.3.0-2026-05-12
 - DeepSeek real-provider smoke passed after fixing the smoke script to pass `DEFAULT_CONFIG` into the Portfolio Manager and use ASCII-safe section labels on Windows.
 - The clean verification clone is based on commit `c403b148d6bf11d174ef36ff201728f16a497143` and includes the test-only Hypothesis health-check patch from this release workspace. The unpatched base commit exposed a cold-environment Hypothesis health-check flake.
 - Journal migration and backup/restore ran against DB copies outside the repo; raw journal DB files are not committed.
-- CI remains unchecked because `gh` is unavailable and the unauthenticated GitHub Actions API returned 404 for the requested commit.
+- Current workspace verification must use `.\.venv\Scripts\python.exe`, not global `python`, so Hypothesis-backed property tests are not accidentally skipped.
+- Graph-stage budget/timeline observability is wired into real graph runs through `BudgetTracker`, `BudgetCallbackHandler`, and per-node stage wrappers; coverage is in `tests/test_budget_tracking.py`, `tests/test_observability_logging.py`, and `tests/test_llm_fallback.py`.
+- CI remains unchecked because no GitHub Actions run/status was found for the current pushed `main` commit and the private repository's unauthenticated Actions API returns 404.
 
 ## Sign-Off Template
 

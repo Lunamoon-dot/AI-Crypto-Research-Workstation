@@ -3,8 +3,9 @@ from unittest.mock import MagicMock
 
 from tradingagents.agents.utils.agent_utils import create_analyst_opinion_builder
 from tradingagents.domain import AgentOpinion, AgentStance
-from tradingagents.graph.opinions import build_agent_opinions
+from tradingagents.graph.opinions import build_agent_opinions, opinion_from_text
 from tradingagents.graph.analyst_runtime import make_analyst_runner
+from tradingagents.graph.setup import ANALYST_DEFINITIONS, DEFAULT_ANALYSTS
 
 
 @dataclass
@@ -133,3 +134,37 @@ def test_build_agent_opinions_prefers_structured_analyst_state():
     assert opinions[0].research_run_id == "run_1"
     assert opinions[0].agent_name == "Market Analyst"
     assert opinions[0].key_evidence == ["structured evidence"]
+
+
+def test_opinion_from_text_extracts_bullets_and_pipe_separated_fields():
+    opinion = opinion_from_text(
+        "Market Analyst",
+        "\n".join(
+            [
+                "- signal: Trend breakout confirmed because volume expanded.",
+                "- risk: Funding is overheated and liquidation risk increased.",
+                "| missing | on-chain data unavailable |",
+            ]
+        ),
+        research_run_id="run_1",
+        role="market_analyst",
+        source_report_type="market",
+    )
+
+    assert opinion is not None
+    assert opinion.key_evidence[0] == (
+        "signal: Trend breakout confirmed because volume expanded."
+    )
+    assert opinion.risks == [
+        "risk: Funding is overheated and liquidation risk increased."
+    ]
+    assert opinion.missing_data == ["missing: on-chain data unavailable"]
+
+
+def test_default_analyst_definitions_match_default_selection_order():
+    assert tuple(definition.selection_key for definition in ANALYST_DEFINITIONS) == (
+        DEFAULT_ANALYSTS
+    )
+    assert len({definition.report_key for definition in ANALYST_DEFINITIONS}) == len(
+        ANALYST_DEFINITIONS
+    )
