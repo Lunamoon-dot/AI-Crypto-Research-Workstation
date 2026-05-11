@@ -6,6 +6,7 @@ and build_window_from_config.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,13 @@ from tradingagents.graph.historical_replay import (
     HistoricalReplay,
     ReplayResult,
 )
+
+# Rich/Typer colorize option names so "--strict" is not a contiguous substring in stdout.
+_STRIP_ANSI = re.compile(r"\x1b\[[0-9;:]*m")
+
+
+def _plain_cli_stdout(text: str) -> str:
+    return _STRIP_ANSI.sub("", text)
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +369,7 @@ class TestStrictMode:
             ["replay", "single", "BTC/USDT", "2025-12-15", "--strict", "--help"],
         )
         assert result.exit_code == 0
-        assert "--strict" in result.stdout
+        assert "--strict" in _plain_cli_stdout(result.stdout)
 
     def test_batch_accepts_strict_flag(self):
         runner = CliRunner()
@@ -378,4 +386,4 @@ class TestStrictMode:
             ],
         )
         assert result.exit_code == 0
-        assert "--strict" in result.stdout
+        assert "--strict" in _plain_cli_stdout(result.stdout)
