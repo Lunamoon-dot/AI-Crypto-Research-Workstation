@@ -440,7 +440,6 @@ class AnalysisOrchestrator:
     @staticmethod
     def _execute_dry_run(selections: dict, config: dict) -> None:
         """Print a validation summary and exit without running the pipeline."""
-        from rich.panel import Panel
         from rich.table import Table
 
         # -- Configuration summary ------------------------------------------

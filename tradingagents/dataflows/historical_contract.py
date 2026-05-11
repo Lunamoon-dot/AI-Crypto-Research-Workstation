@@ -9,9 +9,8 @@ the requested point-in-time data before issuing a call.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 

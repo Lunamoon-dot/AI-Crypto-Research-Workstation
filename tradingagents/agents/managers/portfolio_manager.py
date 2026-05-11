@@ -19,7 +19,6 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
 
 
 def _get_feedback_context(config) -> str:

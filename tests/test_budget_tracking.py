@@ -2,7 +2,6 @@
 
 import time
 
-import pytest
 
 from tradingagents.observability.budget import (
     BudgetTracker,

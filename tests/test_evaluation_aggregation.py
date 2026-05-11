@@ -6,8 +6,8 @@ build_confidence_curve, and build_contradiction_analysis.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from unittest.mock import MagicMock, PropertyMock, patch
+from datetime import date
+from unittest.mock import patch
 
 import pytest
 
@@ -17,7 +17,6 @@ from tradingagents.domain import (
     AgentStance,
     ConfidenceCurve,
     ContradictionAnalysis,
-    EvaluationAnalytics,
     FactorReliabilityReport,
     OutcomeResult,
     Signal,

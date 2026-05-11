@@ -8,7 +8,7 @@ point-in-time guardrails and that no lookahead can occur.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -73,9 +73,7 @@ class TestRouteToVendorReplaySmoke:
             ) as mock_invoke:
                 mock_invoke.return_value = "normal_data"
                 with config_context(cfg):
-                    result = route_to_vendor(
-                        "get_crypto_ticker", "BTC/USDT"
-                    )
+                    route_to_vendor("get_crypto_ticker", "BTC/USDT")
 
             # route_to_vendor_historical should NOT be called
             mock_hist.assert_not_called()

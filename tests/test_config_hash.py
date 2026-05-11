@@ -1,8 +1,6 @@
 """Tests for config hash computation and ResearchRun model identity fields."""
 
-from datetime import datetime, timezone
 
-import pytest
 
 from tradingagents.domain import ResearchRun, ResearchRunStatus
 from tradingagents.graph.config_hash import compute_config_hash
@@ -71,7 +69,6 @@ class TestConfigHash:
 
     def test_deterministic_key_ordering(self):
         """Hash is stable regardless of insertion order."""
-        from collections import OrderedDict
 
         c1 = {"a": 1, "b": 2, "c": 3}
         c2 = {"c": 3, "a": 1, "b": 2}

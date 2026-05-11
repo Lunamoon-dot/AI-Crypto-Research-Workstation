@@ -25,6 +25,11 @@ from cli.json_emit import print_json_stdout
 
 evaluate_app = typer.Typer(help="Historical thesis evaluation")
 console = Console()
+EM_DASH = "\u2014"
+
+
+def _fmt_pct(value: float | None) -> str:
+    return f"{value:.0%}" if value is not None else EM_DASH
 
 
 @evaluate_app.command("thesis")
@@ -154,11 +159,10 @@ def evaluate_analytics_cmd(
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="bold")
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "\u2014"
-    table.add_row("Hit rate", fmt(overall.hit_rate))
-    table.add_row("Invalidation rate", fmt(overall.invalidation_rate))
-    table.add_row("Mixed rate", fmt(overall.mixed_rate))
-    table.add_row("Expired rate", fmt(overall.expired_rate))
+    table.add_row("Hit rate", _fmt_pct(overall.hit_rate))
+    table.add_row("Invalidation rate", _fmt_pct(overall.invalidation_rate))
+    table.add_row("Mixed rate", _fmt_pct(overall.mixed_rate))
+    table.add_row("Expired rate", _fmt_pct(overall.expired_rate))
     table.add_row("Avg MFE", f"{overall.average_mfe:.2%}" if overall.average_mfe is not None else "\u2014")
     table.add_row("Avg MAE", f"{overall.average_mae:.2%}" if overall.average_mae is not None else "\u2014")
     console.print(table)
@@ -181,8 +185,8 @@ def evaluate_factors_cmd(
     console.print(
         Panel(
             f"Sample: [bold]{report.total_sample_size}[/bold] evaluations\n"
-            f"Best factor: [green]{report.best_factor or '\u2014'}[/green]  "
-            f"Worst factor: [red]{report.worst_factor or '\u2014'}[/red]",
+            f"Best factor: [green]{report.best_factor or EM_DASH}[/green]  "
+            f"Worst factor: [red]{report.worst_factor or EM_DASH}[/red]",
             title="Factor Reliability",
             border_style="cyan",
         )
@@ -196,14 +200,13 @@ def evaluate_factors_cmd(
     table.add_column("Strong Hit")
     table.add_column("Avg Conf")
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "\u2014"
     for f in report.factors:
         table.add_row(
             f.factor_name,
             str(f.sample_size),
-            fmt(f.hit_rate),
-            fmt(f.directional_accuracy),
-            fmt(f.strong_signal_hit_rate),
+            _fmt_pct(f.hit_rate),
+            _fmt_pct(f.directional_accuracy),
+            _fmt_pct(f.strong_signal_hit_rate),
             f"{f.average_confidence:.0%}" if f.average_confidence is not None else "\u2014",
         )
     console.print(table)
@@ -221,8 +224,8 @@ def evaluate_agents_cmd(
     console.print(
         Panel(
             f"Sample: [bold]{report.total_sample_size}[/bold] evaluations\n"
-            f"Most accurate: [green]{report.most_accurate_agent or '\u2014'}[/green]  "
-            f"Most biased: [yellow]{report.most_biased_agent or '\u2014'}[/yellow]",
+            f"Most accurate: [green]{report.most_accurate_agent or EM_DASH}[/green]  "
+            f"Most biased: [yellow]{report.most_biased_agent or EM_DASH}[/yellow]",
             title="Agent Calibration",
             border_style="cyan",
         )
@@ -237,16 +240,15 @@ def evaluate_agents_cmd(
     table.add_column("Accuracy", style="bold")
     table.add_column("Bias")
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "\u2014"
     for a in report.agents:
         bias_color = "green" if (a.bias_score or 0) > 0.3 else ("red" if (a.bias_score or 0) < -0.3 else "white")
         table.add_row(
             a.agent_name,
             a.role,
             str(a.sample_size),
-            fmt(a.bullish_rate),
-            fmt(a.bearish_rate),
-            fmt(a.stance_accuracy),
+            _fmt_pct(a.bullish_rate),
+            _fmt_pct(a.bearish_rate),
+            _fmt_pct(a.stance_accuracy),
             f"[{bias_color}]{a.bias_score:+.2f}[/{bias_color}]" if a.bias_score is not None else "\u2014",
         )
     console.print(table)
@@ -285,14 +287,13 @@ def evaluate_confidence_cmd(
     table.add_column("Actual", style="bold")
     table.add_column("Error")
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "\u2014"
     for b in curve.buckets:
         err_color = "green" if (b.calibration_error or 0) >= -0.05 else ("red" if (b.calibration_error or 0) < -0.10 else "yellow")
         table.add_row(
             b.bucket_label,
             str(b.sample_size),
-            fmt(b.expected_rate),
-            fmt(b.hit_rate),
+            _fmt_pct(b.expected_rate),
+            _fmt_pct(b.hit_rate),
             f"[{err_color}]{b.calibration_error:+.0%}[/{err_color}]" if b.calibration_error is not None else "\u2014",
         )
     console.print(table)
@@ -324,33 +325,31 @@ def evaluate_contradictions_cmd(
         )
     )
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "\u2014"
-
     # Conflict level table
     table = Table(title="By Conflict Level", box=box.SIMPLE)
     table.add_column("Conflict", style="cyan")
     table.add_column("N", style="dim")
     table.add_column("Hit Rate", style="bold")
-    table.add_row("Low", str(analysis.low_conflict_sample), fmt(analysis.low_conflict_hit_rate))
-    table.add_row("Medium", str(analysis.medium_conflict_sample), fmt(analysis.medium_conflict_hit_rate))
-    table.add_row("High", str(analysis.high_conflict_sample), fmt(analysis.high_conflict_hit_rate))
+    table.add_row("Low", str(analysis.low_conflict_sample), _fmt_pct(analysis.low_conflict_hit_rate))
+    table.add_row("Medium", str(analysis.medium_conflict_sample), _fmt_pct(analysis.medium_conflict_hit_rate))
+    table.add_row("High", str(analysis.high_conflict_sample), _fmt_pct(analysis.high_conflict_hit_rate))
     console.print(table)
 
     # Contradiction count table
     table2 = Table(title="By Contradiction Count", box=box.SIMPLE)
     table2.add_column("Group", style="cyan")
     table2.add_column("Hit Rate", style="bold")
-    table2.add_row("No contradictions", fmt(analysis.no_contradiction_hit_rate))
+    table2.add_row("No contradictions", _fmt_pct(analysis.no_contradiction_hit_rate))
     contra_label = f"\u2265{analysis.contradiction_count_avg:.1f} contradictions" if analysis.contradiction_count_avg else "Above avg contradictions"
-    table2.add_row(contra_label, fmt(analysis.contradiction_hit_rate))
+    table2.add_row(contra_label, _fmt_pct(analysis.contradiction_hit_rate))
     console.print(table2)
 
     # Stance diversity table
     table3 = Table(title="By Stance Diversity", box=box.SIMPLE)
     table3.add_column("Group", style="cyan")
     table3.add_column("Hit Rate", style="bold")
-    table3.add_row("High diversity (disagree)", fmt(analysis.high_diversity_hit_rate))
-    table3.add_row("Low diversity (consensus)", fmt(analysis.low_diversity_hit_rate))
+    table3.add_row("High diversity (disagree)", _fmt_pct(analysis.high_diversity_hit_rate))
+    table3.add_row("Low diversity (consensus)", _fmt_pct(analysis.low_diversity_hit_rate))
     console.print(table3)
 
 
@@ -385,8 +384,6 @@ def evaluate_trend_cmd(
         console.print("[dim]No evaluations found in the last {days} days.[/dim]")
         return
 
-    fmt = lambda v: f"{v:.0%}" if v is not None else "—"
-
     table = Table(
         title=f"Performance Trend — last {days} days ({len(points)} weeks)",
         box=box.SIMPLE,
@@ -402,9 +399,9 @@ def evaluate_trend_cmd(
         table.add_row(
             point.week_start.isoformat(),
             str(point.sample_size),
-            f"[{hit_style}]{fmt(point.hit_rate)}[/{hit_style}]",
-            fmt(point.avg_mfe),
-            fmt(point.avg_mae),
+            f"[{hit_style}]{_fmt_pct(point.hit_rate)}[/{hit_style}]",
+            _fmt_pct(point.avg_mfe),
+            _fmt_pct(point.avg_mae),
         )
     console.print(table)
 

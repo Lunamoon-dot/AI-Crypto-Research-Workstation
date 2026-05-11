@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from tradingagents.domain.trending import HealthReport, TrendPoint
 from tradingagents.domain.evaluation import EvaluationAnalytics, EvaluationMetricsRow, ThesisEvaluation
@@ -246,7 +245,6 @@ class TestDetectDegradation:
         assert report.overall_status == "healthy"
 
     def test_degraded_when_drop_exceeds_threshold(self):
-        config = {"evaluation": {"degradation_threshold": 0.20, "critical_threshold": 0.40}}
         recent = datetime.now(timezone.utc) - timedelta(days=7)
         baseline = datetime.now(timezone.utc) - timedelta(days=30)
 

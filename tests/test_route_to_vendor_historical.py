@@ -17,8 +17,6 @@ import pytest
 
 from tradingagents.dataflows.historical_contract import (
     DataWindow,
-    EndpointCapability,
-    ProviderHistoricalDeclaration,
     TimestampSemantics,
 )
 from tradingagents.dataflows.interface import (

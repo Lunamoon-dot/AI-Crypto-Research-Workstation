@@ -39,8 +39,6 @@ from tradingagents.observability import log_event
 
 from .historical_contract import (
     DataWindow,
-    FreshnessContract,
-    HistoricalDataContract,
     TimestampSemantics,
     validate_historical_request,
 )

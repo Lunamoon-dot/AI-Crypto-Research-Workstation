@@ -7,7 +7,6 @@ point-in-time data guardrails — no lookahead, no future data leakage.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Optional
 
 import typer
 from rich import box
@@ -106,7 +105,7 @@ def replay_single(
                 )
             )
     else:
-        console.print(f"[red]Replay failed:[/red]")
+        console.print("[red]Replay failed:[/red]")
         for err in result.errors:
             console.print(f"  • {err}")
 

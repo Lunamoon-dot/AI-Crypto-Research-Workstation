@@ -7,7 +7,7 @@ validate_historical_request, and get_provider_declaration.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 import pytest
 

@@ -30,7 +30,6 @@ import pytest
 
 from tradingagents.dataflows.historical_contract import (
     CCXT_DECLARATION,
-    COINGECKO_DECLARATION,
     PROVIDER_DECLARATIONS,
     ProviderHistoricalDeclaration,
     TimestampSemantics,
