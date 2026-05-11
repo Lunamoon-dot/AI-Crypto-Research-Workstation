@@ -23,7 +23,7 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 | Mypy | PASS: `python -m mypy tradingagents cli`; see [mypy log](release-evidence/0.3.0-2026-05-12/clean-clone-mypy.log) |
 | Compile | PASS: `python -m compileall tradingagents cli tests`; see [compile log](release-evidence/0.3.0-2026-05-12/clean-clone-compileall.log) |
 | Dependency check | PASS: `python -m pip check`; see [pip check log](release-evidence/0.3.0-2026-05-12/clean-clone-pip-check.log) |
-| CI matrix | BLOCKED: no verifiable GitHub Actions run/status exists for the current pushed commit, and current workspace edits are uncommitted; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
+| CI matrix | PASS: GitHub Actions run `25699827162` passed lint, mypy, and Python 3.10/3.11/3.12 matrix jobs for PR #1; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
 | Dependency audit | PASS: `pip-audit`; see [audit log](release-evidence/0.3.0-2026-05-12/dependency-audit-pip-audit.log) |
 | Secret scan | PASS after manual triage of placeholders/test fixtures; see [scan log](release-evidence/0.3.0-2026-05-12/secret-scan-detect-secrets.log) and [triage](release-evidence/0.3.0-2026-05-12/secret-scan-triage.md) |
 
@@ -37,7 +37,7 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 - [x] Local mypy passes.
 - [x] Local compile check passes.
 - [x] Clean clone install verified with `pip install -e ".[dev]"`.
-- [ ] CI matrix passes on Python 3.10, 3.11, and 3.12.
+- [x] CI matrix passes on Python 3.10, 3.11, and 3.12.
 - [x] Property-based tests run with `hypothesis` installed, with no unexpected skips.
 - [x] Real-provider smoke run completed and attached to release evidence.
 - [x] Journal migration verified on a copy of an older real journal DB.
@@ -65,7 +65,6 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 
 ## Production Blockers To Close
 
-- Push the release candidate and record authenticated GitHub Actions CI matrix evidence for Python 3.10, 3.11, and 3.12.
 - Record second reviewer sign-off.
 - Keep assisted execution out of scope until explicit approval, confirmation, and immutable audit trails exist.
 
@@ -76,7 +75,7 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 - Journal migration and backup/restore ran against DB copies outside the repo; raw journal DB files are not committed.
 - Current workspace verification must use `.\.venv\Scripts\python.exe`, not global `python`, so Hypothesis-backed property tests are not accidentally skipped.
 - Graph-stage budget/timeline observability is wired into real graph runs through `BudgetTracker`, `BudgetCallbackHandler`, and per-node stage wrappers; coverage is in `tests/test_budget_tracking.py`, `tests/test_observability_logging.py`, and `tests/test_llm_fallback.py`.
-- CI remains unchecked because no GitHub Actions run/status was found for the current pushed `main` commit and the private repository's unauthenticated Actions API returns 404.
+- GitHub Actions CI run `25699827162` passed for PR #1 on branch `release-readiness-gates-codex` after fixing Python 3.10 `tomllib` test imports to use the existing `tomli` fallback dependency.
 
 ## Sign-Off Template
 
