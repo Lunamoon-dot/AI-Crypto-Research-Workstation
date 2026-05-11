@@ -34,6 +34,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "local_toml": "config/local.toml",
     },
     # Asset class: crypto
+    "runtime_environment": os.getenv("TRADINGAGENTS_RUNTIME_ENVIRONMENT", "local"),
+    # Allowed values: "local", "dev", "production".
     "asset_class": "crypto",
     # Crypto-specific settings
     "crypto_exchange": "binance",  # ccxt exchange id
@@ -68,6 +70,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "persist_run_events": True,
         "persist_data_provider_calls": True,
         "persist_llm_calls": True,
+        "persist_data_freshness_checks": True,
         "persist_snapshot_health": True,
         "data_provider_call_sample_rate": 1.0,
         "opentelemetry_enabled": False,

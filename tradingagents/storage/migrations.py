@@ -14,7 +14,7 @@ from typing import Iterable
 
 from .schema import SCHEMA_SQL
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 HARDENING_SQL: tuple[str, ...] = (
@@ -28,6 +28,18 @@ HARDENING_SQL: tuple[str, ...] = (
     "ON alerts(alert_type, trigger_key, thesis_id, watchlist_item_id)",
     "CREATE INDEX IF NOT EXISTS idx_market_briefs_previous "
     "ON market_briefs(previous_brief_id)",
+    "CREATE INDEX IF NOT EXISTS idx_provider_health_provider_checked "
+    "ON provider_health(provider, checked_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_provider_health_status "
+    "ON provider_health(status, checked_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_llm_calls_run_created "
+    "ON llm_calls(research_run_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_llm_calls_provider_status "
+    "ON llm_calls(provider, status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_data_freshness_run_observed "
+    "ON data_freshness_checks(research_run_id, observed_timestamp DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_data_freshness_source_status "
+    "ON data_freshness_checks(source, status, observed_timestamp DESC)",
 )
 
 
@@ -43,8 +55,13 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
     ensure_column(conn, "research_runs", "llm_provider", "TEXT")
     ensure_column(conn, "research_runs", "config_hash", "TEXT")
+    ensure_column(conn, "research_runs", "market_snapshot_id", "TEXT")
     ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
     ensure_column(conn, "research_runs", "debate_id", "TEXT")
+    ensure_column(conn, "research_runs", "thesis_id", "TEXT")
+    ensure_column(conn, "research_runs", "decision_id", "TEXT")
+    ensure_column(conn, "research_runs", "user_decision_id", "TEXT")
+    ensure_column(conn, "research_runs", "outcome_review_id", "TEXT")
     ensure_column(conn, "run_events", "thesis_id", "TEXT")
     ensure_column(conn, "alerts", "trigger_key", "TEXT")
     for sql in HARDENING_SQL:
@@ -59,8 +76,13 @@ def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
         ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
         ensure_column(conn, "research_runs", "llm_provider", "TEXT")
         ensure_column(conn, "research_runs", "config_hash", "TEXT")
+        ensure_column(conn, "research_runs", "market_snapshot_id", "TEXT")
         ensure_column(conn, "research_runs", "signal_snapshot_id", "TEXT")
         ensure_column(conn, "research_runs", "debate_id", "TEXT")
+        ensure_column(conn, "research_runs", "thesis_id", "TEXT")
+        ensure_column(conn, "research_runs", "decision_id", "TEXT")
+        ensure_column(conn, "research_runs", "user_decision_id", "TEXT")
+        ensure_column(conn, "research_runs", "outcome_review_id", "TEXT")
     if _table_exists(conn, "run_events"):
         ensure_column(conn, "run_events", "thesis_id", "TEXT")
     if _table_exists(conn, "alerts"):

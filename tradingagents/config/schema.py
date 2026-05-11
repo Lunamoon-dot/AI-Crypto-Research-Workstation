@@ -18,6 +18,7 @@ from tradingagents.exceptions import ConfigurationValidationError, LLMCredential
 logger = logging.getLogger(__name__)
 
 _VALIDATION_MODES = {"fail_fast", "warn"}
+_RUNTIME_ENVIRONMENTS = {"local", "dev", "production"}
 
 
 def _normalize_mode(mode: Any) -> str:
@@ -69,6 +70,21 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
         "validate_llm_keys": validate_llm_keys,
     }
 
+    runtime_environment = (
+        str(normalized.get("runtime_environment", "local")).strip().lower()
+    )
+    if runtime_environment not in _RUNTIME_ENVIRONMENTS:
+        issues.append("runtime_environment must be one of: local, dev, production")
+        runtime_environment = "local"
+    normalized["runtime_environment"] = runtime_environment
+    if runtime_environment == "production":
+        if mode != "fail_fast":
+            issues.append(
+                "production runtime_environment requires fail_fast config validation"
+            )
+        if not validate_llm_keys:
+            issues.append("production runtime_environment requires LLM key validation")
+
     disabled = normalized.get("disabled_data_vendors", [])
     if disabled is None:
         disabled = []
@@ -113,6 +129,21 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
             continue
         normalized_data_vendors[category] = ",".join(vendors)
     normalized["data_vendors"] = normalized_data_vendors
+    if runtime_environment == "production":
+        for category, chain in normalized_data_vendors.items():
+            vendors = _parse_vendor_chain(chain)
+            unsafe = [
+                vendor
+                for vendor in vendors
+                if vendor in {"fake", "sample", "mock", "demo"}
+                or "sample" in vendor
+                or "fake" in vendor
+            ]
+            if unsafe:
+                issues.append(
+                    f"production runtime_environment cannot use sample/fake data "
+                    f"vendors for {category!r}: {unsafe!r}"
+                )
 
     tool_vendors = normalized.get("tool_vendors", {})
     if not isinstance(tool_vendors, dict):
@@ -267,6 +298,12 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     if not issues:
         _validate_llm_credentials(normalized, source=source, mode=mode)
         return normalized
+
+    if runtime_environment == "production":
+        details = "\n".join(f"- {issue}" for issue in issues)
+        raise ConfigurationValidationError(
+            f"Config validation failed ({source}):\n{details}"
+        )
 
     if mode == "warn":
         for issue in issues:

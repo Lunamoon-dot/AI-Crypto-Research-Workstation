@@ -310,6 +310,56 @@ def test_journal_service_persists_market_and_signal_snapshots(tmp_path):
     assert loaded_signals.signal_ids == ["sig_1", "sig_2"]
 
 
+def test_journal_service_persists_observability_contract_records(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+
+    provider = service.record_provider_health_from_payload(
+        {
+            "provider": "ccxt",
+            "method": "get_crypto_ohlcv",
+            "status": "success",
+            "duration_ms": 12.5,
+        }
+    )
+    llm = service.record_llm_call_from_payload(
+        {
+            "run_id": run.id,
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "stage": "news",
+            "agent": "news_analyst",
+            "input_tokens": 100,
+            "output_tokens": 25,
+            "duration_ms": 250.0,
+            "status": "success",
+        }
+    )
+    freshness = service.record_data_freshness_from_payload(
+        {
+            "run_id": run.id,
+            "symbol": "BTC/USDT",
+            "source": "signal_engine",
+            "source_timestamp": "2026-05-12T00:00:00+00:00",
+            "observed_timestamp": "2026-05-12T00:10:00+00:00",
+            "age_seconds": 600,
+            "threshold_seconds": 86400,
+            "freshness": "fresh",
+        }
+    )
+
+    assert provider.id.startswith("provider_health_")
+    assert llm.id.startswith("llm_call_")
+    assert freshness.id.startswith("freshness_")
+    assert service.list_provider_health(provider="ccxt")[0].component == (
+        "get_crypto_ohlcv"
+    )
+    assert service.list_llm_calls(research_run_id=run.id)[0].input_tokens == 100
+    assert service.list_data_freshness_checks(research_run_id=run.id)[0].status == (
+        "fresh"
+    )
+
+
 def test_quant_signal_bundle_rolls_back_when_event_write_fails(tmp_path, monkeypatch):
     service = JournalService(_config(tmp_path))
     run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))

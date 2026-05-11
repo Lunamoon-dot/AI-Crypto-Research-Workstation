@@ -341,6 +341,33 @@ app.add_typer(replay_app, name="replay")
 research_app.add_typer(diff_app, name="diff")
 
 
+engine_app = typer.Typer(help="Worker-ready Python research engine contract.")
+
+
+@engine_app.command("run")
+def engine_run(
+    request: Path = typer.Option(
+        ...,
+        "--request",
+        "-r",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON request file for the engine worker contract.",
+    ),
+) -> None:
+    """Run the Python research engine from a structured JSON request."""
+    from tradingagents.engine import run_engine_request_file
+
+    result = run_engine_request_file(request)
+    console.print_json(data=result.model_dump(mode="json"))
+    if result.status != "completed":
+        raise typer.Exit(1)
+
+
+app.add_typer(engine_app, name="engine")
+
+
 @app.callback(invoke_without_command=True)
 def _default_command(ctx: Context) -> None:
     """Run interactive analysis when no subcommand is given (same as ``analyze``)."""

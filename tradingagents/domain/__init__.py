@@ -21,6 +21,7 @@ from .decision import UserDecision, UserDecisionAction
 from .evaluation import EvaluationAnalytics, EvaluationMetricsRow, ThesisEvaluation
 from .outcome import OutcomeReview, OutcomeResult
 from .outcome_analytics import OutcomeAnalytics, RetrospectiveInsight
+from .observability import DataFreshnessCheck, LLMCallRecord, ProviderHealthRecord
 from .provenance import DataFreshness, SignalProvenance
 from .research_run import ResearchRun, ResearchRunStatus
 from .scenario import Scenario, ScenarioProbabilityBand
@@ -56,6 +57,7 @@ __all__ = [
     "ConfidenceCurve",
     "ContradictionAnalysis",
     "DataFreshness",
+    "DataFreshnessCheck",
     "AgentOpinion",
     "AgentStance",
     "render_agent_opinion",
@@ -66,7 +68,9 @@ __all__ = [
     "OutcomeResult",
     "OutcomeReview",
     "OutcomeAnalytics",
+    "LLMCallRecord",
     "ResearchRun",
+    "ProviderHealthRecord",
     "ResearchRunStatus",
     "ResearchDebate",
     "ReliabilitySnapshot",

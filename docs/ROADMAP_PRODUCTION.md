@@ -267,73 +267,109 @@ Use structured logs:
 
 ---
 
-# Phase 12: Service Layer And API
+# Phase 12: NestJS Product Backend Boundary
 
 Estimated time: 3-5 weeks.
 
 ## Goal
 
-Prepare the codebase for web app and cloud without coupling UI to internal graph/provider logic.
+Move product backend concerns into NestJS while keeping Python as the research
+engine. The frontend must call NestJS, not Python.
 
-## Service Layer
-
-Create:
-
-```text
-tradingagents/services/
-  research_service.py
-  journal_service.py
-  thesis_service.py
-  watchlist_service.py
-  brief_service.py
-  signal_service.py
-```
-
-CLI, TUI, web, and future API should call this service layer.
-
-The CLI should not directly call graph internals, providers, or repositories in scattered ways.
-
-## REST API
-
-Later, add:
+## Architecture
 
 ```text
-api/
-  main.py
-  routes/
-    research.py
-    journal.py
-    thesis.py
-    signals.py
-    watchlists.py
-    briefs.py
+apps/web
+  -> apps/api (NestJS)
+  -> BullMQ/Redis or compatible job boundary
+  -> tradingagents Python engine
+  -> Postgres for hosted mode / SQLite for local mode
 ```
 
-Target endpoints:
+Python owns LangGraph agents, LLM orchestration, provider adapters, signal
+generation, thesis generation, and the worker contract. NestJS owns auth,
+users, workspaces, request validation, product API endpoints, job orchestration,
+permissions, and future billing/progress forwarding.
+
+## Implemented Boundary
+
+```text
+apps/api/
+  src/auth
+  src/users
+  src/workspaces
+  src/research-runs
+  src/theses
+  src/signals
+  src/watchlists
+  src/briefs
+  src/jobs
+```
+
+Core endpoints:
 
 ```http
 POST /research-runs
-GET /research-runs/{id}
-GET /theses
-GET /theses/{id}
-POST /theses/{id}/decision
-POST /theses/{id}/review
-GET /signals?symbol=BTC
-GET /briefs/daily
+GET  /research-runs/:id
+GET  /research-runs/:id/events
+GET  /theses
+GET  /theses/:id
+POST /theses/:id/decision
+POST /theses/:id/review
+GET  /signals?symbol=BTC
+GET  /watchlists
+POST /watchlists/:id/items
+GET  /briefs/daily
+```
+
+## Python Worker Contract
+
+```bash
+tradingagents engine run --request request.json
+```
+
+Request:
+
+```json
+{
+  "run_id": "...",
+  "workspace_id": "...",
+  "symbol": "BTC/USDT",
+  "asset_class": "crypto",
+  "analysis_date": "2026-05-12",
+  "analysts": ["market", "news", "social", "onchain"],
+  "config_profile": "default"
+}
+```
+
+Result:
+
+```json
+{
+  "run_id": "...",
+  "status": "completed",
+  "thesis_id": "...",
+  "summary": "...",
+  "events_written": 42
+}
 ```
 
 ## API Rules
 
+- no Python product REST API;
+- no frontend calls into Python directly;
 - no core endpoint named `/execute`;
 - no endpoint places live orders in the core product;
-- assisted execution later must require explicit user approval;
-- all returned theses include evidence, contradictions, freshness, and invalidation.
+- all returned theses include evidence, contradictions, freshness, invalidation,
+  monitor-next, and confidence rationale.
 
 ## Acceptance Criteria
 
-- CLI and future web can share business logic.
-- API shape reflects research workflow.
-- Core domain remains independent from UI.
+- NestJS validates product requests and enqueues research work.
+- Python exposes a stable JSON engine/worker contract.
+- Progress events are persisted and can be forwarded by NestJS.
+- Hosted mode targets Postgres; local mode may keep SQLite.
+- API shape reflects research workflow and product entities.
 
 ---
 

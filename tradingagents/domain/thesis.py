@@ -40,4 +40,11 @@ class TradeThesis(BaseModel):
     contradictions: list[str] = Field(default_factory=list)
     consensus: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    why_this_thesis: str = ""
+    supporting_evidence: list[str] = Field(default_factory=list)
+    contradicting_evidence: list[str] = Field(default_factory=list)
+    stale_or_missing_data: list[str] = Field(default_factory=list)
+    invalidation: str = ""
+    monitor_next: list[str] = Field(default_factory=list)
+    confidence_rationale: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

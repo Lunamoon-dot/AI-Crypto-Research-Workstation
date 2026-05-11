@@ -248,6 +248,65 @@ def test_log_event_persist_writes_sqlite_when_run_exists(tmp_path, caplog):
     assert timeline[-1].payload["timeline_event_type"] == "run.started"
 
 
+def test_log_event_persists_structured_observability_tables(tmp_path):
+    logger = logging.getLogger("tests.observability.structured")
+    cfg = {
+        "data_cache_dir": str(tmp_path),
+        "journal": {
+            "enabled": True,
+            "db_path": str(tmp_path / "journal.sqlite"),
+        },
+    }
+    service = JournalService(cfg)
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+
+    with observability_run_event_persistence(service):
+        log_event(
+            logger,
+            "data_provider_call",
+            run_id=run.id,
+            provider="ccxt",
+            method="get_crypto_ticker",
+            status="success",
+            duration_ms=5.0,
+        )
+        log_event(
+            logger,
+            "llm_call",
+            run_id=run.id,
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            stage="market",
+            input_tokens=10,
+            output_tokens=3,
+            status="success",
+        )
+        log_event(
+            logger,
+            "data_freshness_check",
+            run_id=run.id,
+            symbol="BTC/USDT",
+            source="signal_engine",
+            age_seconds=60,
+            threshold_seconds=86400,
+            freshness="fresh",
+        )
+
+    assert service.list_provider_health(provider="ccxt")[0].component == (
+        "get_crypto_ticker"
+    )
+    assert service.list_llm_calls(research_run_id=run.id)[0].model == (
+        "deepseek-v4-flash"
+    )
+    assert service.list_data_freshness_checks(research_run_id=run.id)[0].status == (
+        "fresh"
+    )
+    assert any(
+        event.event_type == "data.freshness"
+        for event in service.list_timeline_events(research_run_id=run.id)
+    )
+
+
 def test_timeline_message_data_fetched():
     from tradingagents.observability.logging import _timeline_message
 
@@ -431,11 +490,13 @@ def test_all_new_timeline_event_types_are_mapped():
     for name in (
         "data_fetched",
         "signal_generated",
+        "thesis_generated",
         "decision_created",
         "risk_checked",
         "plan_recorded",
         "budget_exceeded",
         "budget_summary",
+        "data_freshness_check",
     ):
         assert name in _TIMELINE_EVENT_TYPES, (
             f"{name} missing from _TIMELINE_EVENT_TYPES"

@@ -11,12 +11,37 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from tradingagents.exceptions import DataProviderError
+
 logger = logging.getLogger(__name__)
 
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 _BACKOFF_BASE = 0.5
 _BACKOFF_MAX = 5.0
 _MAX_RETRIES = 2
+
+
+def _is_production_mode() -> bool:
+    env_value = os.getenv("TRADINGAGENTS_RUNTIME_ENVIRONMENT", "").strip().lower()
+    if env_value:
+        return env_value == "production"
+    try:
+        from tradingagents.dataflows.config import get_config
+
+        runtime_environment = str(
+            get_config().get("runtime_environment", "local")
+        ).lower()
+        return runtime_environment == "production"
+    except Exception:
+        return False
+
+
+def _raise_missing_feed_in_production(feed_name: str) -> None:
+    if _is_production_mode():
+        raise DataProviderError(
+            f"{feed_name} is required in production mode; configure "
+            "CRYPTOPANIC_API_TOKEN instead of using placeholder news text."
+        )
 
 
 def _currency_code_from_ticker(ticker: str) -> str | None:
@@ -42,6 +67,7 @@ def fetch_cryptopanic_headlines(
     """
     token = os.getenv("CRYPTOPANIC_API_TOKEN", "").strip()
     if not token:
+        _raise_missing_feed_in_production("CryptoPanic")
         return None
 
     currencies = _currency_code_from_ticker(ticker)
@@ -197,6 +223,7 @@ def format_global_cryptopanic_for_tool(
     """Macro crypto mood headlines (no ticker filter beyond global feed)."""
     token = os.getenv("CRYPTOPANIC_API_TOKEN", "").strip()
     if not token:
+        _raise_missing_feed_in_production("CryptoPanic")
         return (
             f"Global crypto news snapshot (requested `curr_date={curr_date}`, "
             f"look_back≈{look_back_days}d)\n"
