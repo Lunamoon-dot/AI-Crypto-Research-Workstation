@@ -84,7 +84,11 @@ def test_daily_market_brief_persists_and_remembers_previous_state(tmp_path):
     assert current.previous_brief_id == previous.id
     assert current.thesis_updates[0].thesis_id == thesis.id
     assert any("price changed +5.00%" in note for note in current.memory_notes)
-    payload = current.model_dump_json() if hasattr(current, "model_dump_json") else current.json()
+    payload = (
+        current.model_dump_json()
+        if hasattr(current, "model_dump_json")
+        else current.json()
+    )
     assert "buy now" not in payload.lower()
 
 

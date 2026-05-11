@@ -17,16 +17,11 @@ from rich.console import Console
 from typer import Context
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.graph import ResearchAgentsGraph, TradingAgentsGraph
+from tradingagents.graph import ResearchAgentsGraph
 
 # -- Post-split imports --------------------------------------------------
 from cli.orchestrator import run_analysis as _run_analysis
 from cli.selections import selections_from_cli_options
-from cli.stream_events import (
-    ANALYST_ORDER,
-    ANALYST_AGENT_NAMES,
-    ChunkProcessor,
-)
 
 console = Console()
 
@@ -41,8 +36,6 @@ from cli.watch_cmd import app as watchlist_app
 from cli.watch_cmd import register_watch
 from cli.dashboard import register_dashboard
 from cli.config_cmd import register_config
-from cli.backtest_cmd import register_backtest
-from cli.risk_cmd import register_risk
 from cli.brief_cmd import app as brief_app
 from cli.brief_cmd import daily as market_brief_daily
 from cli.brief_cmd import register_brief
@@ -53,15 +46,17 @@ from cli.journal_cmd import (
     thesis_app,
 )
 from cli.signals_cmd import register_signals, signals_app
+from cli.evaluate_cmd import evaluate_app
+from cli.replay_cmd import replay_app
+from cli.diff_cmd import diff_app, register_diff
 
 register_watch(app)
 register_dashboard(app)
 register_config(app)
-register_backtest(app)
-register_risk(app)
 register_journal(app)
 register_signals(app)
 register_brief(app)
+register_diff(app)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +154,11 @@ def analyze(
         "--save-path",
         help="Report output directory for --save-report.",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate configuration and data access without executing the LLM pipeline.",
+    ),
 ):
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
@@ -172,8 +172,7 @@ def analyze(
             )
         selections = selections_from_cli_options(
             ticker=ticker,
-            analysis_date=analysis_date
-            or datetime.datetime.now().strftime("%Y-%m-%d"),
+            analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
             asset_class=asset_class,
             exchange=exchange,
             analysts=analysts,
@@ -191,9 +190,10 @@ def analyze(
             plain=True,
             save_report=save_report,
             save_path=save_path,
+            dry_run=dry_run,
         )
         return
-    run_analysis(checkpoint=checkpoint)
+    run_analysis(checkpoint=checkpoint, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
@@ -236,15 +236,19 @@ def research_run(
     ),
     save_report: bool = typer.Option(False, "--save-report"),
     save_path: Optional[Path] = typer.Option(None, "--save-path"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate configuration and data access without executing the LLM pipeline.",
+    ),
 ) -> None:
     """Run research through the terminal-first research namespace."""
     if not ticker:
-        run_analysis(checkpoint=checkpoint)
+        run_analysis(checkpoint=checkpoint, dry_run=dry_run)
         return
     selections = selections_from_cli_options(
         ticker=ticker,
-        analysis_date=analysis_date
-        or datetime.datetime.now().strftime("%Y-%m-%d"),
+        analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
         asset_class="crypto",
         exchange=exchange,
         analysts=analysts,
@@ -262,6 +266,7 @@ def research_run(
         plain=plain,
         save_report=save_report,
         save_path=save_path,
+        dry_run=dry_run,
     )
 
 
@@ -278,9 +283,7 @@ def research_brief(
     watchlist: str = typer.Option(
         "default", "--watchlist", "-w", help="Watchlist name"
     ),
-    alerts_limit: int = typer.Option(
-        20, "--alerts-limit", min=1
-    ),
+    alerts_limit: int = typer.Option(20, "--alerts-limit", min=1),
     brief_date: Optional[str] = typer.Option(
         None, "--date", help="Brief date (YYYY-MM-DD)."
     ),
@@ -310,7 +313,11 @@ research_app.add_typer(thesis_app, name="thesis")
 research_app.add_typer(signals_app, name="signals")
 research_app.add_typer(watchlist_app, name="watchlist")
 research_app.add_typer(brief_app, name="briefs")
+research_app.add_typer(evaluate_app, name="evaluate")
+research_app.add_typer(replay_app, name="replay")
 app.add_typer(research_app, name="research")
+app.add_typer(replay_app, name="replay")
+research_app.add_typer(diff_app, name="diff")
 
 
 @app.callback(invoke_without_command=True)
@@ -333,6 +340,7 @@ def run_analysis(
     plain: bool = False,
     save_report: bool = False,
     save_path: Path | None = None,
+    dry_run: bool = False,
 ):
     """Thin wrapper that injects ``main.ResearchAgentsGraph``.
 
@@ -347,6 +355,7 @@ def run_analysis(
         plain=plain,
         save_report=save_report,
         save_path=save_path,
+        dry_run=dry_run,
         _graph_class=ResearchAgentsGraph,
     )
 

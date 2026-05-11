@@ -1,8 +1,5 @@
-
-
 def create_bull_researcher(llm, config=None):
     def bull_node(state) -> dict:
-        asset_class = (config or {}).get("asset_class", "crypto")
         instrument = "cryptocurrency"
         entity = "project"
 

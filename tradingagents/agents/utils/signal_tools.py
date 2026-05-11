@@ -11,19 +11,20 @@ has been removed so each graph instance gets its own engine.
 
 from __future__ import annotations
 
+import logging
+
 from tradingagents.dataflows.interface import route_to_vendor
-from tradingagents.dataflows.config import get_config
 from tradingagents.signals.engine import SignalEngine
+
+logger = logging.getLogger(__name__)
 
 
 def _get_signal_engine(config=None) -> SignalEngine:
-    """Create SignalEngine with config-driven weights/thresholds.
-
-    Accepts an optional *config* dict.  When ``None``, falls back to the
-    module-level global (backward compat).
-    """
+    """Create SignalEngine with config-driven weights/thresholds."""
     if config is None:
-        config = get_config()
+        raise RuntimeError(
+            "No config context bound. Wrap the call in config_context() or pass config explicitly."
+        )
     weights = config.get("signal_weights")
     thresholds = config.get("signal_thresholds", {})
     return SignalEngine(
@@ -53,9 +54,7 @@ def get_quant_signal(
     """
     # Fetch OHLCV
     try:
-        ohlcv_csv = route_to_vendor(
-            "get_crypto_ohlcv", symbol, start_date, end_date
-        )
+        ohlcv_csv = route_to_vendor("get_crypto_ohlcv", symbol, start_date, end_date)
     except Exception as e:
         return (
             f"Quant Signal: could not fetch OHLCV data for {symbol}: {e}. "
@@ -75,49 +74,37 @@ def get_quant_signal(
     exchange_metrics_csv = None
 
     try:
-        funding_csv = route_to_vendor(
-            "get_crypto_funding_rate_history", symbol, 60
-        )
+        funding_csv = route_to_vendor("get_crypto_funding_rate_history", symbol, 60)
     except Exception:
         try:
-            funding_csv = route_to_vendor(
-                "get_crypto_funding_rate", symbol
-            )
-        except Exception:
-            pass
+            funding_csv = route_to_vendor("get_crypto_funding_rate", symbol)
+        except Exception as e:
+            logger.debug("Funding rate snapshot fallback failed for %s: %s", symbol, e)
     try:
-        oi_csv = route_to_vendor(
-            "get_crypto_open_interest_history", symbol, 60
-        )
+        oi_csv = route_to_vendor("get_crypto_open_interest_history", symbol, 60)
     except Exception:
         try:
-            oi_csv = route_to_vendor(
-                "get_crypto_open_interest", symbol
-            )
-        except Exception:
-            pass
+            oi_csv = route_to_vendor("get_crypto_open_interest", symbol)
+        except Exception as e:
+            logger.debug("Open interest snapshot fallback failed for %s: %s", symbol, e)
     try:
         liq_csv = route_to_vendor("get_crypto_liquidations", symbol)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Liquidation data fetch failed for %s: %s", symbol, e)
 
     # On-chain data — non-critical, best-effort
     try:
-        long_short_csv = route_to_vendor(
-            "get_crypto_long_short_ratio", symbol
-        )
-    except Exception:
-        pass
+        long_short_csv = route_to_vendor("get_crypto_long_short_ratio", symbol)
+    except Exception as e:
+        logger.debug("Long/short ratio fetch failed for %s: %s", symbol, e)
     try:
         nvt_csv = route_to_vendor("get_crypto_nvt", symbol)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("NVT data fetch failed for %s: %s", symbol, e)
     try:
-        exchange_metrics_csv = route_to_vendor(
-            "get_crypto_exchange_metrics", symbol
-        )
-    except Exception:
-        pass
+        exchange_metrics_csv = route_to_vendor("get_crypto_exchange_metrics", symbol)
+    except Exception as e:
+        logger.debug("Exchange metrics fetch failed for %s: %s", symbol, e)
 
     engine = _get_signal_engine(config=config)
 

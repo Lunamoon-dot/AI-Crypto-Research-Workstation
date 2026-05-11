@@ -6,7 +6,11 @@ from tradingagents.config_validation import validate_and_normalize_config
 from tradingagents.dataflows.config import config_context
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.exceptions import ConfigurationValidationError, DataProviderError, LLMCredentialError
+from tradingagents.exceptions import (
+    ConfigurationValidationError,
+    DataProviderError,
+    LLMCredentialError,
+)
 
 
 def test_validate_config_fail_fast_on_unknown_vendor():

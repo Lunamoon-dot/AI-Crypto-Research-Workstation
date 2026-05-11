@@ -90,55 +90,61 @@ class SignalEngine:
             if regime.get("signal"):
                 factors.append(regime["signal"])
         except Exception as e:
-            logger.debug("Regime detection failed: %s", e)
+            logger.warning("Regime detection failed: %s", e)
             regime = {}
 
         # -- RSI divergence --------------------------------------------------
         try:
             factors.append(compute_rsi_divergence(ohlcv_csv))
         except Exception as e:
-            logger.debug("RSI divergence failed: %s", e)
+            logger.warning("RSI divergence detection failed: %s", e)
 
         # -- MACD ------------------------------------------------------------
         try:
             factors.append(compute_macd_signal(ohlcv_csv))
         except Exception as e:
-            logger.debug("MACD signal failed: %s", e)
+            logger.warning("MACD signal computation failed: %s", e)
 
         # -- Volume profile --------------------------------------------------
         try:
             factors.append(compute_volume_signal(ohlcv_csv))
         except Exception as e:
-            logger.debug("Volume signal failed: %s", e)
+            logger.warning("Volume signal detection failed: %s", e)
 
         # -- Funding + OI (crypto only, but run if data provided) ------------
         if funding_csv or oi_csv:
             try:
-                factors.append(compute_funding_oi_signal(
-                    symbol, funding_csv=funding_csv, oi_csv=oi_csv,
-                    ohlcv_csv=ohlcv_csv,
-                ))
+                factors.append(
+                    compute_funding_oi_signal(
+                        symbol,
+                        funding_csv=funding_csv,
+                        oi_csv=oi_csv,
+                        ohlcv_csv=ohlcv_csv,
+                    )
+                )
             except Exception as e:
-                logger.debug("Funding/OI signal failed: %s", e)
+                logger.warning("Funding/OI signal detection failed: %s", e)
 
         # -- Liquidations (crypto only) --------------------------------------
         if liq_csv:
             try:
                 factors.append(compute_liquidation_signal(liq_csv))
             except Exception as e:
-                logger.debug("Liquidation signal failed: %s", e)
+                logger.warning("Liquidation signal detection failed: %s", e)
 
         # -- On-chain (long/short ratio, NVT, exchange reserves) -------------
         if long_short_ratio_csv or nvt_csv or exchange_metrics_csv:
             try:
-                factors.append(compute_onchain_signal(
-                    symbol=symbol,
-                    long_short_ratio_text=long_short_ratio_csv,
-                    nvt_text=nvt_csv,
-                    exchange_metrics_text=exchange_metrics_csv,
-                ))
+                factors.append(
+                    compute_onchain_signal(
+                        symbol=symbol,
+                        long_short_ratio_text=long_short_ratio_csv,
+                        nvt_text=nvt_csv,
+                        exchange_metrics_text=exchange_metrics_csv,
+                    )
+                )
             except Exception as e:
-                logger.debug("On-chain signal failed: %s", e)
+                logger.warning("On-chain signal detection failed: %s", e)
 
         # Extract current price
         current_price = _extract_last_price(ohlcv_csv)
@@ -170,9 +176,10 @@ def _extract_last_price(ohlcv_csv: str) -> Optional[float]:
     try:
         from io import StringIO
         import pandas as pd
+
         df = pd.read_csv(StringIO(ohlcv_csv), index_col=0, parse_dates=True)
         if "Close" in df.columns and not df.empty:
             return float(df["Close"].iloc[-1])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to extract last price from OHLCV data: %s", e)
     return None

@@ -22,15 +22,21 @@ def _service() -> BriefService:
 
 @app.command(name="daily")
 def daily(
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
-    brief_date: str | None = typer.Option(None, "--date", help="Brief date (YYYY-MM-DD)"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
+    brief_date: str | None = typer.Option(
+        None, "--date", help="Brief date (YYYY-MM-DD)"
+    ),
     alerts_limit: int = typer.Option(20, "--alerts-limit", min=1),
     evaluate_snapshots: bool = typer.Option(
         True,
         "--evaluate-snapshots/--no-evaluate-snapshots",
         help="Evaluate saved scenarios using latest persisted snapshots.",
     ),
-    save: bool = typer.Option(True, "--save/--no-save", help="Persist the generated brief."),
+    save: bool = typer.Option(
+        True, "--save/--no-save", help="Persist the generated brief."
+    ),
 ) -> None:
     """Create a daily market brief from persisted journal data."""
     brief = _service().create_daily_brief(
@@ -45,7 +51,9 @@ def daily(
 
 @app.command(name="list")
 def list_briefs(
-    watchlist: str | None = typer.Option(None, "--watchlist", "-w", help="Filter by watchlist name"),
+    watchlist: str | None = typer.Option(
+        None, "--watchlist", "-w", help="Filter by watchlist name"
+    ),
     limit: int = typer.Option(20, "--limit", "-n", min=1),
 ) -> None:
     """List saved market briefs."""
@@ -143,7 +151,9 @@ def _print_thesis_updates(brief: MarketBrief) -> None:
     table.add_column("Invalidation")
     table.add_column("Update")
     for update in brief.thesis_updates:
-        confidence = f"{update.confidence:.0%}" if update.confidence is not None else "-"
+        confidence = (
+            f"{update.confidence:.0%}" if update.confidence is not None else "-"
+        )
         table.add_row(
             update.thesis_id,
             update.symbol,

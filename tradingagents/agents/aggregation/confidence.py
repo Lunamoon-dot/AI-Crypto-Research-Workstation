@@ -15,9 +15,7 @@ def aggregate_confidence(
     """Return adjusted consensus confidence from opinion confidence values."""
 
     confidences = [
-        opinion.confidence
-        for opinion in opinions
-        if opinion.confidence is not None
+        opinion.confidence for opinion in opinions if opinion.confidence is not None
     ]
     if not confidences:
         return None

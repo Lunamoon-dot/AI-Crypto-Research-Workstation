@@ -109,9 +109,9 @@ class CompositeScorer:
         # 2. Average effective factor confidence — reflects whether each
         #    factor had sufficient data AND signal strength in its domain.
         if factors:
-            avg_eff_conf = sum(
-                f.confidence * f.data_quality for f in factors
-            ) / len(factors)
+            avg_eff_conf = sum(f.confidence * f.data_quality for f in factors) / len(
+                factors
+            )
         else:
             avg_eff_conf = 0.0
 
@@ -119,8 +119,12 @@ class CompositeScorer:
 
         # 3. Factor agreement bonus — independent factors pointing the same
         #    direction raise confidence above the weighted average.
-        n_bullish = sum(1 for f in factors if f.score in (SignalScore.BUY, SignalScore.STRONG_BUY))
-        n_bearish = sum(1 for f in factors if f.score in (SignalScore.SELL, SignalScore.STRONG_SELL))
+        n_bullish = sum(
+            1 for f in factors if f.score in (SignalScore.BUY, SignalScore.STRONG_BUY)
+        )
+        n_bearish = sum(
+            1 for f in factors if f.score in (SignalScore.SELL, SignalScore.STRONG_SELL)
+        )
         n_directional = n_bullish + n_bearish
         n_total = len(factors)
 
@@ -145,8 +149,7 @@ class CompositeScorer:
         summary_parts = [
             f"Composite score: {composite:+.2f} → {final_score.value} "
             f"(confidence: {confidence:.0%})",
-            f"{n_bullish} bullish, {n_bearish} bearish, "
-            f"{n_neutral} neutral factors",
+            f"{n_bullish} bullish, {n_bearish} bearish, {n_neutral} neutral factors",
         ]
         if n_breached > 0:
             summary_parts.append(f"{n_breached} threshold(s) breached")
@@ -155,9 +158,7 @@ class CompositeScorer:
                 f"⚠ {volatility_regime} volatility — confidence discounted"
             )
         if market_regime == "ranging":
-            summary_parts.append(
-                "⚠ Ranging market — directional signals less reliable"
-            )
+            summary_parts.append("⚠ Ranging market — directional signals less reliable")
 
         return SignalResult(
             symbol=symbol,

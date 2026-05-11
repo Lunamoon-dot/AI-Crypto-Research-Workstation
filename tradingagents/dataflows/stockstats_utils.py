@@ -14,7 +14,9 @@ def _clean_dataframe(data: pd.DataFrame) -> pd.DataFrame:
     data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
     data = data.dropna(subset=["Date"])
 
-    price_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in data.columns]
+    price_cols = [
+        c for c in ["Open", "High", "Low", "Close", "Volume"] if c in data.columns
+    ]
     data[price_cols] = data[price_cols].apply(pd.to_numeric, errors="coerce")
     data = data.dropna(subset=["Close"])
     data[price_cols] = data[price_cols].ffill().bfill()
@@ -105,9 +107,7 @@ class StockstatsUtils:
         indicator: Annotated[
             str, "stockstats indicator name (e.g. rsi_14, macd, boll)"
         ],
-        curr_date: Annotated[
-            str, "current date for retrieving price data, YYYY-mm-dd"
-        ],
+        curr_date: Annotated[str, "current date for retrieving price data, YYYY-mm-dd"],
     ):
         data = load_ohlcv(symbol, curr_date)
         df = wrap(data)

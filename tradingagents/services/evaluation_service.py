@@ -13,6 +13,13 @@ import pandas as pd
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
+    AgentCalibration,
+    AgentCalibrationReport,
+    ConfidenceBucket,
+    ConfidenceCurve,
+    ContradictionAnalysis,
+    FactorReliability,
+    FactorReliabilityReport,
     EvaluationAnalytics,
     EvaluationMetricsRow,
     OutcomeResult,
@@ -65,7 +72,9 @@ class EvaluationService:
 
         start_date = thesis.created_at.date()
         end_date = start_date + timedelta(days=window_days)
-        raw = self.price_loader(thesis.symbol, start_date.isoformat(), end_date.isoformat())
+        raw = self.price_loader(
+            thesis.symbol, start_date.isoformat(), end_date.isoformat()
+        )
         candles = _parse_ohlcv(raw)
         evaluation = _evaluate_candles(
             thesis,
@@ -145,9 +154,13 @@ class EvaluationService:
             grouped_symbol[evaluation.symbol].append(evaluation)
             if thesis:
                 grouped_setup[thesis.setup_type or "unspecified"].append(evaluation)
-                grouped_confidence[_confidence_bucket(thesis.confidence)].append(evaluation)
+                grouped_confidence[_confidence_bucket(thesis.confidence)].append(
+                    evaluation
+                )
 
-                signal_ids = set(thesis.supporting_signal_ids + thesis.contradicting_signal_ids)
+                signal_ids = set(
+                    thesis.supporting_signal_ids + thesis.contradicting_signal_ids
+                )
                 for signal_id in signal_ids:
                     signal = self.repo.get_signal(signal_id)
                     key = _signal_key(signal, signal_id)
@@ -169,6 +182,313 @@ class EvaluationService:
             by_confidence_bucket=_build_rows(grouped_confidence),
             by_signal=_build_rows(grouped_signal),
             by_agent=_build_rows(grouped_agent),
+        )
+
+    # ------------------------------------------------------------------
+    # Phase 9E: Agent & signal reliability
+    # ------------------------------------------------------------------
+
+    def build_factor_reliability(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 300,
+    ) -> FactorReliabilityReport:
+        """Compute per-factor hit rate and directional accuracy."""
+        evaluations = self.list_evaluations(symbol=symbol, limit=limit)
+        theses = _thesis_map(self.repo, evaluations)
+        factor_evals: dict[str, list[ThesisEvaluation]] = defaultdict(list)
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if not thesis:
+                factor_evals["unknown"].append(evaluation)
+                continue
+            signal_ids = set(thesis.supporting_signal_ids + thesis.contradicting_signal_ids)
+            if not signal_ids:
+                factor_evals["no_signals"].append(evaluation)
+                continue
+            for signal_id in signal_ids:
+                signal = self.repo.get_signal(signal_id)
+                key = signal.signal_type if signal else f"unknown:{signal_id}"
+                factor_evals[key].append(evaluation)
+
+        factors: list[FactorReliability] = []
+        for factor_name, evals in sorted(factor_evals.items()):
+            sample = len(evals)
+            hits = sum(1 for e in evals if e.result.value == "hit_target")
+            dir_correct = 0
+            strong_hits = 0
+            confidences: list[float] = []
+            for e in evals:
+                thesis = theses.get(e.thesis_id)
+                if thesis and thesis.direction is not None:
+                    if thesis.direction == ThesisDirection.LONG:
+                        if e.max_favorable_excursion is not None and e.max_favorable_excursion > 0:
+                            dir_correct += 1
+                    elif thesis.direction == ThesisDirection.SHORT:
+                        if e.max_adverse_excursion is not None and e.max_adverse_excursion > 0:
+                            dir_correct += 1
+                    if thesis.confidence is not None:
+                        confidences.append(thesis.confidence)
+                if e.result.value == "hit_target" and thesis:
+                    signal_ids = thesis.supporting_signal_ids + thesis.contradicting_signal_ids
+                    if signal_ids:
+                        signal = self.repo.get_signal(signal_ids[0])
+                        if signal and signal.direction.value in ("strong_buy", "strong_sell"):
+                            strong_hits += 1
+
+            factors.append(FactorReliability(
+                factor_name=factor_name,
+                sample_size=sample,
+                hit_rate=hits / sample if sample else None,
+                directional_accuracy=dir_correct / sample if sample else None,
+                strong_signal_hit_rate=strong_hits / sample if sample else None,
+                average_confidence=sum(confidences) / len(confidences) if confidences else None,
+            ))
+
+        best = max(factors, key=lambda f: f.hit_rate or 0) if factors else None
+        worst = min(factors, key=lambda f: f.hit_rate or 1) if factors else None
+        return FactorReliabilityReport(
+            total_sample_size=len(evaluations),
+            factors=factors,
+            best_factor=best.factor_name if best else None,
+            worst_factor=worst.factor_name if worst else None,
+        )
+
+    def build_agent_calibration(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 300,
+    ) -> AgentCalibrationReport:
+        """Compute per-agent stance calibration metrics."""
+        evaluations = self.list_evaluations(symbol=symbol, limit=limit)
+        theses = _thesis_map(self.repo, evaluations)
+        agent_evals: dict[str, list[ThesisEvaluation]] = defaultdict(list)
+        agent_roles: dict[str, str] = {}
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if not thesis:
+                continue
+            for opinion_id in set(thesis.agent_opinion_ids):
+                opinion = self.repo.get_agent_opinion(opinion_id)
+                key = opinion.agent_name if opinion else f"unknown:{opinion_id}"
+                agent_evals[key].append(evaluation)
+                if opinion and key not in agent_roles:
+                    agent_roles[key] = opinion.role
+
+        agents: list[AgentCalibration] = []
+        for agent_name, evals in sorted(agent_evals.items()):
+            sample = len(evals)
+            bullish = 0
+            bearish = 0
+            neutral = 0
+            stance_correct = 0
+            bullish_correct = 0
+            bearish_correct = 0
+            confidences: list[float] = []
+            for e in evals:
+                thesis = theses.get(e.thesis_id)
+                if not thesis:
+                    continue
+                direction = thesis.direction
+                if thesis.confidence is not None:
+                    confidences.append(thesis.confidence)
+                if direction == ThesisDirection.LONG:
+                    bullish += 1
+                elif direction == ThesisDirection.SHORT:
+                    bearish += 1
+                else:
+                    neutral += 1
+                outcome_positive = e.result.value == "hit_target" or (
+                    e.max_favorable_excursion is not None and e.max_favorable_excursion > 0)
+                outcome_negative = e.result.value == "invalidated" or (
+                    e.max_adverse_excursion is not None and e.max_adverse_excursion > 0)
+                if direction == ThesisDirection.LONG and outcome_positive:
+                    stance_correct += 1
+                    bullish_correct += 1
+                elif direction == ThesisDirection.SHORT and outcome_negative:
+                    stance_correct += 1
+                    bearish_correct += 1
+
+            bias = (bullish - bearish) / sample if sample else None
+            agents.append(AgentCalibration(
+                agent_name=agent_name,
+                role=agent_roles.get(agent_name, "analyst"),
+                sample_size=sample,
+                bullish_rate=bullish / sample if sample else None,
+                bearish_rate=bearish / sample if sample else None,
+                neutral_rate=neutral / sample if sample else None,
+                stance_accuracy=stance_correct / sample if sample else None,
+                bullish_accuracy=bullish_correct / bullish if bullish else None,
+                bearish_accuracy=bearish_correct / bearish if bearish else None,
+                bias_score=bias,
+                average_confidence=sum(confidences) / len(confidences) if confidences else None,
+            ))
+
+        best_agent = max(agents, key=lambda a: a.stance_accuracy or 0) if agents else None
+        biased_agent = max(agents, key=lambda a: abs(a.bias_score or 0)) if agents else None
+        return AgentCalibrationReport(
+            total_sample_size=len(evaluations),
+            agents=agents,
+            most_accurate_agent=best_agent.agent_name if best_agent else None,
+            most_biased_agent=biased_agent.agent_name if biased_agent else None,
+        )
+
+    def build_confidence_curve(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 300,
+    ) -> ConfidenceCurve:
+        """Build a confidence calibration curve from evaluated theses."""
+        evaluations = self.list_evaluations(symbol=symbol, limit=limit)
+        theses = _thesis_map(self.repo, evaluations)
+        bucket_defs = [
+            (0.0, 0.5, "0.00-0.49"),
+            (0.5, 0.6, "0.50-0.59"),
+            (0.6, 0.7, "0.60-0.69"),
+            (0.7, 0.8, "0.70-0.79"),
+            (0.8, 0.9, "0.80-0.89"),
+            (0.9, 1.0, "0.90-1.00"),
+        ]
+        bucket_evals: dict[str, list[ThesisEvaluation]] = defaultdict(list)
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            conf = thesis.confidence if thesis else None
+            if conf is None:
+                bucket_evals["unknown"].append(evaluation)
+                continue
+            placed = False
+            for lo, hi, label in bucket_defs:
+                if lo <= conf < hi or (hi == 1.0 and conf == 1.0):
+                    bucket_evals[label].append(evaluation)
+                    placed = True
+                    break
+            if not placed:
+                bucket_evals["unknown"].append(evaluation)
+
+        buckets: list[ConfidenceBucket] = []
+        weighted_errors: list[float] = []
+        for lo, hi, label in bucket_defs:
+            evals = bucket_evals.get(label, [])
+            sample = len(evals)
+            hits = sum(1 for e in evals if e.result.value == "hit_target")
+            hit_rate = hits / sample if sample else None
+            expected = (lo + hi) / 2
+            error = (hit_rate - expected) if hit_rate is not None else None
+            if error is not None and sample > 0:
+                weighted_errors.append(error * sample)
+            buckets.append(ConfidenceBucket(
+                bucket_label=label,
+                min_confidence=lo,
+                max_confidence=hi,
+                sample_size=sample,
+                hit_rate=hit_rate,
+                expected_rate=expected,
+                calibration_error=error,
+            ))
+
+        total_weight = sum(b.sample_size for b in buckets if b.calibration_error is not None)
+        overall_error = sum(weighted_errors) / total_weight if total_weight > 0 else None
+        quality = "insufficient_data"
+        if overall_error is not None:
+            if abs(overall_error) < 0.05:
+                quality = "well_calibrated"
+            elif overall_error > 0:
+                quality = "under_confident"
+            else:
+                quality = "over_confident"
+
+        return ConfidenceCurve(
+            total_sample_size=len(evaluations),
+            buckets=buckets,
+            overall_calibration_error=overall_error,
+            calibration_quality=quality,
+        )
+
+    def build_contradiction_analysis(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 300,
+    ) -> ContradictionAnalysis:
+        """Analyze whether agent disagreements help or hurt outcomes."""
+        evaluations = self.list_evaluations(symbol=symbol, limit=limit)
+        theses = _thesis_map(self.repo, evaluations)
+        low_conflict: list[ThesisEvaluation] = []
+        medium_conflict: list[ThesisEvaluation] = []
+        high_conflict: list[ThesisEvaluation] = []
+        contradiction_counts: list[int] = []
+        stance_diversities: list[float] = []
+
+        for evaluation in evaluations:
+            thesis = theses.get(evaluation.thesis_id)
+            if not thesis:
+                continue
+            opinions = [self.repo.get_agent_opinion(oid) for oid in thesis.agent_opinion_ids]
+            opinions = [o for o in opinions if o is not None]
+            bullish = sum(1 for o in opinions if o.stance.value == "bullish")
+            bearish = sum(1 for o in opinions if o.stance.value == "bearish")
+            total = bullish + bearish
+            stance_diversity = 1.0 - abs(bullish - bearish) / total if total > 0 else 0.0
+            contra_count = min(bullish, bearish)
+            contradiction_counts.append(contra_count)
+            stance_diversities.append(stance_diversity)
+            if contra_count == 0 and stance_diversity < 0.3:
+                low_conflict.append(evaluation)
+            elif contra_count >= 2 or stance_diversity > 0.7:
+                high_conflict.append(evaluation)
+            else:
+                medium_conflict.append(evaluation)
+
+        def _ht(evals):
+            if not evals:
+                return None
+            return sum(1 for e in evals if e.result.value == "hit_target") / len(evals)
+
+        avg_contra = sum(contradiction_counts) / len(contradiction_counts) if contradiction_counts else None
+        if avg_contra is not None:
+            above_avg = [e for e, c in zip(evaluations, contradiction_counts) if c >= avg_contra]
+            no_contra = [e for e, c in zip(evaluations, contradiction_counts) if c == 0]
+        else:
+            above_avg = []
+            no_contra = []
+
+        avg_diversity = sum(stance_diversities) / len(stance_diversities) if stance_diversities else None
+        if avg_diversity is not None:
+            high_div = [e for e, d in zip(evaluations, stance_diversities) if d >= avg_diversity]
+            low_div = [e for e, d in zip(evaluations, stance_diversities) if d < avg_diversity]
+        else:
+            high_div = []
+            low_div = []
+
+        high_hit = _ht(high_conflict) or 0
+        low_hit = _ht(low_conflict) or 0
+        usefulness = "insufficient_data"
+        if high_conflict and low_conflict:
+            if high_hit > low_hit + 0.05:
+                usefulness = "helpful"
+            elif low_hit > high_hit + 0.05:
+                usefulness = "harmful"
+            else:
+                usefulness = "neutral"
+
+        return ContradictionAnalysis(
+            sample_size=len(evaluations),
+            low_conflict_sample=len(low_conflict),
+            medium_conflict_sample=len(medium_conflict),
+            high_conflict_sample=len(high_conflict),
+            low_conflict_hit_rate=_ht(low_conflict),
+            medium_conflict_hit_rate=_ht(medium_conflict),
+            high_conflict_hit_rate=_ht(high_conflict),
+            contradiction_count_avg=avg_contra,
+            contradiction_hit_rate=_ht(above_avg) if above_avg else None,
+            no_contradiction_hit_rate=_ht(no_contra) if no_contra else None,
+            stance_diversity_score=avg_diversity,
+            high_diversity_hit_rate=_ht(high_div) if high_div else None,
+            low_diversity_hit_rate=_ht(low_div) if low_div else None,
+            contradiction_usefulness=usefulness,
         )
 
 
@@ -226,13 +546,21 @@ def _evaluate_candles(
     )
     target_hit = target_idx is not None
     invalidated = invalidation_idx is not None
-    result = _classify_result(target_idx, invalidation_idx, target_level, invalidation_level)
+    result = _classify_result(
+        target_idx, invalidation_idx, target_level, invalidation_level
+    )
     notes = [
         "MVP evaluation uses saved thesis creation date and forward OHLCV only.",
         "It does not replay the original research context or news/provider state.",
     ]
-    if thesis.direction in {ThesisDirection.WATCH, ThesisDirection.NEUTRAL, ThesisDirection.AVOID}:
-        notes.append(f"Direction '{thesis.direction.value}' evaluated as inferred {side} side.")
+    if thesis.direction in {
+        ThesisDirection.WATCH,
+        ThesisDirection.NEUTRAL,
+        ThesisDirection.AVOID,
+    }:
+        notes.append(
+            f"Direction '{thesis.direction.value}' evaluated as inferred {side} side."
+        )
 
     return ThesisEvaluation(
         thesis_id=thesis.id,
@@ -307,7 +635,11 @@ def _classify_result(
     invalidation_level: float | None,
 ) -> OutcomeResult:
     if target_idx is None and invalidation_idx is None:
-        return OutcomeResult.EXPIRED if (target_level or invalidation_level) else OutcomeResult.UNKNOWN
+        return (
+            OutcomeResult.EXPIRED
+            if (target_level or invalidation_level)
+            else OutcomeResult.UNKNOWN
+        )
     if target_idx is not None and invalidation_idx is not None:
         if target_idx < invalidation_idx:
             return OutcomeResult.HIT_TARGET
@@ -365,7 +697,9 @@ def _confidence_bucket(confidence: float | None) -> str:
     return "gte_0.70"
 
 
-def _build_rows(grouped: dict[str, list[ThesisEvaluation]]) -> list[EvaluationMetricsRow]:
+def _build_rows(
+    grouped: dict[str, list[ThesisEvaluation]],
+) -> list[EvaluationMetricsRow]:
     rows = [_metrics_row(key, values) for key, values in grouped.items()]
     rows.sort(key=lambda row: (-row.sample_size, row.key))
     return rows

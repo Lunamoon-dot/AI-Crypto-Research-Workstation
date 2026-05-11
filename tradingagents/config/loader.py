@@ -48,8 +48,6 @@ _ENV_CONFIG_MAP: dict[str, str | tuple[str, ...]] = {
     "TRADINGAGENTS_MAX_RISK_DISCUSS_ROUNDS": "max_risk_discuss_rounds",
     "TRADINGAGENTS_MAX_RECUR_LIMIT": "max_recur_limit",
     "TRADINGAGENTS_OUTPUT_LANGUAGE": "output_language",
-    "TRADINGAGENTS_ATR_RISK_TARGET": "atr_risk_target",
-    "TRADINGAGENTS_STRESS_TEST_THRESHOLD": "stress_test_threshold",
     "TRADINGAGENTS_LOG_LEVEL": "log_level",
 }
 
@@ -63,7 +61,9 @@ def _project_root() -> Path:
     # When running from the repo: the directory containing config/
     candidates = [
         Path.cwd(),
-        Path(__file__).resolve().parent.parent.parent,  # tradingagents/config/loader.py → repo root
+        Path(__file__)
+        .resolve()
+        .parent.parent.parent,  # tradingagents/config/loader.py → repo root
     ]
     for cand in candidates:
         if (cand / "config" / "default.toml").exists():
@@ -103,6 +103,7 @@ def _set_nested(config: dict, keys: tuple[str, ...], value: Any) -> None:
 
 # ── Standalone file loader (kept for profile manager backward compat) ─────
 
+
 def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, Any]:
     """Load a single YAML (.yaml/.yml) or TOML (.toml) config document."""
     file_path = Path(path)
@@ -130,6 +131,7 @@ def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, A
 
 # ── Deep merge ────────────────────────────────────────────────────────────
 
+
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge *override* into *base*, returning a new dict.
 
@@ -145,6 +147,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 # ── Unified Config Loader ─────────────────────────────────────────────────
+
 
 class ConfigLoader:
     """Unified configuration loader — THE single entry point for all config.
@@ -192,7 +195,8 @@ class ConfigLoader:
         )
 
         source = (
-            f"config_path:{config_path}" if config_path
+            f"config_path:{config_path}"
+            if config_path
             else (f"profile:{profile}" if profile else "cli")
         )
         validated = validate_and_normalize_config(config, source=source)
@@ -231,14 +235,6 @@ class ConfigLoader:
             overrides["crypto_exchange"] = selections["crypto_exchange"]
         if selections.get("crypto_benchmark"):
             overrides["crypto_benchmark"] = selections["crypto_benchmark"]
-
-        planning_cfg = selections.get("planning_config", {})
-        if planning_cfg:
-            overrides["planning"] = planning_cfg
-        if selections.get("crypto_exchange"):
-            planning_with_exchange = deepcopy(overrides.get("planning", {}))
-            planning_with_exchange["exchange"] = selections["crypto_exchange"]
-            overrides["planning"] = planning_with_exchange
 
         profile = selections.get("profile")
         config_path = selections.get("config_path")
@@ -347,7 +343,7 @@ class ConfigLoader:
                 continue
 
             # Double-underscore nested key: TRADINGAGENTS_PLANNING__ENABLED
-            suffix = env_name[len(_ENV_NESTED_PREFIX):]
+            suffix = env_name[len(_ENV_NESTED_PREFIX) :]
             if "__" in suffix:
                 parts = tuple(suffix.lower().split("__"))
                 _set_nested(config, parts, val)
@@ -372,7 +368,9 @@ class ConfigLoader:
     def _enforce_credentials(self, config: dict) -> None:
         """Resolve and validate LLM credentials for the selected provider(s)."""
         mode = config.get("config_validation", {}).get("mode", "fail_fast")
-        validate_keys = config.get("config_validation", {}).get("validate_llm_keys", True)
+        validate_keys = config.get("config_validation", {}).get(
+            "validate_llm_keys", True
+        )
 
         # Check mandatory structural keys regardless of validate_llm_keys
         self._check_critical_config(config, mode)

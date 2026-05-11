@@ -58,7 +58,9 @@ def redact_secrets(value: Any) -> Any:
     """Return *value* with likely secrets replaced by ``[REDACTED]``."""
     if isinstance(value, Mapping):
         return {
-            key: "[REDACTED]" if _SECRET_KEY_RE.search(str(key)) else redact_secrets(item)
+            key: "[REDACTED]"
+            if _SECRET_KEY_RE.search(str(key))
+            else redact_secrets(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -74,7 +76,9 @@ class SecretRedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
         try:
             if isinstance(record.msg, Mapping):
-                record.msg = json.dumps(redact_secrets(record.msg), default=_json_default)
+                record.msg = json.dumps(
+                    redact_secrets(record.msg), default=_json_default
+                )
                 record.args = ()
             elif isinstance(record.msg, str):
                 record.msg = _SECRET_INLINE_RE.sub(r"\1[REDACTED]", record.msg)
@@ -274,14 +278,15 @@ def log_event(
     if not run_id:
         return
 
-    if (
-        event == "data_provider_call"
-        and not persist_cfg.get("persist_provider_calls", True)
+    if event == "data_provider_call" and not persist_cfg.get(
+        "persist_provider_calls", True
     ):
         return
     if event == "llm_call" and not persist_cfg.get("persist_llm_calls", True):
         return
-    if event == "snapshot_health" and not persist_cfg.get("persist_snapshot_health", True):
+    if event == "snapshot_health" and not persist_cfg.get(
+        "persist_snapshot_health", True
+    ):
         return
     if event == "data_provider_call":
         sample_rate = float(persist_cfg.get("data_provider_call_sample_rate", 1.0))

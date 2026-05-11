@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from tradingagents.config.providers import PROVIDER_REGISTRY, get_provider_env_vars
+from tradingagents.config.providers import PROVIDER_REGISTRY
 
 
-def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str, list[str]]:
+def check_api_keys(
+    provider: str, backend_url: Optional[str] = None
+) -> dict[str, list[str]]:
     """Validate API keys for *provider*.
 
     Returns
@@ -56,8 +58,8 @@ def check_api_keys(provider: str, backend_url: Optional[str] = None) -> dict[str
         # Azure endpoint should not be the default OpenAI endpoint
         if "openai.com" in backend_url:
             warnings.append(
-                f"Azure provider selected but backend_url points to "
-                f"'openai.com'.  Did you mean to use the 'openai' provider?"
+                "Azure provider selected but backend_url points to "
+                "'openai.com'.  Did you mean to use the 'openai' provider?"
             )
 
     return {"errors": errors, "warnings": warnings}

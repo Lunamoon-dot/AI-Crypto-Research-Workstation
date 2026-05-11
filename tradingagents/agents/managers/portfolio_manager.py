@@ -19,9 +19,27 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.default_config import DEFAULT_CONFIG
 
 
-def create_portfolio_manager(llm):
+def _get_feedback_context(config) -> str:
+    """Load past performance feedback for injection into the PM prompt."""
+    if config is None:
+        return ""
+    eval_cfg = config.get("evaluation", {})
+    if not eval_cfg.get("feedback_enabled", True):
+        return ""
+    try:
+        from tradingagents.services.performance_tracker import PerformanceTracker
+
+        tracker = PerformanceTracker(config)
+        ctx = tracker.build_feedback_context()
+        return ctx
+    except Exception:
+        return ""
+
+
+def create_portfolio_manager(llm, config=None):
     structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
 
     def portfolio_manager_node(state) -> dict:
@@ -38,6 +56,8 @@ def create_portfolio_manager(llm):
             if past_context
             else ""
         )
+
+        feedback_context = _get_feedback_context(config)
 
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
 
@@ -56,12 +76,14 @@ def create_portfolio_manager(llm):
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
 {lessons_line}
+{feedback_context}
+
 **Risk Analysts Debate History:**
 {history}
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
+Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction(config=config)}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,
@@ -78,8 +100,12 @@ Be decisive and ground every conclusion in specific evidence from the analysts.{
             "conservative_history": risk_debate_state["conservative_history"],
             "neutral_history": risk_debate_state["neutral_history"],
             "latest_speaker": "Judge",
-            "current_aggressive_response": risk_debate_state["current_aggressive_response"],
-            "current_conservative_response": risk_debate_state["current_conservative_response"],
+            "current_aggressive_response": risk_debate_state[
+                "current_aggressive_response"
+            ],
+            "current_conservative_response": risk_debate_state[
+                "current_conservative_response"
+            ],
             "current_neutral_response": risk_debate_state["current_neutral_response"],
             "count": risk_debate_state["count"],
         }

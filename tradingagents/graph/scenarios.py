@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from tradingagents.domain import (
     ConflictLevel,
     ResearchDebate,
@@ -13,6 +14,8 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.templates.registry import TemplateRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def build_scenarios_for_thesis(
@@ -31,14 +34,37 @@ def build_scenarios_for_thesis(
 
     template = TemplateRegistry.get(template_name) if template_name else None
 
+    # --- Phase 5: validate template required fields ---
+    if template is not None and template.required_fields:
+        # Gather context values available from thesis and signals
+        context_values: dict[str, str] = {}
+        if thesis.evidence:
+            context_values.update({k: str(v) for k, v in thesis.evidence.items()})
+        for sig in (signals or []):
+            context_values[sig.signal_type] = sig.summary or sig.signal_type
+
+        missing = template.validate_fields(context_values)
+        if missing:
+            logger.warning(
+                "Template '%s' requires fields %s but they are missing from thesis context. "
+                "Scenarios will use template defaults where possible.",
+                template_name, missing,
+            )
+
     signals = signals or []
     scenarios = [
-        _directional_confirmation(thesis, debate=debate, signals=signals, template=template),
-        _invalidation_scenario(thesis, debate=debate, signals=signals, template=template),
+        _directional_confirmation(
+            thesis, debate=debate, signals=signals, template=template
+        ),
+        _invalidation_scenario(
+            thesis, debate=debate, signals=signals, template=template
+        ),
         _neutral_wait_scenario(thesis, signals=signals, template=template),
     ]
     if _has_material_conflict(thesis, debate):
-        scenarios.append(_contradiction_scenario(thesis, debate=debate, template=template))
+        scenarios.append(
+            _contradiction_scenario(thesis, debate=debate, template=template)
+        )
 
     return _dedupe_scenarios(scenarios)[:4]
 
@@ -61,7 +87,9 @@ def _directional_confirmation(
         action = "review long thesis"
         aligned_direction = SignalDirection.BULLISH
     else:
-        condition = "If price resolves in the thesis direction with fresh supporting evidence."
+        condition = (
+            "If price resolves in the thesis direction with fresh supporting evidence."
+        )
         expected = "The watch thesis can be upgraded only after confirmation from price and supporting signals."
         action = "review thesis"
         aligned_direction = SignalDirection.BULLISH
@@ -75,7 +103,10 @@ def _directional_confirmation(
     if template is not None and template.invalidation_template:
         invalidation = thesis.invalidation_level or template.invalidation_template
     else:
-        invalidation = thesis.invalidation_level or "Invalid if confirmation fails or the thesis risk level breaks."
+        invalidation = (
+            thesis.invalidation_level
+            or "Invalid if confirmation fails or the thesis risk level breaks."
+        )
 
     return Scenario(
         thesis_id=thesis.id,
@@ -95,8 +126,13 @@ def _invalidation_scenario(
     signals: list[Signal],
     template=None,
 ) -> Scenario:
-    contradicting = _signal_summaries(signals, _opposite_signal_direction(thesis.direction))
-    condition = thesis.invalidation_level or "If the thesis invalidation condition is triggered."
+    contradicting = _signal_summaries(
+        signals, _opposite_signal_direction(thesis.direction)
+    )
+    condition = (
+        thesis.invalidation_level
+        or "If the thesis invalidation condition is triggered."
+    )
     if contradicting:
         condition = f"{condition} Contradicting context: {contradicting[0]}"
 
@@ -130,7 +166,9 @@ def _neutral_wait_scenario(
     template=None,
 ) -> Scenario:
     neutral_context = _signal_summaries(signals, SignalDirection.NEUTRAL)
-    condition = "If evidence remains mixed and price stays inside the current decision range."
+    condition = (
+        "If evidence remains mixed and price stays inside the current decision range."
+    )
     if neutral_context:
         condition = f"{condition} Neutral context: {neutral_context[0]}"
     if template is not None and template.condition_template:
@@ -162,7 +200,9 @@ def _contradiction_scenario(
     template=None,
 ) -> Scenario:
     contradictions = thesis.contradictions or (debate.contradictions if debate else [])
-    condition = "If the main contradiction strengthens while the thesis direction stalls."
+    condition = (
+        "If the main contradiction strengthens while the thesis direction stalls."
+    )
     if contradictions:
         condition = f"{condition} Main contradiction: {contradictions[0]}"
 
@@ -190,7 +230,11 @@ def _probability_from_confidence(
     if confidence is None:
         return ScenarioProbabilityBand.UNKNOWN
     if debate and debate.conflict_level == ConflictLevel.HIGH:
-        return ScenarioProbabilityBand.MEDIUM if confidence >= 0.7 else ScenarioProbabilityBand.LOW
+        return (
+            ScenarioProbabilityBand.MEDIUM
+            if confidence >= 0.7
+            else ScenarioProbabilityBand.LOW
+        )
     if confidence >= 0.7:
         return ScenarioProbabilityBand.HIGH
     if confidence >= 0.4:
@@ -201,7 +245,9 @@ def _probability_from_confidence(
 def _has_material_conflict(thesis: TradeThesis, debate: ResearchDebate | None) -> bool:
     if thesis.contradictions:
         return True
-    return bool(debate and debate.conflict_level in (ConflictLevel.MEDIUM, ConflictLevel.HIGH))
+    return bool(
+        debate and debate.conflict_level in (ConflictLevel.MEDIUM, ConflictLevel.HIGH)
+    )
 
 
 def _opposite_signal_direction(direction: ThesisDirection) -> SignalDirection:
@@ -225,7 +271,9 @@ def _risk_map(thesis: TradeThesis, signals: list[Signal]) -> list[str]:
         if signal.provenance.freshness.value in ("stale", "unknown")
     ]
     risks = thesis.risk_notes + thesis.contradictions + stale_or_unknown
-    return _dedupe(risks or ["Manual review required before acting on this scenario."])[:5]
+    return _dedupe(risks or ["Manual review required before acting on this scenario."])[
+        :5
+    ]
 
 
 def _dedupe_scenarios(scenarios: list[Scenario]) -> list[Scenario]:

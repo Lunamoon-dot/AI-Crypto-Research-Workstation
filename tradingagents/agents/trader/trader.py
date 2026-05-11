@@ -21,18 +21,6 @@ def create_trader(llm):
         company_name = state["company_of_interest"]
         instrument_context = build_instrument_context(company_name)
         investment_plan = state["investment_plan"]
-        portfolio_context = state.get("portfolio_state", "")
-
-        # Inject portfolio state when execution is enabled
-        portfolio_block = ""
-        if portfolio_context:
-            portfolio_block = (
-                f"\n\n=== CURRENT PORTFOLIO STATE ===\n{portfolio_context}\n\n"
-                f"When sizing your position, use the portfolio snapshot above to determine "
-                f"a concrete percentage allocation. Include the size in your position_sizing "
-                f"field as a percentage (e.g., '5% of portfolio'). Consider: remaining cash, "
-                f"existing exposure to this asset, recent P&L, and risk limits."
-            )
 
         messages = [
             {
@@ -41,7 +29,6 @@ def create_trader(llm):
                     "You are a trading agent analyzing market data to make investment decisions. "
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     "Anchor your reasoning in the analysts' reports and the research plan."
-                    f"{portfolio_block}"
                 ),
             },
             {

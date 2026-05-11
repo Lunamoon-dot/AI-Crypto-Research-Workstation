@@ -31,7 +31,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.services.journal_service import JournalService, resolve_journal_db_path
+from tradingagents.services.journal_service import (
+    JournalService,
+    resolve_journal_db_path,
+)
 
 
 def main() -> None:
@@ -59,7 +62,9 @@ def main() -> None:
             print("No research runs in this journal.")
             return
         run_id = runs[0].id
-        print(f"latest_run_id={run_id} symbol={runs[0].symbol} timeframe={runs[0].timeframe}")
+        print(
+            f"latest_run_id={run_id} symbol={runs[0].symbol} timeframe={runs[0].timeframe}"
+        )
 
     events = journal.list_timeline_events(research_run_id=run_id, limit=args.limit)
     if not events:

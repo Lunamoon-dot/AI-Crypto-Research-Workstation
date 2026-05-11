@@ -229,7 +229,9 @@ class JournalService:
         invalidated_count = 0
 
         for review in reviews:
-            result_counts[review.result.value] = result_counts.get(review.result.value, 0) + 1
+            result_counts[review.result.value] = (
+                result_counts.get(review.result.value, 0) + 1
+            )
             thesis_ids.append(review.thesis_id)
             if review.max_favorable_excursion is not None:
                 mfe_values.append(review.max_favorable_excursion)

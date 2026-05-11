@@ -1,22 +1,12 @@
-from tradingagents.graph import ResearchAgentsGraph
-from tradingagents.config.loader import ConfigLoader
+"""Minimal example: run a single-ticker analysis programmatically.
 
-# ConfigLoader handles .env loading, config file layering, and validation
-loader = ConfigLoader()
-config = loader.load(
-    cli_overrides={
-        "deep_think_llm": "gpt-5.4-mini",
-        "quick_think_llm": "gpt-5.4-mini",
-        "max_debate_rounds": 1,
-    },
-)
+Usage:
+    python main.py
+"""
 
-# Initialize with custom config
-ta = ResearchAgentsGraph(debug=True, config=config)
+if __name__ == "__main__":
+    from tradingagents.graph import ResearchAgentsGraph
 
-# forward propagate
-_, decision = ta.propagate("ETH/USDT", "2024-05-10")
-print(decision)
-
-# Memorize mistakes and reflect
-# ta.reflect_and_remember(1000)
+    ta = ResearchAgentsGraph(debug=True)
+    _, decision = ta.propagate("ETH/USDT", "2024-05-10")
+    print(decision)

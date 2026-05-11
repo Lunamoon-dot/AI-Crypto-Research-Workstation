@@ -49,9 +49,15 @@ def build_signal_snapshot(
         (signal.id for signal in signals if signal.signal_type == "composite_quant"),
         None,
     )
-    bullish = sum(1 for signal in signals if signal.direction == SignalDirection.BULLISH)
-    bearish = sum(1 for signal in signals if signal.direction == SignalDirection.BEARISH)
-    neutral = sum(1 for signal in signals if signal.direction == SignalDirection.NEUTRAL)
+    bullish = sum(
+        1 for signal in signals if signal.direction == SignalDirection.BULLISH
+    )
+    bearish = sum(
+        1 for signal in signals if signal.direction == SignalDirection.BEARISH
+    )
+    neutral = sum(
+        1 for signal in signals if signal.direction == SignalDirection.NEUTRAL
+    )
     stale = sum(
         1 for signal in signals if signal.provenance.freshness == DataFreshness.STALE
     )

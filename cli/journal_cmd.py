@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -206,10 +209,44 @@ def journal_timeline(
     _print_timeline(events, title=f"Research Run Timeline: {run_id}")
 
 
+@journal_app.command("bundle")
+def journal_bundle(
+    run_id: str = typer.Argument(..., help="Research run id."),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Write bundle JSON to this file instead of stdout.",
+    ),
+):
+    """Export a portable JSON bundle (run, snapshots, thesis, scenarios, hashes)."""
+    service = _service()
+    try:
+        payload = _workspace_json_payload(service, run_id)
+    except ValueError:
+        console.print(f"[red]Research run not found:[/red] {run_id}")
+        raise typer.Exit(1)
+
+    bundle = {
+        "bundle_version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    text = json.dumps(bundle, indent=2, ensure_ascii=False) + "\n"
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        console.print(f"[green]Wrote bundle to[/green] {out}")
+    else:
+        print_json_stdout(bundle)
+
+
 @journal_app.command("workspace")
 def journal_workspace(
     run_id: str = typer.Argument(..., help="Research run id."),
-    json_out: bool = typer.Option(False, "--json", help="Emit workspace snapshot as JSON."),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit workspace snapshot as JSON."
+    ),
 ):
     """Show a full research workspace summary for one run."""
     service = _service()
@@ -233,15 +270,19 @@ def journal_workspace(
         f"Debate: {run.debate_id or 'N/A'}",
         f"Thesis: {run.thesis_id or 'N/A'}",
     ]
-    console.print(Panel("\n".join(lines), title="Research Workspace", border_style="cyan"))
+    console.print(
+        Panel("\n".join(lines), title="Research Workspace", border_style="cyan")
+    )
     next_commands = [
         f"tradingagents journal timeline {run.id}",
     ]
     if run.thesis_id:
-        next_commands.extend([
-            f"tradingagents thesis show {run.thesis_id}",
-            f"tradingagents watchlist add-thesis {run.thesis_id}",
-        ])
+        next_commands.extend(
+            [
+                f"tradingagents thesis show {run.thesis_id}",
+                f"tradingagents watchlist add-thesis {run.thesis_id}",
+            ]
+        )
     if run.debate_id:
         next_commands.append(f"tradingagents journal debate {run.debate_id}")
 
@@ -264,7 +305,9 @@ def journal_workspace(
         if debate.missing_data:
             debate_lines.extend(["", "Missing Data:"])
             debate_lines.extend(f"- {item}" for item in debate.missing_data)
-        console.print(Panel("\n".join(debate_lines), title="Debate", border_style="magenta"))
+        console.print(
+            Panel("\n".join(debate_lines), title="Debate", border_style="magenta")
+        )
         _print_opinions_table(service.list_agent_opinions(debate_id=debate.id))
     else:
         console.print("[yellow]No structured debate saved for this run yet.[/yellow]")
@@ -285,7 +328,9 @@ def journal_workspace(
         ]
         if thesis.evidence.get("confidence_adjustment_reason"):
             thesis_lines.extend(["", thesis.evidence["confidence_adjustment_reason"]])
-        console.print(Panel("\n".join(thesis_lines), title="Trade Thesis", border_style="green"))
+        console.print(
+            Panel("\n".join(thesis_lines), title="Trade Thesis", border_style="green")
+        )
         console.print(
             Panel(
                 "\n".join(_workspace_evidence_lines(thesis=thesis, debate=debate)),
@@ -430,7 +475,9 @@ def journal_debate(
 
 @journal_app.command("outcomes")
 def journal_outcomes(
-    symbol: Optional[str] = typer.Option(None, "--symbol", "-s", help="Filter by symbol."),
+    symbol: Optional[str] = typer.Option(
+        None, "--symbol", "-s", help="Filter by symbol."
+    ),
     limit: int = typer.Option(50, "--limit", "-n", min=1, max=500),
 ):
     """List saved thesis outcome reviews."""
@@ -463,7 +510,9 @@ def journal_outcomes(
 
 @journal_app.command("retrospective")
 def journal_retrospective(
-    symbol: Optional[str] = typer.Option(None, "--symbol", "-s", help="Filter by symbol."),
+    symbol: Optional[str] = typer.Option(
+        None, "--symbol", "-s", help="Filter by symbol."
+    ),
     limit: int = typer.Option(100, "--limit", "-n", min=1, max=500),
 ):
     """Show outcome analytics and retrospective insights."""
@@ -480,10 +529,14 @@ def journal_retrospective(
         "Result Counts:",
     ]
     if analytics.result_counts:
-        lines.extend(f"- {key}: {value}" for key, value in analytics.result_counts.items())
+        lines.extend(
+            f"- {key}: {value}" for key, value in analytics.result_counts.items()
+        )
     else:
         lines.append("- none")
-    console.print(Panel("\n".join(lines), title="Outcome Analytics", border_style="cyan"))
+    console.print(
+        Panel("\n".join(lines), title="Outcome Analytics", border_style="cyan")
+    )
 
     if analytics.insights:
         table = Table(title="Retrospective Insights")
@@ -534,7 +587,9 @@ def thesis_list(
     table.add_column("Created")
 
     for thesis in theses:
-        confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
+        confidence = (
+            f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
+        )
         table.add_row(
             thesis.id or "",
             thesis.symbol,
@@ -561,7 +616,9 @@ def thesis_show(
         return
 
     confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "N/A"
-    created = thesis.created_at.strftime("%Y-%m-%d %H:%M UTC") if thesis.created_at else "N/A"
+    created = (
+        thesis.created_at.strftime("%Y-%m-%d %H:%M UTC") if thesis.created_at else "N/A"
+    )
     lines = [
         f"ID: {thesis.id}",
         f"Research Run: {thesis.research_run_id or 'N/A'}",
@@ -673,7 +730,11 @@ def thesis_show(
     else:
         lines.append("  Data Gaps:     none reported")
     # 3. Debate consensus
-    conflict = consensus_bag.get("conflict_level") or evidence_bag.get("conflict_level") or "N/A"
+    conflict = (
+        consensus_bag.get("conflict_level")
+        or evidence_bag.get("conflict_level")
+        or "N/A"
+    )
     stance = consensus_bag.get("stance") or "N/A"
     lines.append(f"  Consensus:     {conflict} conflict, stance={stance}")
     # 4. Invalidation trigger
@@ -793,7 +854,9 @@ def thesis_review(
     lessons: str = typer.Option("", "--lessons", "-m", help="Outcome lessons."),
     mfe: Optional[float] = typer.Option(None, "--mfe", help="Max favorable excursion."),
     mae: Optional[float] = typer.Option(None, "--mae", help="Max adverse excursion."),
-    invalidated: bool = typer.Option(False, "--invalidated", help="Mark as invalidated."),
+    invalidated: bool = typer.Option(
+        False, "--invalidated", help="Mark as invalidated."
+    ),
 ):
     """Record an outcome review for a thesis."""
     try:

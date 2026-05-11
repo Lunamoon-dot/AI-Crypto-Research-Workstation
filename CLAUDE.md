@@ -16,7 +16,6 @@ python -m cli.main
 pytest                          # all tests
 pytest -m unit                  # fast unit tests only
 pytest -m "not integration"     # skip tests needing external services
-pytest tests/test_memory_log.py -v
 
 # Run a single ticker programmatically
 python main.py
@@ -27,33 +26,36 @@ python scripts/smoke_structured_output.py
 
 ## Architecture
 
-**Orchestration layer** (`tradingagents/graph/`): A LangGraph `StateGraph` that chains agents in a fixed pipeline. `GraphSetup.setup_graph()` wires nodes and conditional edges; `ConditionalLogic` decides tool-loop routing and debate round gating. `TradingAgentsGraph` is the public entry point — it creates LLM clients, tool nodes, and the graph, then calls `propagate()` to run.
+**Orchestration layer** (`tradingagents/graph/`): LangGraph `StateGraph` built by `GraphSetup.setup_graph()` — analysts fan out in parallel, then merge into Bull/Bear → Research Manager → Trader → risk debate → Portfolio Manager → Scenario Planner → end. `ResearchAgentsGraph` is the public entry point (`TradingAgentsGraph` remains an alias for backward compatibility). `ConditionalLogic` handles analyst tool loops and debate/risk round gating. `JournalBridge` persists runs, snapshots, signals, opinions, debates, theses, and scenarios into SQLite via `JournalService`.
 
-**Pipeline flow**: Analysts (market, social, news, onchain) run in sequence → Bull/Bear researchers debate → Research Manager produces investment plan → Trader proposes transaction → Aggressive/Conservative/Neutral risk analysts debate → Portfolio Manager issues final rating (Buy/Overweight/Hold/Underweight/Sell).
+**Pipeline flow**: Selected analysts (market, social, news, onchain) run concurrently → Bull/Bear debate → Research Manager (investment plan) → Trader → Aggressive/Conservative/Neutral risk debate → Portfolio Manager (rating markdown) → Scenario Planner (structured `ScenarioPlan` when supported) → persisted thesis and scenarios.
 
-**Agent implementations** (`tradingagents/agents/`): Each agent is a function factory (`create_*`) that returns a callable taking `state: AgentState`. Structured-output agents (Research Manager, Trader, Portfolio Manager) use Pydantic schemas in `agents/schemas.py` with `with_structured_output()` — the schemas double as output instructions via field descriptions. Render helpers turn parsed instances back into markdown for downstream consumers.
+**Agent implementations** (`tradingagents/agents/`): Factory functions (`create_*`) return callables over `AgentState`. Structured-output agents use Pydantic schemas in `agents/schemas.py` with `with_structured_output()`; `invoke_structured_or_freetext()` provides markdown rendering plus free-text fallback (`agents/utils/structured.py`).
 
-**LLM clients** (`tradingagents/llm_clients/`): `create_llm_client()` factory lazily imports provider modules so importing the factory doesn't pull in heavy SDKs. OpenAI-compatible providers (openai, xai, deepseek, qwen, glm, ollama, openrouter) share `OpenAIClient`; Google, Anthropic, and Azure each have their own client. Structured output binding is provider-aware (`agents/utils/structured.py`).
+**LLM clients** (`tradingagents/llm_clients/`): `create_llm_client()` lazily imports provider modules. OpenAI-compatible providers share `OpenAIClient`; Google, Anthropic, and Azure have dedicated clients.
 
-**Data layer** (`tradingagents/dataflows/`): `route_to_vendor(method, *args)` is the single entry point — it resolves the configured vendor from config, builds a fallback chain across all available vendors, and calls the first one that succeeds. Category-level config (`data_vendors`) can be overridden per-tool (`tool_vendors`). Currently CCXT and CoinGecko are the primary vendors.
+**Data layer** (`tradingagents/dataflows/`): `route_to_vendor(method, *args)` resolves vendors and fallback chains. Historical replay sets `_replay` on config and uses `DataWindow` / `historical_contract.py` for no-lookahead semantics (`tradingagents/graph/historical_replay.py`).
 
-**State** (`tradingagents/agents/utils/agent_states.py`): `AgentState` extends LangGraph `MessagesState` with fields for each analyst report, debate substates, portfolio context, past memory context, and quant signal. `InvestDebateState` and `RiskDebateState` are `TypedDict` substates tracking debate history and round counts.
+**State** (`tradingagents/agents/utils/agent_states.py`): `AgentState` extends LangGraph `MessagesState` with report keys, debate substates, `scenario_plan`, `scenario_plan_json`, and quant signal text.
 
-**Configuration** (`tradingagents/default_config.py`): All settings in a single `DEFAULT_CONFIG` dict. Key sections: `data_vendors`, `signal_weights`, `signal_thresholds`, `fixed_sizing`, and **`planning`** (assisted thesis/trade-plan artifact toggles plus paper-exchange context — `planning.enabled` default off). Consumers merge settings through `planning_config()` (`tradingagents/graph/planning.py`), which still overlays deprecated top-level **`execution`** if present in older user configs. Overrides are merged with `DEFAULT_CONFIG` when constructing `ResearchAgentsGraph`.
+**Domain** (`tradingagents/domain/`): `ResearchRun`, `TradeThesis`, `Signal`, scenarios, decisions — see models there. `ResearchRun` can carry `config_hash` from `tradingagents/graph/config_hash.py` for reproducibility.
 
-**Memory system** (`tradingagents/agents/utils/memory.py`): `TradingMemoryLog` persists decisions to `~/.tradingagents/memory/trading_memory.md`. On each run, pending same-ticker entries are resolved with realised returns, alpha vs benchmark, and a structured reflection (see `ReflectionResult` schema). Past context is injected into the Portfolio Manager prompt.
+**Configuration** (`tradingagents/default_config.py`): Single `DEFAULT_CONFIG` dict. Key sections include `data_vendors`, `signal_weights`, `signal_thresholds`, `fixed_sizing`, and optional **`planning`**. Merge helpers live in `tradingagents/config/` and `planning_config()` in `tradingagents/graph/planning.py` when used.
 
-**Checkpoint/resume** (`tradingagents/graph/checkpointer.py`): Opt-in via `--checkpoint`. Per-ticker SQLite databases under `~/.tradingagents/cache/checkpoints/`. Uses deterministic `thread_id(ticker, date)` so re-running the same ticker+date resumes; different dates start fresh. Checkpoints are cleared on successful completion.
+**Decision journal** (`tradingagents/services/journal_service.py`, `tradingagents/storage/`): SQLite is the source of truth for research runs and artifacts; Markdown exports are snapshots only.
 
-**Exchange & assisted planning** (`tradingagents/exchange/`, `tradingagents/risk/`, `tradingagents/portfolio/`): The graph does not place orders. When `planning.enabled` is true, the pipeline builds a thesis-planning artifact (`_build_trade_plan`). `create_exchange()` uses merged planning config plus `PaperAdapter` for read-only/paper context; sizing and risk-limit helpers read the same merged `planning` view.
+**Checkpoint/resume** (`tradingagents/graph/checkpointer.py`): Opt-in via `--checkpoint`. Per-ticker SQLite under `~/.tradingagents/cache/checkpoints/`. Replay runs append `:replay` to the thread id so they do not collide with live checkpoints.
+
+**Historical replay CLI**: `python -m cli.main replay …` and `python -m cli.main research replay …` (`cli/replay_cmd.py`).
+
+**Exchange & sizing** (`tradingagents/exchange/`, `tradingagents/risk/`, `tradingagents/portfolio/`): The graph does not place live orders; helpers support read-only/paper context when enabled in config.
 
 ## Key patterns
 
-- **Tool nodes are crypto-native**: `_create_tool_nodes()` in `trading_graph.py` maps analyst types to `ToolNode` instances — no stock data tools remain.
-- **Structured output with free-text fallback**: `invoke_structured_or_freetext()` in `agents/utils/structured.py` tries structured JSON first, falls back to free-text on failure, and logs a warning so providers that don't support structured output still work.
-- **Rating extraction is deterministic**: `SignalProcessor.process_signal()` parses the PM's rendered markdown for `**Rating**: X` — no LLM call.
-- **Analyst tool routing is greedy**: Each analyst node loops back to itself with tools until the LLM emits a response without `tool_calls`, then moves to the next analyst.
-- **Debate rounds are configurable**: `max_debate_rounds` and `max_risk_discuss_rounds` control the Bull/Bear and Aggressive/Conservative/Neutral back-and-forth.
-- **Quant signal is pre-computed**: `SignalEngine` runs before the graph and its output block is injected into the initial state, so all agents see the quant context. The confidence score from the engine gates execution (block below `force_hold`, scale below `penalty_50`/`penalty_70`).
-- **Safe path handling**: `safe_ticker_component()` in `dataflows/utils.py` rejects ticker values containing path traversal patterns before they're used in file paths.
-- **Lazy provider imports**: `create_llm_client()` in `llm_clients/factory.py` imports provider modules inside the function — tests can import the factory without needing API keys.
+- **Tool nodes are crypto-native**: `create_tool_nodes()` in `research_agents_graph.py` maps analyst types to `ToolNode` instances.
+- **Structured output with free-text fallback**: Used for Trader, Research Manager, Portfolio Manager, and Scenario Planner where the provider supports binding.
+- **Rating extraction is deterministic**: `SignalProcessor.process_signal()` parses PM markdown for `**Rating**: X`.
+- **Analyst tool routing**: Each analyst runner loops with tools until the model stops calling tools.
+- **Quant signal is pre-computed**: `SignalEngine` output is injected into initial state for all agents.
+- **Safe path handling**: `safe_ticker_component()` in `dataflows/utils.py` rejects path traversal in tickers used as path components.
+- **Lazy provider imports**: `create_llm_client()` imports provider modules inside the factory.

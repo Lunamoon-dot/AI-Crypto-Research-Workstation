@@ -1,10 +1,6 @@
-
-
 def create_bear_researcher(llm, config=None):
     def bear_node(state) -> dict:
-        asset_class = (config or {}).get("asset_class", "crypto")
         instrument = "cryptocurrency"
-        entity = "project"
 
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")

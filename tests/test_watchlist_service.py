@@ -110,17 +110,19 @@ def test_watchlist_check_creates_scenario_activation_alert_once(tmp_path):
             thesis_text="Bullish continuation if resistance reclaim holds.",
         )
     )
-    saved_scenarios = journal.save_scenarios([
-        Scenario(
-            thesis_id=thesis.id,
-            condition="If BTC reclaims 110000 with improving participation.",
-            expected_market_behavior="Bullish continuation becomes more likely.",
-            probability_band=ScenarioProbabilityBand.MEDIUM,
-            invalidation="Invalid if reclaim fails.",
-            risk_map=["Funding can overheat."],
-            suggested_user_action="review long thesis",
-        )
-    ])
+    saved_scenarios = journal.save_scenarios(
+        [
+            Scenario(
+                thesis_id=thesis.id,
+                condition="If BTC reclaims 110000 with improving participation.",
+                expected_market_behavior="Bullish continuation becomes more likely.",
+                probability_band=ScenarioProbabilityBand.MEDIUM,
+                invalidation="Invalid if reclaim fails.",
+                risk_map=["Funding can overheat."],
+                suggested_user_action="review long thesis",
+            )
+        ]
+    )
     watchlists.add_thesis(thesis.id)
 
     result = watchlists.check_once(current_prices={"BTC/USDT": 110100.0})

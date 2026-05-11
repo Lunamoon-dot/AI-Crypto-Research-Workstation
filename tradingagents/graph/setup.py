@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Send
 
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
@@ -35,19 +36,15 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
         self.config = config or {}
 
-    def setup_graph(
-        self, selected_analysts=["market", "social", "news", "onchain"]
-    ):
+    def setup_graph(self, selected_analysts=["market", "social", "news", "onchain"]):
         """Set up and compile the agent workflow graph.
 
-        Analysts run sequentially in a fixed chain. Each analyst completes its
-        local tool loop before the next one starts, so downstream analysts see
-        the full output of upstream ones.
+        Analysts run in parallel via LangGraph's Send API. Each analyst
+        receives the same initial state and writes to its own report key,
+        so there are no cross-analyst data dependencies.
         """
         if len(selected_analysts) == 0:
-            raise ValueError(
-                "Trading Agents Graph Setup Error: no analysts selected!"
-            )
+            raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
 
         # -- Analyst nodes ----------------------------------------------------
         analyst_specs = []
@@ -64,7 +61,9 @@ class GraphSetup:
             analyst_specs.append(
                 (
                     "Social Analyst",
-                    create_social_media_analyst(self.quick_thinking_llm, config=self.config),
+                    create_social_media_analyst(
+                        self.quick_thinking_llm, config=self.config
+                    ),
                     "social",
                     "sentiment_report",
                 )
@@ -105,15 +104,18 @@ class GraphSetup:
         # -- Risk nodes -------------------------------------------------------
         aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        conservative_analyst = create_conservative_debator(
-            self.quick_thinking_llm
-        )
+        conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
         portfolio_manager_node = create_portfolio_manager(
-            self.deep_thinking_llm
+            self.deep_thinking_llm, config=self.config
         )
+
+        scenario_planner_node = create_scenario_planner(self.quick_thinking_llm)
 
         # -- Build workflow ---------------------------------------------------
         workflow = StateGraph(AgentState)
+
+        # Collect analyst node names for fan-out.
+        analyst_names = []
 
         # Add analyst nodes (each wraps its own internal tool loop).
         for node_name, node_fn, tool_key, report_key in analyst_specs:
@@ -123,11 +125,21 @@ class GraphSetup:
                 report_key=report_key,
             )
             workflow.add_node(node_name, runner)
+            analyst_names.append(node_name)
 
-        # Chain analysts sequentially: START → first → second → ... → last → Bull.
-        workflow.add_edge(START, analyst_specs[0][0])
-        for i in range(len(analyst_specs) - 1):
-            workflow.add_edge(analyst_specs[i][0], analyst_specs[i + 1][0])
+        # Fan-out: all analysts run concurrently from START.
+        def _fan_out_analysts(state):
+            return [Send(name, state) for name in analyst_names]
+
+        workflow.add_conditional_edges(
+            START,
+            _fan_out_analysts,
+            {name: name for name in analyst_names},
+        )
+
+        # Every analyst terminates at Bull Researcher.
+        for name in analyst_names:
+            workflow.add_edge(name, "Bull Researcher")
 
         # Debate/risk pipeline
         workflow.add_node("Bull Researcher", bull_researcher_node)
@@ -138,9 +150,7 @@ class GraphSetup:
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
-
-        # Last analyst → Bull Researcher
-        workflow.add_edge(analyst_specs[-1][0], "Bull Researcher")
+        workflow.add_node("Scenario Planner", scenario_planner_node)
         workflow.add_conditional_edges(
             "Bull Researcher",
             self.conditional_logic.should_continue_debate,
@@ -184,6 +194,7 @@ class GraphSetup:
             },
         )
 
-        workflow.add_edge("Portfolio Manager", END)
+        workflow.add_edge("Portfolio Manager", "Scenario Planner")
+        workflow.add_edge("Scenario Planner", END)
 
         return workflow

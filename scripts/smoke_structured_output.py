@@ -21,7 +21,6 @@ added, plus the heuristic SignalProcessor.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
@@ -153,8 +152,12 @@ def main() -> int:
     #    saved reports) keep working.
     checks = [
         ("Research Manager", investment_plan, ["**Recommendation**:"]),
-        ("Trader",           trader_plan,     ["**Action**:", "FINAL TRANSACTION PROPOSAL:"]),
-        ("Portfolio Manager", final_decision, ["**Rating**:", "**Executive Summary**:", "**Investment Thesis**:"]),
+        ("Trader", trader_plan, ["**Action**:", "FINAL TRANSACTION PROPOSAL:"]),
+        (
+            "Portfolio Manager",
+            final_decision,
+            ["**Rating**:", "**Executive Summary**:", "**Investment Thesis**:"],
+        ),
     ]
     print("\n" + "=" * 70 + "\nStructure checks\n" + "=" * 70)
     failures = 0
@@ -168,7 +171,10 @@ def main() -> int:
     if failures:
         print(f"Smoke FAILED: {failures} structure check(s) missing.")
         return 1
-    print("Smoke PASSED: structured output → rendered markdown chain works for", args.provider)
+    print(
+        "Smoke PASSED: structured output → rendered markdown chain works for",
+        args.provider,
+    )
     return 0
 
 

@@ -1,7 +1,12 @@
 """Config loading + schema validation + provider registry + secrets."""
 
 from .loader import load_config_file, ConfigLoader
-from .providers import PROVIDER_REGISTRY, KNOWN_PROVIDERS, get_provider_defaults, get_provider_env_vars
+from .providers import (
+    PROVIDER_REGISTRY,
+    KNOWN_PROVIDERS,
+    get_provider_defaults,
+    get_provider_env_vars,
+)
 from .schema import validate_and_normalize_config
 from .secrets import SecretsManager, get_default_secrets
 

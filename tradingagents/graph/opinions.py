@@ -35,7 +35,13 @@ BEARISH_TERMS = (
     "negative",
     "risk",
 )
-MISSING_DATA_TERMS = ("missing", "unavailable", "not available", "insufficient", "no data")
+MISSING_DATA_TERMS = (
+    "missing",
+    "unavailable",
+    "not available",
+    "insufficient",
+    "no data",
+)
 RISK_TERMS = (
     "risk",
     "downside",
@@ -85,10 +91,25 @@ def build_agent_opinions(
         opinions.append(_quant_opinion(quant_signal_result, research_run_id))
 
     report_sources = [
-        ("Market Analyst", "market", "market_analyst", final_state.get("market_report", "")),
-        ("Sentiment Analyst", "sentiment", "sentiment_analyst", final_state.get("sentiment_report", "")),
+        (
+            "Market Analyst",
+            "market",
+            "market_analyst",
+            final_state.get("market_report", ""),
+        ),
+        (
+            "Sentiment Analyst",
+            "sentiment",
+            "sentiment_analyst",
+            final_state.get("sentiment_report", ""),
+        ),
         ("News Analyst", "news", "news_analyst", final_state.get("news_report", "")),
-        ("Onchain Analyst", "onchain", "onchain_analyst", final_state.get("fundamentals_report", "")),
+        (
+            "Onchain Analyst",
+            "onchain",
+            "onchain_analyst",
+            final_state.get("fundamentals_report", ""),
+        ),
     ]
     for agent_name, report_type, role, text in report_sources:
         opinion = _text_opinion(
@@ -131,16 +152,35 @@ def build_agent_opinions(
 
     risk = final_state.get("risk_debate_state") or {}
     for agent_name, text, stance in [
-        ("Risk Analyst - Aggressive", risk.get("aggressive_history", ""), AgentStance.BULLISH),
-        ("Risk Analyst - Conservative", risk.get("conservative_history", ""), AgentStance.BEARISH),
-        ("Risk Analyst - Neutral", risk.get("neutral_history", ""), AgentStance.NEUTRAL),
-        ("Portfolio Manager", risk.get("judge_decision", "") or final_state.get("final_trade_decision", ""), None),
+        (
+            "Risk Analyst - Aggressive",
+            risk.get("aggressive_history", ""),
+            AgentStance.BULLISH,
+        ),
+        (
+            "Risk Analyst - Conservative",
+            risk.get("conservative_history", ""),
+            AgentStance.BEARISH,
+        ),
+        (
+            "Risk Analyst - Neutral",
+            risk.get("neutral_history", ""),
+            AgentStance.NEUTRAL,
+        ),
+        (
+            "Portfolio Manager",
+            risk.get("judge_decision", "")
+            or final_state.get("final_trade_decision", ""),
+            None,
+        ),
     ]:
         opinion = _text_opinion(
             agent_name,
             text,
             research_run_id=research_run_id,
-            role="risk_analyst" if agent_name.startswith("Risk Analyst") else "portfolio_manager",
+            role="risk_analyst"
+            if agent_name.startswith("Risk Analyst")
+            else "portfolio_manager",
             source_report_type="risk_debate",
             stance_override=stance,
         )
@@ -237,7 +277,9 @@ def _text_opinion(
         confidence=_infer_confidence(text, stance),
         key_evidence=_extract_evidence(text, limit=4),
         risks=_extract_sentences(text, terms=RISK_TERMS, limit=4),
-        invalidation_conditions=_extract_sentences(text, terms=INVALIDATION_TERMS, limit=3),
+        invalidation_conditions=_extract_sentences(
+            text, terms=INVALIDATION_TERMS, limit=3
+        ),
         missing_data=_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=3),
         raw_text=text,
         source_report_type=source_report_type,
@@ -292,7 +334,9 @@ def _quant_missing_data(result: SignalResult) -> list[str]:
     missing = []
     for factor in result.factors:
         if factor.data_quality < 0.35:
-            missing.append(f"{factor.name} data quality is low ({factor.data_quality:.0%}).")
+            missing.append(
+                f"{factor.name} data quality is low ({factor.data_quality:.0%})."
+            )
     return missing[:5]
 
 

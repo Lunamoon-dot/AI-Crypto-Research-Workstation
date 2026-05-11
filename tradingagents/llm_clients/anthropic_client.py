@@ -15,8 +15,14 @@ from .validators import validate_model
 logger = logging.getLogger(__name__)
 
 _PASSTHROUGH_KWARGS = (
-    "timeout", "max_retries", "api_key", "max_tokens",
-    "callbacks", "http_client", "http_async_client", "effort",
+    "timeout",
+    "max_retries",
+    "api_key",
+    "max_tokens",
+    "callbacks",
+    "http_client",
+    "http_async_client",
+    "effort",
 )
 
 

@@ -109,5 +109,7 @@ class TemplateRegistry:
             condition_template="If the thesis direction confirms with supporting evidence, the scenario activates.",
             expected_behavior_template="Market behaves in line with the directional thesis, subject to invalidation conditions.",
             invalidation_template="Invalid if contradictory evidence accumulates or the thesis risk level is breached.",
-            risk_map_defaults=["Manual review required before acting on this scenario."],
+            risk_map_defaults=[
+                "Manual review required before acting on this scenario."
+            ],
         )

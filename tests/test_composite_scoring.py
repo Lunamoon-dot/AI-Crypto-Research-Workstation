@@ -1,16 +1,18 @@
 """Tests for signals/composite.py — CompositeScorer weighted multi-factor scoring."""
 
-import pytest
-
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
 from tradingagents.signals.composite import DEFAULT_WEIGHTS, CompositeScorer
 
 
-def _factor(name, score, confidence=0.7, data_quality=0.8, value=0.0,
-            threshold_breached=False):
+def _factor(
+    name, score, confidence=0.7, data_quality=0.8, value=0.0, threshold_breached=False
+):
     return FactorSignal(
-        name=name, score=score, confidence=confidence,
-        value=value, threshold_breached=threshold_breached,
+        name=name,
+        score=score,
+        confidence=confidence,
+        value=value,
+        threshold_breached=threshold_breached,
         data_quality=data_quality,
     )
 
@@ -84,8 +86,12 @@ class TestCompositeScorer:
         assert result.score == SignalScore.STRONG_SELL
 
     def test_low_data_quality_reduces_impact(self):
-        hi_q_factor = _factor("funding_oi", SignalScore.BUY, confidence=0.9, data_quality=1.0)
-        lo_q_factor = _factor("rsi_divergence", SignalScore.SELL, confidence=0.9, data_quality=0.1)
+        hi_q_factor = _factor(
+            "funding_oi", SignalScore.BUY, confidence=0.9, data_quality=1.0
+        )
+        lo_q_factor = _factor(
+            "rsi_divergence", SignalScore.SELL, confidence=0.9, data_quality=0.1
+        )
         scorer = CompositeScorer()
         result = scorer.score([hi_q_factor, lo_q_factor], symbol="BTC/USDT")
         # High quality BUY should dominate low quality SELL
@@ -110,9 +116,13 @@ class TestCompositeScorer:
             _factor("regime", SignalScore.BUY, confidence=0.9),
         ]
         normal = CompositeScorer()
-        normal_result = normal.score(factors, symbol="BTC/USDT", volatility_regime="normal")
+        normal_result = normal.score(
+            factors, symbol="BTC/USDT", volatility_regime="normal"
+        )
         extreme = CompositeScorer()
-        extreme_result = extreme.score(factors, symbol="BTC/USDT", volatility_regime="extreme")
+        extreme_result = extreme.score(
+            factors, symbol="BTC/USDT", volatility_regime="extreme"
+        )
         assert extreme_result.confidence < normal_result.confidence
 
     def test_neutral_factors_contribute_zero(self):
@@ -155,8 +165,10 @@ class TestCompositeScorer:
 
     def test_to_prompt_block(self):
         result = SignalResult(
-            symbol="BTC/USDT", timestamp="2026-01-01T00:00:00Z",
-            score=SignalScore.BUY, confidence=0.75,
+            symbol="BTC/USDT",
+            timestamp="2026-01-01T00:00:00Z",
+            score=SignalScore.BUY,
+            confidence=0.75,
             factors=[_factor("funding_oi", SignalScore.BUY, confidence=0.8)],
             current_price=50000.0,
         )
@@ -167,8 +179,10 @@ class TestCompositeScorer:
 
     def test_to_dict(self):
         result = SignalResult(
-            symbol="BTC/USDT", timestamp="2026-01-01T00:00:00Z",
-            score=SignalScore.BUY, confidence=0.75,
+            symbol="BTC/USDT",
+            timestamp="2026-01-01T00:00:00Z",
+            score=SignalScore.BUY,
+            confidence=0.75,
             factors=[_factor("funding_oi", SignalScore.BUY, confidence=0.8)],
         )
         d = result.to_dict()
@@ -189,6 +203,13 @@ class TestDefaultWeights:
         assert 0.95 < total < 1.05
 
     def test_all_signal_categories_present(self):
-        for key in ("funding_oi", "rsi_divergence", "macd", "volume_profile",
-                     "liquidations", "regime", "onchain"):
+        for key in (
+            "funding_oi",
+            "rsi_divergence",
+            "macd",
+            "volume_profile",
+            "liquidations",
+            "regime",
+            "onchain",
+        ):
             assert key in DEFAULT_WEIGHTS

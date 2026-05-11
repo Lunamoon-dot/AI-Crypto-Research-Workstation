@@ -13,6 +13,7 @@ from typing import Optional
 
 class SignalScore(str, Enum):
     """5-tier quantitative signal — same scale as AI rating for consistency."""
+
     STRONG_BUY = "Strong Buy"
     BUY = "Buy"
     NEUTRAL = "Neutral"
@@ -23,13 +24,16 @@ class SignalScore(str, Enum):
 @dataclass
 class FactorSignal:
     """Output from a single signal generator (funding, divergence, etc.)."""
-    name: str                              # e.g. "funding_oi", "rsi_divergence"
-    score: SignalScore                     # the computed signal
-    confidence: float                      # 0..1 — how strong the evidence is
-    value: float                           # raw factor value (e.g. funding rate %)
-    threshold_breached: bool               # did it cross a defined threshold?
-    data_quality: float = 0.5              # 0..1 — data sufficiency (sample size, history vs snapshot)
-    detail: str = ""                       # human-readable breakdown
+
+    name: str  # e.g. "funding_oi", "rsi_divergence"
+    score: SignalScore  # the computed signal
+    confidence: float  # 0..1 — how strong the evidence is
+    value: float  # raw factor value (e.g. funding rate %)
+    threshold_breached: bool  # did it cross a defined threshold?
+    data_quality: float = (
+        0.5  # 0..1 — data sufficiency (sample size, history vs snapshot)
+    )
+    detail: str = ""  # human-readable breakdown
     metadata: dict = field(default_factory=dict)
 
 
@@ -43,16 +47,16 @@ class SignalResult:
 
     symbol: str
     timestamp: str
-    score: SignalScore                      # overall composite score
-    confidence: float                       # 0..1 — overall conviction
+    score: SignalScore  # overall composite score
+    confidence: float  # 0..1 — overall conviction
     factors: list[FactorSignal] = field(default_factory=list)
 
     # Key metrics extracted for AI context
     current_price: Optional[float] = None
-    trend_direction: str = "neutral"         # bullish / bearish / sideways
-    trend_strength: float = 0.0              # 0..1
-    volatility_regime: str = "normal"        # low / normal / high / extreme
-    market_regime: str = "unknown"           # trending / ranging / volatile
+    trend_direction: str = "neutral"  # bullish / bearish / sideways
+    trend_strength: float = 0.0  # 0..1
+    volatility_regime: str = "normal"  # low / normal / high / extreme
+    market_regime: str = "unknown"  # trending / ranging / volatile
 
     # Summary that the AI prompt can inject directly
     summary: str = ""
@@ -72,11 +76,16 @@ class SignalResult:
             "",
             "Factor Breakdown:",
         ]
-        lines = [l for l in lines if l]  # filter empty
+        lines = [line for line in lines if line]  # filter empty
 
         for f in self.factors:
-            icon = {"Strong Buy": "🟢", "Buy": "🟢", "Neutral": "🟡",
-                    "Sell": "🔴", "Strong Sell": "🔴"}.get(f.score.value, "⚪")
+            icon = {
+                "Strong Buy": "🟢",
+                "Buy": "🟢",
+                "Neutral": "🟡",
+                "Sell": "🔴",
+                "Strong Sell": "🔴",
+            }.get(f.score.value, "⚪")
             lines.append(
                 f"  {icon} {f.name:25s} {f.score.value:12s} "
                 f"(conf={f.confidence:.0%}, value={f.value:.4f})"

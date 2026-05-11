@@ -6,15 +6,68 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"  # nightly at 06:00 UTC
 
 permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+
+      - name: Ruff full lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+  type-check:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy tradingagents cli
+
   test:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    needs: [lint, type-check]
 
     strategy:
       fail-fast: false
@@ -44,15 +97,11 @@ jobs:
         run: |
           python -c "import cli; import tradingagents"
 
-      - name: Ruff critical checks
-        run: |
-          python -m ruff check . --select E9,F63,F7,F82
-
       - name: Compile modules
         run: |
           python -m compileall tradingagents cli tests
 
-      - name: Run tests
+      - name: Run unit tests
         env:
           OPENAI_API_KEY: placeholder
           GOOGLE_API_KEY: placeholder
@@ -65,4 +114,20 @@ jobs:
           AZURE_OPENAI_API_KEY: placeholder
           ALPHA_VANTAGE_API_KEY: placeholder
         run: |
-          python -m pytest
+          python -m pytest -m "unit" -v
+
+      - name: Run remaining tests
+        if: always()
+        env:
+          OPENAI_API_KEY: placeholder
+          GOOGLE_API_KEY: placeholder
+          ANTHROPIC_API_KEY: placeholder
+          XAI_API_KEY: placeholder
+          DEEPSEEK_API_KEY: placeholder
+          DASHSCOPE_API_KEY: placeholder
+          ZHIPU_API_KEY: placeholder
+          OPENROUTER_API_KEY: placeholder
+          AZURE_OPENAI_API_KEY: placeholder
+          ALPHA_VANTAGE_API_KEY: placeholder
+        run: |
+          python -m pytest -m "not unit" -v

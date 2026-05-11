@@ -34,6 +34,7 @@ def _reraise_rate_limit(exc: Exception, vendor: str) -> None:
     if name in ("RateLimitExceeded", "DDoSProtection"):
         raise RateLimitError(f"{vendor} rate limited: {exc}") from exc
 
+
 # Canonical quote currency we normalise to when the user passes a bare
 # pair like "BTC" or "BTC-USD".
 _DEFAULT_QUOTE = "USDT"
@@ -171,19 +172,17 @@ def get_crypto_ohlcv(
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
     # CCXT expects milliseconds
-    since = exchange.parse8601(
-        start_dt.strftime("%Y-%m-%dT00:00:00Z")
-    )
-    end_ms = exchange.parse8601(
-        end_dt.strftime("%Y-%m-%dT23:59:59Z")
-    )
+    since = exchange.parse8601(start_dt.strftime("%Y-%m-%dT00:00:00Z"))
+    end_ms = exchange.parse8601(end_dt.strftime("%Y-%m-%dT23:59:59Z"))
 
     # Fetch candles — CCXT returns list of [ts, open, high, low, close, volume]
     all_candles: list = []
     fetch_since = since
     limit = 1000
     while True:
-        candles = exchange.fetch_ohlcv(symbol, timeframe="1d", since=fetch_since, limit=limit)
+        candles = exchange.fetch_ohlcv(
+            symbol, timeframe="1d", since=fetch_since, limit=limit
+        )
         if not candles or len(candles) == 0:
             break
         all_candles.extend(candles)
@@ -207,8 +206,10 @@ def get_crypto_ohlcv(
     df.set_index("timestamp", inplace=True)
 
     # Filter to requested date range
-    df = df[(df.index >= pd.Timestamp(start_dt, tz=timezone.utc))
-            & (df.index <= pd.Timestamp(end_dt, tz=timezone.utc))]
+    df = df[
+        (df.index >= pd.Timestamp(start_dt, tz=timezone.utc))
+        & (df.index <= pd.Timestamp(end_dt, tz=timezone.utc))
+    ]
 
     if df.empty:
         raise ValueError(
@@ -339,9 +340,7 @@ def get_crypto_funding_rate_history(
     symbol = _normalize_symbol(symbol, exchange)
 
     since_dt = datetime.now(timezone.utc) - timedelta(days=days)
-    since_ms = exchange.parse8601(
-        since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    since_ms = exchange.parse8601(since_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
     limit = min(days * 3, 1000)  # funding settles every 8h → ~3 events/day
 
     raw = _fetch_funding_history_inner(exchange, symbol, since_ms, limit)
@@ -370,7 +369,9 @@ def _fetch_funding_history_inner(
     """Try to fetch funding rate history; fall back to linear perp format."""
     try:
         return exchange.fetch_funding_rate_history(
-            symbol, since=since_ms, limit=limit,
+            symbol,
+            since=since_ms,
+            limit=limit,
         )
     except Exception as e:
         _reraise_rate_limit(e, exchange.id)
@@ -380,7 +381,9 @@ def _fetch_funding_history_inner(
         quote = symbol.split("/")[1]
         linear = f"{symbol}:{quote}"
         return exchange.fetch_funding_rate_history(
-            linear, since=since_ms, limit=limit,
+            linear,
+            since=since_ms,
+            limit=limit,
         )
     except Exception as e2:
         _reraise_rate_limit(e2, exchange.id)
@@ -393,7 +396,9 @@ def _funding_history_to_df(raw: list) -> "pd.DataFrame":
     records = []
     for entry in raw:
         ts = entry.get("timestamp") or entry.get("fundingTimestamp") or 0
-        rate = entry.get("fundingRate") or entry.get("funding_rate") or entry.get("rate")
+        rate = (
+            entry.get("fundingRate") or entry.get("funding_rate") or entry.get("rate")
+        )
         if ts and rate is not None:
             records.append({"timestamp": int(ts), "fundingRate": float(rate)})
     if not records:
@@ -427,9 +432,7 @@ def get_crypto_open_interest_history(
     symbol = _normalize_symbol(symbol, exchange)
 
     since_dt = datetime.now(timezone.utc) - timedelta(days=days)
-    since_ms = exchange.parse8601(
-        since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    since_ms = exchange.parse8601(since_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
     limit = min(days * 2, 1000)  # daily resolution → ~1-2 events/day
 
     raw = _fetch_oi_history_inner(exchange, symbol, since_ms, limit)
@@ -457,7 +460,10 @@ def _fetch_oi_history_inner(
     """Try to fetch OI history; fall back to linear perp format."""
     try:
         return exchange.fetch_open_interest_history(
-            symbol, timeframe="1d", since=since_ms, limit=limit,
+            symbol,
+            timeframe="1d",
+            since=since_ms,
+            limit=limit,
         )
     except Exception as e:
         _reraise_rate_limit(e, exchange.id)
@@ -466,7 +472,10 @@ def _fetch_oi_history_inner(
         quote = symbol.split("/")[1]
         linear = f"{symbol}:{quote}"
         return exchange.fetch_open_interest_history(
-            linear, timeframe="1d", since=since_ms, limit=limit,
+            linear,
+            timeframe="1d",
+            since=since_ms,
+            limit=limit,
         )
     except Exception as e2:
         _reraise_rate_limit(e2, exchange.id)
@@ -482,11 +491,13 @@ def _oi_history_to_df(raw: list) -> "pd.DataFrame":
         amt = entry.get("openInterestAmount") or entry.get("openInterest") or 0
         val = entry.get("openInterestValue") or 0
         if ts:
-            records.append({
-                "timestamp": int(ts),
-                "openInterestAmount": float(amt),
-                "openInterestValue": float(val) if val else float("nan"),
-            })
+            records.append(
+                {
+                    "timestamp": int(ts),
+                    "openInterestAmount": float(amt),
+                    "openInterestValue": float(val) if val else float("nan"),
+                }
+            )
     if not records:
         return pd.DataFrame()
     df = pd.DataFrame(records)

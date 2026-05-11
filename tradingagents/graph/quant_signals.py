@@ -29,36 +29,23 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
     nvt_csv = None
     exchange_metrics_csv = None
 
-    try:
-        funding_csv = route_to_vendor("get_crypto_funding_rate_history", symbol, 60)
-    except Exception:
+    def _fetch_or_none(method: str, *args):
         try:
-            funding_csv = route_to_vendor("get_crypto_funding_rate", symbol)
-        except Exception:
-            pass
-    try:
-        oi_csv = route_to_vendor("get_crypto_open_interest_history", symbol, 60)
-    except Exception:
-        try:
-            oi_csv = route_to_vendor("get_crypto_open_interest", symbol)
-        except Exception:
-            pass
-    try:
-        liq_csv = route_to_vendor("get_crypto_liquidations", symbol)
-    except Exception:
-        pass
-    try:
-        long_short_csv = route_to_vendor("get_crypto_long_short_ratio", symbol)
-    except Exception:
-        pass
-    try:
-        nvt_csv = route_to_vendor("get_crypto_nvt", symbol)
-    except Exception:
-        pass
-    try:
-        exchange_metrics_csv = route_to_vendor("get_crypto_exchange_metrics", symbol)
-    except Exception:
-        pass
+            return route_to_vendor(method, *args)
+        except Exception as exc:
+            logger.debug("Quant signal optional data '%s' unavailable: %s", method, exc)
+            return None
+
+    funding_csv = _fetch_or_none("get_crypto_funding_rate_history", symbol, 60)
+    if funding_csv is None:
+        funding_csv = _fetch_or_none("get_crypto_funding_rate", symbol)
+    oi_csv = _fetch_or_none("get_crypto_open_interest_history", symbol, 60)
+    if oi_csv is None:
+        oi_csv = _fetch_or_none("get_crypto_open_interest", symbol)
+    liq_csv = _fetch_or_none("get_crypto_liquidations", symbol)
+    long_short_csv = _fetch_or_none("get_crypto_long_short_ratio", symbol)
+    nvt_csv = _fetch_or_none("get_crypto_nvt", symbol)
+    exchange_metrics_csv = _fetch_or_none("get_crypto_exchange_metrics", symbol)
 
     engine = _get_signal_engine(config=config)
     result = engine.generate(

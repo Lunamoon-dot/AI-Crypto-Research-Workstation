@@ -44,7 +44,9 @@ class RiskDebateState(TypedDict):
 
 
 class AgentState(MessagesState):
-    company_of_interest: Annotated[str, "Company or asset that we are interested in trading"]
+    company_of_interest: Annotated[
+        str, "Company or asset that we are interested in trading"
+    ]
     trade_date: Annotated[str, "What date we are trading at"]
 
     sender: Annotated[str, "Agent that sent this message"]
@@ -70,7 +72,16 @@ class AgentState(MessagesState):
         RiskDebateState, "Current state of the debate on evaluating risk"
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
-    past_context: Annotated[str, "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)"]
-    portfolio_state: Annotated[str, "Serialized portfolio snapshot injected into Trader prompt when execution is enabled"]
-    quant_signal: Annotated[str, "Pre-computed quantitative signal (prompt block from SignalEngine)"]
-
+    past_context: Annotated[
+        str,
+        "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)",
+    ]
+    quant_signal: Annotated[
+        str, "Pre-computed quantitative signal (prompt block from SignalEngine)"
+    ]
+    scenario_plan: Annotated[
+        str, "LLM-generated scenario plan (markdown from Scenario Planner)"
+    ]
+    scenario_plan_json: Annotated[
+        str, "LLM-generated scenario plan (JSON from Scenario Planner)"
+    ]

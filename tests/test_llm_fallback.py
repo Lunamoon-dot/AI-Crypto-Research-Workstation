@@ -1,10 +1,5 @@
 """Tests for circuit breaker and LLM provider fallback."""
 
-import time
-from unittest.mock import MagicMock
-
-import pytest
-
 from tradingagents.config.loader import ConfigLoader
 from tradingagents.default_config import DEFAULT_CONFIG
 
@@ -13,127 +8,145 @@ class TestCircuitBreakerMechanics:
     """Unit tests for circuit breaker state logic."""
 
     def test_circuit_closed_by_default(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {}
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = True
-
-        assert not ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": True,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
+        assert not orch.is_circuit_open("deepseek")
 
     def test_circuit_opens_after_threshold_failures(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {}
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = True
-
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": True,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
         for _ in range(3):
-            ResearchAgentsGraph._record_provider_result(graph, "deepseek", False)
+            orch.record_result("deepseek", False)
 
-        assert ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
+        assert orch.is_circuit_open("deepseek")
 
     def test_circuit_resets_on_success(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {}
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = True
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": True,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
+        orch.record_result("deepseek", False)
+        orch.record_result("deepseek", False)
+        orch.record_result("deepseek", True)
 
-        ResearchAgentsGraph._record_provider_result(graph, "deepseek", False)
-        ResearchAgentsGraph._record_provider_result(graph, "deepseek", False)
-        ResearchAgentsGraph._record_provider_result(graph, "deepseek", True)
-
-        assert not ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
+        assert not orch.is_circuit_open("deepseek")
 
     def test_circuit_half_open_after_cooldown(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        import time
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {
-            "deepseek": {"failures": 3, "open": True, "opened_at": time.monotonic() - 301},
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": True,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
+        orch._circuit_state = {
+            "deepseek": {
+                "failures": 3,
+                "open": True,
+                "opened_at": time.monotonic() - 301,
+            },
         }
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = True
 
-        # Circuit opened past the cooldown window — should be half-open
-        assert not ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
+        assert not orch.is_circuit_open("deepseek")
 
     def test_circuit_stays_open_within_cooldown(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        import time
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
         now = time.monotonic()
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": True,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
+        orch._circuit_state = {
             "deepseek": {"failures": 3, "open": True, "opened_at": now},
         }
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = True
 
-        assert ResearchAgentsGraph._is_circuit_open(graph, "deepseek")
+        assert orch.is_circuit_open("deepseek")
 
     def test_no_tracking_when_fallback_disabled(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock(spec=ResearchAgentsGraph)
-        graph._circuit_state = {}
-        graph._cb_threshold = 3
-        graph._cb_window = 300
-        graph._fallback_enabled = False
-
-        ResearchAgentsGraph._record_provider_result(graph, "deepseek", False)
-        assert "deepseek" not in graph._circuit_state
+        orch = LLMOrchestrator(
+            {
+                "llm_fallback": {
+                    "enabled": False,
+                    "circuit_breaker_threshold": 3,
+                    "circuit_breaker_window_sec": 300,
+                },
+            }
+        )
+        orch.record_result("deepseek", False)
+        assert "deepseek" not in orch._circuit_state
 
 
 class TestRetryableErrorDetection:
     """Tests for error classification (retryable vs non-retryable)."""
 
     def test_connection_error_is_retryable(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock()
-        assert ResearchAgentsGraph._is_retryable_provider_error(
-            graph, ConnectionError("Connection refused")
-        )
+        assert LLMOrchestrator.is_retryable_error(ConnectionError("Connection refused"))
 
     def test_timeout_is_retryable(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock()
-        assert ResearchAgentsGraph._is_retryable_provider_error(
-            graph, TimeoutError("timed out")
-        )
+        assert LLMOrchestrator.is_retryable_error(TimeoutError("timed out"))
 
     def test_http_500_is_retryable(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock()
-        assert ResearchAgentsGraph._is_retryable_provider_error(
-            graph, Exception("HTTP 503 Service Unavailable")
+        assert LLMOrchestrator.is_retryable_error(
+            Exception("HTTP 503 Service Unavailable")
         )
 
     def test_http_401_is_not_retryable(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock()
-        assert not ResearchAgentsGraph._is_retryable_provider_error(
-            graph, Exception("HTTP 401 Unauthorized - invalid API key")
+        assert not LLMOrchestrator.is_retryable_error(
+            Exception("HTTP 401 Unauthorized - invalid API key")
         )
 
     def test_rate_limit_is_retryable(self):
-        from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
-        graph = MagicMock()
-        assert ResearchAgentsGraph._is_retryable_provider_error(
-            graph, Exception("429 Too Many Requests - rate limit")
+        assert LLMOrchestrator.is_retryable_error(
+            Exception("429 Too Many Requests - rate limit")
         )
 
 

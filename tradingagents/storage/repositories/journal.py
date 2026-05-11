@@ -25,7 +25,11 @@ from tradingagents.domain import (
     Watchlist,
     WatchlistItem,
 )
-from tradingagents.storage.serialization import dumps_payload, model_from_json, model_to_json
+from tradingagents.storage.serialization import (
+    dumps_payload,
+    model_from_json,
+    model_to_json,
+)
 from tradingagents.storage.sqlite import SQLiteStore
 
 
@@ -506,7 +510,9 @@ class JournalRepository:
         )
         return model_from_json(Watchlist, row["payload_json"]) if row else None
 
-    def list_watchlists(self, *, enabled_only: bool = False, limit: int = 50) -> list[Watchlist]:
+    def list_watchlists(
+        self, *, enabled_only: bool = False, limit: int = 50
+    ) -> list[Watchlist]:
         if enabled_only:
             rows = self.store.fetchall(
                 """
@@ -681,8 +687,12 @@ class JournalRepository:
                 return True
         return False
 
-    def mark_alert_read(self, alert_id: str, read_at: datetime | None = None) -> Alert | None:
-        row = self.store.fetchone("SELECT payload_json FROM alerts WHERE id = ?", (alert_id,))
+    def mark_alert_read(
+        self, alert_id: str, read_at: datetime | None = None
+    ) -> Alert | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM alerts WHERE id = ?", (alert_id,)
+        )
         if not row:
             return None
         alert = model_from_json(Alert, row["payload_json"])

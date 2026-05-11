@@ -34,7 +34,12 @@ def _classify_contradiction(bull: AgentOpinion, bear: AgentOpinion) -> str:
     combined = " ".join(
         bull.key_evidence[:2]
         + bear.key_evidence[:2]
-        + [bull.agent_name, bear.agent_name, bull.source_report_type or "", bear.source_report_type or ""]
+        + [
+            bull.agent_name,
+            bear.agent_name,
+            bull.source_report_type or "",
+            bear.source_report_type or "",
+        ]
     ).lower()
     if "sentiment" in combined and ("signal" in combined or "quant" in combined):
         return "signal_vs_sentiment"
@@ -42,7 +47,9 @@ def _classify_contradiction(bull: AgentOpinion, bear: AgentOpinion) -> str:
         return "trend_vs_funding"
     if "news" in combined and "volume" in combined:
         return "news_vs_volume"
-    if "macro" in combined and ("crypto" in combined or "bitcoin" in combined or "btc" in combined):
+    if "macro" in combined and (
+        "crypto" in combined or "bitcoin" in combined or "btc" in combined
+    ):
         return "macro_vs_crypto"
     if "risk" in combined or "portfolio" in combined:
         return "risk_vs_thesis"

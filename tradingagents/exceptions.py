@@ -53,4 +53,3 @@ class LLMOutputError(TradingAgentsError, RuntimeError):
 
 class StorageError(TradingAgentsError, RuntimeError):
     """Raised when database or filesystem persistence operations fail."""
-

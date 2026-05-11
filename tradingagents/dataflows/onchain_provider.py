@@ -6,26 +6,13 @@ reserves, market cap / TVL, and blockchain-level data via public APIs.
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime, timezone
 from typing import Optional
-from urllib.request import Request, urlopen
-from urllib.error import URLError
 
 from .ccxt_provider import _get_configured_exchange, _normalize_symbol
+from .http_utils import fetch_json_with_retry
 
 logger = logging.getLogger(__name__)
-
-
-def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
-    try:
-        req = Request(url, headers={"User-Agent": "TradingAgents/0.2"})
-        with urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        logger.debug("On-chain fetch failed for %s: %s", url, e)
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +61,9 @@ def fetch_liquidations(symbol: str) -> str:
         elif side == "buy":
             total_short_liq += value
         else:
-            logger.debug("Unknown liquidation side '%s', treating as long liquidation", side)
+            logger.debug(
+                "Unknown liquidation side '%s', treating as long liquidation", side
+            )
             total_long_liq += value
         count += 1
 
@@ -111,8 +100,7 @@ def fetch_long_short_ratio(symbol: str) -> str:
     try:
         # Try the futures swap form
         raw = exchange.fetch_open_interest_history(
-            symbol, timeframe="5m", limit=1,
-            params={"type": "swap"}
+            symbol, timeframe="5m", limit=1, params={"type": "swap"}
         )
     except Exception:
         return (
@@ -187,7 +175,7 @@ def fetch_coingecko_metrics(base: str) -> Optional[dict]:
     if coin_id is None:
         return None
 
-    data = _fetch_json(
+    data = fetch_json_with_retry(
         f"https://api.coingecko.com/api/v3/coins/{coin_id}"
         "?localization=false&tickers=false&community_data=false"
         "&developer_data=false"
@@ -248,8 +236,12 @@ def fetch_nvt_approximation(symbol: str) -> str:
         total_volume = float(market_data["market_data"]["total_volume"].get("usd", 0))
         high_24h = float(market_data["market_data"]["high_24h"].get("usd", 0))
         low_24h = float(market_data["market_data"]["low_24h"].get("usd", 0))
-        price_change_24h = float(market_data["market_data"].get("price_change_percentage_24h", 0))
-        price_change_7d = float(market_data["market_data"].get("price_change_percentage_7d", 0))
+        price_change_24h = float(
+            market_data["market_data"].get("price_change_percentage_24h", 0)
+        )
+        price_change_7d = float(
+            market_data["market_data"].get("price_change_percentage_7d", 0)
+        )
         market_cap_rank = market_data.get("market_cap_rank", "N/A")
 
         if total_volume > 0:
@@ -257,7 +249,9 @@ def fetch_nvt_approximation(symbol: str) -> str:
         else:
             nvt = float("inf")
 
-        lines.append(f"  Market Cap:        ${market_cap:,.0f} (Rank: #{market_cap_rank})")
+        lines.append(
+            f"  Market Cap:        ${market_cap:,.0f} (Rank: #{market_cap_rank})"
+        )
         lines.append(f"  24h Volume:        ${total_volume:,.0f}")
         lines.append(f"  24h High / Low:    ${high_24h:,.2f} / ${low_24h:,.2f}")
         lines.append(f"  Price Change 24h:  {price_change_24h:+.2f}%")
@@ -309,8 +303,16 @@ def fetch_token_supply_metrics(symbol: str) -> str:
         market_cap = market_data["market_cap"].get("usd", 0)
 
         lines.append(f"  Circulating Supply:  {circ_supply:,.0f}")
-        lines.append(f"  Total Supply:        {total_supply:,.0f}" if total_supply else "  Total Supply:        N/A")
-        lines.append(f"  Max Supply:          {max_supply:,.0f}" if max_supply else "  Max Supply:          Unlimited")
+        lines.append(
+            f"  Total Supply:        {total_supply:,.0f}"
+            if total_supply
+            else "  Total Supply:        N/A"
+        )
+        lines.append(
+            f"  Max Supply:          {max_supply:,.0f}"
+            if max_supply
+            else "  Max Supply:          Unlimited"
+        )
 
         if total_supply and circ_supply and total_supply > 0:
             circ_pct = circ_supply / total_supply
@@ -321,7 +323,9 @@ def fetch_token_supply_metrics(symbol: str) -> str:
             lines.append(f"  FDV / MC Ratio:      {fdv_ratio:.1f}x")
             lines.append("")
             if fdv_ratio > 5:
-                lines.append("🔴 FDV/MC > 5x — significant future dilution risk from unlocks.")
+                lines.append(
+                    "🔴 FDV/MC > 5x — significant future dilution risk from unlocks."
+                )
             elif fdv_ratio > 2:
                 lines.append("🟠 FDV/MC 2-5x — moderate dilution risk.")
             else:
@@ -380,17 +384,23 @@ def fetch_exchange_reserves(symbol: str) -> str:
         current = float(market_data.get("current_price", {}).get("usd", 0))
         if current > 0 and high_24h > 0:
             range_pct = (high_24h - low_24h) / current
-            lines.append(f"  24h Range:          {range_pct:.1%} (${low_24h:.2f} - ${high_24h:.2f})")
+            lines.append(
+                f"  24h Range:          {range_pct:.1%} (${low_24h:.2f} - ${high_24h:.2f})"
+            )
 
         lines.append("")
         if turnover_24h > 1.0:
             lines.append("🔴 Extremely high turnover — speculative activity elevated.")
         elif turnover_24h > 0.3:
-            lines.append("🟠 High turnover — active trading, above-average speculation.")
+            lines.append(
+                "🟠 High turnover — active trading, above-average speculation."
+            )
         elif turnover_24h > 0.1:
             lines.append("🟡 Moderate turnover — healthy trading activity.")
         else:
-            lines.append("🟢 Low turnover — low speculative interest, accumulation phase.")
+            lines.append(
+                "🟢 Low turnover — low speculative interest, accumulation phase."
+            )
 
     except (KeyError, TypeError, ValueError) as e:
         logger.debug("Exchange reserve parse error: %s", e)

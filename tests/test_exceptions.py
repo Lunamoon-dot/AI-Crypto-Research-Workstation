@@ -1,5 +1,3 @@
-import pytest
-
 from tradingagents.exceptions import (
     ConfigurationError,
     ConfigurationValidationError,
@@ -80,7 +78,9 @@ class TestExceptionMessages:
         assert "PM" in str(err)
 
     def test_storage_error_message(self):
-        err = StorageError("Failed to save paper state: [Errno 28] No space left on device")
+        err = StorageError(
+            "Failed to save paper state: [Errno 28] No space left on device"
+        )
         assert "No space" in str(err)
 
     def test_rate_limit_error_message(self):

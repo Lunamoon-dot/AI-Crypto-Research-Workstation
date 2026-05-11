@@ -114,7 +114,9 @@ def test_analyze_noninteractive_uses_flags_without_prompts(tmp_path, monkeypatch
     assert "Save report?" not in result.output
 
 
-def test_analyze_reports_provider_balance_error_without_traceback(tmp_path, monkeypatch):
+def test_analyze_reports_provider_balance_error_without_traceback(
+    tmp_path, monkeypatch
+):
     _patch_default_config(monkeypatch, tmp_path)
     monkeypatch.setattr(main, "ResearchAgentsGraph", _FakeFailingResearchGraph)
     runner = CliRunner()
@@ -232,9 +234,7 @@ def test_config_setup_renders_first_run_summary_panel(tmp_path, monkeypatch):
         "disabled_data_vendors": ["coingecko"],
         "provider_runtime": {},
     }
-    monkeypatch.setattr(
-        config_cmd, "resolve_journal_db_path", lambda _cfg: fake_path
-    )
+    monkeypatch.setattr(config_cmd, "resolve_journal_db_path", lambda _cfg: fake_path)
     monkeypatch.setattr(
         config_cmd, "provider_health_snapshot", lambda _cfg: fake_snapshot
     )
@@ -332,9 +332,7 @@ def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch
     journal.update_research_run(run)
 
     runner = CliRunner()
-    result = runner.invoke(
-        journal_cmd.journal_app, ["workspace", run.id, "--json"]
-    )
+    result = runner.invoke(journal_cmd.journal_app, ["workspace", run.id, "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.output.strip())
@@ -354,9 +352,7 @@ def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch
     )
 
 
-def test_journal_workspace_text_panel_includes_evidence_section(
-    tmp_path, monkeypatch
-):
+def test_journal_workspace_text_panel_includes_evidence_section(tmp_path, monkeypatch):
     """Default (non-JSON) workspace prints the new evidence panel."""
     _patch_journal_default_config(monkeypatch, tmp_path)
     config = {

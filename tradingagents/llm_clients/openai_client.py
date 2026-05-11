@@ -65,10 +65,12 @@ class NormalizedChatOpenAI(ChatOpenAI):
             # Detect rate-limit (429) responses from the OpenAI SDK
             exc_name = type(exc).__name__
             exc_msg = str(exc).lower()
-            if exc_name == "RateLimitError" or "rate limit" in exc_msg or "429" in exc_msg:
-                raise RateLimitError(
-                    f"{provider} rate limited: {exc}"
-                ) from exc
+            if (
+                exc_name == "RateLimitError"
+                or "rate limit" in exc_msg
+                or "429" in exc_msg
+            ):
+                raise RateLimitError(f"{provider} rate limited: {exc}") from exc
             raise
 
     def with_structured_output(self, schema, *, method=None, **kwargs):
@@ -143,10 +145,12 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     # The reasoning-family models (R1, V4 Pro) reject tool_choice at the API
     # level; we raise early so agent factories skip the guaranteed-to-fail
     # structured-output call and go directly to free-text.
-    _NO_STRUCTURED_OUTPUT_MODELS = frozenset({
-        "deepseek-reasoner",
-        "deepseek-v4-pro",
-    })
+    _NO_STRUCTURED_OUTPUT_MODELS = frozenset(
+        {
+            "deepseek-reasoner",
+            "deepseek-v4-pro",
+        }
+    )
 
     def with_structured_output(self, schema, *, method=None, **kwargs):
         if self.model_name in self._NO_STRUCTURED_OUTPUT_MODELS:
@@ -157,10 +161,16 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
             )
         return super().with_structured_output(schema, method=method, **kwargs)
 
+
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
-    "timeout", "max_retries", "reasoning_effort",
-    "api_key", "callbacks", "http_client", "http_async_client",
+    "timeout",
+    "max_retries",
+    "reasoning_effort",
+    "api_key",
+    "callbacks",
+    "http_client",
+    "http_async_client",
 )
 
 # Provider config is now centralized in tradingagents.config.providers.
@@ -199,7 +209,9 @@ class OpenAIClient(BaseLLMClient):
         # provider default so users can route through their own gateway.
         default_base, env_vars = get_provider_defaults(self.provider)
         if default_base or env_vars:
-            llm_kwargs["base_url"] = self.base_url or default_base or llm_kwargs.get("base_url")
+            llm_kwargs["base_url"] = (
+                self.base_url or default_base or llm_kwargs.get("base_url")
+            )
             # Resolved credentials via SecretsManager take precedence,
             # then explicit api_key kwarg, then os.environ fallback.
             api_key = self.kwargs.get("api_key")
@@ -227,7 +239,9 @@ class OpenAIClient(BaseLLMClient):
 
         # DeepSeek's thinking-mode quirks live in their own subclass so the
         # base NormalizedChatOpenAI stays free of provider-specific branches.
-        chat_cls = DeepSeekChatOpenAI if self.provider == "deepseek" else NormalizedChatOpenAI
+        chat_cls = (
+            DeepSeekChatOpenAI if self.provider == "deepseek" else NormalizedChatOpenAI
+        )
         llm = chat_cls(**llm_kwargs)
         llm._provider_name = self.provider
         return llm

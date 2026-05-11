@@ -27,7 +27,9 @@ def test_analyst_runner_completes_local_tool_loop():
         if call_counter["n"] == 1:
             return {
                 "market_report": "",
-                "messages": [FakeMessage(content="need tool", tool_calls=[{"name": "x"}])],
+                "messages": [
+                    FakeMessage(content="need tool", tool_calls=[{"name": "x"}])
+                ],
             }
         return {
             "market_report": "done",

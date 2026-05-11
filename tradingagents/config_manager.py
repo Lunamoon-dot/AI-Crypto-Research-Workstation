@@ -6,7 +6,6 @@ import logging
 import os
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -101,8 +100,9 @@ def save_profile(config: dict, name: str) -> Path:
 
     path = _profile_path(name)
     with open(path, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(overrides, fh, default_flow_style=False, sort_keys=False,
-                       allow_unicode=True)
+        yaml.safe_dump(
+            overrides, fh, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
     logger.info("Saved profile %r → %s", name, path)
     return path
 
@@ -150,5 +150,9 @@ def resolve_config(
     if cli_overrides:
         config = _deep_merge(config, cli_overrides)
 
-    source = f"config_path:{config_path}" if config_path else (f"profile:{profile}" if profile else "defaults")
+    source = (
+        f"config_path:{config_path}"
+        if config_path
+        else (f"profile:{profile}" if profile else "defaults")
+    )
     return validate_and_normalize_config(config, source=source)

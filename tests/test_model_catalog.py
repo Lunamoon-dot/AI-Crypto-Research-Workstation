@@ -16,8 +16,10 @@ from tradingagents.llm_clients.validators import VALID_MODELS, validate_model
 
 
 class TestGetModelOptions:
-    @pytest.mark.parametrize("provider", ["openai", "anthropic", "google", "xai",
-                                           "deepseek", "qwen", "glm", "ollama"])
+    @pytest.mark.parametrize(
+        "provider",
+        ["openai", "anthropic", "google", "xai", "deepseek", "qwen", "glm", "ollama"],
+    )
     def test_quick_mode_has_options(self, provider):
         options = get_model_options(provider, "quick")
         assert len(options) >= 2
@@ -25,8 +27,10 @@ class TestGetModelOptions:
             assert isinstance(label, str)
             assert isinstance(value, str)
 
-    @pytest.mark.parametrize("provider", ["openai", "anthropic", "google", "xai",
-                                           "deepseek", "qwen", "glm", "ollama"])
+    @pytest.mark.parametrize(
+        "provider",
+        ["openai", "anthropic", "google", "xai", "deepseek", "qwen", "glm", "ollama"],
+    )
     def test_deep_mode_has_options(self, provider):
         options = get_model_options(provider, "deep")
         assert len(options) >= 2
@@ -54,8 +58,16 @@ class TestGetModelOptions:
 class TestGetKnownModels:
     def test_returns_all_providers(self):
         models = get_known_models()
-        for provider in ("openai", "anthropic", "google", "xai", "deepseek",
-                          "qwen", "glm", "ollama"):
+        for provider in (
+            "openai",
+            "anthropic",
+            "google",
+            "xai",
+            "deepseek",
+            "qwen",
+            "glm",
+            "ollama",
+        ):
             assert provider in models
 
     def test_each_provider_has_models(self):

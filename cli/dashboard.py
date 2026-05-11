@@ -16,8 +16,12 @@ app = typer.Typer()
 
 @app.command(name="dashboard")
 def dashboard(
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
-    limit: int = typer.Option(5, "--limit", "-n", min=1, max=20, help="Recent runs to show"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
+    limit: int = typer.Option(
+        5, "--limit", "-n", min=1, max=20, help="Recent runs to show"
+    ),
 ):
     """Show a local terminal home screen for research workflow state."""
     journal = JournalService(DEFAULT_CONFIG)

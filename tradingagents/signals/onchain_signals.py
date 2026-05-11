@@ -15,14 +15,14 @@ from .base import FactorSignal, SignalScore
 logger = logging.getLogger(__name__)
 
 # Long/short ratio thresholds
-LS_EXTREME_LONG = 2.5    # > 2.5 = extremely crowded long
-LS_MAJORITY_LONG = 1.5   # > 1.5 = majority long
+LS_EXTREME_LONG = 2.5  # > 2.5 = extremely crowded long
+LS_MAJORITY_LONG = 1.5  # > 1.5 = majority long
 LS_MAJORITY_SHORT = 0.67  # < 0.67 = majority short
-LS_EXTREME_SHORT = 0.4   # < 0.4 = extreme short (squeeze risk)
+LS_EXTREME_SHORT = 0.4  # < 0.4 = extreme short (squeeze risk)
 
 # NVT thresholds
-NVT_OVERHEATED = 150     # > 150 = overvalued relative to usage
-NVT_UNDERVALUED = 50     # < 50 = potentially undervalued
+NVT_OVERHEATED = 150  # > 150 = overvalued relative to usage
+NVT_UNDERVALUED = 50  # < 50 = potentially undervalued
 
 
 def compute_onchain_signal(
@@ -80,10 +80,10 @@ def compute_onchain_signal(
             detail.append(f"NVT Ratio: {nvt_value:.0f}")
 
             if nvt_value > NVT_OVERHEATED:
-                detail.append(f"High NVT — network overvalued relative to usage")
+                detail.append("High NVT — network overvalued relative to usage")
                 bear_score += w * 0.70
             elif nvt_value < NVT_UNDERVALUED:
-                detail.append(f"Low NVT — potentially undervalued")
+                detail.append("Low NVT — potentially undervalued")
                 bull_score += w * 0.55
             else:
                 detail.append("NVT in neutral range")
@@ -152,7 +152,9 @@ def compute_onchain_signal(
         name="onchain",
         score=score,
         confidence=round(confidence, 2),
-        value=ls_ratio if ls_ratio is not None else (nvt_value if nvt_value is not None else 0.0),
+        value=ls_ratio
+        if ls_ratio is not None
+        else (nvt_value if nvt_value is not None else 0.0),
         threshold_breached=threshold_breached,
         data_quality=round(dq, 2),
         detail=" | ".join(detail),

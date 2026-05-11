@@ -1,7 +1,5 @@
 """Tests for centralized credential resolution."""
 
-import os
-
 import pytest
 
 from tradingagents.config.secrets import SecretsManager

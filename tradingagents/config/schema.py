@@ -166,9 +166,13 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
             issues.append("llm_fallback.enabled must be a boolean")
         fb_providers = llm_fallback.get("fallback_providers", [])
         if not isinstance(fb_providers, list):
-            issues.append("llm_fallback.fallback_providers must be a list of provider names")
+            issues.append(
+                "llm_fallback.fallback_providers must be a list of provider names"
+            )
         else:
-            unknown_fb = [p for p in fb_providers if str(p).lower() not in KNOWN_PROVIDERS]
+            unknown_fb = [
+                p for p in fb_providers if str(p).lower() not in KNOWN_PROVIDERS
+            ]
             if unknown_fb:
                 issues.append(
                     f"llm_fallback.fallback_providers has unknown providers {unknown_fb!r}; "
@@ -183,10 +187,14 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
                 )
         threshold = llm_fallback.get("circuit_breaker_threshold", 3)
         if not isinstance(threshold, int) or threshold < 1:
-            issues.append("llm_fallback.circuit_breaker_threshold must be a positive integer")
+            issues.append(
+                "llm_fallback.circuit_breaker_threshold must be a positive integer"
+            )
         window = llm_fallback.get("circuit_breaker_window_sec", 300)
         if not isinstance(window, (int, float)) or window < 1:
-            issues.append("llm_fallback.circuit_breaker_window_sec must be a positive number")
+            issues.append(
+                "llm_fallback.circuit_breaker_window_sec must be a positive number"
+            )
 
     # Validate secrets section
     secrets_cfg = normalized.get("secrets", {})
@@ -261,4 +269,3 @@ def _validate_llm_credentials(config: dict, *, source: str, mode: str) -> None:
         logger.warning(msg)
         return
     raise LLMCredentialError(msg)
-

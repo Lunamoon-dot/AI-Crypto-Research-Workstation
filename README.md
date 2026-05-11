@@ -140,10 +140,10 @@ export TRADINGAGENTS_MEMORY_LOG_PATH=/path/to/trading_memory.md
 
 ## Installation
 
-Clone the repository:
+Clone the repository and enter the project directory:
 
 ```bash
-git clone <your-new-repo-url>
+git clone https://github.com/Lunamoon-dot/AI-Crypto-Research-Workstation.git
 cd AI-Crypto-Research-Workstation
 ```
 
@@ -286,17 +286,16 @@ CI runs:
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md).
+Start at [ROADMAP.md](ROADMAP.md) (hub). Detailed docs:
 
-Current direction:
+- [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md) — phases 1–9 (implementation)
+- [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md) — phases 10–14 (reliability, API/cloud, monetization)
+
+Abbreviated direction:
 
 ```text
-Phase 1: research-workstation architecture reset
-Phase 2: decision journal core
-Phase 2B: market snapshot + signal snapshot persistence
-Phase 3: signal provenance
-Phase 4: multi-agent research workspace and better UX
-Phase 5: historical thesis evaluation and reliability analytics
+Dev (1–9): foundation → journal → signal provenance → multi-agent workspace → scenarios → watchlists → terminal UX → brief → historical thesis evaluation
+Production (10–14): config/secrets → observability → service/API layer → optional assisted execution → cloud tiers
 ```
 
 ## Production Status

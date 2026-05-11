@@ -7,6 +7,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_social_sentiment,
     get_news_sentiment_aggregate,
 )
+
+
 def create_social_media_analyst(llm, config=None):
     def social_media_analyst_node(state):
         current_date = state["trade_date"]

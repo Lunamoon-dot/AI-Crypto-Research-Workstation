@@ -23,10 +23,10 @@ from .base import FactorSignal, SignalScore
 logger = logging.getLogger(__name__)
 
 # Thresholds
-EXTREME_NEG = -0.005   # -0.5% — extreme negative (shorts paying)
-EXTREME_POS = +0.005   # +0.5% — extreme positive (longs paying)
-WARN_NEG = -0.001      # -0.1% — caution negative
-WARN_POS = +0.001      # +0.1% — caution positive
+EXTREME_NEG = -0.005  # -0.5% — extreme negative (shorts paying)
+EXTREME_POS = +0.005  # +0.5% — extreme positive (longs paying)
+WARN_NEG = -0.001  # -0.1% — caution negative
+WARN_POS = +0.001  # +0.1% — caution positive
 
 
 def compute_funding_oi_signal(
@@ -48,9 +48,11 @@ def compute_funding_oi_signal(
     # Stage 1 — parse inputs (detect format automatically)
     # ------------------------------------------------------------------
 
-    fund = _parse_funding_input(funding_csv)    # {rate, slope, pct, has_history}
-    oi = _parse_oi_input(oi_csv)                # {current_oi, delta_1d, delta_5d, delta_7d, has_history}
-    price = _parse_price_input(ohlcv_csv)       # {current_price, delta_5d, has_data}
+    fund = _parse_funding_input(funding_csv)  # {rate, slope, pct, has_history}
+    oi = _parse_oi_input(
+        oi_csv
+    )  # {current_oi, delta_1d, delta_5d, delta_7d, has_history}
+    price = _parse_price_input(ohlcv_csv)  # {current_price, delta_5d, has_data}
 
     # ------------------------------------------------------------------
     # Stage 2 — accumulate weighted assessments
@@ -95,14 +97,10 @@ def compute_funding_oi_signal(
         total_weight += w
 
         if slope > 1e-6:
-            detail.append(
-                f"Rate rising ({slope:+.2e}/day) — positioning tilting long"
-            )
+            detail.append(f"Rate rising ({slope:+.2e}/day) — positioning tilting long")
             bear_score += w * min(0.5, 0.5 * (slope / 1e-5))
         elif slope < -1e-6:
-            detail.append(
-                f"Rate falling ({slope:+.2e}/day) — shorts unwinding"
-            )
+            detail.append(f"Rate falling ({slope:+.2e}/day) — shorts unwinding")
             bull_score += w * min(0.5, 0.5 * (abs(slope) / 1e-5))
 
         if pct_rank > 0.90:
@@ -118,9 +116,7 @@ def compute_funding_oi_signal(
         px_d5 = price["delta_5d"]
         w = 0.35
         total_weight += w
-        detail.append(
-            f"OI 5d: {oi_d5:+.1%} | Price 5d: {px_d5:+.1%}"
-        )
+        detail.append(f"OI 5d: {oi_d5:+.1%} | Price 5d: {px_d5:+.1%}")
 
         # --- Divergence / confirmation (mutually exclusive) ---
         if px_d5 > 0.01 and oi_d5 < -0.03:
@@ -150,7 +146,9 @@ def compute_funding_oi_signal(
                 bear_score += w * 0.15
     elif oi.get("has_data") and oi.get("delta_1d") is not None:
         # At least report OI delta even without OHLCV
-        detail.append(f"OI current: {oi['current_oi']:,.0f} (1d: {oi['delta_1d']:+.1%})")
+        detail.append(
+            f"OI current: {oi['current_oi']:,.0f} (1d: {oi['delta_1d']:+.1%})"
+        )
 
     # ------------------------------------------------------------------
     # Stage 3 — compose final score
@@ -364,9 +362,13 @@ def _fallback_latest_rate(df: pd.DataFrame) -> dict:
     try:
         rates = df["fundingRate"].astype(float).dropna()
         if len(rates) > 0:
-            return {"has_data": True, "rate": float(rates.iloc[-1]), "has_history": False}
-    except Exception:
-        pass
+            return {
+                "has_data": True,
+                "rate": float(rates.iloc[-1]),
+                "has_history": False,
+            }
+    except Exception as e:
+        logger.debug("Failed to extract latest funding rate from snapshot: %s", e)
     return {"has_data": False, "rate": None, "has_history": False}
 
 
@@ -401,6 +403,7 @@ def _analyze_oi_snapshot(data: str) -> dict:
 def _parse_funding_rate(text: str) -> Optional[float]:
     """Extract funding rate from formatted CCXT output."""
     import re
+
     m = re.search(r"Funding Rate:\s*([+\-]?[\d.]+)\s*%", text)
     if m:
         pct = float(m.group(1))
@@ -414,6 +417,7 @@ def _parse_funding_rate(text: str) -> Optional[float]:
 def _parse_oi(text: str) -> Optional[float]:
     """Extract open interest from formatted CCXT output."""
     import re
+
     m = re.search(r"Open Interest:\s*([\d,.]+)", text)
     if m:
         return float(m.group(1).replace(",", ""))

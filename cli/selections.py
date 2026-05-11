@@ -8,7 +8,6 @@ from __future__ import annotations
 import datetime
 import re
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.align import Align
@@ -22,8 +21,6 @@ from cli.utils import (
     ask_gemini_thinking_config,
     ask_openai_reasoning_effort,
     ask_output_language,
-    ask_planning_config,
-    get_analyst_order,
     get_analysis_date,
     get_ticker,
     normalize_ticker_symbol,
@@ -92,9 +89,7 @@ def get_user_selections():
         "[bold green]TradingAgents: AI Crypto Research Workspace[/bold green]\n\n"
     )
     welcome_content += "[bold]Research Workflow:[/bold]\n"
-    welcome_content += (
-        "I. Analysts -> II. Research Debate -> III. Thesis Plan -> IV. Risk Review -> V. Journal\n\n"
-    )
+    welcome_content += "I. Analysts -> II. Research Debate -> III. Thesis Plan -> IV. Risk Review -> V. Journal\n\n"
     welcome_content += (
         "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
     )
@@ -145,15 +140,11 @@ def get_user_selections():
             )
         )
         crypto_exchange = select_crypto_exchange()
-        crypto_benchmark = (
-            "BTC/USDT"  # default, could be made user-selectable later
-        )
+        crypto_benchmark = "BTC/USDT"  # default, could be made user-selectable later
 
     # Step 1: Ticker symbol
     ticker_examples = (
-        "BTC/USDT, ETH/USDT, SOL/USDT"
-        if is_crypto
-        else "SPY, CNC.TO, 7203.T, 0700.HK"
+        "BTC/USDT, ETH/USDT, SOL/USDT" if is_crypto else "SPY, CNC.TO, 7203.T, 0700.HK"
     )
     console.print(
         create_question_box(
@@ -191,7 +182,6 @@ def get_user_selections():
             "Select your LLM analyst agents for the analysis",
         )
     )
-    analyst_order = get_analyst_order(selected_asset_class)
     selected_analysts = select_analysts(selected_asset_class)
     console.print(
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
@@ -218,9 +208,7 @@ def get_user_selections():
             "Select your thinking agents for analysis",
         )
     )
-    selected_shallow_thinker = select_shallow_thinking_agent(
-        selected_llm_provider
-    )
+    selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
     selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
 
     # Step 8: Provider-specific thinking configuration
@@ -254,15 +242,6 @@ def get_user_selections():
         )
         anthropic_effort = ask_anthropic_effort()
 
-    # Step 9: Assisted trade-planning config
-    console.print(
-        create_question_box(
-            "Step 9: Thesis Planning",
-            "Configure AI-generated thesis planning",
-        )
-    )
-    planning_config = ask_planning_config()
-
     return {
         "ticker": selected_ticker,
         "analysis_date": analysis_date,
@@ -279,7 +258,6 @@ def get_user_selections():
         "asset_class": selected_asset_class,
         "crypto_exchange": crypto_exchange,
         "crypto_benchmark": crypto_benchmark,
-        "planning_config": planning_config,
     }
 
 
@@ -306,9 +284,7 @@ def selections_from_cli_options(
         raise typer.BadParameter("Asset class must be 'crypto' or 'stock'.")
     selected_ticker = normalize_ticker_symbol(ticker)
     if not selected_ticker:
-        raise typer.BadParameter(
-            "Ticker is required for non-interactive runs."
-        )
+        raise typer.BadParameter("Ticker is required for non-interactive runs.")
 
     provider = (llm_provider or DEFAULT_CONFIG["llm_provider"]).lower()
     crypto_exchange = exchange or DEFAULT_CONFIG.get("crypto_exchange")
@@ -338,7 +314,6 @@ def selections_from_cli_options(
             if selected_asset_class == "crypto"
             else None
         ),
-        "planning_config": dict(DEFAULT_CONFIG.get("planning", {})),
     }
 
 

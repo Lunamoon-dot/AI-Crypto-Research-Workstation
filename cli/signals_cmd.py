@@ -24,7 +24,9 @@ def _service() -> JournalService:
 
 @signals_app.command("list")
 def signals_list(
-    symbol: Optional[str] = typer.Argument(None, help="Optional symbol filter, e.g. BTC/USDT."),
+    symbol: Optional[str] = typer.Argument(
+        None, help="Optional symbol filter, e.g. BTC/USDT."
+    ),
     limit: int = typer.Option(50, "--limit", "-n", min=1, max=200),
     json_out: bool = typer.Option(False, "--json", help="Emit signals as JSON."),
 ):
@@ -52,7 +54,9 @@ def signals_list(
     table.add_column("Source TS")
 
     for signal in signals:
-        confidence = f"{signal.confidence:.0%}" if signal.confidence is not None else "N/A"
+        confidence = (
+            f"{signal.confidence:.0%}" if signal.confidence is not None else "N/A"
+        )
         source_ts = (
             signal.provenance.source_timestamp.isoformat()
             if signal.provenance.source_timestamp
@@ -101,9 +105,19 @@ def signals_show(
         f"- Observed At: {signal.provenance.observed_at.isoformat()}",
         f"- Freshness: {signal.provenance.freshness.value}",
         f"- Freshness Seconds: {signal.provenance.freshness_seconds if signal.provenance.freshness_seconds is not None else 'N/A'}",
+    ]
+    if signal.provenance.historical_reliability is not None:
+        n = signal.provenance.sample_size
+        lines.append(
+            f"- Historical reliability: {signal.provenance.historical_reliability:.0%}"
+            + (f" (n={n})" if n is not None else "")
+        )
+    lines.extend(
+        [
         "",
         "Evidence:",
     ]
+    )
     if signal.evidence:
         lines.extend(f"- {key}: {value}" for key, value in signal.evidence.items())
     else:
@@ -111,7 +125,9 @@ def signals_show(
     if signal.summary:
         lines.extend(["", "Summary:", signal.summary])
 
-    console.print(Panel("\n".join(lines), title="Signal Provenance", border_style="cyan"))
+    console.print(
+        Panel("\n".join(lines), title="Signal Provenance", border_style="cyan")
+    )
 
 
 def register_signals(parent_app: typer.Typer) -> None:

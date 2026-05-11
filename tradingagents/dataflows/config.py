@@ -1,8 +1,8 @@
 """Configuration management with per-run context isolation.
 
-The primary config source is a ContextVar bound for each analysis run.
-A process-level fallback remains for legacy callers, but every public accessor
-returns deep copies to prevent accidental cross-run mutations.
+Config is threaded via a ContextVar bound for each analysis run.
+There is no module-level global fallback — callers must either pass
+config explicitly or run within a ``config_context()`` block.
 """
 
 from __future__ import annotations
@@ -10,14 +10,7 @@ from __future__ import annotations
 import contextvars
 from contextlib import contextmanager
 from copy import deepcopy
-import threading
-from typing import Dict, Iterator, Optional
-
-import tradingagents.default_config as default_config
-
-# Module-level global fallback (legacy callers)
-_config: Optional[Dict] = None
-_config_lock = threading.RLock()
+from typing import Iterator
 
 # Context variable for per-invocation threading.
 # Set by tool wrappers in _create_tool_nodes() so that config flows through
@@ -25,39 +18,7 @@ _config_lock = threading.RLock()
 _config_ctx = contextvars.ContextVar("tradingagents_config", default=None)
 
 
-def _deep_merge(base: Dict, override: Dict) -> Dict:
-    """Recursively merge ``override`` into ``base`` and return a new dict."""
-    merged = deepcopy(base)
-    for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = deepcopy(value)
-    return merged
-
-
-def initialize_config():
-    """Initialize the process-level fallback config with defaults."""
-    global _config
-    with _config_lock:
-        if _config is None:
-            _config = deepcopy(default_config.DEFAULT_CONFIG)
-
-
-def set_config(config: Dict):
-    """Update process-level fallback config for legacy call sites."""
-    global _config
-    with _config_lock:
-        if _config is None:
-            _config = deepcopy(default_config.DEFAULT_CONFIG)
-        _config = _deep_merge(_config, config)
-
-
-def set_context_config(config: Dict):
+def set_context_config(config: dict):
     """Bind config to current execution context and return token."""
     return _config_ctx.set(deepcopy(config))
 
@@ -68,7 +29,7 @@ def reset_context_config(token) -> None:
 
 
 @contextmanager
-def config_context(config: Dict) -> Iterator[None]:
+def config_context(config: dict) -> Iterator[None]:
     """Temporarily bind config to this run/thread/task context."""
     token = set_context_config(config)
     try:
@@ -77,20 +38,15 @@ def config_context(config: Dict) -> Iterator[None]:
         reset_context_config(token)
 
 
-def get_config() -> Dict:
-    """Get the current configuration.
+def get_config() -> dict:
+    """Get the current configuration from the context variable.
 
-    Prefers the context variable (set per-invocation by tool wrappers).
-    Falls back to the module-level global for backward compatibility.
+    Raises RuntimeError if no config context is bound — callers must
+    either pass config explicitly or wrap the call in ``config_context()``.
     """
     ctx = _config_ctx.get()
     if ctx is not None:
         return deepcopy(ctx)
-    with _config_lock:
-        if _config is None:
-            initialize_config()
-        return deepcopy(_config)
-
-
-# Initialize with default config
-initialize_config()
+    raise RuntimeError(
+        "No config context bound. Wrap the call in config_context() or pass config explicitly."
+    )

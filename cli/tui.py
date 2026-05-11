@@ -29,7 +29,6 @@ def create_layout():
     layout.split_column(
         Layout(name="header", size=3),
         Layout(name="main"),
-        Layout(name="execution", size=3),
         Layout(name="footer", size=3),
     )
     layout["main"].split_column(
@@ -183,9 +182,7 @@ def update_display(
     )
     messages_table.add_column("Time", style="cyan", width=8, justify="center")
     messages_table.add_column("Type", style="green", width=10, justify="center")
-    messages_table.add_column(
-        "Content", style="white", no_wrap=False, ratio=1
-    )
+    messages_table.add_column("Content", style="white", no_wrap=False, ratio=1)
 
     # Combine tool calls and messages
     all_messages = []
@@ -258,9 +255,7 @@ def update_display(
     # Footer with statistics
     # Agent progress - derived from agent_status dict
     agents_completed = sum(
-        1
-        for status in message_buffer.agent_status.values()
-        if status == "completed"
+        1 for status in message_buffer.agent_status.values() if status == "completed"
     )
     agents_total = len(message_buffer.agent_status)
 
@@ -292,96 +287,14 @@ def update_display(
     # Elapsed time
     if start_time:
         elapsed = time.time() - start_time
-        elapsed_str = (
-            f"⏱ {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
-        )
+        elapsed_str = f"⏱ {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
         stats_parts.append(elapsed_str)
 
-    stats_table = Table(
-        show_header=False, box=None, padding=(0, 2), expand=True
-    )
+    stats_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
     stats_table.add_column("Stats", justify="center")
     stats_table.add_row(" | ".join(stats_parts))
 
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
-
-    # Trade planning panel
-    _render_execution_panel(layout, message_buffer)
-
-
-# ---------------------------------------------------------------------------
-# Execution / thesis plan panels
-# ---------------------------------------------------------------------------
-
-
-def _render_execution_panel(layout, message_buffer):
-    """Render the assisted thesis-planning panel at the bottom of the layout."""
-    exec_result = message_buffer.execution_result
-    if exec_result is None:
-        layout["execution"].update(
-            Panel(
-                "[dim]Thesis planning disabled or pending...[/dim]",
-                border_style="grey50",
-            )
-        )
-        return
-
-    status = exec_result.get("status", "unknown")
-    symbol = exec_result.get("symbol", "")
-    side = exec_result.get("side") or "—"
-    rating = exec_result.get("rating", "")
-    reason = exec_result.get("reason", "")
-    confidence = exec_result.get("confidence")
-    alloc_pct = exec_result.get("alloc_pct")
-    last_price = exec_result.get("last_price")
-    filled = exec_result.get("filled")
-    avg_price = exec_result.get("avg_price")
-    order_id = exec_result.get("order_id", "")
-    steps = exec_result.get("steps", [])
-
-    # Style by status
-    styles = {
-        "planned": ("cyan", "[bold cyan]THESIS PLAN[/bold cyan]"),
-        "watch": ("yellow", "[bold yellow]WATCH[/bold yellow]"),
-        "blocked": ("red", "[bold red]BLOCKED[/bold red]"),
-        "error": ("red", "[bold red]ERROR[/bold red]"),
-    }
-    border_color, status_label = styles.get(
-        status, ("grey50", status.upper())
-    )
-
-    lines = []
-    lines.append(
-        f"{status_label} | {symbol} | Rating: {rating} | Side: {side.upper()}"
-    )
-
-    price_str = f"${last_price:.2f}" if last_price else "N/A"
-    conf_str = f"{confidence:.0%}" if confidence is not None else "N/A"
-    alloc_str = f"{alloc_pct:+.1%}" if alloc_pct is not None else "N/A"
-    lines.append(
-        f"Price: {price_str} | Confidence: {conf_str} | Allocation: {alloc_str}"
-    )
-
-    if reason:
-        lines.append(f"Reason: {reason}")
-
-    # Show planning steps if available
-    if steps:
-        lines.append("")
-        lines.append("[bold]Planning steps:[/bold]")
-        for i, step in enumerate(steps, 1):
-            phase = step.get("phase", "")
-            detail = step.get("detail", "")
-            result = step.get("result", "")
-            step_line = f"  {i}. [{phase}] {detail}"
-            if result:
-                step_line += f" → {result}"
-            lines.append(step_line)
-
-    content = "\n".join(lines)
-    layout["execution"].update(
-        Panel(content, title="Thesis Plan", border_style=border_color)
-    )
 
 
 def _print_execution_summary(exec_result):
@@ -393,15 +306,11 @@ def _print_execution_summary(exec_result):
     status = exec_result.get("status", "unknown")
     symbol = exec_result.get("symbol", "")
     side = exec_result.get("side") or "—"
-    action = exec_result.get("action") or side
     rating = exec_result.get("rating", "")
     reason = exec_result.get("reason", "")
     confidence = exec_result.get("confidence")
     alloc_pct = exec_result.get("alloc_pct")
     last_price = exec_result.get("last_price")
-    filled = exec_result.get("filled")
-    avg_price = exec_result.get("avg_price")
-    order_id = exec_result.get("order_id", "")
     sizing_reasoning = exec_result.get("sizing_reasoning", "")
 
     # Decide panel style
@@ -420,9 +329,7 @@ def _print_execution_summary(exec_result):
 
     lines = []
     lines.append(f"Symbol:     {symbol}")
-    lines.append(
-        f"Rating:     {rating} → Side: {side.upper() if side else '—'}"
-    )
+    lines.append(f"Rating:     {rating} → Side: {side.upper() if side else '—'}")
     price_str = f"${last_price:.2f}" if last_price else "N/A"
     lines.append(f"Price:      {price_str}")
     conf_str = f"{confidence:.0%}" if confidence is not None else "N/A"

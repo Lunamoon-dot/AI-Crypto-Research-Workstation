@@ -1,6 +1,12 @@
 from datetime import datetime, timedelta, timezone
 
-from tradingagents.domain import DataFreshness, Signal, SignalDirection, SignalProvenance, ThesisDirection
+from tradingagents.domain import (
+    DataFreshness,
+    Signal,
+    SignalDirection,
+    SignalProvenance,
+    ThesisDirection,
+)
 from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
 from tradingagents.signals.provenance import (

@@ -241,3 +241,32 @@ Thumbs.db
 
 # Cache
 **/data_cache/
+
+# ---------------------------------------------------------------------------
+# TradingAgents runtime artifacts
+# ---------------------------------------------------------------------------
+
+# Local SQLite checkpoints (per-ticker crash-resume)
+**/checkpoints/*.db
+
+# Paper trading state (local mutable JSON)
+paper_state.json
+
+# Monitor runtime state (spot + futures)
+*_monitor.json
+
+# Generated reports output
+reports/
+
+# Trading memory log (local decision journal)
+trading_memory.md
+
+# Stray / temp helper scripts
+_read_lines.py
+_show_lines.py
+_verify_imports.py
+%SystemDrive%/
+
+# Log files from runs
+*.log
+logs/

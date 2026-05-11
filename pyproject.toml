@@ -41,6 +41,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.8.0",
+    "mypy>=1.8.0",
 ]
 
 [project.scripts]
@@ -63,3 +64,24 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+explicit_package_bases = true
+warn_no_return = false
+warn_unused_ignores = false
+disallow_untyped_defs = false
+check_untyped_defs = false
+exclude = [
+    "build/",
+    "dist/",
+    ".venv/",
+]
+
+[tool.ruff.lint]
+ignore = ["E402"]  # module-import-not-at-top-of-file: lazy imports are by design
+
+[tool.ruff.lint.per-file-ignores]
+"tradingagents/graph/setup.py" = ["F403", "F405"]  # star imports from agents package
+"tradingagents/graph/research_agents_graph.py" = ["F403"]  # star imports from agents package

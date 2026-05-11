@@ -112,7 +112,9 @@ class BriefService:
             source=snapshot.source,
             source_timestamp=snapshot.source_timestamp,
             summary=snapshot.summary or "Latest persisted market snapshot available.",
-            change_from_previous=_compare_asset(previous_asset, snapshot.current_price, snapshot.market_regime),
+            change_from_previous=_compare_asset(
+                previous_asset, snapshot.current_price, snapshot.market_regime
+            ),
         )
 
 
@@ -182,8 +184,14 @@ def _watchlist_changes(watchlist: WatchlistBrief) -> list[str]:
 def _top_setups(watchlist: WatchlistBrief) -> list[str]:
     setups = []
     for thesis in watchlist.theses[:5]:
-        confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "unknown confidence"
-        setups.append(f"{thesis.symbol}: {thesis.setup_type} ({thesis.direction}, {confidence})")
+        confidence = (
+            f"{thesis.confidence:.0%}"
+            if thesis.confidence is not None
+            else "unknown confidence"
+        )
+        setups.append(
+            f"{thesis.symbol}: {thesis.setup_type} ({thesis.direction}, {confidence})"
+        )
     return setups or ["No active thesis setups saved yet."]
 
 
@@ -192,15 +200,23 @@ def _top_risks(
     assets: list[BriefAssetSummary],
 ) -> list[str]:
     risks = []
-    stale_or_missing = [asset.symbol for asset in assets if asset.source_timestamp is None]
+    stale_or_missing = [
+        asset.symbol for asset in assets if asset.source_timestamp is None
+    ]
     if stale_or_missing:
-        risks.append("Missing source timestamps or snapshots for: " + ", ".join(stale_or_missing))
+        risks.append(
+            "Missing source timestamps or snapshots for: " + ", ".join(stale_or_missing)
+        )
     for thesis in watchlist.theses:
         if thesis.invalidation_level:
-            risks.append(f"{thesis.symbol}: invalidation to monitor: {thesis.invalidation_level}")
+            risks.append(
+                f"{thesis.symbol}: invalidation to monitor: {thesis.invalidation_level}"
+            )
     for alert in watchlist.alerts[:3]:
         risks.append(f"{alert.symbol}: recent {alert.alert_type} alert needs review.")
-    return risks or ["No persisted risk alerts. Review freshness before relying on this brief."]
+    return risks or [
+        "No persisted risk alerts. Review freshness before relying on this brief."
+    ]
 
 
 def _memory_notes(
@@ -213,9 +229,7 @@ def _memory_notes(
 
     notes = [f"Previous brief: {previous.id} from {previous.brief_date.isoformat()}."]
     notes.extend(
-        asset.change_from_previous
-        for asset in assets
-        if asset.change_from_previous
+        asset.change_from_previous for asset in assets if asset.change_from_previous
     )
     previous_thesis_ids = {update.thesis_id for update in previous.thesis_updates}
     new_theses = [
@@ -224,11 +238,15 @@ def _memory_notes(
         if update.thesis_id not in previous_thesis_ids
     ]
     if new_theses:
-        notes.append("New thesis updates since previous brief: " + ", ".join(new_theses))
+        notes.append(
+            "New thesis updates since previous brief: " + ", ".join(new_theses)
+        )
     return notes[:8]
 
 
-def _previous_asset(previous: MarketBrief | None, symbol: str) -> BriefAssetSummary | None:
+def _previous_asset(
+    previous: MarketBrief | None, symbol: str
+) -> BriefAssetSummary | None:
     if not previous:
         return None
     for asset in previous.asset_summaries:
@@ -249,12 +267,18 @@ def _compare_asset(
         delta = current_price - previous.current_price
         if previous.current_price:
             pct = delta / previous.current_price
-            parts.append(f"{previous.symbol}: price changed {pct:+.2%} from previous brief.")
+            parts.append(
+                f"{previous.symbol}: price changed {pct:+.2%} from previous brief."
+            )
     if previous.market_regime != current_regime:
         parts.append(
             f"{previous.symbol}: regime changed from {previous.market_regime} to {current_regime}."
         )
-    return " ".join(parts) if parts else f"{previous.symbol}: no major persisted change from previous brief."
+    return (
+        " ".join(parts)
+        if parts
+        else f"{previous.symbol}: no major persisted change from previous brief."
+    )
 
 
 def _compare_missing(previous: BriefAssetSummary | None) -> str | None:
@@ -264,8 +288,12 @@ def _compare_missing(previous: BriefAssetSummary | None) -> str | None:
 
 
 def _assert_no_trade_commands(brief: MarketBrief) -> None:
-    payload = brief.model_dump_json() if hasattr(brief, "model_dump_json") else brief.json()
+    payload = (
+        brief.model_dump_json() if hasattr(brief, "model_dump_json") else brief.json()
+    )
     lowered = payload.lower()
     forbidden = [phrase for phrase in _FORBIDDEN_TRADE_COMMANDS if phrase in lowered]
     if forbidden:
-        raise ValueError(f"Market brief contains forbidden trade-command language: {forbidden}")
+        raise ValueError(
+            f"Market brief contains forbidden trade-command language: {forbidden}"
+        )

@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+_BACKOFF_BASE = 0.5
+_BACKOFF_MAX = 5.0
+_MAX_RETRIES = 2
 
 
 def _currency_code_from_ticker(ticker: str) -> str | None:
@@ -54,11 +60,38 @@ def fetch_cryptopanic_headlines(
         method="GET",
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-            raw = resp.read().decode("utf-8")
-    except (TimeoutError, urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
-        logger.warning("CryptoPanic fetch failed: %s", exc)
+    raw = None
+    attempts = _MAX_RETRIES + 1
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                raw = resp.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in _RETRYABLE_STATUSES and attempt < _MAX_RETRIES:
+                wait = min(_BACKOFF_MAX, _BACKOFF_BASE * (2**attempt))
+                logger.warning(
+                    "CryptoPanic HTTP %s (attempt %s/%s), retrying in %.1fs",
+                    exc.code, attempt + 1, attempts, wait,
+                )
+                time.sleep(wait)
+                continue
+            logger.warning("CryptoPanic fetch failed: HTTP %s", exc.code)
+            return None
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            if attempt < _MAX_RETRIES:
+                wait = min(_BACKOFF_MAX, _BACKOFF_BASE * (2**attempt))
+                logger.warning(
+                    "CryptoPanic network error (attempt %s/%s): %s, retrying in %.1fs",
+                    attempt + 1, attempts, exc, wait,
+                )
+                time.sleep(wait)
+                continue
+            logger.warning("CryptoPanic fetch failed: %s", exc)
+            return None
+
+    if raw is None:
+        logger.warning("CryptoPanic fetch failed after %s attempts", attempts)
         return None
 
     try:
@@ -72,14 +105,16 @@ def fetch_cryptopanic_headlines(
     for item in results[:limit]:
         if not isinstance(item, dict):
             continue
-        headlines.append({
-            "title": item.get("title"),
-            "url": item.get("url"),
-            "published_at": item.get("published_at"),
-            "source": (item.get("source") or {}).get("title")
-            if isinstance(item.get("source"), dict)
-            else item.get("source"),
-        })
+        headlines.append(
+            {
+                "title": item.get("title"),
+                "url": item.get("url"),
+                "published_at": item.get("published_at"),
+                "source": (item.get("source") or {}).get("title")
+                if isinstance(item.get("source"), dict)
+                else item.get("source"),
+            }
+        )
 
     rng = ""
     if start_date or end_date:
@@ -127,10 +162,7 @@ def format_cryptopanic_for_tool(
             lines.append(f"| {cell} | {src} | {published} |")
         return "\n".join(lines) + "\n"
 
-    hdr = (
-        f"Crypto news for `{ticker}` ({start_date} → {end_date})\n"
-        f"{'=' * 50}\n\n"
-    )
+    hdr = f"Crypto news for `{ticker}` ({start_date} → {end_date})\n{'=' * 50}\n\n"
 
     guidance = (
         "**DATA STATUS — NO THIRD-PARTY CRYPTO NEWS FEED**\n\n"

@@ -3,6 +3,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import perf_counter
+
 # Import from vendor-specific modules
 from .ccxt_provider import (
     get_crypto_ohlcv as get_ccxt_crypto_ohlcv,
@@ -36,6 +37,13 @@ from tradingagents.exceptions import (
 )
 from tradingagents.observability import log_event
 
+from .historical_contract import (
+    DataWindow,
+    FreshnessContract,
+    HistoricalDataContract,
+    TimestampSemantics,
+    validate_historical_request,
+)
 
 logger = logging.getLogger(__name__)
 _RATE_LIMIT_LOCK = threading.Lock()
@@ -44,17 +52,27 @@ _VENDOR_NEXT_ALLOWED_AT: dict[str, float] = {}
 
 # -- thin wrappers that keep the VENDOR_METHODS pattern working ----------
 
+
 def _get_indicators_ccxt(
-    symbol: str, indicator: str, curr_date: str, look_back_days: int = 30,
+    symbol: str,
+    indicator: str,
+    curr_date: str,
+    look_back_days: int = 30,
 ) -> str:
     """Compute a technical indicator from CCXT-sourced OHLCV data."""
-    return str(StockstatsUtils.get_stock_stats(
-        symbol, indicator, curr_date,
-    ))
+    return str(
+        StockstatsUtils.get_stock_stats(
+            symbol,
+            indicator,
+            curr_date,
+        )
+    )
 
 
 def _get_news_crypto(
-    ticker: str, start_date: str = "", end_date: str = "",
+    ticker: str,
+    start_date: str = "",
+    end_date: str = "",
 ) -> str:
     """Crypto-native news: CryptoPanic headlines when ``CRYPTOPANIC_API_TOKEN`` is set.
 
@@ -62,12 +80,16 @@ def _get_news_crypto(
     invent headlines when no feed is configured.
     """
     return format_cryptopanic_for_tool(
-        ticker=ticker, start_date=start_date, end_date=end_date,
+        ticker=ticker,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 
 def _get_global_news_crypto(
-    curr_date: str, look_back_days: int = 7, limit: int = 5,
+    curr_date: str,
+    look_back_days: int = 7,
+    limit: int = 5,
 ) -> str:
     """Macro crypto briefing — same CryptoPanic env gate as the per-ticker tool."""
     return format_global_cryptopanic_for_tool(
@@ -195,14 +217,47 @@ def get_vendor(category: str, method: str = None) -> str:
 
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """Route method calls to appropriate vendor implementation with fallback support.
+
+    When the config context has ``_replay.enabled`` set (historical replay
+    mode), this function transparently delegates to
+    :func:`route_to_vendor_historical` with the point-in-time window and
+    AS_OF semantics from the config — no caller changes needed.
+    """
     config = get_config()
+
+    # -- Replay mode: delegate to contract-validated path -----------------
+    replay_cfg = config.get("_replay", {})
+    if replay_cfg.get("enabled"):
+        window_data = replay_cfg.get("window", {})
+        if window_data:
+            from datetime import date as _date
+
+            window = DataWindow(
+                anchor_date=_date.fromisoformat(
+                    window_data.get("anchor_date") or replay_cfg["anchor_date"]
+                ),
+                lookback_days=window_data.get("lookback_days", 30),
+                forward_window_days=window_data.get("forward_window_days", 0),
+            )
+            semantics_raw = replay_cfg.get("required_semantics", "as_of")
+            try:
+                required_semantics = TimestampSemantics(semantics_raw)
+            except ValueError:
+                required_semantics = TimestampSemantics.AS_OF
+            return route_to_vendor_historical(
+                method,
+                *args,
+                window=window,
+                required_semantics=required_semantics,
+                **kwargs,
+            )
     try:
         category = get_category_for_method(method)
     except ValueError as exc:
         raise DataProviderError(str(exc)) from exc
     vendor_config = get_vendor(category, method)
-    primary_vendors = [v.strip() for v in vendor_config.split(',')]
+    primary_vendors = [v.strip() for v in vendor_config.split(",")]
     disabled_vendors = {
         str(v).strip().lower()
         for v in config.get("disabled_data_vendors", [])
@@ -224,7 +279,8 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor in disabled_vendors:
             logger.warning(
                 "Vendor '%s' is disabled by config; skipping method '%s'",
-                vendor, method,
+                vendor,
+                method,
             )
             log_event(
                 logger,
@@ -271,7 +327,9 @@ def route_to_vendor(method: str, *args, **kwargs):
             last_error = exc
             logger.warning(
                 "Vendor '%s' failed for method '%s': %s",
-                vendor, method, exc,
+                vendor,
+                method,
+                exc,
             )
             log_event(
                 logger,
@@ -289,8 +347,110 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     if disabled_vendors:
         detail = (
-            f"{last_error}" if last_error else
-            f"all configured providers disabled or unavailable (disabled={sorted(disabled_vendors)})"
+            f"{last_error}"
+            if last_error
+            else f"all configured providers disabled or unavailable (disabled={sorted(disabled_vendors)})"
+        )
+    else:
+        detail = f"{last_error}" if last_error else "no vendor configured"
+    raise DataProviderError(f"No available vendor for '{method}': {detail}")
+
+
+def route_to_vendor_historical(
+    method: str,
+    *args,
+    window: DataWindow | None = None,
+    required_semantics: TimestampSemantics = TimestampSemantics.LATEST,
+    **kwargs,
+):
+    """Route a method call with historical contract validation.
+
+    Before dispatching to ``route_to_vendor``, validates the request
+    against the provider's historical capability declaration.  If the
+    provider cannot satisfy the contract (e.g. AS_OF required but
+    provider is LATEST, or lookback exceeds max), the call is rejected
+    with a :exc:`DataProviderError`.
+
+    When *window* is None, falls back to plain ``route_to_vendor``
+    without validation (backward-compatible live-data path).
+
+    Parameters
+    ----------
+    method : str
+        Tool method name.
+    window : DataWindow or None
+        The historical window being requested.  None = live data.
+    required_semantics : TimestampSemantics
+        Minimum timestamp semantics required (default LATEST).
+    """
+    if window is None:
+        return route_to_vendor(method, *args, **kwargs)
+
+    config = get_config()
+    try:
+        category = get_category_for_method(method)
+    except ValueError as exc:
+        raise DataProviderError(f"Unknown method '{method}': {exc}") from exc
+
+    vendor_config = get_vendor(category, method)
+    primary_vendors = [v.strip() for v in vendor_config.split(",")]
+    disabled_vendors: set[str] = {
+        str(v).strip().lower()
+        for v in config.get("disabled_data_vendors", [])
+        if str(v).strip()
+    }
+
+    # Build fallback chain: primary vendors first, then remaining available
+    all_available = list(VENDOR_METHODS.get(method, {}).keys())
+    fallback_vendors = primary_vendors.copy()
+    for vendor in all_available:
+        if vendor not in fallback_vendors:
+            fallback_vendors.append(vendor)
+    last_error: str | None = None
+
+    for vendor in fallback_vendors:
+        if vendor in disabled_vendors:
+            continue
+
+        impl_func = VENDOR_METHODS.get(method, {}).get(vendor)
+        if impl_func is None:
+            continue
+
+        # Validate historical contract before calling
+        issues = validate_historical_request(
+            vendor=vendor,
+            method=method,
+            window=window,
+            required_semantics=required_semantics,
+        )
+        if issues:
+            logger.warning(
+                "Historical contract validation failed for %s.%s: %s",
+                vendor, method, "; ".join(issues),
+            )
+            last_error = f"{vendor}.{method}: " + "; ".join(issues)
+            continue
+
+        try:
+            runtime_cfg = config.get("provider_runtime", {})
+            return _invoke_with_resilience(
+                impl_func,
+                vendor=vendor,
+                method=method,
+                args=args,
+                kwargs=kwargs,
+                runtime_cfg=runtime_cfg,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+            logger.debug("Vendor %s failed for %s: %s", vendor, method, exc)
+            continue
+
+    if disabled_vendors:
+        detail = (
+            f"{last_error}"
+            if last_error
+            else f"all configured providers disabled or unavailable (disabled={sorted(disabled_vendors)})"
         )
     else:
         detail = f"{last_error}" if last_error else "no vendor configured"
@@ -400,7 +560,5 @@ def check_provider_health(timeout_sec: float = 5.0) -> dict[str, str]:
 
     healthy = [v for v, s in checks.items() if s == "healthy"]
     if not healthy:
-        raise HealthCheckError(
-            f"No vendors reachable. Checked: {list(checks.keys())}"
-        )
+        raise HealthCheckError(f"No vendors reachable. Checked: {list(checks.keys())}")
     return checks

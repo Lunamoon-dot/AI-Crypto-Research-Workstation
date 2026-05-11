@@ -93,16 +93,16 @@ def emit_research_run_complete_panel(
     if thesis_id:
         next_cmds.append(f"tradingagents thesis show {thesis_id}")
         next_cmds.append(f"tradingagents watchlist add-thesis {thesis_id}")
+    next_cmds.append("tradingagents evaluate matured")
 
     lines.extend(["", "[bold]Next[/bold]", *[f"- {c}" for c in next_cmds]])
 
-    exe = getattr(graph, "execution_result", None)
     j_en = config.get("journal", {}).get("enabled", True)
-    footer = "[dim]Assisted execution is disabled by default — output is research-only.[/dim]"
+    footer = "[dim]Research workstation — output is analysis only, not financial advice.[/dim]"
     if not j_en:
         footer += " [dim]Journal persistence is off (`journal.enabled`).[/dim]"
-    elif exe:
-        footer += " [dim]Review the Thesis Plan summary above before any manual action.[/dim]"
 
-    console.print(Panel("\n".join(lines), title="Research run complete", border_style="cyan"))
+    console.print(
+        Panel("\n".join(lines), title="Research run complete", border_style="cyan")
+    )
     console.print(footer)

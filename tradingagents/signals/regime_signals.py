@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from io import StringIO
 
-import numpy as np
 import pandas as pd
 
 from .base import FactorSignal, SignalScore
@@ -43,9 +42,12 @@ def detect_regime(ohlcv_csv: str) -> dict:
         df = pd.read_csv(StringIO(ohlcv_csv), index_col=0, parse_dates=True)
         required = {"Close", "High", "Low"}
         if not required.issubset(df.columns) or len(df) < 30:
-            result["signal"] = _neutral("regime", "Insufficient data for regime detection.")
+            result["signal"] = _neutral(
+                "regime", "Insufficient data for regime detection."
+            )
             return result
-    except Exception:
+    except Exception as e:
+        logger.warning("Regime detection OHLCV parse error: %s", e)
         result["signal"] = _neutral("regime", "OHLCV parse error.")
         return result
 
@@ -90,7 +92,7 @@ def detect_regime(ohlcv_csv: str) -> dict:
     # -- Trend direction (SMA alignment) -----------------------------------
     sma20 = close.rolling(20).mean().iloc[-1]
     sma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else sma20
-    sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else sma20
+    _sma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else sma20
 
     if current_price > sma20 > sma50:
         result["trend_direction"] = "bullish"
@@ -196,11 +198,14 @@ def _compute_atr(
     if len(close) < period + 1:
         return None
     prev_close = close.shift(1)
-    tr = pd.concat([
-        (high - low),
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            (high - low),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     return float(tr.rolling(period).mean().iloc[-1])
 
 
@@ -220,11 +225,14 @@ def _compute_adx(
     plus_dm[(up_move > down_move) & (up_move > 0)] = up_move
     minus_dm[(down_move > up_move) & (down_move > 0)] = down_move
 
-    tr = pd.concat([
-        (high - low),
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            (high - low),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
 
     atr = tr.rolling(period).mean()
     plus_di = 100.0 * (plus_dm.rolling(period).mean() / atr)
@@ -238,8 +246,15 @@ def _compute_adx(
     return float(adx.iloc[-1])
 
 
-def _neutral(name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0) -> FactorSignal:
+def _neutral(
+    name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0
+) -> FactorSignal:
     return FactorSignal(
-        name=name, score=SignalScore.NEUTRAL, confidence=confidence,
-        value=0.0, threshold_breached=False, data_quality=data_quality, detail=msg,
+        name=name,
+        score=SignalScore.NEUTRAL,
+        confidence=confidence,
+        value=0.0,
+        threshold_breached=False,
+        data_quality=data_quality,
+        detail=msg,
     )

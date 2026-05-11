@@ -92,13 +92,15 @@ class ResearchPlan(BaseModel):
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
-    return "\n".join([
-        f"**Recommendation**: {plan.recommendation.value}",
-        "",
-        f"**Rationale**: {plan.rationale}",
-        "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
-    ])
+    return "\n".join(
+        [
+            f"**Recommendation**: {plan.recommendation.value}",
+            "",
+            f"**Rationale**: {plan.rationale}",
+            "",
+            f"**Strategic Actions**: {plan.strategic_actions}",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -162,10 +164,12 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         parts.extend(["", f"**Take Profit**: {proposal.take_profit}"])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
-    parts.extend([
-        "",
-        f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
-    ])
+    parts.extend(
+        [
+            "",
+            f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -235,71 +239,87 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Structured Reflection
+# Scenario Planner
 # ---------------------------------------------------------------------------
 
 
-class ReflectionResult(BaseModel):
-    """Structured post-trade reflection produced after outcome is known.
+class ScenarioItem(BaseModel):
+    """A single conditional market scenario produced by the Scenario Planner."""
 
-    Replaces the previous free-text 2-4 sentence reflection with a
-    typed schema that enables confidence calibration tracking and
-    systematic pattern recognition across past trades.
+    condition: str = Field(
+        description=(
+            "Concrete trigger condition with specific price levels, indicator "
+            "values, or event thresholds from the reports and debate context. "
+            "E.g. 'If BTC breaks above $108,000 resistance with spot CVD "
+            "turning positive and funding resetting below 0.01%'."
+        ),
+    )
+    expected_behavior: str = Field(
+        description=(
+            "Expected market behavior if the condition triggers. Include "
+            "likely follow-through, target zones, and timeframe."
+        ),
+    )
+    probability_band: str = Field(
+        description="Estimated likelihood: 'high', 'medium', or 'low'.",
+    )
+    invalidation: str = Field(
+        description=(
+            "Concrete condition that would invalidate this scenario. Include "
+            "specific levels or thresholds from the thesis context."
+        ),
+    )
+    risk_factors: list[str] = Field(
+        description=(
+            "Key risks that could undermine this scenario. Pull from debate "
+            "contradictions, signal staleness, and thesis risk notes."
+        ),
+    )
+    suggested_action: str = Field(
+        description=(
+            "Suggested user action for this branch: e.g. 'review long thesis', "
+            "'stand aside', 'watch', 'reduce confidence and review evidence'."
+        ),
+    )
+
+
+class ScenarioPlan(BaseModel):
+    """Structured scenario map produced by the Scenario Planner.
+
+    Contains 3-4 conditional market scenarios that together cover the
+    directional-confirmation, invalidation, neutral-wait, and (when applicable)
+    contradiction branches for the current thesis.
     """
 
-    directional_correct: bool = Field(
-        description="Was the directional call correct? True if the sign matched.",
-    )
-    alpha_sign_correct: bool = Field(
-        description="Did we beat the benchmark? True if alpha > 0.",
-    )
-    thesis_held: str = Field(
+    setup_type: str = Field(
         description=(
-            "Which specific part of the investment thesis held up, and which "
-            "failed? Be specific — name the indicators or narratives that "
-            "worked vs. those that didn't."
+            "The detected setup template name: e.g. 'breakout', 'range_reversion', "
+            "'trend_pullback', or 'agent_debate'."
         ),
     )
-    confidence_was_calibrated: bool = Field(
-        description=(
-            "Was our confidence level appropriate? True if a high-conviction "
-            "call was rewarded, or a low-conviction call was appropriately "
-            "cautious; False if we were overconfident on a loser or too timid "
-            "on a winner."
-        ),
-    )
-    key_lesson: str = Field(
-        description=(
-            "One concrete, specific lesson for the next similar analysis. "
-            "Phrase it as an actionable rule: 'Next time, check X before Y.'"
-        ),
-    )
-    missed_signals: str = Field(
-        default="",
-        description="What signals or data points were missed or underweighted?",
-    )
-    indicator_performance: str = Field(
-        default="",
-        description=(
-            "Which technical or fundamental indicators proved most/least "
-            "reliable for this trade? E.g. 'RSI was accurate, MACD lagged.'"
-        ),
+    scenarios: list[ScenarioItem] = Field(
+        description="3-4 conditional scenarios covering the thesis decision space.",
     )
 
 
-def render_reflection(r: ReflectionResult) -> str:
-    """Render a ReflectionResult to compact markdown for the memory log."""
-    parts = [
-        f"**Directional**: {'Correct' if r.directional_correct else 'Wrong'} | "
-        f"**Alpha**: {'Positive' if r.alpha_sign_correct else 'Negative'} | "
-        f"**Calibrated**: {'Yes' if r.confidence_was_calibrated else 'No'}",
-        "",
-        f"**Thesis Assessment**: {r.thesis_held}",
-        "",
-        f"**Key Lesson**: {r.key_lesson}",
-    ]
-    if r.missed_signals:
-        parts.extend(["", f"**Missed Signals**: {r.missed_signals}"])
-    if r.indicator_performance:
-        parts.extend(["", f"**Indicator Performance**: {r.indicator_performance}"])
-    return "\n".join(parts)
+def render_scenario_plan(plan: ScenarioPlan) -> str:
+    """Render a ScenarioPlan to markdown for storage and downstream display."""
+    lines = [f"**Setup Type**: {plan.setup_type}", ""]
+    for i, s in enumerate(plan.scenarios, 1):
+        lines.extend(
+            [
+                f"### Scenario {i}: {s.probability_band.upper()} probability",
+                "",
+                f"**Condition**: {s.condition}",
+                "",
+                f"**Expected Behavior**: {s.expected_behavior}",
+                "",
+                f"**Invalidation**: {s.invalidation}",
+                "",
+                f"**Risk Factors**: {', '.join(s.risk_factors) if s.risk_factors else 'Manual review required.'}",
+                "",
+                f"**Suggested Action**: {s.suggested_action}",
+                "",
+            ]
+        )
+    return "\n".join(lines)

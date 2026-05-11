@@ -26,7 +26,8 @@ def compute_rsi_divergence(ohlcv_csv: str, period: int = 14) -> FactorSignal:
         df = pd.read_csv(StringIO(ohlcv_csv), index_col=0, parse_dates=True)
         if "Close" not in df.columns or len(df) < period + 10:
             return _neutral("rsi_divergence", "Insufficient data for RSI divergence.")
-    except Exception:
+    except Exception as e:
+        logger.warning("RSI divergence OHLCV parse error: %s", e)
         return _neutral("rsi_divergence", "OHLCV parse error.")
 
     close = df["Close"].astype(float)
@@ -119,7 +120,8 @@ def compute_macd_signal(ohlcv_csv: str) -> FactorSignal:
         df = pd.read_csv(StringIO(ohlcv_csv), index_col=0, parse_dates=True)
         if "Close" not in df.columns or len(df) < 35:
             return _neutral("macd", "Insufficient data for MACD.")
-    except Exception:
+    except Exception as e:
+        logger.warning("MACD signal OHLCV parse error: %s", e)
         return _neutral("macd", "OHLCV parse error.")
 
     close = df["Close"].astype(float)
@@ -235,8 +237,15 @@ def _has_lower_low(values: np.ndarray) -> bool:
     return second_half_min < first_half_min * 0.995
 
 
-def _neutral(name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0) -> FactorSignal:
+def _neutral(
+    name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0
+) -> FactorSignal:
     return FactorSignal(
-        name=name, score=SignalScore.NEUTRAL, confidence=confidence,
-        value=0.0, threshold_breached=False, data_quality=data_quality, detail=msg,
+        name=name,
+        score=SignalScore.NEUTRAL,
+        confidence=confidence,
+        value=0.0,
+        threshold_breached=False,
+        data_quality=data_quality,
+        detail=msg,
     )

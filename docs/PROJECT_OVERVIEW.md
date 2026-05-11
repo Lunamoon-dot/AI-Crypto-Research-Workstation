@@ -53,10 +53,11 @@ Dữ liệu thị trường → Tín hiệu định lượng → Nghiên cứu �
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                    CLI Layer (cli/)                           │
-│     Interactive TUI, journal, signals, backtest, config       │
+│  analyze, research *, journal, thesis, signals, evaluate,      │
+│  replay, watchlist, brief, dashboard, config                   │
 ├──────────────────────────────────────────────────────────────┤
 │               Orchestration (tradingagents/graph/)            │
-│     LangGraph StateGraph — pipeline tuần tự + debate loops    │
+│  LangGraph — analysts song song → debate → PM → Scenario Planner │
 ├──────────────────────────────────────────────────────────────┤
 │  Agents           │  Signals          │  Domain Models        │
 │  (agents/)        │  (signals/)       │  (domain/)            │
@@ -93,7 +94,7 @@ AI-Crypto-Research-Workstation/
 ├── README.md
 ├── CLAUDE.md                       # Hướng dẫn cho Claude Code
 ├── CHANGELOG.md
-├── ROADMAP.md
+├── ROADMAP.md                    # Hub → docs/ROADMAP_DEV.md + docs/ROADMAP_PRODUCTION.md
 ├── pyproject.toml
 ├── main.py
 │
@@ -107,12 +108,13 @@ AI-Crypto-Research-Workstation/
 │   ├── tui.py                      # Rich Terminal UI
 │   ├── selections.py               # Wizard → config mapping
 │   ├── stream_events.py            # Live streaming display
-│   ├── journal_cmd.py              # journal/thesis commands
+│   ├── journal_cmd.py              # journal / thesis / bundle export
 │   ├── signals_cmd.py              # signal provenance commands
-│   ├── backtest_cmd.py             # thesis evaluation
+│   ├── evaluate_cmd.py             # historical thesis evaluation (Phase 9)
+│   ├── replay_cmd.py               # historical research replay (no-lookahead)
 │   ├── watch_cmd.py                # watchlist management
 │   ├── brief_cmd.py                # market brief
-│   ├── risk_cmd.py                 # risk analytics
+│   ├── json_emit.py                # shared JSON stdout helper
 │   ├── config_cmd.py               # config management
 │   ├── dashboard.py                # dashboard display
 │   ├── preflight.py                # pre-flight checks
@@ -135,9 +137,9 @@ AI-Crypto-Research-Workstation/
 │   │   ├── conditional_logic.py    # Debate/risk routing
 │   │   ├── quant_signals.py        # Pre-compute SignalEngine
 │   │   ├── journal_bridge.py       # Graph ↔ SQLite bridge
-│   │   ├── planning.py             # Thesis & trade plan builders
+│   │   ├── planning.py             # Thesis & trade plan helpers
 │   │   ├── propagation.py          # Initial state factory
-│   │   ├── reflection.py           # Post-trade reflection (LLM)
+│   │   ├── historical_replay.py      # Point-in-time replay orchestrator
 │   │   ├── signal_processing.py    # Rating extraction (deterministic)
 │   │   ├── tooling.py              # Tool node factory
 │   │   ├── opinions.py             # AgentOpinion & Debate builders
@@ -189,6 +191,8 @@ AI-Crypto-Research-Workstation/
 │   └── ...
 │
 ├── docs/                           # Tài liệu dự án
+│   ├── ROADMAP_DEV.md              # Lộ trình kỹ thuật / contributor
+│   ├── ROADMAP_PRODUCTION.md       # Lộ trình production / cloud / reliability
 │   └── PROJECT_OVERVIEW.md         # File này
 │
 ├── tests/                          # Test suite (~30 files)
@@ -215,7 +219,7 @@ propagate("BTC/USDT", "2026-05-08")
 │       └─ CompositeScorer: weighted avg + agreement bonus + vol discount
 │           → SignalResult { score, confidence, factors }
 │
-├─ BƯỚC 2: ANALYST CHAIN (tuần tự, mỗi agent có tool-loop riêng)
+├─ BƯỚC 2: ANALYST CHAIN (chạy song song, mỗi agent có tool-loop riêng)
 │   ├─ Market Analyst    → market_report
 │   ├─ Social Analyst    → sentiment_report
 │   ├─ News Analyst      → news_report
@@ -232,13 +236,15 @@ propagate("BTC/USDT", "2026-05-08")
 │   ├─ Aggressive ⇄ Conservative ⇄ Neutral
 │   └─ Portfolio Manager → final_trade_decision (structured: PortfolioDecision)
 │
-├─ BƯỚC 6: POST-PROCESSING
+├─ BƯỚC 6: SCENARIO PLANNER
+│   └─ ScenarioPlan (structured) → scenario_plan + scenario_plan_json
+│
+├─ BƯỚC 7: POST-PROCESSING
 │   ├─ Process signal (deterministic parse)
 │   ├─ Build TradeThesis artifact
 │   ├─ Build Trade Plan (if planning.enabled)
-│   ├─ Save to memory log (for future reflection)
 │   ├─ Generate markdown report
-│   ├─ Save to SQLite journal
+│   ├─ Save to SQLite journal (runs, snapshots, scenarios)
 │   └─ Clear checkpoint
 │
 └─ Return: (final_state, rating)
@@ -250,7 +256,6 @@ propagate("BTC/USDT", "2026-05-08")
 START
   ├─ company_of_interest, trade_date [init]
   ├─ quant_signal [pre-computed]
-  └─ past_context [from memory]
 
 After Analysts:
   ├─ market_report ✓
@@ -271,7 +276,10 @@ After Risk Debate:
   └─ risk_debate_state ✓
 
 After Portfolio Manager:
-  └─ final_trade_decision ✓ → END
+  └─ final_trade_decision ✓
+
+After Scenario Planner:
+  └─ scenario_plan ✓ → END
 ```
 
 ---
@@ -280,7 +288,7 @@ After Portfolio Manager:
 
 ### 6.1 Structured Output + Fallback
 
-Research Manager, Trader, Portfolio Manager dùng Pydantic schemas để LLM trả JSON.
+Research Manager, Trader, Portfolio Manager, Scenario Planner dùng Pydantic schemas để LLM trả JSON (khi provider hỗ trợ).
 Nếu provider không hỗ trợ → fallback về free-text. Sau đó render → markdown.
 
 ```python
@@ -314,12 +322,10 @@ route_to_vendor(method, *args)
   → return first success
 ```
 
-### 6.4 Memory System
+### 6.4 Journal là bộ nhớ chính
 
-- File: `~/.tradingagents/memory/trading_memory.md`
-- Pending entries → resolved khi chạy lại cùng ticker
-- Past context inject vào Portfolio Manager prompt
-- Structured reflection: directional_correct, alpha_sign_correct, key_lesson
+- Markdown memory log legacy đã loại khỏi core; trạng thái nghiên cứu nằm trong SQLite journal (`JournalService`).
+- Outcome review và timeline phục vụ học từ quyết định, không phụ thuộc file markdown ngoài DB.
 
 ### 6.5 Journal (SQLite — 14 tables)
 

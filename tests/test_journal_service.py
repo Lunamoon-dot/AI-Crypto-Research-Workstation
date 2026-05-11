@@ -200,17 +200,19 @@ def test_journal_service_persists_scenarios_and_timeline(tmp_path):
         )
     )
 
-    saved = service.save_scenarios([
-        Scenario(
-            thesis_id=thesis.id,
-            condition="If BTC reclaims resistance with volume.",
-            expected_market_behavior="Continuation becomes more likely.",
-            probability_band=ScenarioProbabilityBand.MEDIUM,
-            invalidation="Invalid if reclaim fails.",
-            risk_map=["Funding can overheat."],
-            suggested_user_action="review long thesis",
-        )
-    ])
+    saved = service.save_scenarios(
+        [
+            Scenario(
+                thesis_id=thesis.id,
+                condition="If BTC reclaims resistance with volume.",
+                expected_market_behavior="Continuation becomes more likely.",
+                probability_band=ScenarioProbabilityBand.MEDIUM,
+                invalidation="Invalid if reclaim fails.",
+                risk_map=["Funding can overheat."],
+                suggested_user_action="review long thesis",
+            )
+        ]
+    )
 
     loaded = service.get_scenario(saved[0].id)
     scenarios = service.list_scenarios(thesis_id=thesis.id)
@@ -223,22 +225,24 @@ def test_journal_service_persists_scenarios_and_timeline(tmp_path):
 
 def test_journal_service_saves_and_reads_signals(tmp_path):
     service = JournalService(_config(tmp_path))
-    saved = service.save_signals([
-        Signal(
-            symbol="BTC/USDT",
-            signal_type="regime",
-            direction=SignalDirection.BULLISH,
-            confidence=0.7,
-            provenance=SignalProvenance(source="signal_engine"),
-        ),
-        Signal(
-            symbol="ETH/USDT",
-            signal_type="funding_oi",
-            direction=SignalDirection.BEARISH,
-            confidence=0.6,
-            provenance=SignalProvenance(source="funding_oi"),
-        ),
-    ])
+    saved = service.save_signals(
+        [
+            Signal(
+                symbol="BTC/USDT",
+                signal_type="regime",
+                direction=SignalDirection.BULLISH,
+                confidence=0.7,
+                provenance=SignalProvenance(source="signal_engine"),
+            ),
+            Signal(
+                symbol="ETH/USDT",
+                signal_type="funding_oi",
+                direction=SignalDirection.BEARISH,
+                confidence=0.6,
+                provenance=SignalProvenance(source="funding_oi"),
+            ),
+        ]
+    )
 
     btc_signals = service.list_signals(symbol="BTC/USDT")
     loaded = service.get_signal(saved[0].id)
@@ -289,23 +293,25 @@ def test_journal_service_persists_agent_opinions_and_debate(tmp_path):
     service = JournalService(_config(tmp_path))
     run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
 
-    opinions = service.save_agent_opinions([
-        AgentOpinion(
-            research_run_id=run.id,
-            agent_name="News Analyst",
-            stance=AgentStance.BULLISH,
-            confidence=0.7,
-            key_evidence=["ETF inflows improved."],
-        ),
-        AgentOpinion(
-            research_run_id=run.id,
-            agent_name="Contrarian Analyst",
-            role="research",
-            stance=AgentStance.BEARISH,
-            confidence=0.6,
-            key_evidence=["Funding is overheated."],
-        ),
-    ])
+    opinions = service.save_agent_opinions(
+        [
+            AgentOpinion(
+                research_run_id=run.id,
+                agent_name="News Analyst",
+                stance=AgentStance.BULLISH,
+                confidence=0.7,
+                key_evidence=["ETF inflows improved."],
+            ),
+            AgentOpinion(
+                research_run_id=run.id,
+                agent_name="Contrarian Analyst",
+                role="research",
+                stance=AgentStance.BEARISH,
+                confidence=0.6,
+                key_evidence=["Funding is overheated."],
+            ),
+        ]
+    )
     debate = service.save_debate(
         ResearchDebate(
             research_run_id=run.id,

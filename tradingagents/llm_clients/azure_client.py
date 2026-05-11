@@ -11,13 +11,17 @@ from .base_client import (
     _extract_token_usage,
     normalize_content,
 )
-from .validators import validate_model
 
 logger = logging.getLogger(__name__)
 
 _PASSTHROUGH_KWARGS = (
-    "timeout", "max_retries", "api_key", "reasoning_effort",
-    "callbacks", "http_client", "http_async_client",
+    "timeout",
+    "max_retries",
+    "api_key",
+    "reasoning_effort",
+    "callbacks",
+    "http_client",
+    "http_async_client",
 )
 
 
@@ -73,7 +77,9 @@ class AzureOpenAIClient(BaseLLMClient):
 
         llm_kwargs = {
             "model": self.model,
-            "azure_deployment": os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", self.model),
+            "azure_deployment": os.environ.get(
+                "AZURE_OPENAI_DEPLOYMENT_NAME", self.model
+            ),
         }
 
         for key in _PASSTHROUGH_KWARGS:

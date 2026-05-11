@@ -1,7 +1,5 @@
 """Tests for graph/conditional_logic.py — debate and risk routing."""
 
-import pytest
-
 from tradingagents.graph.conditional_logic import ConditionalLogic
 
 
@@ -10,8 +8,14 @@ from tradingagents.graph.conditional_logic import ConditionalLogic
 # ---------------------------------------------------------------------------
 
 
-def _debate_state(bull_history="", bear_history="", history="",
-                  current_response="", judge_decision="", count=0):
+def _debate_state(
+    bull_history="",
+    bear_history="",
+    history="",
+    current_response="",
+    judge_decision="",
+    count=0,
+):
     return {
         "bull_history": bull_history,
         "bear_history": bear_history,
@@ -22,12 +26,18 @@ def _debate_state(bull_history="", bear_history="", history="",
     }
 
 
-def _risk_state(aggressive_history="", conservative_history="",
-                neutral_history="", history="", latest_speaker="",
-                current_aggressive_response="",
-                current_conservative_response="",
-                current_neutral_response="",
-                judge_decision="", count=0):
+def _risk_state(
+    aggressive_history="",
+    conservative_history="",
+    neutral_history="",
+    history="",
+    latest_speaker="",
+    current_aggressive_response="",
+    current_conservative_response="",
+    current_neutral_response="",
+    judge_decision="",
+    count=0,
+):
     return {
         "aggressive_history": aggressive_history,
         "conservative_history": conservative_history,
@@ -89,7 +99,10 @@ class TestDebateRouting:
         logic = ConditionalLogic(max_debate_rounds=1)
         ds = _debate_state(count=1, current_response="Bear: caution advised")
         state = _agent_state(debate_state=ds)
-        assert logic.should_continue_debate(state) in ("Bull Researcher", "Bear Researcher")
+        assert logic.should_continue_debate(state) in (
+            "Bull Researcher",
+            "Bear Researcher",
+        )
 
     def test_multiple_rounds_config(self):
         logic = ConditionalLogic(max_debate_rounds=3)

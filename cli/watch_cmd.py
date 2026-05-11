@@ -22,7 +22,9 @@ def _service() -> WatchlistService:
 @app.command(name="add-symbol")
 def add_symbol(
     symbol: str = typer.Argument(..., help="Trading pair to watch, e.g. BTC/USDT"),
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
 ) -> None:
     """Add a symbol to a watchlist."""
     item = _service().add_symbol(symbol, watchlist_name=watchlist)
@@ -39,7 +41,9 @@ def add_symbol(
 @app.command(name="add-thesis")
 def add_thesis(
     thesis_id: str = typer.Argument(..., help="Saved thesis id to monitor"),
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
 ) -> None:
     """Add a saved thesis to a watchlist."""
     try:
@@ -58,7 +62,9 @@ def add_thesis(
 
 @app.command(name="list")
 def list_items(
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
     all_items: bool = typer.Option(False, "--all", help="Include disabled items"),
     limit: int = typer.Option(100, "--limit", min=1, help="Maximum items to show"),
 ) -> None:
@@ -99,7 +105,9 @@ def remove_item(
 @app.command(name="alerts")
 def alerts(
     symbol: str | None = typer.Option(None, "--symbol", help="Filter by symbol"),
-    thesis_id: str | None = typer.Option(None, "--thesis-id", help="Filter by thesis id"),
+    thesis_id: str | None = typer.Option(
+        None, "--thesis-id", help="Filter by thesis id"
+    ),
     unread_only: bool = typer.Option(False, "--unread", help="Show only unread alerts"),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum alerts to show"),
 ) -> None:
@@ -129,8 +137,12 @@ def alerts(
 
 @app.command(name="brief")
 def brief(
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
-    alerts_limit: int = typer.Option(20, "--alerts-limit", min=1, help="Maximum alerts to show"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
+    alerts_limit: int = typer.Option(
+        20, "--alerts-limit", min=1, help="Maximum alerts to show"
+    ),
     unread_only: bool = typer.Option(False, "--unread", help="Show only unread alerts"),
     evaluate_snapshots: bool = typer.Option(
         False,
@@ -170,7 +182,9 @@ def brief(
             )
         )
         return
-    console.print("[dim]Brief is read-only. Use `tradingagents watchlist check` to create alerts.[/dim]")
+    console.print(
+        "[dim]Brief is read-only. Use `tradingagents watchlist check` to create alerts.[/dim]"
+    )
     _print_symbol_only_items(summary.symbol_only_items)
     _print_brief_theses(summary.theses)
     _print_brief_scenarios(summary.scenarios, evaluate_snapshots=evaluate_snapshots)
@@ -192,7 +206,9 @@ def brief(
 
 @app.command(name="check")
 def check(
-    watchlist: str = typer.Option("default", "--watchlist", "-w", help="Watchlist name"),
+    watchlist: str = typer.Option(
+        "default", "--watchlist", "-w", help="Watchlist name"
+    ),
     price: list[str] | None = typer.Option(
         None,
         "--price",
@@ -201,7 +217,9 @@ def check(
 ) -> None:
     """Evaluate active thesis watches once and persist triggered alerts."""
     current_prices = _parse_price_overrides(price or [])
-    result = _service().check_once(watchlist_name=watchlist, current_prices=current_prices)
+    result = _service().check_once(
+        watchlist_name=watchlist, current_prices=current_prices
+    )
     console.print(
         Panel(
             f"Checked items: [bold]{result.checked_items}[/bold]\n"
@@ -285,7 +303,10 @@ def _parse_price_overrides(values: list[str]) -> dict[str, float]:
 def _print_symbol_only_items(items: list[WatchlistItem]) -> None:
     if not items:
         return
-    console.print("[dim]Symbol-only watches:[/dim] " + ", ".join(item.symbol or "-" for item in items))
+    console.print(
+        "[dim]Symbol-only watches:[/dim] "
+        + ", ".join(item.symbol or "-" for item in items)
+    )
     table = Table(title="Symbol-only Watches")
     table.add_column("Item ID", style="dim")
     table.add_column("Symbol", style="cyan")
@@ -301,7 +322,10 @@ def _print_symbol_only_items(items: list[WatchlistItem]) -> None:
 
 def _print_brief_theses(theses) -> None:
     if theses:
-        console.print("[dim]Active thesis symbols:[/dim] " + ", ".join(thesis.symbol for thesis in theses))
+        console.print(
+            "[dim]Active thesis symbols:[/dim] "
+            + ", ".join(thesis.symbol for thesis in theses)
+        )
     table = Table(title="Active Theses")
     table.add_column("Thesis", style="dim")
     table.add_column("Symbol", style="cyan")
@@ -312,10 +336,16 @@ def _print_brief_theses(theses) -> None:
     table.add_column("Invalidation")
     table.add_column("Targets")
     for thesis in theses:
-        confidence = f"{thesis.confidence:.0%}" if thesis.confidence is not None else "-"
+        confidence = (
+            f"{thesis.confidence:.0%}" if thesis.confidence is not None else "-"
+        )
         snapshot = "-"
         if thesis.last_price is not None:
-            when = thesis.last_snapshot_at.isoformat() if thesis.last_snapshot_at else "unknown time"
+            when = (
+                thesis.last_snapshot_at.isoformat()
+                if thesis.last_snapshot_at
+                else "unknown time"
+            )
             source = thesis.last_snapshot_source or "unknown source"
             snapshot = f"{thesis.last_price:g} ({source}, {when})"
         table.add_row(

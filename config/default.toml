@@ -55,9 +55,6 @@ disabled_data_vendors = []
 # ── Checkpoint / resume ──────────────────────────────────────────────────────
 checkpoint_enabled = false
 
-# ── Memory log ───────────────────────────────────────────────────────────────
-# memory_log_max_entries: cap on resolved entries (null = unlimited)
-
 # ── Data vendors ─────────────────────────────────────────────────────────────
 [data_vendors]
 technical_indicators = "ccxt"
@@ -76,20 +73,7 @@ backoff_base_sec = 0.35
 backoff_max_sec = 2.5
 rate_limit_per_sec = 8.0
 
-# ── Stale data ───────────────────────────────────────────────────────────────
-[stale_data]
-mode = "warn"
-max_age_hours = 24.0
-
-# ── Observability ────────────────────────────────────────────────────────────
-[observability]
-persist_run_events = true
-persist_data_provider_calls = true
-persist_llm_calls = true
-persist_snapshot_health = true
-data_provider_call_sample_rate = 1.0
-
-# ── Signal / quant weights ───────────────────────────────────────────────────
+# ── Signal / quant weights (research-tuning knobs) ───────────────────────────
 [signal_weights]
 funding_oi = 0.20
 rsi_divergence = 0.12
@@ -113,70 +97,16 @@ hold = 0.0
 underweight = -0.10
 sell = -1.0
 
-atr_risk_target = 0.02
-stress_test_threshold = 0.30
+# ── Stale data ───────────────────────────────────────────────────────────────
+[stale_data]
+mode = "warn"
+max_age_hours = 24.0
 
-# ── Assisted trade plan (research workstation, no autonomous execution) ──────
-[planning]
-enabled = false
-mode = "planning"
-exchange = "bitget"
-market_type = "spot"
-demo = false
-bypass_blocks = false
-position_sizing = "fixed"
-volatility_target_daily = 0.01
-kelly_fraction = 0.5
-initial_balance = 10000.0
+# ── Observability ────────────────────────────────────────────────────────────
+[observability]
+persist_run_events = true
+persist_data_provider_calls = true
+persist_llm_calls = true
+persist_snapshot_health = true
+data_provider_call_sample_rate = 1.0
 
-[planning.optimizer]
-method = "rating_weighted"
-max_turnover = 0.20
-min_position_pct = 0.05
-
-[planning.risk_limits]
-max_position_size_pct = 30.0
-max_leverage = 3
-max_drawdown_pct = 15.0
-max_open_positions = 5
-
-[planning.confidence_thresholds]
-force_hold = 0.05
-penalty_50 = 0.15
-penalty_70 = 0.25
-
-[planning.monitoring]
-enabled = false
-poll_interval_sec = 30
-trailing_stop_pct = 5.0
-trailing_stop_activation_pct = 3.0
-max_holding_hours = 0
-auto_close = false
-reanalyze_on_signal_change = false
-max_runtime_hours = 0
-
-[planning.monitoring.spot]
-reeval_interval_hours = 24
-min_holding_days = 0
-thesis_break_indicators = ["fundamental_change", "onchain_anomaly"]
-trailing_stop_pct = 0
-auto_close = false
-
-[planning.monitoring.futures]
-poll_interval_sec = 1.0
-trailing_stop_pct = 5.0
-trailing_stop_activation_pct = 3.0
-auto_close = false
-funding_rate_alert_threshold = 0.01
-liquidation_buffer_pct = 5.0
-
-[planning.websocket]
-enabled = false
-ticker_streams = true
-order_streams = true
-position_streams = true
-funding_rate_streams = true
-reconnect_on_error = true
-max_reconnect_attempts = 5
-reconnect_delay_sec = 3
-stale_threshold_sec = 5.0

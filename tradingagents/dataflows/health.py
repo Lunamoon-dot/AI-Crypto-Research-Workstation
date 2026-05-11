@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.interface import TOOLS_CATEGORIES, VENDOR_LIST, get_vendor
 
 
 def provider_health_snapshot(config: dict | None = None) -> dict:
-    cfg = config or get_config()
+    if config is None:
+        raise RuntimeError(
+            "No config context bound. Wrap the call in config_context() or pass config explicitly."
+        )
+    cfg = config
     disabled = {
         str(v).strip().lower()
         for v in cfg.get("disabled_data_vendors", [])
@@ -16,7 +19,9 @@ def provider_health_snapshot(config: dict | None = None) -> dict:
     runtime = cfg.get("provider_runtime", {}) or {}
     categories = {}
     for category in TOOLS_CATEGORIES:
-        vendors = [v.strip().lower() for v in get_vendor(category).split(",") if v.strip()]
+        vendors = [
+            v.strip().lower() for v in get_vendor(category).split(",") if v.strip()
+        ]
         categories[category] = {
             "configured": vendors,
             "enabled": [v for v in vendors if v not in disabled],
@@ -37,4 +42,3 @@ def provider_health_snapshot(config: dict | None = None) -> dict:
         "disabled_data_vendors": sorted(disabled),
         "provider_runtime": runtime,
     }
-

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -38,7 +40,9 @@ def _profile_file_for_display(profile_name: str) -> Path | None:
 def config_save(
     profile_name: str = typer.Argument(..., help="Name for the saved profile"),
     source_profile: str = typer.Option(
-        None, "--profile", "-p",
+        None,
+        "--profile",
+        "-p",
         help="Base profile to capture (use current selections if omitted).",
     ),
 ):
@@ -56,7 +60,8 @@ def config_save(
         console.print(f"[dim]Loaded existing profile '{source_profile}' as base.[/dim]")
     else:
         from tradingagents.default_config import DEFAULT_CONFIG
-        config = DEFAULT_CONFIG.copy()
+
+        config = deepcopy(DEFAULT_CONFIG)
         console.print("[dim]Using default configuration as base.[/dim]")
 
     path = save_profile(config, profile_name)
@@ -70,7 +75,7 @@ def config_list():
     profiles = list_profiles()
     if not profiles:
         console.print("[yellow]No saved profiles.[/yellow]")
-        console.print(f"[dim]Profiles are stored in ~/.tradingagents/profiles/[/dim]")
+        console.print("[dim]Profiles are stored in ~/.tradingagents/profiles/[/dim]")
         return
 
     table = Table(title="Saved Configuration Profiles")
@@ -82,18 +87,22 @@ def config_list():
         table.add_row(name, str(path) if path else "(missing)")
 
     console.print(table)
-    console.print(f"\n[dim]Use 'tradingagents config show <name>' to view details.[/dim]")
+    console.print(
+        "\n[dim]Use 'tradingagents config show <name>' to view details.[/dim]"
+    )
 
 
 @config_app.command("show")
 def config_show(
     profile_name: str = typer.Argument(..., help="Profile name to display"),
     full: bool = typer.Option(
-        False, "--full",
+        False,
+        "--full",
         help="Show the fully-resolved config (profile merged with defaults).",
     ),
     effective: bool = typer.Option(
-        False, "--effective",
+        False,
+        "--effective",
         help="Show the effective config (all layers: defaults + files + env + profile).",
     ),
 ):
@@ -108,13 +117,16 @@ def config_show(
         loader = ConfigLoader()
         config = loader.load(profile=profile_name, fail_fast=False)
         display = _redact_secrets_in_config(config)
-        yaml_str = yaml.safe_dump(display, default_flow_style=False,
-                                  sort_keys=False, allow_unicode=True)
-        console.print(Panel(
-            Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
-            title=f"Effective Configuration (profile: {profile_name})",
-            border_style="cyan",
-        ))
+        yaml_str = yaml.safe_dump(
+            display, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
+        console.print(
+            Panel(
+                Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
+                title=f"Effective Configuration (profile: {profile_name})",
+                border_style="cyan",
+            )
+        )
         return
 
     path: Path | None = None
@@ -124,8 +136,9 @@ def config_show(
         except ConfigurationError as exc:
             console.print(f"[red]Invalid profile '{profile_name}': {exc}[/red]")
             raise typer.Exit(code=1)
-        yaml_str = yaml.safe_dump(config, default_flow_style=False,
-                                  sort_keys=False, allow_unicode=True)
+        yaml_str = yaml.safe_dump(
+            config, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
     else:
         path = _profile_file_for_display(profile_name)
         if path is None:
@@ -133,19 +146,26 @@ def config_show(
             raise typer.Exit(code=1)
         yaml_str = path.read_text(encoding="utf-8")
 
-    syntax_lang = "toml" if (not full and path is not None and path.suffix == ".toml") else "yaml"
-    console.print(Panel(
-        Syntax(yaml_str, syntax_lang, theme="monokai", line_numbers=False),
-        title=f"Profile: {profile_name}",
-        border_style="cyan",
-    ))
+    syntax_lang = (
+        "toml" if (not full and path is not None and path.suffix == ".toml") else "yaml"
+    )
+    console.print(
+        Panel(
+            Syntax(yaml_str, syntax_lang, theme="monokai", line_numbers=False),
+            title=f"Profile: {profile_name}",
+            border_style="cyan",
+        )
+    )
 
 
 @config_app.command("delete")
 def config_delete(
     profile_name: str = typer.Argument(..., help="Profile name to delete"),
     force: bool = typer.Option(
-        False, "--force", "-f", help="Delete without confirmation.",
+        False,
+        "--force",
+        "-f",
+        help="Delete without confirmation.",
     ),
 ):
     """Delete a saved configuration profile."""
@@ -180,7 +200,7 @@ def config_health(
             console.print(f"[red]Invalid profile '{profile_name}': {exc}[/red]")
             raise typer.Exit(code=1)
     else:
-        cfg = None
+        cfg = DEFAULT_CONFIG
     snapshot = provider_health_snapshot(cfg)
 
     providers_table = Table(title="Provider Status")
@@ -263,7 +283,9 @@ def _check_llm_health(config: dict | None) -> None:
     api_key = secrets.resolve(provider)
     if not api_key:
         console.print("\n[yellow]LLM health check skipped: no API key found.[/yellow]")
-        console.print("[dim]Set your API key and run 'tradingagents config health' again.[/dim]")
+        console.print(
+            "[dim]Set your API key and run 'tradingagents config health' again.[/dim]"
+        )
         return
 
     entry = PROVIDER_REGISTRY.get(provider, {})
@@ -344,15 +366,23 @@ def config_setup() -> None:
 @config_app.command("validate")
 def config_validate(
     profile_name: str = typer.Option(
-        None, "--profile", "-p", help="Validate a specific profile.",
+        None,
+        "--profile",
+        "-p",
+        help="Validate a specific profile.",
     ),
     fail_fast: bool = typer.Option(
-        True, "--fail-fast/--warn", help="Fail on first error (default) or collect warnings.",
+        True,
+        "--fail-fast/--warn",
+        help="Fail on first error (default) or collect warnings.",
     ),
 ):
     """Validate the effective configuration (defaults + overrides merged)."""
     from tradingagents.config.loader import ConfigLoader
-    from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
+    from tradingagents.exceptions import (
+        ConfigurationValidationError,
+        LLMCredentialError,
+    )
 
     loader = ConfigLoader()
     try:
@@ -374,9 +404,15 @@ def config_validate(
             console.print("  LLM fallback: [dim]disabled[/dim]")
 
         secrets_cfg = config.get("secrets", {})
-        console.print(f"  Secrets source: [cyan]{secrets_cfg.get('source', 'env')}[/cyan]")
+        console.print(
+            f"  Secrets source: [cyan]{secrets_cfg.get('source', 'env')}[/cyan]"
+        )
 
-    except (ConfigurationValidationError, LLMCredentialError, ConfigurationError) as exc:
+    except (
+        ConfigurationValidationError,
+        LLMCredentialError,
+        ConfigurationError,
+    ) as exc:
         console.print(f"[red]Configuration validation failed:[/red]\n{exc}")
         raise typer.Exit(code=1)
 
@@ -389,14 +425,11 @@ def config_init():
     file that overrides the defaults without modifying the project files.
     """
     from pathlib import Path
-    from tradingagents.config.loader import load_config_file
     from tradingagents.config.providers import PROVIDER_REGISTRY
 
     local_path = Path.cwd() / "config" / "local.toml"
     if local_path.exists():
-        overwrite = typer.confirm(
-            "config/local.toml already exists. Overwrite?"
-        )
+        overwrite = typer.confirm("config/local.toml already exists. Overwrite?")
         if not overwrite:
             console.print("[dim]Cancelled.[/dim]")
             raise typer.Exit()
@@ -411,7 +444,9 @@ def config_init():
     console.print("Available: " + ", ".join(provider_choices))
     llm_provider = typer.prompt("Primary LLM provider", default="deepseek")
     if llm_provider.lower() not in PROVIDER_REGISTRY:
-        console.print(f"[yellow]Warning: '{llm_provider}' is not a known provider.[/yellow]")
+        console.print(
+            f"[yellow]Warning: '{llm_provider}' is not a known provider.[/yellow]"
+        )
     else:
         overrides["llm_provider"] = llm_provider.lower()
 
@@ -450,7 +485,9 @@ def config_init():
     _write_toml_section(content_lines, overrides, 0)
     local_path.write_text("\n".join(content_lines) + "\n", encoding="utf-8")
     console.print(f"\n[green]Config written to[/green] {local_path}")
-    console.print("[dim]Run 'tradingagents config validate' to check your settings.[/dim]")
+    console.print(
+        "[dim]Run 'tradingagents config validate' to check your settings.[/dim]"
+    )
 
 
 def _write_toml_section(lines: list[str], data: dict, indent: int) -> None:
@@ -481,7 +518,10 @@ def _write_toml_section(lines: list[str], data: dict, indent: int) -> None:
 @config_app.command("effective")
 def config_effective(
     profile_name: str = typer.Option(
-        None, "--profile", "-p", help="Include a specific profile.",
+        None,
+        "--profile",
+        "-p",
+        help="Include a specific profile.",
     ),
 ):
     """Show the fully resolved effective configuration (all layers merged).
@@ -497,18 +537,22 @@ def config_effective(
     # Redact any secret-like values for safe display
     display = _redact_secrets_in_config(config)
 
-    yaml_str = yaml.safe_dump(display, default_flow_style=False,
-                              sort_keys=False, allow_unicode=True)
-    console.print(Panel(
-        Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
-        title="Effective Configuration",
-        border_style="cyan",
-    ))
+    yaml_str = yaml.safe_dump(
+        display, default_flow_style=False, sort_keys=False, allow_unicode=True
+    )
+    console.print(
+        Panel(
+            Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False),
+            title="Effective Configuration",
+            border_style="cyan",
+        )
+    )
 
 
 def _redact_secrets_in_config(config: dict) -> dict:
     """Return a copy of config with API-key-like values redacted for display."""
     from copy import deepcopy
+
     result = deepcopy(config)
     _secret_keywords = ("api_key", "token", "secret", "password", "key", "credential")
     for key in list(result.keys()):

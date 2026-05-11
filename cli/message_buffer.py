@@ -12,7 +12,11 @@ class MessageBuffer:
     FIXED_AGENTS = {
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
         "Thesis Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
+        "Risk Management": [
+            "Aggressive Analyst",
+            "Neutral Analyst",
+            "Conservative Analyst",
+        ],
         "Portfolio Management": ["Portfolio Manager"],
     }
 
@@ -43,7 +47,6 @@ class MessageBuffer:
         self.report_sections = {}
         self.selected_analysts = []
         self._processed_message_ids = set()
-        self.execution_result = None
 
     def init_for_analysis(self, selected_analysts):
         self.selected_analysts = [a.lower() for a in selected_analysts]
@@ -68,7 +71,6 @@ class MessageBuffer:
         self.messages.clear()
         self.tool_calls.clear()
         self._processed_message_ids.clear()
-        self.execution_result = None
 
     def get_completed_reports_count(self):
         count = 0

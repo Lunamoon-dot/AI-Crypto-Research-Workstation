@@ -125,8 +125,11 @@ def test_route_to_vendor_emits_provider_observability_events(monkeypatch, caplog
     )
     monkeypatch.setattr(interface, "get_vendor", lambda _category, _method: "bad")
 
+    from tradingagents.dataflows.config import config_context
+
     with caplog.at_level(logging.INFO, logger=interface.logger.name):
-        assert interface.route_to_vendor("get_test_data") == "ok"
+        with config_context({"data_vendors": {"test_data": "bad"}}):
+            assert interface.route_to_vendor("get_test_data") == "ok"
 
     events = [
         json.loads(record.getMessage())
@@ -168,9 +171,7 @@ def test_log_event_skips_data_provider_persist_when_disabled(caplog):
     journal = MagicMock()
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        with observability_run_event_persistence(
-            journal, persist_provider_calls=False
-        ):
+        with observability_run_event_persistence(journal, persist_provider_calls=False):
             log_event(
                 logger,
                 "data_provider_call",
@@ -201,7 +202,9 @@ def test_log_event_skips_llm_call_persist_when_disabled():
 def test_log_event_samples_data_provider_calls_to_timeline(monkeypatch):
     logger = logging.getLogger("tests.observability.sample")
     journal = MagicMock()
-    monkeypatch.setattr("tradingagents.observability.logging.random.random", lambda: 0.9)
+    monkeypatch.setattr(
+        "tradingagents.observability.logging.random.random", lambda: 0.9
+    )
     with observability_run_event_persistence(
         journal,
         persist_provider_calls=True,
@@ -267,9 +270,7 @@ def test_timeline_message_signal_generated():
 def test_timeline_message_decision_created():
     from tradingagents.observability.logging import _timeline_message
 
-    msg = _timeline_message(
-        "decision.created", {"thesis_direction": "LONG"}
-    )
+    msg = _timeline_message("decision.created", {"thesis_direction": "LONG"})
     assert "LONG" in msg
 
 
@@ -287,9 +288,7 @@ def test_timeline_message_risk_checked():
 def test_timeline_message_order_submitted():
     from tradingagents.observability.logging import _timeline_message
 
-    msg = _timeline_message(
-        "order.submitted", {"action": "plan_long"}
-    )
+    msg = _timeline_message("order.submitted", {"action": "plan_long"})
     assert "plan_long" in msg
 
 
@@ -407,7 +406,9 @@ def test_log_event_order_submitted(caplog):
 def test_decision_id_in_observability_context(caplog):
     logger = logging.getLogger("tests.observability")
     with caplog.at_level(logging.INFO, logger=logger.name):
-        with observability_context(run_id="run-ctx", decision_id="dec-ctx", symbol="BTC/USDT"):
+        with observability_context(
+            run_id="run-ctx", decision_id="dec-ctx", symbol="BTC/USDT"
+        ):
             log_event(logger, "research_run_started", status="running")
     payload = json.loads(caplog.records[-1].getMessage())
     assert payload["run_id"] == "run-ctx"
@@ -425,5 +426,7 @@ def test_all_new_timeline_event_types_are_mapped():
         "risk_checked",
         "order_submitted",
     ):
-        assert name in _TIMELINE_EVENT_TYPES, f"{name} missing from _TIMELINE_EVENT_TYPES"
+        assert name in _TIMELINE_EVENT_TYPES, (
+            f"{name} missing from _TIMELINE_EVENT_TYPES"
+        )
         assert "." in _TIMELINE_EVENT_TYPES[name], f"{name} should map to dot.case"

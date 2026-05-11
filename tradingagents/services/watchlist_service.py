@@ -111,10 +111,14 @@ class WatchlistService:
             return watchlist
         return self.repo.save_watchlist(Watchlist(name=name))
 
-    def list_watchlists(self, *, enabled_only: bool = False, limit: int = 50) -> list[Watchlist]:
+    def list_watchlists(
+        self, *, enabled_only: bool = False, limit: int = 50
+    ) -> list[Watchlist]:
         return self.repo.list_watchlists(enabled_only=enabled_only, limit=limit)
 
-    def add_symbol(self, symbol: str, *, watchlist_name: str = "default") -> WatchlistItem:
+    def add_symbol(
+        self, symbol: str, *, watchlist_name: str = "default"
+    ) -> WatchlistItem:
         watchlist = self.get_or_create_watchlist(watchlist_name)
         return self.repo.save_watchlist_item(
             WatchlistItem(
@@ -124,7 +128,9 @@ class WatchlistService:
             )
         )
 
-    def add_thesis(self, thesis_id: str, *, watchlist_name: str = "default") -> WatchlistItem:
+    def add_thesis(
+        self, thesis_id: str, *, watchlist_name: str = "default"
+    ) -> WatchlistItem:
         thesis = self.repo.get_thesis(thesis_id)
         if not thesis:
             raise ValueError(f"Thesis not found: {thesis_id}")
@@ -192,10 +198,14 @@ class WatchlistService:
 
         items = self.list_items(watchlist_name=watchlist_name, enabled_only=True)
         thesis_items = [
-            item for item in items if item.item_type == WatchlistItemType.THESIS and item.thesis_id
+            item
+            for item in items
+            if item.item_type == WatchlistItemType.THESIS and item.thesis_id
         ]
         symbol_only_items = [
-            item for item in items if item.item_type == WatchlistItemType.SYMBOL and item.symbol
+            item
+            for item in items
+            if item.item_type == WatchlistItemType.SYMBOL and item.symbol
         ]
 
         theses: list[BriefThesisRow] = []
@@ -307,7 +317,9 @@ class WatchlistService:
         unread_only: bool,
         limit: int,
     ) -> list[Alert]:
-        alerts = self.repo.list_alerts(unread_only=unread_only, limit=max(limit * 5, 100))
+        alerts = self.repo.list_alerts(
+            unread_only=unread_only, limit=max(limit * 5, 100)
+        )
         scoped = [
             alert
             for alert in alerts
@@ -329,7 +341,9 @@ class WatchlistService:
             snapshot_active = False
             snapshot_reason = None
             if evaluate_snapshots and snapshot_price is not None:
-                activation = _scenario_activation(scenario, thesis, float(snapshot_price))
+                activation = _scenario_activation(
+                    scenario, thesis, float(snapshot_price)
+                )
                 if activation:
                     snapshot_active = True
                     snapshot_reason = activation[1]
@@ -357,7 +371,9 @@ class WatchlistService:
     ) -> list[Alert]:
         alerts: list[Alert] = []
         invalidation_level = _extract_first_level(thesis.invalidation_level)
-        if invalidation_level is not None and _invalidation_triggered(thesis, current_price, invalidation_level):
+        if invalidation_level is not None and _invalidation_triggered(
+            thesis, current_price, invalidation_level
+        ):
             alert = self._create_alert_once(
                 alert_type=AlertType.THESIS_INVALIDATED,
                 thesis=thesis,
@@ -511,7 +527,9 @@ def _invalidation_triggered(
     return current_price <= invalidation_level
 
 
-def _target_triggered(thesis: TradeThesis, current_price: float, target_level: float) -> bool:
+def _target_triggered(
+    thesis: TradeThesis, current_price: float, target_level: float
+) -> bool:
     if thesis.direction == ThesisDirection.SHORT:
         return current_price <= target_level
     return current_price >= target_level

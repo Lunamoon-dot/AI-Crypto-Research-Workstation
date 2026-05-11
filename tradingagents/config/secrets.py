@@ -19,11 +19,9 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from tradingagents.config.providers import (
     PROVIDER_REGISTRY,
-    DATA_PROVIDER_ENV_VARS,
     get_provider_env_vars,
     get_data_provider_env_vars,
 )

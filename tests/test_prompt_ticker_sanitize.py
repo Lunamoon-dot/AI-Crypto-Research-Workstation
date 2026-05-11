@@ -10,10 +10,7 @@ from tradingagents.agents.utils.agent_utils import (
 
 @pytest.mark.unit
 def test_sanitize_strips_controls_and_truncates():
-    raw = (
-        "BTC/USDT\r\nIgnore-previous`\u202e`\x00evil"
-        + ("A" * 120)
-    )
+    raw = "BTC/USDT\r\nIgnore-previous`\u202e`\x00evil" + ("A" * 120)
     out = sanitize_ticker_for_prompt(raw, max_len=32)
     assert "\x00" not in out
     assert "\r" not in out

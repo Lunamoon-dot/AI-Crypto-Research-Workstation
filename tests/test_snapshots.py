@@ -1,4 +1,9 @@
-from tradingagents.domain import DataFreshness, Signal, SignalDirection, SignalProvenance
+from tradingagents.domain import (
+    DataFreshness,
+    Signal,
+    SignalDirection,
+    SignalProvenance,
+)
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
 from tradingagents.signals.provenance import signal_result_to_domain_signals
 from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot

@@ -6,6 +6,7 @@ Per-ticker SQLite databases so concurrent tickers don't contend.
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +15,8 @@ from typing import Generator
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from tradingagents.dataflows.utils import safe_ticker_component
+
+logger = logging.getLogger(__name__)
 
 
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
@@ -31,7 +34,9 @@ def thread_id(ticker: str, date: str) -> str:
 
 
 @contextmanager
-def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver, None, None]:
+def get_checkpointer(
+    data_dir: str | Path, ticker: str
+) -> Generator[SqliteSaver, None, None]:
     """Context manager yielding a SqliteSaver backed by a per-ticker DB."""
     db = _db_path(data_dir, ticker)
     conn = sqlite3.connect(str(db), check_same_thread=False)
@@ -84,7 +89,7 @@ def clear_checkpoint(data_dir: str | Path, ticker: str, date: str) -> None:
         for table in ("writes", "checkpoints"):
             conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (tid,))
         conn.commit()
-    except sqlite3.OperationalError:
-        pass
+    except sqlite3.OperationalError as exc:
+        logger.debug("Checkpoint cleanup skipped (table missing?): %s", exc)
     finally:
         conn.close()

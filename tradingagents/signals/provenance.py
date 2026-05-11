@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from tradingagents.domain import DataFreshness, Signal, SignalDirection, SignalProvenance
+from tradingagents.domain import (
+    DataFreshness,
+    Signal,
+    SignalDirection,
+    SignalProvenance,
+)
 from tradingagents.exceptions import StaleDataError
 from tradingagents.observability import log_event
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
@@ -84,8 +89,14 @@ def signal_result_to_domain_signals(
     *,
     now: datetime | None = None,
     stale_mode: str | None = None,
+    reliability_map: dict[str, dict[str, float | int]] | None = None,
 ) -> list[Signal]:
-    """Convert a SignalResult plus factors into domain Signal records."""
+    """Convert a SignalResult plus factors into domain Signal records.
+
+    *reliability_map* is an optional dict mapping signal_type to
+    ``{"historical_reliability": float, "sample_size": int}`` for
+    populating provenance with observed historical performance.
+    """
     observed_at = now or datetime.now(timezone.utc)
     source_timestamp = parse_signal_timestamp(result.timestamp)
     freshness, freshness_seconds = freshness_from_timestamp(
@@ -96,7 +107,11 @@ def signal_result_to_domain_signals(
         source="signal_engine",
     )
 
-    signals = [_composite_signal(result, source_timestamp, freshness, freshness_seconds, observed_at)]
+    signals = [
+        _composite_signal(
+            result, source_timestamp, freshness, freshness_seconds, observed_at
+        )
+    ]
     signals.extend(
         _factor_signal(
             result,
@@ -108,6 +123,17 @@ def signal_result_to_domain_signals(
         )
         for factor in result.factors
     )
+
+    # Populate historical_reliability and sample_size from evaluation data (Phase 3 tail)
+    if reliability_map:
+        for signal in signals:
+            stats = reliability_map.get(signal.signal_type)
+            if stats:
+                if "historical_reliability" in stats:
+                    signal.provenance.historical_reliability = float(stats["historical_reliability"])
+                if "sample_size" in stats:
+                    signal.provenance.sample_size = int(stats["sample_size"])
+
     return signals
 
 
@@ -190,3 +216,33 @@ def _factor_signal(
         },
         summary=factor.detail,
     )
+
+
+def build_reliability_map_from_evaluations(
+    evaluations: list,
+) -> dict[str, dict[str, float | int]]:
+    """Build a reliability map from evaluation analytics data.
+
+    Accepts a list of objects that have ``signal_type`` (or ``key``),
+    ``historical_reliability``, and ``sample_size`` attributes —
+    typically the result of ``EvaluationService.build_factor_reliability()``.
+    """
+    result: dict[str, dict[str, float | int]] = {}
+    for evaluation in evaluations:
+        key = (
+            getattr(evaluation, "signal_type", None)
+            or getattr(evaluation, "key", None)
+            or getattr(evaluation, "factor_name", None)
+        )
+        if not key:
+            continue
+        entry: dict[str, float | int] = {}
+        if hasattr(evaluation, "historical_reliability"):
+            entry["historical_reliability"] = float(evaluation.historical_reliability)
+        elif hasattr(evaluation, "hit_rate"):
+            entry["historical_reliability"] = float(evaluation.hit_rate)
+        if hasattr(evaluation, "sample_size"):
+            entry["sample_size"] = int(evaluation.sample_size)
+        if entry:
+            result[key] = entry
+    return result

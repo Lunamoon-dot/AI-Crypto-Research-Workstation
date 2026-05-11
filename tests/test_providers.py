@@ -1,7 +1,5 @@
 """Tests for the centralized provider registry."""
 
-import pytest
-
 from tradingagents.config.providers import (
     PROVIDER_REGISTRY,
     KNOWN_PROVIDERS,

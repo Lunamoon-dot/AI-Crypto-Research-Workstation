@@ -39,13 +39,19 @@ def resample_ohlcv(df: pd.DataFrame, target: str) -> Optional[pd.DataFrame]:
     if rule is None:
         return df  # daily
 
-    resampled = df.resample(rule).agg({
-        "Open": "first",
-        "High": "max",
-        "Low": "min",
-        "Close": "last",
-        "Volume": "sum",
-    }).dropna()
+    resampled = (
+        df.resample(rule)
+        .agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        )
+        .dropna()
+    )
 
     if resampled.empty:
         return None
@@ -67,8 +73,13 @@ def detect_trend(df: pd.DataFrame, column: str = "Close") -> dict:
     Returns a dict with keys: direction, strength, slope_pct, above_sma_20, above_sma_50
     """
     if df is None or df.empty or len(df) < 5:
-        return {"direction": "neutral", "strength": 0.0, "slope_pct": 0.0,
-                "above_sma_20": False, "above_sma_50": False}
+        return {
+            "direction": "neutral",
+            "strength": 0.0,
+            "slope_pct": 0.0,
+            "above_sma_20": False,
+            "above_sma_50": False,
+        }
 
     close = df[column].astype(float)
     sma20 = _sma(close, min(20, len(close)))
@@ -114,8 +125,11 @@ def trend_alignment_score(trends: dict[str, dict]) -> dict:
     """
     present = {k: v for k, v in trends.items() if v is not None}
     if len(present) < 2:
-        return {"score": 50, "verdict": "insufficient_data",
-                "breakdown": "Need at least 2 timeframes for alignment analysis."}
+        return {
+            "score": 50,
+            "verdict": "insufficient_data",
+            "breakdown": "Need at least 2 timeframes for alignment analysis.",
+        }
 
     directions = [v["direction"] for v in present.values()]
     strengths = [v["strength"] for v in present.values()]
@@ -152,7 +166,9 @@ def trend_alignment_score(trends: dict[str, dict]) -> dict:
         "score": combined,
         "verdict": verdict,
         "breakdown": "\n".join(breakdown_lines),
-        "direction_consensus": max(set(directions), key=directions.count) if directions else "neutral",
+        "direction_consensus": max(set(directions), key=directions.count)
+        if directions
+        else "neutral",
     }
 
 
@@ -204,7 +220,7 @@ def generate_mtf_report(
     # Alignment
     alignment = trend_alignment_score(trends)
 
-    header = f"Multi-Timeframe Analysis"
+    header = "Multi-Timeframe Analysis"
     if symbol:
         header += f" for {symbol}"
     header += f"\n{'=' * 50}"

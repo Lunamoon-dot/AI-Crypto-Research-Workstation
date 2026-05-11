@@ -1,12 +1,9 @@
 """Test checkpoint resume: crash mid-analysis, re-run resumes from last node."""
 
-import sqlite3
 import tempfile
 import unittest
-from pathlib import Path
 from typing import TypedDict
 
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, StateGraph
 
 from tradingagents.graph.checkpointer import (
@@ -107,7 +104,6 @@ class TestCheckpointResume(unittest.TestCase):
 
         self.assertEqual(result["count"], 11)
 
-
     def test_different_date_starts_fresh(self):
         """A different date must NOT resume from an existing checkpoint."""
         global _should_crash
@@ -134,7 +130,9 @@ class TestCheckpointResume(unittest.TestCase):
 
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
             graph = builder.compile(checkpointer=saver)
-            result = graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid2}})
+            result = graph.invoke(
+                {"count": 0}, config={"configurable": {"thread_id": tid2}}
+            )
 
         # Fresh run: analyst +1, trader +10 = 11
         self.assertEqual(result["count"], 11)

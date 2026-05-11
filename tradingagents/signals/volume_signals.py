@@ -13,7 +13,6 @@ import logging
 from io import StringIO
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from .base import FactorSignal, SignalScore
@@ -28,7 +27,8 @@ def compute_volume_signal(ohlcv_csv: str) -> FactorSignal:
         required = {"Close", "Volume"}
         if not required.issubset(df.columns) or len(df) < 20:
             return _neutral("volume_profile", "Insufficient data for volume analysis.")
-    except Exception:
+    except Exception as e:
+        logger.warning("Volume signal OHLCV parse error: %s", e)
         return _neutral("volume_profile", "OHLCV parse error.")
 
     close = df["Close"].astype(float)
@@ -40,7 +40,9 @@ def compute_volume_signal(ohlcv_csv: str) -> FactorSignal:
     vol_sma_20 = volume.rolling(20).mean()
     vol_sma_5 = volume.rolling(5).mean()
     if len(vol_sma_20) < 20 or len(vol_sma_5) < 5:
-        return _neutral("volume_profile", "Volume MA computation incomplete.", data_quality=dq)
+        return _neutral(
+            "volume_profile", "Volume MA computation incomplete.", data_quality=dq
+        )
 
     current_vol = volume.iloc[-1]
     avg_vol_20 = vol_sma_20.iloc[-1]
@@ -48,7 +50,9 @@ def compute_volume_signal(ohlcv_csv: str) -> FactorSignal:
     vol_ratio = current_vol / avg_vol_20 if avg_vol_20 > 0 else 1.0
 
     # Price change over last 5 bars
-    price_change_5 = (close.iloc[-1] - close.iloc[-6]) / close.iloc[-6] if len(close) >= 6 else 0.0
+    price_change_5 = (
+        (close.iloc[-1] - close.iloc[-6]) / close.iloc[-6] if len(close) >= 6 else 0.0
+    )
 
     # Volume climax detection (> 2.5x average)
     if vol_ratio > 2.5:
@@ -135,7 +139,7 @@ def compute_volume_signal(ohlcv_csv: str) -> FactorSignal:
     )
 
 
-LONG_LIQ_THRESHOLD = 200_000   # $200k long liquidations
+LONG_LIQ_THRESHOLD = 200_000  # $200k long liquidations
 SHORT_LIQ_THRESHOLD = 200_000
 
 
@@ -159,7 +163,12 @@ def compute_liquidation_signal(liq_text: str | None = None) -> FactorSignal:
     dq = 0.8 if has_both else (0.5 if total > 0 else 0.0)
 
     if total == 0:
-        return _neutral("liquidations", "No recent liquidation events.", confidence=0.3, data_quality=dq)
+        return _neutral(
+            "liquidations",
+            "No recent liquidation events.",
+            confidence=0.3,
+            data_quality=dq,
+        )
 
     # Imbalance: long_liq / short_liq
     if short_liq > 0:
@@ -192,7 +201,7 @@ def compute_liquidation_signal(liq_text: str | None = None) -> FactorSignal:
             data_quality=dq,
             detail=(
                 f"Heavy short liquidations (${short_liq:,.0f}) vs longs "
-                f"(${long_liq:,.0f}) — ratio {1.0/ratio:.1f}x. "
+                f"(${long_liq:,.0f}) — ratio {1.0 / ratio:.1f}x. "
                 f"Short squeeze in progress."
             ),
         )
@@ -211,6 +220,7 @@ def compute_liquidation_signal(liq_text: str | None = None) -> FactorSignal:
 def _extract_value(text: str, label: str) -> Optional[float]:
     """Extract dollar value after a label like 'Long liquidations: $123,456'."""
     import re
+
     pattern = rf"{label}:\s*\$?([\d,]+(?:\.\d{{2}})?)"
     m = re.search(pattern, text, re.IGNORECASE)
     if m:
@@ -218,8 +228,15 @@ def _extract_value(text: str, label: str) -> Optional[float]:
     return None
 
 
-def _neutral(name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0) -> FactorSignal:
+def _neutral(
+    name: str, msg: str, confidence: float = 0.0, data_quality: float = 0.0
+) -> FactorSignal:
     return FactorSignal(
-        name=name, score=SignalScore.NEUTRAL, confidence=confidence,
-        value=0.0, threshold_breached=False, data_quality=data_quality, detail=msg,
+        name=name,
+        score=SignalScore.NEUTRAL,
+        confidence=confidence,
+        value=0.0,
+        threshold_breached=False,
+        data_quality=data_quality,
+        detail=msg,
     )

@@ -87,9 +87,7 @@ class ChunkProcessor:
                 )
                 for item in content
             ]
-            result = " ".join(
-                t for t in text_parts if t and not is_empty(t)
-            )
+            result = " ".join(t for t in text_parts if t and not is_empty(t))
             return result if result else None
 
         return str(content).strip() if not is_empty(content) else None
@@ -143,32 +141,21 @@ class ChunkProcessor:
 
             # Capture new report content from current chunk
             if chunk.get(report_key):
-                self.message_buffer.update_report_section(
-                    report_key, chunk[report_key]
-                )
+                self.message_buffer.update_report_section(report_key, chunk[report_key])
 
             # With parallelism, status is completed if report exists,
             # otherwise in_progress (all analysts run simultaneously)
-            has_report = bool(
-                self.message_buffer.report_sections.get(report_key)
-            )
+            has_report = bool(self.message_buffer.report_sections.get(report_key))
 
             if has_report:
-                self.message_buffer.update_agent_status(
-                    agent_name, "completed"
-                )
+                self.message_buffer.update_agent_status(agent_name, "completed")
             else:
-                self.message_buffer.update_agent_status(
-                    agent_name, "in_progress"
-                )
+                self.message_buffer.update_agent_status(agent_name, "in_progress")
                 all_completed = False
 
         # When all analysts complete, transition research team to in_progress
         if all_completed and selected:
-            if (
-                self.message_buffer.agent_status.get("Bull Researcher")
-                == "pending"
-            ):
+            if self.message_buffer.agent_status.get("Bull Researcher") == "pending":
                 self.message_buffer.update_agent_status(
                     "Bull Researcher", "in_progress"
                 )
@@ -233,18 +220,13 @@ class ChunkProcessor:
                     f"### Research Manager Decision\n{judge}",
                 )
                 self.update_research_team_status("completed")
-                self.message_buffer.update_agent_status(
-                    "Trader", "in_progress"
-                )
+                self.message_buffer.update_agent_status("Trader", "in_progress")
 
         if chunk.get("trader_investment_plan"):
             self.message_buffer.update_report_section(
                 "trader_investment_plan", chunk["trader_investment_plan"]
             )
-            if (
-                self.message_buffer.agent_status.get("Trader")
-                != "completed"
-            ):
+            if self.message_buffer.agent_status.get("Trader") != "completed":
                 self.message_buffer.update_agent_status("Trader", "completed")
                 self.message_buffer.update_agent_status(
                     "Aggressive Analyst", "in_progress"
@@ -259,9 +241,7 @@ class ChunkProcessor:
 
             if agg_hist:
                 if (
-                    self.message_buffer.agent_status.get(
-                        "Aggressive Analyst"
-                    )
+                    self.message_buffer.agent_status.get("Aggressive Analyst")
                     != "completed"
                 ):
                     self.message_buffer.update_agent_status(
@@ -273,9 +253,7 @@ class ChunkProcessor:
                 )
             if con_hist:
                 if (
-                    self.message_buffer.agent_status.get(
-                        "Conservative Analyst"
-                    )
+                    self.message_buffer.agent_status.get("Conservative Analyst")
                     != "completed"
                 ):
                     self.message_buffer.update_agent_status(
@@ -299,9 +277,7 @@ class ChunkProcessor:
                 )
             if judge:
                 if (
-                    self.message_buffer.agent_status.get(
-                        "Portfolio Manager"
-                    )
+                    self.message_buffer.agent_status.get("Portfolio Manager")
                     != "completed"
                 ):
                     self.message_buffer.update_agent_status(

@@ -6,40 +6,32 @@ and news sentiment aggregation from free/accessible endpoints.
 
 from __future__ import annotations
 
-import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.request import Request, urlopen
-from urllib.error import URLError
+
+from .http_utils import fetch_json_with_retry
 
 logger = logging.getLogger(__name__)
 
 # Cache to avoid hammering endpoints within a single run
 _cache: dict[str, tuple[float, str]] = {}
+_cache_lock = threading.Lock()
 _CACHE_TTL = 120  # seconds
 
 
 def _cached(key: str) -> Optional[str]:
-    ts, val = _cache.get(key, (0, ""))
+    with _cache_lock:
+        ts, val = _cache.get(key, (0, ""))
     if ts and (datetime.now(timezone.utc).timestamp() - ts) < _CACHE_TTL:
         return val
     return None
 
 
 def _set_cache(key: str, val: str) -> None:
-    _cache[key] = (datetime.now(timezone.utc).timestamp(), val)
-
-
-def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
-    """Fetch JSON from a URL. Returns dict or None on failure."""
-    try:
-        req = Request(url, headers={"User-Agent": "TradingAgents/0.2"})
-        with urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except (URLError, json.JSONDecodeError, OSError) as e:
-        logger.debug("Sentiment fetch failed for %s: %s", url, e)
-        return None
+    with _cache_lock:
+        _cache[key] = (datetime.now(timezone.utc).timestamp(), val)
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +49,7 @@ def fetch_crypto_fear_greed() -> str:
     if cached:
         return cached
 
-    data = _fetch_json("https://api.alternative.me/fng/?limit=3")
+    data = fetch_json_with_retry("https://api.alternative.me/fng/?limit=3")
     if data is None or "data" not in data:
         return "Crypto Fear & Greed Index: unavailable (API error)."
 
@@ -79,7 +71,9 @@ def fetch_crypto_fear_greed() -> str:
     elif latest_val <= 75:
         lines.append("🟢 Greed — bullish sentiment, consider taking partial profits.")
     else:
-        lines.append("🟣 Extreme Greed — overheated market, heightened correction risk.")
+        lines.append(
+            "🟣 Extreme Greed — overheated market, heightened correction risk."
+        )
 
     result = "\n".join(lines)
     _set_cache("crypto_fng", result)
@@ -106,7 +100,7 @@ def fetch_social_sentiment(symbol: str, asset_class: str = "crypto") -> str:
 
 def _fetch_coingecko_trending(base: str) -> str:
     """Fetch trending data from CoinGecko public API (no key needed)."""
-    data = _fetch_json("https://api.coingecko.com/api/v3/search/trending")
+    data = fetch_json_with_retry("https://api.coingecko.com/api/v3/search/trending")
     if data is None:
         return f"Social Sentiment for {base.upper()}: CoinGecko API unavailable."
 
@@ -115,7 +109,10 @@ def _fetch_coingecko_trending(base: str) -> str:
     position = None
     for i, coin in enumerate(coins):
         item = coin.get("item", {})
-        if item.get("symbol", "").lower() == base.lower() or item.get("id", "").lower() == base.lower():
+        if (
+            item.get("symbol", "").lower() == base.lower()
+            or item.get("id", "").lower() == base.lower()
+        ):
             found = item
             position = i + 1
             break
@@ -125,7 +122,9 @@ def _fetch_coingecko_trending(base: str) -> str:
     if found:
         lines.append(f"  CoinGecko Trending Rank: #{position}")
         lines.append(f"  Market Cap Rank: #{found.get('market_cap_rank', 'N/A')}")
-        lines.append(f"  Score: {found.get('score', 0):.0f} (higher = more social interest)")
+        lines.append(
+            f"  Score: {found.get('score', 0):.0f} (higher = more social interest)"
+        )
         lines.append("")
         score = found.get("score", 0)
         if score > 500:
@@ -135,8 +134,10 @@ def _fetch_coingecko_trending(base: str) -> str:
         else:
             lines.append("⚪ Low social interest — flying under the radar.")
     else:
-        lines.append(f"  Not in CoinGecko Top Trending (15 coins).")
-        lines.append(f"  This suggests low retail attention for {base.upper()} right now.")
+        lines.append("  Not in CoinGecko Top Trending (15 coins).")
+        lines.append(
+            f"  This suggests low retail attention for {base.upper()} right now."
+        )
 
     result = "\n".join(lines)
     _set_cache(f"social_{base}", result)
@@ -157,14 +158,44 @@ def aggregate_news_sentiment(headlines_csv: str) -> str:
         return "News Sentiment: insufficient headlines for aggregation."
 
     bullish_words = [
-        "beat", "upgrade", "raise", "growth", "profit", "surge", "rally",
-        "bull", "breakout", "outperform", "strong", "positive", "record",
-        "approval", "partnership", "launch", "innovation", "buyback",
+        "beat",
+        "upgrade",
+        "raise",
+        "growth",
+        "profit",
+        "surge",
+        "rally",
+        "bull",
+        "breakout",
+        "outperform",
+        "strong",
+        "positive",
+        "record",
+        "approval",
+        "partnership",
+        "launch",
+        "innovation",
+        "buyback",
     ]
     bearish_words = [
-        "miss", "downgrade", "cut", "decline", "loss", "plunge", "crash",
-        "bear", "breakdown", "underperform", "weak", "negative", "investigation",
-        "lawsuit", "layoff", "bankruptcy", "default", "sanction",
+        "miss",
+        "downgrade",
+        "cut",
+        "decline",
+        "loss",
+        "plunge",
+        "crash",
+        "bear",
+        "breakdown",
+        "underperform",
+        "weak",
+        "negative",
+        "investigation",
+        "lawsuit",
+        "layoff",
+        "bankruptcy",
+        "default",
+        "sanction",
     ]
 
     lines_lower = headlines_csv.lower().splitlines()

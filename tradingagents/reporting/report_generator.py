@@ -16,9 +16,11 @@ logger = logging.getLogger(__name__)
 # Try to import charting — graceful degradation if not installed
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -35,7 +37,6 @@ class ReportGenerator:
     def generate_complete_report(
         self,
         final_state: dict,
-        execution_result: Optional[str] = None,
         include_charts: bool = True,
     ) -> str:
         """Generate a comprehensive markdown report from the final graph state.
@@ -43,7 +44,6 @@ class ReportGenerator:
         Parameters
         ----------
         final_state : The final state dict from the graph run
-        execution_result : Optional thesis-planning summary string
         include_charts : Whether to embed chart references
 
         Returns
@@ -56,7 +56,7 @@ class ReportGenerator:
 
         sections = [
             self._header(ticker, trade_date),
-            self._executive_summary(rating, execution_result),
+            self._executive_summary(rating),
             self._analyst_reports(final_state),
             self._investment_debate(final_state),
             self._trader_plan(final_state),
@@ -78,7 +78,6 @@ class ReportGenerator:
     def save_report(
         self,
         final_state: dict,
-        execution_result: Optional[str] = None,
         output_dir: Optional[Path] = None,
     ) -> Path:
         """Generate and save the complete report to disk.
@@ -92,7 +91,7 @@ class ReportGenerator:
         out_dir = output_dir or (self.results_dir / safe_ticker / trade_date)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        report = self.generate_complete_report(final_state, execution_result)
+        report = self.generate_complete_report(final_state)
         report_path = out_dir / "complete_report.md"
         report_path.write_text(report, encoding="utf-8")
 
@@ -111,22 +110,22 @@ class ReportGenerator:
             f"**LLM Provider**: {self.config.get('llm_provider', 'unknown').title()}"
         )
 
-    def _executive_summary(
-        self, rating_text: str, execution_result: Optional[str]
-    ) -> str:
+    def _executive_summary(self, rating_text: str) -> str:
         section = "## Executive Summary\n\n"
         section += f"{rating_text}\n"
 
         # Extract rating keyword for a visual badge
         for kw in ["Buy", "Overweight", "Hold", "Underweight", "Sell"]:
             if kw in rating_text:
-                emoji = {"Buy": "🟢", "Overweight": "🟢", "Hold": "🟡",
-                         "Underweight": "🟠", "Sell": "🔴"}.get(kw, "⚪")
+                emoji = {
+                    "Buy": "🟢",
+                    "Overweight": "🟢",
+                    "Hold": "🟡",
+                    "Underweight": "🟠",
+                    "Sell": "🔴",
+                }.get(kw, "⚪")
                 section += f"\n**Final Rating**: {emoji} {kw}\n"
                 break
-
-        if execution_result:
-            section += f"\n**Thesis Plan**: {execution_result}\n"
 
         return section
 
@@ -140,9 +139,13 @@ class ReportGenerator:
         if state.get("news_report"):
             section += "### News & Macro Analysis\n\n" + state["news_report"] + "\n\n"
         if state.get("fundamentals_report"):
-            section += "### Fundamental Analysis\n\n" + state["fundamentals_report"] + "\n\n"
+            section += (
+                "### Fundamental Analysis\n\n" + state["fundamentals_report"] + "\n\n"
+            )
 
-        return section.strip() or "## Analyst Reports\n\n_No analyst reports available._"
+        return (
+            section.strip() or "## Analyst Reports\n\n_No analyst reports available._"
+        )
 
     def _investment_debate(self, state: dict) -> str:
         debate = state.get("investment_debate_state", {})
@@ -172,7 +175,9 @@ class ReportGenerator:
         if risk.get("history"):
             section += risk["history"] + "\n\n"
         if risk.get("judge_decision"):
-            section += "### Portfolio Manager Final Decision\n\n" + risk["judge_decision"]
+            section += (
+                "### Portfolio Manager Final Decision\n\n" + risk["judge_decision"]
+            )
 
         return section
 
@@ -222,37 +227,57 @@ class ReportGenerator:
             trade_date = state.get("trade_date", "")
 
             # Fetch data
-            csv_data = route_to_vendor("get_crypto_ohlcv", ticker,
-                                       trade_date, trade_date)
+            csv_data = route_to_vendor(
+                "get_crypto_ohlcv", ticker, trade_date, trade_date
+            )
 
             df = pd.read_csv(StringIO(csv_data), index_col=0, parse_dates=True)
             if df.empty or "Close" not in df.columns:
                 return False
 
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(df.index, df["Close"], label="Close", color="steelblue", linewidth=1.5)
+            ax.plot(
+                df.index, df["Close"], label="Close", color="steelblue", linewidth=1.5
+            )
 
             # Mark trade date
             td = pd.Timestamp(trade_date)
             if td in df.index:
-                ax.axvline(x=td, color="orange", linestyle="--", alpha=0.7, label=f"Analysis Date")
+                ax.axvline(
+                    x=td,
+                    color="orange",
+                    linestyle="--",
+                    alpha=0.7,
+                    label="Analysis Date",
+                )
 
             # Try to parse entry/stop/target from trader plan
             trader_plan = state.get("trader_investment_plan", "")
             import re
+
             entry_m = re.search(r"\*\*Entry Price\*\*:\s*([\d.]+)", trader_plan)
             sl_m = re.search(r"\*\*Stop Loss\*\*:\s*([\d.]+)", trader_plan)
             tp_m = re.search(r"\*\*Take Profit\*\*:\s*([\d.]+)", trader_plan)
 
             if entry_m:
                 entry = float(entry_m.group(1))
-                ax.axhline(y=entry, color="green", linestyle=":", alpha=0.5, label=f"Entry ${entry:.2f}")
+                ax.axhline(
+                    y=entry,
+                    color="green",
+                    linestyle=":",
+                    alpha=0.5,
+                    label=f"Entry ${entry:.2f}",
+                )
             if sl_m:
                 sl = float(sl_m.group(1))
-                ax.axhline(y=sl, color="red", linestyle=":", alpha=0.5, label=f"SL ${sl:.2f}")
+                ax.axhline(
+                    y=sl, color="red", linestyle=":", alpha=0.5, label=f"SL ${sl:.2f}"
+                )
             if tp_m:
                 tp = float(tp_m.group(1))
-                ax.axhline(y=tp, color="green", linestyle=":", alpha=0.5, label=f"TP ${tp:.2f}")
+                ax.axhline(
+                    y=tp, color="green", linestyle=":", alpha=0.5, label=f"TP ${tp:.2f}"
+                )
 
             ax.set_title(f"{ticker} — Price Action", fontsize=14, fontweight="bold")
             ax.set_ylabel("Price")
@@ -264,5 +289,5 @@ class ReportGenerator:
             plt.close(fig)
             return True
         except Exception as e:
-            logger.debug("Price chart generation failed: %s", e)
+            logger.warning("Price chart generation failed: %s", e)
             return False

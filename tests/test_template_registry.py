@@ -2,7 +2,7 @@
 
 import pytest
 
-from tradingagents.domain.template import SetupTemplate, TemplateField
+from tradingagents.domain.template import SetupTemplate
 from tradingagents.templates.registry import TemplateRegistry
 
 
@@ -64,7 +64,9 @@ class TestRegisterCustom:
     def test_custom_overrides_builtin(self):
         custom = SetupTemplate(name="breakout", description="Custom breakout override")
         TemplateRegistry.register(custom)
-        assert TemplateRegistry.get("breakout").description == "Custom breakout override"
+        assert (
+            TemplateRegistry.get("breakout").description == "Custom breakout override"
+        )
 
 
 class TestHeuristicDetection:
@@ -127,11 +129,13 @@ class TestBreakoutTemplateFields:
 
     def test_validate_all_required_present(self):
         tmpl = TemplateRegistry.get("breakout")
-        missing = tmpl.validate_fields({
-            "resistance_level": "110k",
-            "volume_confirmation": "yes",
-            "funding_state": "neutral",
-            "invalidation_level": "108k",
-            "higher_timeframe_trend": "uptrend",
-        })
+        missing = tmpl.validate_fields(
+            {
+                "resistance_level": "110k",
+                "volume_confirmation": "yes",
+                "funding_state": "neutral",
+                "invalidation_level": "108k",
+                "higher_timeframe_trend": "uptrend",
+            }
+        )
         assert missing == []

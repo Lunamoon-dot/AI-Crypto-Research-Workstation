@@ -13,14 +13,15 @@ def consensus_from_opinions(
     """Compute stance distribution and conflict level from typed opinions."""
 
     counts = Counter(opinion.stance.value for opinion in opinions)
-    stance_counts = {stance.value: counts.get(stance.value, 0) for stance in AgentStance}
+    stance_counts = {
+        stance.value: counts.get(stance.value, 0) for stance in AgentStance
+    }
     directional = {
         AgentStance.BULLISH.value: stance_counts[AgentStance.BULLISH.value],
         AgentStance.BEARISH.value: stance_counts[AgentStance.BEARISH.value],
     }
-    uncertain_or_missing = (
-        stance_counts[AgentStance.UNCERTAIN.value]
-        + sum(1 for opinion in opinions if opinion.missing_data)
+    uncertain_or_missing = stance_counts[AgentStance.UNCERTAIN.value] + sum(
+        1 for opinion in opinions if opinion.missing_data
     )
 
     if not opinions:
@@ -28,7 +29,9 @@ def consensus_from_opinions(
 
     if directional[AgentStance.BULLISH.value] == directional[AgentStance.BEARISH.value]:
         consensus = AgentStance.NEUTRAL
-    elif directional[AgentStance.BULLISH.value] > directional[AgentStance.BEARISH.value]:
+    elif (
+        directional[AgentStance.BULLISH.value] > directional[AgentStance.BEARISH.value]
+    ):
         consensus = AgentStance.BULLISH
     else:
         consensus = AgentStance.BEARISH
