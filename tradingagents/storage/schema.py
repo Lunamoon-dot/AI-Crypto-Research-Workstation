@@ -286,4 +286,21 @@ ON thesis_evaluations(thesis_id, evaluated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_symbol
 ON thesis_evaluations(symbol, evaluated_at DESC);
+
+-- Phase 4 (tail): Reliability snapshots for rolling-window factor performance
+CREATE TABLE IF NOT EXISTS reliability_snapshots (
+    id TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    rolling_window_days INTEGER NOT NULL,
+    overall_hit_rate REAL,
+    overall_sample_size INTEGER NOT NULL DEFAULT 0,
+    payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reliability_snapshots_symbol_date
+ON reliability_snapshots(symbol, snapshot_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reliability_snapshots_window
+ON reliability_snapshots(rolling_window_days, snapshot_date DESC);
 """

@@ -95,6 +95,90 @@ class TemplateRegistry:
         return best_name
 
     # ------------------------------------------------------------------
+    # Template field validation — pre-LLM gate (Phase 5 enforcement)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def validate_template_context(
+        cls,
+        setup_type: str | None,
+        context_values: dict[str, Any],
+        *,
+        required_coverage_threshold: float = 0.5,
+    ) -> dict[str, Any]:
+        """Validate that *context_values* has enough required fields for *setup_type*.
+
+        Returns a dict with:
+        - ``effective_setup_type``: the setup_type to use (may be degraded)
+        - ``is_degraded``: True if we fell back to ``agent_debate``
+        - ``missing_fields``: list of required field names missing from context
+        - ``degrade_reason``: human-readable explanation (empty if not degraded)
+        - ``available_fields``: list of required fields that ARE present
+        - ``requested_setup_type``: the original setup_type requested
+
+        Degradation triggers when:
+        - The template has required fields AND fewer than *required_coverage_threshold*
+          of them are present in *context_values* (or the template is unknown).
+        - If *setup_type* is None, returns ``agent_debate`` with is_degraded=False
+          (no template was requested, so no degradation).
+        """
+        result: dict[str, Any] = {
+            "effective_setup_type": setup_type or "agent_debate",
+            "is_degraded": False,
+            "missing_fields": [],
+            "degrade_reason": "",
+            "available_fields": [],
+            "requested_setup_type": setup_type,
+        }
+
+        if not setup_type or setup_type == "agent_debate":
+            return result
+
+        cls._ensure_initialized()
+        template = cls._templates.get(setup_type)
+        if template is None:
+            result["effective_setup_type"] = "agent_debate"
+            result["is_degraded"] = True
+            result["degrade_reason"] = (
+                f"Unknown setup_type '{setup_type}' — falling back to agent_debate."
+            )
+            return result
+
+        if not template.required_fields:
+            return result
+
+        # Build a lookup of context values
+        ctx_lower = {k.lower(): v for k, v in context_values.items()}
+
+        missing = []
+        available = []
+        for field in template.required_fields:
+            val = ctx_lower.get(field.name.lower())
+            if val is not None and val != "" and val != "N/A":
+                available.append(field.name)
+            else:
+                missing.append(field.name)
+
+        total_required = len(template.required_fields)
+        coverage = len(available) / total_required if total_required > 0 else 1.0
+
+        result["missing_fields"] = missing
+        result["available_fields"] = available
+
+        if coverage < required_coverage_threshold:
+            result["effective_setup_type"] = "agent_debate"
+            result["is_degraded"] = True
+            result["degrade_reason"] = (
+                f"Template '{setup_type}' requires {total_required} field(s) "
+                f"({', '.join(f.name for f in template.required_fields)}), "
+                f"but only {len(available)}/{total_required} are available "
+                f"(coverage={coverage:.0%} < threshold={required_coverage_threshold:.0%}). "
+                f"Missing: {', '.join(missing)}. Degrading to agent_debate."
+            )
+
+        return result
+
+    # ------------------------------------------------------------------
     # Generic fallback
     # ------------------------------------------------------------------
 

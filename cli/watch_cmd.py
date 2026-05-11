@@ -241,8 +241,13 @@ def _print_latest_snapshot_digest(theses: list[BriefThesisRow]) -> None:
         if not row.symbol or row.last_snapshot_at is None:
             continue
         prev = picked.get(row.symbol)
-        if prev is None or row.last_snapshot_at > prev.last_snapshot_at:
+        if prev is None:
             picked[row.symbol] = row
+        else:
+            prev_ts = prev.last_snapshot_at
+            row_ts = row.last_snapshot_at
+            if prev_ts is None or (row_ts is not None and row_ts > prev_ts):
+                picked[row.symbol] = row
 
     if not picked:
         return

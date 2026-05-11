@@ -286,6 +286,9 @@ def journal_workspace(
     if run.debate_id:
         next_commands.append(f"tradingagents journal debate {run.debate_id}")
 
+    # --- Phase 4 (tail): surface signal reliability ---
+    _show_reliability_panel(service, run)
+
     debate = service.get_debate(run.debate_id) if run.debate_id else None
     if debate:
         confidence = (
@@ -339,7 +342,10 @@ def journal_workspace(
             )
         )
 
-        scenarios = service.list_scenarios(thesis_id=thesis.id)
+        if not thesis.id:
+            scenarios = []
+        else:
+            scenarios = service.list_scenarios(thesis_id=thesis.id)
         if scenarios:
             scenario_table = Table(title="Scenarios")
             scenario_table.add_column("Probability")
@@ -882,6 +888,53 @@ def thesis_review(
         )
     )
     console.print(f"[green]Outcome review saved:[/green] {review.id}")
+
+
+def _show_reliability_panel(service, run) -> None:
+    """Display signal reliability from the latest snapshot for this symbol."""
+    try:
+        snapshots = service.list_reliability_snapshots(
+            symbol=run.symbol,
+            rolling_window_days=30,
+            limit=1,
+        )
+        if not snapshots:
+            snapshots = service.list_reliability_snapshots(
+                symbol=run.symbol,
+                limit=1,
+            )
+        if not snapshots:
+            return
+
+        snap = snapshots[0]
+        lines = [
+            f"Window: {snap.rolling_window_days} day(s)",
+            f"Sample size: {snap.overall_sample_size}",
+            f"Snapshot date: {snap.snapshot_date.isoformat()[:19] if hasattr(snap.snapshot_date, 'isoformat') else str(snap.snapshot_date)[:19]}",
+            "",
+        ]
+        if snap.factors:
+            lines.append("Per-factor hit rates:")
+            for factor in snap.factors[:8]:
+                hit = f"{factor.hit_rate:.0%}" if factor.hit_rate is not None else "N/A"
+                dir_acc = (
+                    f"{factor.directional_accuracy:.0%}"
+                    if factor.directional_accuracy is not None
+                    else ""
+                )
+                suffix = f" (dir: {dir_acc})" if dir_acc else ""
+                lines.append(
+                    f"  {factor.factor_name}: {hit}{suffix} (n={factor.sample_size})"
+                )
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title="Signal Reliability (latest snapshot)",
+                border_style="blue",
+            )
+        )
+    except Exception:
+        pass  # Reliability display is non-critical
 
 
 def _print_timeline(events, *, title: str) -> None:

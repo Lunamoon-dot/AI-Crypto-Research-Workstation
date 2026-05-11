@@ -79,6 +79,17 @@ exclude = [
     ".venv/",
 ]
 
+# LangChain chat model constructors are dynamically typed; kwargs and monkey-patches
+# do not satisfy mypy's view of upstream stubs.
+[[tool.mypy.overrides]]
+module = [
+    "tradingagents.llm_clients.anthropic_client",
+    "tradingagents.llm_clients.google_client",
+    "tradingagents.llm_clients.openai_client",
+    "tradingagents.llm_clients.azure_client",
+]
+ignore_errors = true
+
 [tool.ruff.lint]
 ignore = ["E402"]  # module-import-not-at-top-of-file: lazy imports are by design
 

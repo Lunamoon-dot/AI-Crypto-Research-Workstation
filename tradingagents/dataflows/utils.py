@@ -1,9 +1,6 @@
 import re
 import pandas as pd
 from datetime import date, timedelta, datetime
-from typing import Annotated
-
-SavePathType = Annotated[str, "File path to save data. If None, data is not saved."]
 
 # Tickers can contain letters, digits, dot, dash, underscore, caret,
 # colon, and forward slash (crypto pairs like BTC/USDT and swap format
@@ -45,7 +42,7 @@ def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     return sanitized
 
 
-def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) -> None:
+def save_output(data: pd.DataFrame, tag: str, save_path: str | None = None) -> None:
     if save_path:
         data.to_csv(save_path, encoding="utf-8")
         print(f"{tag} saved to {save_path}")

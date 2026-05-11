@@ -43,12 +43,12 @@ class TestProviderCapabilityTable:
     def test_all_providers_in_registry_are_valid(self):
         """Every entry in PROVIDER_DECLARATIONS is a valid ProviderHistoricalDeclaration."""
         for vendor, decl in PROVIDER_DECLARATIONS.items():
-            assert isinstance(
-                decl, ProviderHistoricalDeclaration
-            ), f"{vendor} is not a ProviderHistoricalDeclaration"
-            assert (
-                decl.vendor == vendor
-            ), f"{vendor} declaration has mismatched vendor field"
+            assert isinstance(decl, ProviderHistoricalDeclaration), (
+                f"{vendor} is not a ProviderHistoricalDeclaration"
+            )
+            assert decl.vendor == vendor, (
+                f"{vendor} declaration has mismatched vendor field"
+            )
 
     def test_capability_table_smoke(self):
         """Every provider has at least one endpoint and each endpoint has valid semantics."""
@@ -64,17 +64,17 @@ class TestProviderCapabilityTable:
                     f"{vendor}.{ep.method_name} has invalid semantics: "
                     f"{ep.timestamp_semantics}"
                 )
-                assert (
-                    ep.max_lookback_days >= 0
-                ), f"{vendor}.{ep.method_name} has negative lookback"
+                assert ep.max_lookback_days >= 0, (
+                    f"{vendor}.{ep.method_name} has negative lookback"
+                )
 
     def test_ccxt_ohlcv_supports_as_of(self):
         """CCXT OHLCV must support HYBRID (AS_OF-capable) — critical for replay."""
         cap = CCXT_DECLARATION.capability_for("get_crypto_ohlcv")
         assert cap is not None, "CCXT must declare get_crypto_ohlcv capability"
-        assert (
-            cap.timestamp_semantics != TimestampSemantics.LATEST
-        ), "CCXT OHLCV must not be LATEST-only; replay requires AS_OF or HYBRID"
+        assert cap.timestamp_semantics != TimestampSemantics.LATEST, (
+            "CCXT OHLCV must not be LATEST-only; replay requires AS_OF or HYBRID"
+        )
 
     def test_latest_only_endpoints_have_zero_lookback(self):
         """Endpoints marked LATEST must have max_lookback_days == 0."""

@@ -32,31 +32,28 @@ class TestRouteToVendorHistorical:
 
     def test_none_window_falls_back_to_plain_routing(self):
         """When window is None, delegate to route_to_vendor without validation."""
-        with patch(
-            "tradingagents.dataflows.interface.route_to_vendor"
-        ) as mock_route:
+        with patch("tradingagents.dataflows.interface.route_to_vendor") as mock_route:
             mock_route.return_value = "live_data_result"
             result = route_to_vendor_historical(
                 "get_crypto_ticker",
                 "BTC/USDT",
                 window=None,
             )
-            mock_route.assert_called_once_with(
-                "get_crypto_ticker", "BTC/USDT"
-            )
+            mock_route.assert_called_once_with("get_crypto_ticker", "BTC/USDT")
             assert result == "live_data_result"
 
     def test_valid_contract_dispatches_to_vendor(self):
         """With a valid historical window and AS_OF-capable vendor, the call succeeds."""
         window = DataWindow(anchor_date=date(2025, 1, 15), lookback_days=30)
-        with patch(
-            "tradingagents.dataflows.interface.route_to_vendor"
-        ) as mock_route:
+        with patch("tradingagents.dataflows.interface.route_to_vendor") as mock_route:
             mock_route.return_value = "historical_ohlcv_csv"
             # Also patch get_config and get_category_for_method to use ccxt
             with patch(
                 "tradingagents.dataflows.interface.get_config",
-                return_value={"primary_data_vendors": "ccxt", "disabled_data_vendors": []},
+                return_value={
+                    "primary_data_vendors": "ccxt",
+                    "disabled_data_vendors": [],
+                },
             ):
                 with patch(
                     "tradingagents.dataflows.interface.get_category_for_method",

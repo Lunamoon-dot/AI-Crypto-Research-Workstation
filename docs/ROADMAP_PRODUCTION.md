@@ -5,6 +5,7 @@ Reliability, observability, boundaries for assisted execution, cloud/monetizatio
 **Audience:** release engineering, security review, future hosted product owners.
 
 **See also:** [Developer roadmap](ROADMAP_DEV.md) · [Project hub](../ROADMAP.md)
+· [Go-live checklist](GO_LIVE_READINESS.md)
 
 ---
 

@@ -126,7 +126,9 @@ class DataWindow(BaseModel):
 class EndpointCapability(BaseModel):
     """Capability declaration for a single data endpoint."""
 
-    method_name: str = Field(description="Name of the tool method, e.g. 'get_crypto_ohlcv'.")
+    method_name: str = Field(
+        description="Name of the tool method, e.g. 'get_crypto_ohlcv'."
+    )
     timestamp_semantics: TimestampSemantics = TimestampSemantics.LATEST
     max_lookback_days: int = Field(
         default=365,
@@ -255,9 +257,9 @@ CCXT_DECLARATION = ProviderHistoricalDeclaration(
             max_lookback_days=365,
             granularity="1m",
             notes="CCXT fetch_ohlcv supports `since` for historical candles. "
-                  "Point-in-time correctness depends on exchange retention; "
-                  "Binance keeps ~1y of 1m data. OHLCV is the only endpoint "
-                  "usable for historical replay.",
+            "Point-in-time correctness depends on exchange retention; "
+            "Binance keeps ~1y of 1m data. OHLCV is the only endpoint "
+            "usable for historical replay.",
         ),
         EndpointCapability(
             method_name="get_crypto_ticker",

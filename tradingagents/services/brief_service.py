@@ -135,10 +135,10 @@ def _regime_summary(
     known = [asset for asset in assets if asset.market_regime != "unknown"]
     if not known:
         return "No persisted market regime snapshots yet. Brief is limited to watchlist and thesis memory."
-    regimes = {}
+    regimes: dict[str, int] = {}
     for asset in known:
         regimes[asset.market_regime] = regimes.get(asset.market_regime, 0) + 1
-    dominant = max(regimes, key=regimes.get)
+    dominant = max(regimes, key=lambda k: regimes[k])
     return (
         f"Persisted market context leans {dominant}. "
         f"Tracking {watchlist.thesis_count} active thesis/theses and {len(watchlist.alerts)} recent alert(s)."

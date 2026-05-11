@@ -6,13 +6,14 @@ from collections import defaultdict
 from datetime import timedelta
 from io import StringIO
 import re
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
 
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
+    AgentOpinion,
     AgentCalibration,
     AgentCalibrationReport,
     ConfidenceBucket,
@@ -48,7 +49,7 @@ class EvaluationService:
 
     def __init__(
         self,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
         *,
         price_loader: PriceLoader | None = None,
     ):
@@ -84,7 +85,7 @@ class EvaluationService:
             evaluation_end=end_date,
         )
         saved = self.repo.save_thesis_evaluation(evaluation)
-        if record_review:
+        if record_review and thesis.id:
             self.repo.save_outcome_review(
                 OutcomeReview(
                     thesis_id=thesis.id,
@@ -113,6 +114,8 @@ class EvaluationService:
 
         evaluations = []
         for thesis in theses:
+            if not thesis.id:
+                continue
             evaluations.append(
                 self.evaluate_thesis(
                     thesis.id,
@@ -203,7 +206,9 @@ class EvaluationService:
             if not thesis:
                 factor_evals["unknown"].append(evaluation)
                 continue
-            signal_ids = set(thesis.supporting_signal_ids + thesis.contradicting_signal_ids)
+            signal_ids = set(
+                thesis.supporting_signal_ids + thesis.contradicting_signal_ids
+            )
             if not signal_ids:
                 factor_evals["no_signals"].append(evaluation)
                 continue
@@ -223,28 +228,43 @@ class EvaluationService:
                 thesis = theses.get(e.thesis_id)
                 if thesis and thesis.direction is not None:
                     if thesis.direction == ThesisDirection.LONG:
-                        if e.max_favorable_excursion is not None and e.max_favorable_excursion > 0:
+                        if (
+                            e.max_favorable_excursion is not None
+                            and e.max_favorable_excursion > 0
+                        ):
                             dir_correct += 1
                     elif thesis.direction == ThesisDirection.SHORT:
-                        if e.max_adverse_excursion is not None and e.max_adverse_excursion > 0:
+                        if (
+                            e.max_adverse_excursion is not None
+                            and e.max_adverse_excursion > 0
+                        ):
                             dir_correct += 1
                     if thesis.confidence is not None:
                         confidences.append(thesis.confidence)
                 if e.result.value == "hit_target" and thesis:
-                    signal_ids = thesis.supporting_signal_ids + thesis.contradicting_signal_ids
-                    if signal_ids:
-                        signal = self.repo.get_signal(signal_ids[0])
-                        if signal and signal.direction.value in ("strong_buy", "strong_sell"):
+                    hit_signal_ids = (
+                        thesis.supporting_signal_ids + thesis.contradicting_signal_ids
+                    )
+                    if hit_signal_ids:
+                        signal = self.repo.get_signal(hit_signal_ids[0])
+                        if signal and signal.direction.value in (
+                            "strong_buy",
+                            "strong_sell",
+                        ):
                             strong_hits += 1
 
-            factors.append(FactorReliability(
-                factor_name=factor_name,
-                sample_size=sample,
-                hit_rate=hits / sample if sample else None,
-                directional_accuracy=dir_correct / sample if sample else None,
-                strong_signal_hit_rate=strong_hits / sample if sample else None,
-                average_confidence=sum(confidences) / len(confidences) if confidences else None,
-            ))
+            factors.append(
+                FactorReliability(
+                    factor_name=factor_name,
+                    sample_size=sample,
+                    hit_rate=hits / sample if sample else None,
+                    directional_accuracy=dir_correct / sample if sample else None,
+                    strong_signal_hit_rate=strong_hits / sample if sample else None,
+                    average_confidence=sum(confidences) / len(confidences)
+                    if confidences
+                    else None,
+                )
+            )
 
         best = max(factors, key=lambda f: f.hit_rate or 0) if factors else None
         worst = min(factors, key=lambda f: f.hit_rate or 1) if factors else None
@@ -301,9 +321,12 @@ class EvaluationService:
                 else:
                     neutral += 1
                 outcome_positive = e.result.value == "hit_target" or (
-                    e.max_favorable_excursion is not None and e.max_favorable_excursion > 0)
+                    e.max_favorable_excursion is not None
+                    and e.max_favorable_excursion > 0
+                )
                 outcome_negative = e.result.value == "invalidated" or (
-                    e.max_adverse_excursion is not None and e.max_adverse_excursion > 0)
+                    e.max_adverse_excursion is not None and e.max_adverse_excursion > 0
+                )
                 if direction == ThesisDirection.LONG and outcome_positive:
                     stance_correct += 1
                     bullish_correct += 1
@@ -312,22 +335,30 @@ class EvaluationService:
                     bearish_correct += 1
 
             bias = (bullish - bearish) / sample if sample else None
-            agents.append(AgentCalibration(
-                agent_name=agent_name,
-                role=agent_roles.get(agent_name, "analyst"),
-                sample_size=sample,
-                bullish_rate=bullish / sample if sample else None,
-                bearish_rate=bearish / sample if sample else None,
-                neutral_rate=neutral / sample if sample else None,
-                stance_accuracy=stance_correct / sample if sample else None,
-                bullish_accuracy=bullish_correct / bullish if bullish else None,
-                bearish_accuracy=bearish_correct / bearish if bearish else None,
-                bias_score=bias,
-                average_confidence=sum(confidences) / len(confidences) if confidences else None,
-            ))
+            agents.append(
+                AgentCalibration(
+                    agent_name=agent_name,
+                    role=agent_roles.get(agent_name, "analyst"),
+                    sample_size=sample,
+                    bullish_rate=bullish / sample if sample else None,
+                    bearish_rate=bearish / sample if sample else None,
+                    neutral_rate=neutral / sample if sample else None,
+                    stance_accuracy=stance_correct / sample if sample else None,
+                    bullish_accuracy=bullish_correct / bullish if bullish else None,
+                    bearish_accuracy=bearish_correct / bearish if bearish else None,
+                    bias_score=bias,
+                    average_confidence=sum(confidences) / len(confidences)
+                    if confidences
+                    else None,
+                )
+            )
 
-        best_agent = max(agents, key=lambda a: a.stance_accuracy or 0) if agents else None
-        biased_agent = max(agents, key=lambda a: abs(a.bias_score or 0)) if agents else None
+        best_agent = (
+            max(agents, key=lambda a: a.stance_accuracy or 0) if agents else None
+        )
+        biased_agent = (
+            max(agents, key=lambda a: abs(a.bias_score or 0)) if agents else None
+        )
         return AgentCalibrationReport(
             total_sample_size=len(evaluations),
             agents=agents,
@@ -379,18 +410,24 @@ class EvaluationService:
             error = (hit_rate - expected) if hit_rate is not None else None
             if error is not None and sample > 0:
                 weighted_errors.append(error * sample)
-            buckets.append(ConfidenceBucket(
-                bucket_label=label,
-                min_confidence=lo,
-                max_confidence=hi,
-                sample_size=sample,
-                hit_rate=hit_rate,
-                expected_rate=expected,
-                calibration_error=error,
-            ))
+            buckets.append(
+                ConfidenceBucket(
+                    bucket_label=label,
+                    min_confidence=lo,
+                    max_confidence=hi,
+                    sample_size=sample,
+                    hit_rate=hit_rate,
+                    expected_rate=expected,
+                    calibration_error=error,
+                )
+            )
 
-        total_weight = sum(b.sample_size for b in buckets if b.calibration_error is not None)
-        overall_error = sum(weighted_errors) / total_weight if total_weight > 0 else None
+        total_weight = sum(
+            b.sample_size for b in buckets if b.calibration_error is not None
+        )
+        overall_error = (
+            sum(weighted_errors) / total_weight if total_weight > 0 else None
+        )
         quality = "insufficient_data"
         if overall_error is not None:
             if abs(overall_error) < 0.05:
@@ -426,12 +463,24 @@ class EvaluationService:
             thesis = theses.get(evaluation.thesis_id)
             if not thesis:
                 continue
-            opinions = [self.repo.get_agent_opinion(oid) for oid in thesis.agent_opinion_ids]
-            opinions = [o for o in opinions if o is not None]
-            bullish = sum(1 for o in opinions if o.stance.value == "bullish")
-            bearish = sum(1 for o in opinions if o.stance.value == "bearish")
+            opinions = [
+                self.repo.get_agent_opinion(oid) for oid in thesis.agent_opinion_ids
+            ]
+            resolved: list[AgentOpinion] = [o for o in opinions if o is not None]
+            bullish = sum(
+                1
+                for o in resolved
+                if o.stance is not None and o.stance.value == "bullish"
+            )
+            bearish = sum(
+                1
+                for o in resolved
+                if o.stance is not None and o.stance.value == "bearish"
+            )
             total = bullish + bearish
-            stance_diversity = 1.0 - abs(bullish - bearish) / total if total > 0 else 0.0
+            stance_diversity = (
+                1.0 - abs(bullish - bearish) / total if total > 0 else 0.0
+            )
             contra_count = min(bullish, bearish)
             contradiction_counts.append(contra_count)
             stance_diversities.append(stance_diversity)
@@ -447,18 +496,32 @@ class EvaluationService:
                 return None
             return sum(1 for e in evals if e.result.value == "hit_target") / len(evals)
 
-        avg_contra = sum(contradiction_counts) / len(contradiction_counts) if contradiction_counts else None
+        avg_contra = (
+            sum(contradiction_counts) / len(contradiction_counts)
+            if contradiction_counts
+            else None
+        )
         if avg_contra is not None:
-            above_avg = [e for e, c in zip(evaluations, contradiction_counts) if c >= avg_contra]
+            above_avg = [
+                e for e, c in zip(evaluations, contradiction_counts) if c >= avg_contra
+            ]
             no_contra = [e for e, c in zip(evaluations, contradiction_counts) if c == 0]
         else:
             above_avg = []
             no_contra = []
 
-        avg_diversity = sum(stance_diversities) / len(stance_diversities) if stance_diversities else None
+        avg_diversity = (
+            sum(stance_diversities) / len(stance_diversities)
+            if stance_diversities
+            else None
+        )
         if avg_diversity is not None:
-            high_div = [e for e, d in zip(evaluations, stance_diversities) if d >= avg_diversity]
-            low_div = [e for e, d in zip(evaluations, stance_diversities) if d < avg_diversity]
+            high_div = [
+                e for e, d in zip(evaluations, stance_diversities) if d >= avg_diversity
+            ]
+            low_div = [
+                e for e, d in zip(evaluations, stance_diversities) if d < avg_diversity
+            ]
         else:
             high_div = []
             low_div = []
@@ -562,6 +625,8 @@ def _evaluate_candles(
             f"Direction '{thesis.direction.value}' evaluated as inferred {side} side."
         )
 
+    if not thesis.id:
+        raise ValueError("Thesis must have an id to build ThesisEvaluation")
     return ThesisEvaluation(
         thesis_id=thesis.id,
         symbol=thesis.symbol,
@@ -707,7 +772,7 @@ def _build_rows(
 
 def _metrics_row(key: str, evaluations: list[ThesisEvaluation]) -> EvaluationMetricsRow:
     sample = len(evaluations)
-    counts = defaultdict(int)
+    counts: defaultdict[str, int] = defaultdict(int)
     mfe_values = []
     mae_values = []
     for evaluation in evaluations:

@@ -69,11 +69,38 @@ class JournalBridge:
     ) -> tuple[ResearchRun | None, list[Signal]]:
         if not self.service or not run or result is None:
             return run, []
+        if not run.id:
+            return run, []
         try:
             stale_mode = self.config.get("stale_data", {}).get("mode", "warn")
+
+            # --- Phase 4 (tail): build reliability map from historical evaluations ---
+            reliability_map: dict[str, dict[str, float | int]] | None = None
+            try:
+                from tradingagents.signals.provenance import (
+                    build_reliability_map_from_evaluations,
+                )
+                from tradingagents.services.evaluation_service import EvaluationService
+
+                eval_svc = EvaluationService(config=self.config)
+                factor_report = eval_svc.build_factor_reliability()
+                if factor_report and factor_report.factors:
+                    reliability_map = build_reliability_map_from_evaluations(
+                        factor_report.factors
+                    )
+                    logger.debug(
+                        "Loaded reliability map with %d factors from %d evaluations",
+                        len(reliability_map),
+                        factor_report.total_sample_size,
+                    )
+            except Exception as exc:
+                logger.debug("Could not build reliability map: %s", exc)
+
             signals = self.service.save_signals(
                 signal_result_to_domain_signals(
-                    result, stale_mode=stale_mode
+                    result,
+                    stale_mode=stale_mode,
+                    reliability_map=reliability_map,
                 )
             )
             run.signal_ids = [signal.id for signal in signals if signal.id]
@@ -90,6 +117,7 @@ class JournalBridge:
             run.market_snapshot_id = market_snapshot.id
             run.signal_snapshot_id = signal_snapshot.id
             run = self.service.update_research_run(run)
+            assert run.id is not None
             self.service.add_run_event(
                 run.id,
                 "snapshots_saved",
@@ -164,20 +192,39 @@ class JournalBridge:
                 thesis.research_run_id = run.id
                 thesis = self.service.save_thesis(thesis)
                 run.thesis_id = thesis.id
+            saved_scenarios: list[Scenario] = []
             saved_from_json = False
             if scenario_plan_json and thesis and thesis.id:
-                saved = self.save_scenarios_from_json_plan(
+                saved_scenarios = self.save_scenarios_from_json_plan(
                     scenario_plan_json, thesis.id
                 )
-                saved_from_json = bool(saved)
-            if (
-                not saved_from_json
-                and scenario_plan_text
-                and thesis
-                and thesis.id
-            ):
-                self.save_scenarios_from_plan(scenario_plan_text, thesis.id)
+                saved_from_json = bool(saved_scenarios)
+            if not saved_from_json and scenario_plan_text and thesis and thesis.id:
+                saved_scenarios = self.save_scenarios_from_plan(
+                    scenario_plan_text, thesis.id
+                )
             run = self.service.complete_research_run(run)
+
+            # --- Phase 5: template degradation run event ---
+            if run and run.id and saved_scenarios:
+                for scenario in saved_scenarios:
+                    tm = scenario.template_metadata or {}
+                    if tm.get("template_degraded"):
+                        self.service.add_run_event(
+                            run.id,
+                            "template_degraded",
+                            f"Template '{tm.get('requested_setup_type')}' degraded to "
+                            f"'{tm.get('setup_type')}' — {tm.get('degrade_reason', '')}",
+                            {
+                                "requested_setup_type": tm.get("requested_setup_type"),
+                                "effective_setup_type": tm.get("setup_type"),
+                                "missing_fields": tm.get("missing_fields", []),
+                                "available_fields": tm.get("available_fields", []),
+                                "degrade_reason": tm.get("degrade_reason", ""),
+                            },
+                            thesis_id=thesis.id if thesis else None,
+                        )
+                        break  # One event per degradation is sufficient
 
             # Best-effort: evaluate any matured theses that lack evaluations
             if run and run.id:
@@ -196,6 +243,19 @@ class JournalBridge:
                         )
                 except Exception as exc:
                     logger.debug("Auto-evaluation skipped: %s", exc)
+
+                # --- Phase 4 (tail): snapshot reliability after evaluation ---
+                try:
+                    self.save_reliability_snapshot(
+                        symbol=run.symbol,
+                        rolling_window_days=30,
+                    )
+                    self.save_reliability_snapshot(
+                        symbol=run.symbol,
+                        rolling_window_days=90,
+                    )
+                except Exception as exc:
+                    logger.debug("Reliability snapshot skipped: %s", exc)
 
             return run, thesis
         except Exception as e:
@@ -262,6 +322,78 @@ class JournalBridge:
                 error=str(e)[:500],
             )
             return []
+
+    def save_reliability_snapshot(
+        self,
+        symbol: str,
+        *,
+        rolling_window_days: int = 30,
+    ) -> None:
+        """Build and persist a reliability snapshot from recent evaluations.
+
+        Queries the evaluation service for per-factor hit rates over the
+        specified rolling window and saves a ``ReliabilitySnapshot`` to
+        the journal for trend tracking.
+        """
+        if not self.service:
+            return
+        try:
+            from tradingagents.domain.snapshot import (
+                FactorReliabilityEntry,
+                ReliabilitySnapshot,
+            )
+            from tradingagents.services.evaluation_service import EvaluationService
+
+            eval_svc = EvaluationService(config=self.config)
+            factor_report = eval_svc.build_factor_reliability()
+            if not factor_report or not factor_report.factors:
+                return
+
+            entries = [
+                FactorReliabilityEntry(
+                    factor_name=f.factor_name,
+                    hit_rate=f.hit_rate,
+                    directional_accuracy=f.directional_accuracy,
+                    sample_size=f.sample_size,
+                )
+                for f in factor_report.factors
+            ]
+
+            snapshot = ReliabilitySnapshot(
+                symbol=symbol,
+                rolling_window_days=rolling_window_days,
+                overall_hit_rate=None,  # Computed from all factor evaluations
+                overall_sample_size=factor_report.total_sample_size,
+                factors=entries,
+            )
+
+            saved = self.service.save_reliability_snapshot(snapshot)
+            if saved and saved.id:
+                logger.debug(
+                    "Saved reliability snapshot %s for %s (%dd window, %d factors)",
+                    saved.id,
+                    symbol,
+                    rolling_window_days,
+                    len(entries),
+                )
+                self.service.add_run_event(
+                    research_run_id="",
+                    event_type="reliability_snapshot",
+                    message=(
+                        f"Reliability snapshot ({rolling_window_days}d) for {symbol}: "
+                        f"{len(entries)} factors, "
+                        f"sample={factor_report.total_sample_size}"
+                    ),
+                    payload={
+                        "symbol": symbol,
+                        "rolling_window_days": rolling_window_days,
+                        "factor_count": len(entries),
+                        "total_sample_size": factor_report.total_sample_size,
+                        "snapshot_id": saved.id,
+                    },
+                )
+        except Exception as exc:
+            logger.debug("Could not save reliability snapshot: %s", exc)
 
     def save_agent_research(
         self,
@@ -382,8 +514,12 @@ def _parse_scenario_plan(
         if not block or len(block) < 20:
             continue
 
-        condition = _extract_section(block, "condition|key market|market condition|catalyst|trigger")
-        behavior = _extract_section(block, "behavior|expected|outcome|price action|market move")
+        condition = _extract_section(
+            block, "condition|key market|market condition|catalyst|trigger"
+        )
+        behavior = _extract_section(
+            block, "behavior|expected|outcome|price action|market move"
+        )
         prob_raw = _extract_section(block, "probability|likelihood|odds")
         invalidation = _extract_section(block, "invalidation|invalid|negate|counter")
         risk_raw = _extract_section(block, "risk|risk map|risk factor")
@@ -393,17 +529,27 @@ def _parse_scenario_plan(
         prob_band = ScenarioProbabilityBand.UNKNOWN
         if prob_raw:
             prob_lower = prob_raw.lower()
-            if any(w in prob_lower for w in ("high", "likely", "probable", "70", "80", "90")):
+            if any(
+                w in prob_lower
+                for w in ("high", "likely", "probable", "70", "80", "90")
+            ):
                 prob_band = ScenarioProbabilityBand.HIGH
-            elif any(w in prob_lower for w in ("medium", "moderate", "possible", "40", "50", "60")):
+            elif any(
+                w in prob_lower
+                for w in ("medium", "moderate", "possible", "40", "50", "60")
+            ):
                 prob_band = ScenarioProbabilityBand.MEDIUM
-            elif any(w in prob_lower for w in ("low", "unlikely", "remote", "10", "20", "30")):
+            elif any(
+                w in prob_lower for w in ("low", "unlikely", "remote", "10", "20", "30")
+            ):
                 prob_band = ScenarioProbabilityBand.LOW
 
         # Split risk text into list items
         risk_items: list[str] = []
         if risk_raw:
-            risk_items = [r.strip() for r in _re.split(r"[,;•\n]", risk_raw) if r.strip()]
+            risk_items = [
+                r.strip() for r in _re.split(r"[,;•\n]", risk_raw) if r.strip()
+            ]
 
         scenario = Scenario(
             id=str(uuid.uuid4()),

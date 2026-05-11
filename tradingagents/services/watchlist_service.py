@@ -120,6 +120,8 @@ class WatchlistService:
         self, symbol: str, *, watchlist_name: str = "default"
     ) -> WatchlistItem:
         watchlist = self.get_or_create_watchlist(watchlist_name)
+        if not watchlist.id:
+            raise RuntimeError("Watchlist is missing an id after get_or_create")
         return self.repo.save_watchlist_item(
             WatchlistItem(
                 watchlist_id=watchlist.id,
@@ -135,6 +137,8 @@ class WatchlistService:
         if not thesis:
             raise ValueError(f"Thesis not found: {thesis_id}")
         watchlist = self.get_or_create_watchlist(watchlist_name)
+        if not watchlist.id:
+            raise RuntimeError("Watchlist is missing an id after get_or_create")
         return self.repo.save_watchlist_item(
             WatchlistItem(
                 watchlist_id=watchlist.id,
@@ -226,7 +230,10 @@ class WatchlistService:
         }
 
         for item in thesis_items:
-            thesis = self.repo.get_thesis(item.thesis_id)
+            item_tid = item.thesis_id
+            if not item_tid:
+                continue
+            thesis = self.repo.get_thesis(item_tid)
             if not thesis:
                 missing_items.append(f"{item.id}: thesis not found ({item.thesis_id})")
                 continue
@@ -337,6 +344,8 @@ class WatchlistService:
         snapshot_price: float | None,
     ) -> list[BriefScenarioRow]:
         rows: list[BriefScenarioRow] = []
+        if not thesis.id:
+            return rows
         for scenario in self.repo.list_scenarios(thesis_id=thesis.id, limit=20):
             snapshot_active = False
             snapshot_reason = None
@@ -415,6 +424,8 @@ class WatchlistService:
         current_price: float,
     ) -> list[Alert]:
         alerts: list[Alert] = []
+        if not thesis.id:
+            return alerts
         for scenario in self.repo.list_scenarios(thesis_id=thesis.id, limit=20):
             activation = _scenario_activation(scenario, thesis, current_price)
             if not activation:

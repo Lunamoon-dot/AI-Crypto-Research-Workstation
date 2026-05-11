@@ -80,7 +80,9 @@ class AgentCalibration(BaseModel):
     """
 
     agent_name: str = Field(description="Agent display name, e.g. 'Bull Researcher'.")
-    role: str = Field(default="analyst", description="Agent role: analyst, researcher, risk, manager.")
+    role: str = Field(
+        default="analyst", description="Agent role: analyst, researcher, risk, manager."
+    )
     sample_size: int = 0
     bullish_rate: float | None = Field(
         default=None,

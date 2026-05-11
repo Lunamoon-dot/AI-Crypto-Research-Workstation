@@ -153,7 +153,9 @@ class TestMergeBudgetConfig:
     def test_empty_config_returns_defaults(self):
         merged = merge_budget_config({})
         assert "analyst" in merged
-        assert merged["analyst"]["max_tokens"] == _DEFAULT_BUDGETS["analyst"]["max_tokens"]
+        assert (
+            merged["analyst"]["max_tokens"] == _DEFAULT_BUDGETS["analyst"]["max_tokens"]
+        )
 
     def test_partial_override(self):
         config = {
@@ -164,7 +166,10 @@ class TestMergeBudgetConfig:
         merged = merge_budget_config(config)
         assert merged["analyst"]["max_tokens"] == 9999
         # latency_sec should still be the default
-        assert merged["analyst"]["max_latency_sec"] == _DEFAULT_BUDGETS["analyst"]["max_latency_sec"]
+        assert (
+            merged["analyst"]["max_latency_sec"]
+            == _DEFAULT_BUDGETS["analyst"]["max_latency_sec"]
+        )
 
     def test_full_override(self):
         config = {
@@ -209,4 +214,6 @@ class TestDefaultBudgets:
     def test_budgets_are_positive(self):
         for stage, budgets in _DEFAULT_BUDGETS.items():
             assert budgets["max_tokens"] > 0, f"{stage} max_tokens must be positive"
-            assert budgets["max_latency_sec"] > 0, f"{stage} max_latency_sec must be positive"
+            assert budgets["max_latency_sec"] > 0, (
+                f"{stage} max_latency_sec must be positive"
+            )

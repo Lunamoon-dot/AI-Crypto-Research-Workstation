@@ -30,26 +30,49 @@ def build_scenarios_for_thesis(
     When *template_name* matches a registered setup template, scenario
     conditions, expected behavior, and invalidation are enriched with
     template-specific guidance.
+
+    **Phase 5 enforcement**: Validates required template fields against
+    available context.  If critical fields are missing, degrades to the
+    generic ``agent_debate`` template and records the degradation in
+    each scenario's ``template_metadata``.
     """
 
-    template = TemplateRegistry.get(template_name) if template_name else None
-
     # --- Phase 5: validate template required fields ---
-    if template is not None and template.required_fields:
-        # Gather context values available from thesis and signals
-        context_values: dict[str, str] = {}
-        if thesis.evidence:
-            context_values.update({k: str(v) for k, v in thesis.evidence.items()})
-        for sig in (signals or []):
-            context_values[sig.signal_type] = sig.summary or sig.signal_type
+    context_values: dict[str, str] = {}
+    if thesis.evidence:
+        context_values.update({k: str(v) for k, v in thesis.evidence.items()})
+    for sig in signals or []:
+        context_values[sig.signal_type] = sig.summary or sig.signal_type
 
-        missing = template.validate_fields(context_values)
-        if missing:
-            logger.warning(
-                "Template '%s' requires fields %s but they are missing from thesis context. "
-                "Scenarios will use template defaults where possible.",
-                template_name, missing,
-            )
+    validation = TemplateRegistry.validate_template_context(
+        template_name,
+        context_values,
+        required_coverage_threshold=0.5,
+    )
+    effective_template_name = validation["effective_setup_type"]
+    template = (
+        TemplateRegistry.get(effective_template_name)
+        if effective_template_name
+        else None
+    )
+
+    if validation["is_degraded"]:
+        logger.warning(
+            "build_scenarios_for_thesis: template '%s' degraded to '%s': %s",
+            template_name,
+            effective_template_name,
+            validation["degrade_reason"],
+        )
+
+    # Build template_metadata to persist on every generated scenario
+    template_metadata: dict = {
+        "setup_type": effective_template_name,
+        "requested_setup_type": template_name,
+        "template_degraded": validation["is_degraded"],
+        "missing_fields": validation["missing_fields"],
+        "available_fields": validation["available_fields"],
+        "degrade_reason": validation["degrade_reason"],
+    }
 
     signals = signals or []
     scenarios = [
@@ -65,6 +88,10 @@ def build_scenarios_for_thesis(
         scenarios.append(
             _contradiction_scenario(thesis, debate=debate, template=template)
         )
+
+    # Attach template_metadata to every scenario
+    for scenario in scenarios:
+        scenario.template_metadata = template_metadata
 
     return _dedupe_scenarios(scenarios)[:4]
 

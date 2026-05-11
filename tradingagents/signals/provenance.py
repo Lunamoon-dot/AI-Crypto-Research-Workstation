@@ -130,7 +130,9 @@ def signal_result_to_domain_signals(
             stats = reliability_map.get(signal.signal_type)
             if stats:
                 if "historical_reliability" in stats:
-                    signal.provenance.historical_reliability = float(stats["historical_reliability"])
+                    signal.provenance.historical_reliability = float(
+                        stats["historical_reliability"]
+                    )
                 if "sample_size" in stats:
                     signal.provenance.sample_size = int(stats["sample_size"])
 

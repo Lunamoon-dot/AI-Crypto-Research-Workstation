@@ -10,6 +10,8 @@ import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
+from typing import Any
+
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain.trending import HealthReport, TrendPoint
 
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 class PerformanceTracker:
     """Tracks prediction quality over time using the evaluation journal."""
 
-    def __init__(self, config: dict | None = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or DEFAULT_CONFIG
         self._eval_svc = None
         self._journal_svc = None
@@ -311,13 +313,9 @@ class PerformanceTracker:
         except Exception:
             pass
         if factor_report and factor_report.best_factor:
-            lines.append(
-                f"- Most reliable signal: **{factor_report.best_factor}**"
-            )
+            lines.append(f"- Most reliable signal: **{factor_report.best_factor}**")
         if factor_report and factor_report.worst_factor:
-            lines.append(
-                f"- Least reliable signal: **{factor_report.worst_factor}**"
-            )
+            lines.append(f"- Least reliable signal: **{factor_report.worst_factor}**")
 
         lines.append(
             "\nUse this context to calibrate confidence. "
@@ -343,9 +341,7 @@ class PerformanceTracker:
             self._thesis_cache: dict[str, object] = {}
         if thesis_id not in self._thesis_cache:
             try:
-                self._thesis_cache[thesis_id] = self.journal_svc.get_thesis(
-                    thesis_id
-                )
+                self._thesis_cache[thesis_id] = self.journal_svc.get_thesis(thesis_id)
             except Exception:
                 self._thesis_cache[thesis_id] = None
         return self._thesis_cache[thesis_id]

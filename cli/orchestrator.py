@@ -460,18 +460,16 @@ class AnalysisOrchestrator:
             "LLM Provider",
             config.get("llm_provider", "N/A"),
         )
-        table.add_row(
-            "Quick Model", config.get("quick_think_llm", "config default")
-        )
-        table.add_row(
-            "Deep Model", config.get("deep_think_llm", "config default")
-        )
+        table.add_row("Quick Model", config.get("quick_think_llm", "config default"))
+        table.add_row("Deep Model", config.get("deep_think_llm", "config default"))
         table.add_row(
             "Backend URL",
             config.get("backend_url") or "provider default",
         )
         table.add_row("Output Language", selections.get("output_language", "English"))
-        table.add_row("Checkpoint Enabled", str(config.get("checkpoint_enabled", False)))
+        table.add_row(
+            "Checkpoint Enabled", str(config.get("checkpoint_enabled", False))
+        )
 
         console.print(table)
 
@@ -491,9 +489,7 @@ class AnalysisOrchestrator:
         except Exception as exc:
             console.print(f"  [yellow]⚠[/yellow] Could not probe providers: {exc}")
 
-        console.print(
-            "\n[green]Dry-run complete — configuration is valid.[/green]"
-        )
+        console.print("\n[green]Dry-run complete — configuration is valid.[/green]")
         console.print(
             "[dim]Remove --dry-run to execute the full research pipeline.[/dim]"
         )

@@ -50,7 +50,8 @@ class TestRouteToVendorReplaySmoke:
             mock_hist.return_value = "mock_ohlcv_data"
             with config_context(cfg):
                 result = route_to_vendor(
-                    "get_crypto_ohlcv", "BTC/USDT",
+                    "get_crypto_ohlcv",
+                    "BTC/USDT",
                     (self.ANCHOR - timedelta(days=30)).isoformat(),
                     self.ANCHOR.isoformat(),
                 )
@@ -97,7 +98,9 @@ class TestRouteToVendorReplaySmoke:
 
     def test_latest_only_endpoint_warns_under_as_of(self):
         """When replay requires AS_OF but endpoint is LATEST, validation raises issues."""
-        from tradingagents.dataflows.historical_contract import validate_historical_request
+        from tradingagents.dataflows.historical_contract import (
+            validate_historical_request,
+        )
 
         window = DataWindow(anchor_date=self.ANCHOR, lookback_days=30)
         issues = validate_historical_request(
@@ -108,13 +111,15 @@ class TestRouteToVendorReplaySmoke:
         )
         # LATEST-only endpoint should produce validation issues under AS_OF
         assert len(issues) > 0
-        assert any(
-            "LATEST-only" in issue for issue in issues
-        ), f"Expected LATEST-only warning, got: {issues}"
+        assert any("LATEST-only" in issue for issue in issues), (
+            f"Expected LATEST-only warning, got: {issues}"
+        )
 
     def test_hybrid_endpoint_passes_under_as_of(self):
         """HYBRID endpoints pass AS_OF validation (caller must verify per-endpoint)."""
-        from tradingagents.dataflows.historical_contract import validate_historical_request
+        from tradingagents.dataflows.historical_contract import (
+            validate_historical_request,
+        )
 
         window = DataWindow(anchor_date=self.ANCHOR, lookback_days=30)
         issues = validate_historical_request(
@@ -123,7 +128,9 @@ class TestRouteToVendorReplaySmoke:
             window=window,
             required_semantics=TimestampSemantics.AS_OF,
         )
-        assert issues == [], f"HYBRID endpoint should pass AS_OF validation, got: {issues}"
+        assert issues == [], (
+            f"HYBRID endpoint should pass AS_OF validation, got: {issues}"
+        )
 
     def test_route_to_vendor_no_replay_config_uses_normal_path(self):
         """Without _replay key at all, normal path is used."""

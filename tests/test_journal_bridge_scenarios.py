@@ -1,6 +1,9 @@
 from tradingagents.agents.schemas import ScenarioItem, ScenarioPlan
 from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.graph.journal_bridge import JournalBridge, scenarios_from_structured_plan
+from tradingagents.graph.journal_bridge import (
+    JournalBridge,
+    scenarios_from_structured_plan,
+)
 
 
 def _config(tmp_path):

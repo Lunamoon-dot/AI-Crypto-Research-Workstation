@@ -62,16 +62,16 @@ def compute_config_hash(config: dict[str, Any]) -> str:
     """
     # Start with a shallow copy, excluding non-deterministic top-level keys
     clean: dict[str, Any] = {
-        key: value
-        for key, value in config.items()
-        if key not in _EXCLUDED_TOP_KEYS
+        key: value for key, value in config.items() if key not in _EXCLUDED_TOP_KEYS
     }
     # Redact secrets
     clean = _redact_secrets(clean)
     # Sort keys for determinism
     clean = _sort_dict(clean)
     # Serialize with sorted keys, no trailing whitespace
-    payload = json.dumps(clean, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    payload = json.dumps(
+        clean, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
     # SHA-256, return first 16 hex chars
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return digest[:16]

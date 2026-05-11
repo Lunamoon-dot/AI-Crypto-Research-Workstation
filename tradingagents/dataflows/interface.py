@@ -3,6 +3,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from time import perf_counter
+from typing import Any, Callable
 
 # Import from vendor-specific modules
 from .ccxt_provider import (
@@ -101,7 +102,7 @@ def _get_global_news_crypto(
 # Tool categories
 # ---------------------------------------------------------------------------
 
-TOOLS_CATEGORIES = {
+TOOLS_CATEGORIES: dict[str, dict[str, Any]] = {
     "technical_indicators": {
         "description": "Technical analysis indicators",
         "tools": ["get_indicators"],
@@ -140,7 +141,7 @@ VENDOR_LIST = [
 ]
 
 # Mapping of methods to their vendor-specific implementations
-VENDOR_METHODS = {
+VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
     # technical_indicators
     "get_indicators": {
         "ccxt": _get_indicators_ccxt,
@@ -198,7 +199,7 @@ def get_category_for_method(method: str) -> str:
     raise ValueError(f"Method '{method}' not found in any category")
 
 
-def get_vendor(category: str, method: str = None) -> str:
+def get_vendor(category: str, method: str | None = None) -> str:
     """Get the configured vendor for a data category or specific tool method.
     Tool-level configuration takes precedence over category-level.
     """
@@ -272,7 +273,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
 
-    last_error = None
+    last_error: BaseException | None = None
     for vendor in fallback_vendors:
         if vendor in disabled_vendors:
             logger.warning(
@@ -422,11 +423,22 @@ def route_to_vendor_historical(
             required_semantics=required_semantics,
         )
         if issues:
+            issue_summary = "; ".join(issues)
+            # Phase 9C: strict mode — fail fast on LATEST-only endpoints
+            strict_mode = bool(config.get("_replay", {}).get("strict", False))
+            if strict_mode:
+                raise DataProviderError(
+                    f"[STRICT MODE] Historical contract validation FAILED for "
+                    f"{vendor}.{method}: {issue_summary}. "
+                    f"Re-run without --strict to allow fallback."
+                )
             logger.warning(
                 "Historical contract validation failed for %s.%s: %s",
-                vendor, method, "; ".join(issues),
+                vendor,
+                method,
+                issue_summary,
             )
-            last_error = f"{vendor}.{method}: " + "; ".join(issues)
+            last_error = f"{vendor}.{method}: " + issue_summary
             continue
 
         try:

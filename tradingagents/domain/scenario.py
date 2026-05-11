@@ -27,3 +27,9 @@ class Scenario(BaseModel):
     invalidation: str = ""
     risk_map: list[str] = Field(default_factory=list)
     suggested_user_action: str = "review"
+    # Phase 5: template enforcement metadata
+    template_metadata: dict = Field(
+        default_factory=dict,
+        description="Template enforcement metadata: setup_type, requested_setup_type, "
+        "template_degraded, missing_fields, available_fields.",
+    )

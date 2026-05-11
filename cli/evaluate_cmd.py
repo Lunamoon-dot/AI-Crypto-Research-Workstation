@@ -35,7 +35,9 @@ def _fmt_pct(value: float | None) -> str:
 @evaluate_app.command("thesis")
 def evaluate_thesis_cmd(
     thesis_id: str = typer.Argument(..., help="Thesis ID to evaluate"),
-    window_days: int = typer.Option(14, "--window", "-w", help="Forward OHLCV window in days"),
+    window_days: int = typer.Option(
+        14, "--window", "-w", help="Forward OHLCV window in days"
+    ),
     record_review: bool = typer.Option(
         False, "--record-review", help="Auto-record evaluation as an outcome review"
     ),
@@ -54,8 +56,18 @@ def evaluate_thesis_cmd(
         table.add_row("Result", f"[bold]{evaluation.result.value}[/bold]")
         table.add_row("Symbol", evaluation.symbol)
         table.add_row("Window", f"{window_days} day(s)")
-        table.add_row("MFE", f"{evaluation.max_favorable_excursion:.2%}" if evaluation.max_favorable_excursion is not None else "\u2014")
-        table.add_row("MAE", f"{evaluation.max_adverse_excursion:.2%}" if evaluation.max_adverse_excursion is not None else "\u2014")
+        table.add_row(
+            "MFE",
+            f"{evaluation.max_favorable_excursion:.2%}"
+            if evaluation.max_favorable_excursion is not None
+            else "\u2014",
+        )
+        table.add_row(
+            "MAE",
+            f"{evaluation.max_adverse_excursion:.2%}"
+            if evaluation.max_adverse_excursion is not None
+            else "\u2014",
+        )
         table.add_row("Invalidated", str(evaluation.invalidated))
         console.print(table)
     except ValueError as e:
@@ -67,13 +79,19 @@ def evaluate_thesis_cmd(
 def evaluate_batch_cmd(
     symbol: str = typer.Option(None, "--symbol", "-s", help="Filter by symbol"),
     limit: int = typer.Option(20, "--limit", "-n", min=1, max=200),
-    window_days: int = typer.Option(14, "--window", "-w", help="Forward OHLCV window in days"),
+    window_days: int = typer.Option(
+        14, "--window", "-w", help="Forward OHLCV window in days"
+    ),
 ) -> None:
     """Evaluate multiple saved theses and show a summary table."""
     svc = EvaluationService()
-    evaluations = svc.evaluate_batch(symbol=symbol, limit=limit, window_days=window_days)
+    evaluations = svc.evaluate_batch(
+        symbol=symbol, limit=limit, window_days=window_days
+    )
 
-    table = Table(title=f"Thesis Batch Evaluation ({len(evaluations)} theses)", box=box.SIMPLE)
+    table = Table(
+        title=f"Thesis Batch Evaluation ({len(evaluations)} theses)", box=box.SIMPLE
+    )
     table.add_column("Thesis ID", style="cyan", no_wrap=True)
     table.add_column("Symbol", style="green")
     table.add_column("Result", style="bold")
@@ -93,8 +111,12 @@ def evaluate_batch_cmd(
             ev.id or "\u2014",
             ev.symbol,
             f"[{result_style}]{ev.result.value}[/{result_style}]",
-            f"{ev.max_favorable_excursion:.2%}" if ev.max_favorable_excursion is not None else "\u2014",
-            f"{ev.max_adverse_excursion:.2%}" if ev.max_adverse_excursion is not None else "\u2014",
+            f"{ev.max_favorable_excursion:.2%}"
+            if ev.max_favorable_excursion is not None
+            else "\u2014",
+            f"{ev.max_adverse_excursion:.2%}"
+            if ev.max_adverse_excursion is not None
+            else "\u2014",
             "\u2713" if ev.invalidated else "\u2014",
         )
     console.print(table)
@@ -163,8 +185,14 @@ def evaluate_analytics_cmd(
     table.add_row("Invalidation rate", _fmt_pct(overall.invalidation_rate))
     table.add_row("Mixed rate", _fmt_pct(overall.mixed_rate))
     table.add_row("Expired rate", _fmt_pct(overall.expired_rate))
-    table.add_row("Avg MFE", f"{overall.average_mfe:.2%}" if overall.average_mfe is not None else "\u2014")
-    table.add_row("Avg MAE", f"{overall.average_mae:.2%}" if overall.average_mae is not None else "\u2014")
+    table.add_row(
+        "Avg MFE",
+        f"{overall.average_mfe:.2%}" if overall.average_mfe is not None else "\u2014",
+    )
+    table.add_row(
+        "Avg MAE",
+        f"{overall.average_mae:.2%}" if overall.average_mae is not None else "\u2014",
+    )
     console.print(table)
 
 
@@ -207,7 +235,9 @@ def evaluate_factors_cmd(
             _fmt_pct(f.hit_rate),
             _fmt_pct(f.directional_accuracy),
             _fmt_pct(f.strong_signal_hit_rate),
-            f"{f.average_confidence:.0%}" if f.average_confidence is not None else "\u2014",
+            f"{f.average_confidence:.0%}"
+            if f.average_confidence is not None
+            else "\u2014",
         )
     console.print(table)
 
@@ -241,7 +271,11 @@ def evaluate_agents_cmd(
     table.add_column("Bias")
 
     for a in report.agents:
-        bias_color = "green" if (a.bias_score or 0) > 0.3 else ("red" if (a.bias_score or 0) < -0.3 else "white")
+        bias_color = (
+            "green"
+            if (a.bias_score or 0) > 0.3
+            else ("red" if (a.bias_score or 0) < -0.3 else "white")
+        )
         table.add_row(
             a.agent_name,
             a.role,
@@ -249,7 +283,9 @@ def evaluate_agents_cmd(
             _fmt_pct(a.bullish_rate),
             _fmt_pct(a.bearish_rate),
             _fmt_pct(a.stance_accuracy),
-            f"[{bias_color}]{a.bias_score:+.2f}[/{bias_color}]" if a.bias_score is not None else "\u2014",
+            f"[{bias_color}]{a.bias_score:+.2f}[/{bias_color}]"
+            if a.bias_score is not None
+            else "\u2014",
         )
     console.print(table)
 
@@ -270,7 +306,11 @@ def evaluate_confidence_cmd(
         "insufficient_data": "dim",
     }.get(curve.calibration_quality, "white")
 
-    err_text = f"Overall error: {curve.overall_calibration_error:+.2%}" if curve.overall_calibration_error is not None else "Overall error: \u2014"
+    err_text = (
+        f"Overall error: {curve.overall_calibration_error:+.2%}"
+        if curve.overall_calibration_error is not None
+        else "Overall error: \u2014"
+    )
 
     console.print(
         Panel(
@@ -288,13 +328,19 @@ def evaluate_confidence_cmd(
     table.add_column("Error")
 
     for b in curve.buckets:
-        err_color = "green" if (b.calibration_error or 0) >= -0.05 else ("red" if (b.calibration_error or 0) < -0.10 else "yellow")
+        err_color = (
+            "green"
+            if (b.calibration_error or 0) >= -0.05
+            else ("red" if (b.calibration_error or 0) < -0.10 else "yellow")
+        )
         table.add_row(
             b.bucket_label,
             str(b.sample_size),
             _fmt_pct(b.expected_rate),
             _fmt_pct(b.hit_rate),
-            f"[{err_color}]{b.calibration_error:+.0%}[/{err_color}]" if b.calibration_error is not None else "\u2014",
+            f"[{err_color}]{b.calibration_error:+.0%}[/{err_color}]"
+            if b.calibration_error is not None
+            else "\u2014",
         )
     console.print(table)
 
@@ -315,7 +361,11 @@ def evaluate_contradictions_cmd(
         "insufficient_data": "dim",
     }.get(analysis.contradiction_usefulness, "white")
 
-    avg_text = f"Sample: {analysis.sample_size} | Avg contradictions: {analysis.contradiction_count_avg:.1f}" if analysis.contradiction_count_avg is not None else f"Sample: {analysis.sample_size}"
+    avg_text = (
+        f"Sample: {analysis.sample_size} | Avg contradictions: {analysis.contradiction_count_avg:.1f}"
+        if analysis.contradiction_count_avg is not None
+        else f"Sample: {analysis.sample_size}"
+    )
 
     console.print(
         Panel(
@@ -330,9 +380,21 @@ def evaluate_contradictions_cmd(
     table.add_column("Conflict", style="cyan")
     table.add_column("N", style="dim")
     table.add_column("Hit Rate", style="bold")
-    table.add_row("Low", str(analysis.low_conflict_sample), _fmt_pct(analysis.low_conflict_hit_rate))
-    table.add_row("Medium", str(analysis.medium_conflict_sample), _fmt_pct(analysis.medium_conflict_hit_rate))
-    table.add_row("High", str(analysis.high_conflict_sample), _fmt_pct(analysis.high_conflict_hit_rate))
+    table.add_row(
+        "Low",
+        str(analysis.low_conflict_sample),
+        _fmt_pct(analysis.low_conflict_hit_rate),
+    )
+    table.add_row(
+        "Medium",
+        str(analysis.medium_conflict_sample),
+        _fmt_pct(analysis.medium_conflict_hit_rate),
+    )
+    table.add_row(
+        "High",
+        str(analysis.high_conflict_sample),
+        _fmt_pct(analysis.high_conflict_hit_rate),
+    )
     console.print(table)
 
     # Contradiction count table
@@ -340,7 +402,11 @@ def evaluate_contradictions_cmd(
     table2.add_column("Group", style="cyan")
     table2.add_column("Hit Rate", style="bold")
     table2.add_row("No contradictions", _fmt_pct(analysis.no_contradiction_hit_rate))
-    contra_label = f"\u2265{analysis.contradiction_count_avg:.1f} contradictions" if analysis.contradiction_count_avg else "Above avg contradictions"
+    contra_label = (
+        f"\u2265{analysis.contradiction_count_avg:.1f} contradictions"
+        if analysis.contradiction_count_avg
+        else "Above avg contradictions"
+    )
     table2.add_row(contra_label, _fmt_pct(analysis.contradiction_hit_rate))
     console.print(table2)
 
@@ -348,8 +414,12 @@ def evaluate_contradictions_cmd(
     table3 = Table(title="By Stance Diversity", box=box.SIMPLE)
     table3.add_column("Group", style="cyan")
     table3.add_column("Hit Rate", style="bold")
-    table3.add_row("High diversity (disagree)", _fmt_pct(analysis.high_diversity_hit_rate))
-    table3.add_row("Low diversity (consensus)", _fmt_pct(analysis.low_diversity_hit_rate))
+    table3.add_row(
+        "High diversity (disagree)", _fmt_pct(analysis.high_diversity_hit_rate)
+    )
+    table3.add_row(
+        "Low diversity (consensus)", _fmt_pct(analysis.low_diversity_hit_rate)
+    )
     console.print(table3)
 
 
@@ -360,12 +430,18 @@ def evaluate_contradictions_cmd(
 
 @evaluate_app.command("matured")
 def evaluate_matured_cmd(
-    window_days: int = typer.Option(14, "--window", "-w", help="Forward OHLCV window in days"),
-    max_batch: int = typer.Option(10, "--max", "-n", min=1, max=50, help="Max theses to evaluate"),
+    window_days: int = typer.Option(
+        14, "--window", "-w", help="Forward OHLCV window in days"
+    ),
+    max_batch: int = typer.Option(
+        10, "--max", "-n", min=1, max=50, help="Max theses to evaluate"
+    ),
 ) -> None:
     """Evaluate all matured theses that lack an evaluation."""
     tracker = PerformanceTracker()
-    count = tracker.evaluate_matured_theses(window_days=window_days, max_batch=max_batch)
+    count = tracker.evaluate_matured_theses(
+        window_days=window_days, max_batch=max_batch
+    )
     if count:
         console.print(f"[green]Evaluated {count} matured thesis(es).[/green]")
     else:
@@ -374,7 +450,9 @@ def evaluate_matured_cmd(
 
 @evaluate_app.command("trend")
 def evaluate_trend_cmd(
-    days: int = typer.Option(90, "--days", "-d", min=7, max=365, help="Lookback in days"),
+    days: int = typer.Option(
+        90, "--days", "-d", min=7, max=365, help="Lookback in days"
+    ),
 ) -> None:
     """Show weekly performance trend over time."""
     tracker = PerformanceTracker()
@@ -395,7 +473,11 @@ def evaluate_trend_cmd(
     table.add_column("Avg MAE")
 
     for point in points:
-        hit_style = "green" if (point.hit_rate or 0) >= 0.5 else ("red" if (point.hit_rate or 0) < 0.3 else "yellow")
+        hit_style = (
+            "green"
+            if (point.hit_rate or 0) >= 0.5
+            else ("red" if (point.hit_rate or 0) < 0.3 else "yellow")
+        )
         table.add_row(
             point.week_start.isoformat(),
             str(point.sample_size),
@@ -408,13 +490,19 @@ def evaluate_trend_cmd(
 
 @evaluate_app.command("health")
 def evaluate_health_cmd(
-    recent_days: int = typer.Option(14, "--recent-days", min=7, max=90, help="Recent window in days"),
-    baseline_days: int = typer.Option(60, "--baseline-days", min=14, max=365, help="Baseline window in days"),
+    recent_days: int = typer.Option(
+        14, "--recent-days", min=7, max=90, help="Recent window in days"
+    ),
+    baseline_days: int = typer.Option(
+        60, "--baseline-days", min=14, max=365, help="Baseline window in days"
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit health report as JSON."),
 ) -> None:
     """Quick health check — detect performance degradation."""
     tracker = PerformanceTracker()
-    report = tracker.detect_degradation(recent_days=recent_days, baseline_days=baseline_days)
+    report = tracker.detect_degradation(
+        recent_days=recent_days, baseline_days=baseline_days
+    )
 
     if json_out:
         print_json_stdout({"health": report.model_dump(mode="json")})

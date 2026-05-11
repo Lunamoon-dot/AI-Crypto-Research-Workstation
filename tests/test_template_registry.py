@@ -139,3 +139,107 @@ class TestBreakoutTemplateFields:
             }
         )
         assert missing == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: validate_template_context — pre-LLM gate
+# ---------------------------------------------------------------------------
+
+
+class TestValidateTemplateContext:
+    """Tests for TemplateRegistry.validate_template_context()."""
+
+    def test_none_setup_type_returns_agent_debate_no_degrade(self):
+        result = TemplateRegistry.validate_template_context(None, {})
+        assert result["effective_setup_type"] == "agent_debate"
+        assert result["is_degraded"] is False
+        assert result["missing_fields"] == []
+        assert result["degrade_reason"] == ""
+
+    def test_agent_debate_setup_type_returns_as_is(self):
+        result = TemplateRegistry.validate_template_context("agent_debate", {})
+        assert result["effective_setup_type"] == "agent_debate"
+        assert result["is_degraded"] is False
+
+    def test_unknown_setup_type_degrades(self):
+        result = TemplateRegistry.validate_template_context("nonexistent", {})
+        assert result["effective_setup_type"] == "agent_debate"
+        assert result["is_degraded"] is True
+        assert "Unknown setup_type" in result["degrade_reason"]
+
+    def test_all_required_fields_present_no_degrade(self):
+        context = {
+            "resistance_level": "110k",
+            "volume_confirmation": "yes",
+            "funding_state": "neutral",
+            "invalidation_level": "108k",
+            "higher_timeframe_trend": "uptrend",
+        }
+        result = TemplateRegistry.validate_template_context("breakout", context)
+        assert result["effective_setup_type"] == "breakout"
+        assert result["is_degraded"] is False
+        assert result["missing_fields"] == []
+
+    def test_insufficient_coverage_degrades(self):
+        """Only 1 of 5 required fields → coverage 20% < 50% threshold."""
+        context = {
+            "resistance_level": "110k",
+            # missing: volume_confirmation, funding_state, invalidation_level,
+            # higher_timeframe_trend
+        }
+        result = TemplateRegistry.validate_template_context("breakout", context)
+        assert result["effective_setup_type"] == "agent_debate"
+        assert result["is_degraded"] is True
+        assert len(result["missing_fields"]) == 4
+        assert "Degrading to agent_debate" in result["degrade_reason"]
+
+    def test_partial_coverage_no_degrade_at_threshold(self):
+        """3 of 5 required fields → coverage 60% ≥ 50% threshold."""
+        context = {
+            "resistance_level": "110k",
+            "volume_confirmation": "yes",
+            "funding_state": "neutral",
+            # missing: invalidation_level, higher_timeframe_trend
+        }
+        result = TemplateRegistry.validate_template_context("breakout", context)
+        assert result["effective_setup_type"] == "breakout"
+        assert result["is_degraded"] is False
+        assert len(result["missing_fields"]) == 2
+        assert len(result["available_fields"]) == 3
+
+    def test_template_without_required_fields_never_degrades(self):
+        """The 'agent_debate' template has no required fields."""
+        # Register a template with no required fields
+        TemplateRegistry.register(
+            SetupTemplate(name="simple_setup", description="No required fields")
+        )
+        result = TemplateRegistry.validate_template_context("simple_setup", {})
+        assert result["effective_setup_type"] == "simple_setup"
+        assert result["is_degraded"] is False
+
+    def test_empty_context_values_degrades(self):
+        """All values empty/N/A → no fields available."""
+        context = {
+            "resistance_level": "",
+            "volume_confirmation": "N/A",
+            "funding_state": "",
+            "invalidation_level": "N/A",
+        }
+        result = TemplateRegistry.validate_template_context("breakout", context)
+        assert result["effective_setup_type"] == "agent_debate"
+        assert result["is_degraded"] is True
+        assert len(result["available_fields"]) == 0
+
+    def test_requested_setup_type_preserved(self):
+        result = TemplateRegistry.validate_template_context("breakout", {})
+        assert result["requested_setup_type"] == "breakout"
+        assert result["effective_setup_type"] == "agent_debate"
+
+    def test_custom_threshold(self):
+        """With threshold 0.0, any coverage is accepted."""
+        context = {"resistance_level": "110k"}
+        result = TemplateRegistry.validate_template_context(
+            "breakout", context, required_coverage_threshold=0.0
+        )
+        assert result["is_degraded"] is False
+        assert result["effective_setup_type"] == "breakout"

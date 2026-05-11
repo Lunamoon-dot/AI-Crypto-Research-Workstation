@@ -17,6 +17,9 @@ Guardrails
   aged data.
 - **Checkpoint isolation**: replay runs use a separate checkpoint
   namespace so they never collide with live runs.
+- **Replay audit artifact**: a ``replay_audit`` run event is persisted
+  after each replay with vendor/method/semantics/window/issues for
+  every endpoint used.
 """
 
 from __future__ import annotations
@@ -25,7 +28,12 @@ import logging
 from datetime import date, datetime
 
 from tradingagents.dataflows.config import config_context
-from tradingagents.dataflows.historical_contract import DataWindow
+from tradingagents.dataflows.historical_contract import (
+    DataWindow,
+    TimestampSemantics,
+    PROVIDER_DECLARATIONS,
+    validate_historical_request,
+)
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.checkpointer import thread_id
 from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
@@ -128,12 +136,16 @@ class HistoricalReplay:
 
         # Prepare a config copy with replay metadata so that
         # route_to_vendor can pick up the contract.
+        strict_mode = bool(
+            self.config.get("historical_data", {}).get("strict_mode", False)
+        )
         replay_config = dict(self.config)
         replay_config["_replay"] = {
             "enabled": True,
             "anchor_date": anchor_date.isoformat(),
             "window": window.model_dump(),
             "required_semantics": "as_of",
+            "strict": strict_mode,
         }
         replay_config["max_debate_rounds"] = max_debate_rounds
         replay_config["max_risk_discuss_rounds"] = max_risk_rounds
@@ -183,6 +195,15 @@ class HistoricalReplay:
         thesis_text = ""
         if final_state:
             thesis_text = final_state.get("final_trade_decision", "")
+
+        # --- Phase 9C: persist replay audit artifact ---
+        _save_replay_audit_event(
+            ticker=ticker,
+            anchor_date=anchor_date,
+            window=window,
+            strict_mode=strict_mode,
+            config=replay_config,
+        )
 
         return ReplayResult(
             ticker=ticker,
@@ -285,7 +306,9 @@ class HistoricalReplay:
                 f"Data timestamp unknown for {method} — "
                 f"cannot verify no-lookahead vs anchor {anchor_date.isoformat()}"
             ]
-        data_date = data_timestamp.date() if hasattr(data_timestamp, "date") else data_timestamp
+        data_date = (
+            data_timestamp.date() if hasattr(data_timestamp, "date") else data_timestamp
+        )
         if isinstance(data_date, datetime):
             data_date = data_date.date()
         if data_date > anchor_date:
@@ -294,3 +317,83 @@ class HistoricalReplay:
                 f"is after anchor {anchor_date.isoformat()}"
             ]
         return []
+
+
+# ---------------------------------------------------------------------------
+# Phase 9C: Replay audit artifact
+# ---------------------------------------------------------------------------
+
+
+def _save_replay_audit_event(
+    ticker: str,
+    anchor_date: date,
+    window: DataWindow,
+    strict_mode: bool,
+    config: dict,
+) -> None:
+    """Persist a ``replay_audit`` run event summarising provider capability checks.
+
+    Inspects every registered provider endpoint against the replay window
+    and records vendor/method/semantics/lookback/issues so the user can
+    audit which endpoints were trustworthy for this replay.
+    """
+    try:
+        from tradingagents.services.journal_service import JournalService
+
+        required_semantics = (
+            TimestampSemantics.AS_OF if strict_mode else TimestampSemantics.HYBRID
+        )
+        endpoint_audits: list[dict] = []
+
+        for vendor_name, declaration in PROVIDER_DECLARATIONS.items():
+            for ep in declaration.endpoints:
+                issues = validate_historical_request(
+                    vendor=vendor_name,
+                    method=ep.method_name,
+                    window=window,
+                    required_semantics=required_semantics,
+                )
+                endpoint_audits.append(
+                    {
+                        "vendor": vendor_name,
+                        "method": ep.method_name,
+                        "declared_semantics": ep.timestamp_semantics.value,
+                        "max_lookback_days": ep.max_lookback_days,
+                        "granularity": ep.granularity,
+                        "window_start": window.start_date.isoformat(),
+                        "window_end": window.end_date.isoformat(),
+                        "required_semantics": required_semantics.value,
+                        "strict_mode": strict_mode,
+                        "issues": issues,
+                        "trusted_for_replay": len(issues) == 0,
+                    }
+                )
+
+        untrusted_count = sum(1 for a in endpoint_audits if not a["trusted_for_replay"])
+        trusted_count = len(endpoint_audits) - untrusted_count
+
+        service = JournalService(config)
+        service.add_run_event(
+            research_run_id="",  # Will be populated if run exists
+            event_type="replay_audit",
+            message=(
+                f"Replay audit for {ticker} @ {anchor_date.isoformat()}: "
+                f"{trusted_count}/{len(endpoint_audits)} endpoints trusted "
+                f"({untrusted_count} with issues)"
+                + (" [STRICT]" if strict_mode else "")
+            ),
+            payload={
+                "ticker": ticker,
+                "anchor_date": anchor_date.isoformat(),
+                "window": window.model_dump(),
+                "strict_mode": strict_mode,
+                "required_semantics": required_semantics.value,
+                "endpoints": endpoint_audits,
+                "trusted_count": trusted_count,
+                "untrusted_count": untrusted_count,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "Replay audit event could not be persisted (non-critical)", exc_info=True
+        )

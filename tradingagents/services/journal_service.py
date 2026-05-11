@@ -8,6 +8,7 @@ talking to SQLite directly.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import (
@@ -29,7 +30,7 @@ from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.sqlite import SQLiteStore
 
 
-def resolve_journal_db_path(config: dict | None = None) -> Path:
+def resolve_journal_db_path(config: dict[str, Any] | None = None) -> Path:
     cfg = config or DEFAULT_CONFIG
     journal_cfg = cfg.get("journal", {})
     db_path = journal_cfg.get("db_path") or cfg.get("journal_db_path")
@@ -41,7 +42,7 @@ def resolve_journal_db_path(config: dict | None = None) -> Path:
 class JournalService:
     """High-level operations for research runs, theses, decisions, and reviews."""
 
-    def __init__(self, config: dict | None = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or DEFAULT_CONFIG
         self.store = SQLiteStore(resolve_journal_db_path(self.config))
         self.repo = JournalRepository(self.store)
@@ -310,6 +311,33 @@ class JournalService:
 
     def list_scenarios(self, *, thesis_id: str, limit: int = 20) -> list[Scenario]:
         return self.repo.list_scenarios(thesis_id=thesis_id, limit=limit)
+
+    # --- Phase 4 (tail): Reliability snapshots ---
+
+    def save_reliability_snapshot(
+        self,
+        snapshot,
+    ) -> Any:
+        """Save a reliability snapshot to the journal."""
+        return self.repo.save_reliability_snapshot(snapshot)
+
+    def get_reliability_snapshot(self, snapshot_id: str) -> Any | None:
+        """Retrieve a reliability snapshot by id."""
+        return self.repo.get_reliability_snapshot(snapshot_id)
+
+    def list_reliability_snapshots(
+        self,
+        *,
+        symbol: str | None = None,
+        rolling_window_days: int | None = None,
+        limit: int = 20,
+    ) -> list:
+        """List reliability snapshots, optionally filtered."""
+        return self.repo.list_reliability_snapshots(
+            symbol=symbol,
+            rolling_window_days=rolling_window_days,
+            limit=limit,
+        )
 
 
 def _rate(numerator: int, denominator: int) -> float | None:

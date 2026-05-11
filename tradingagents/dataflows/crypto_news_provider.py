@@ -72,7 +72,10 @@ def fetch_cryptopanic_headlines(
                 wait = min(_BACKOFF_MAX, _BACKOFF_BASE * (2**attempt))
                 logger.warning(
                     "CryptoPanic HTTP %s (attempt %s/%s), retrying in %.1fs",
-                    exc.code, attempt + 1, attempts, wait,
+                    exc.code,
+                    attempt + 1,
+                    attempts,
+                    wait,
                 )
                 time.sleep(wait)
                 continue
@@ -83,7 +86,10 @@ def fetch_cryptopanic_headlines(
                 wait = min(_BACKOFF_MAX, _BACKOFF_BASE * (2**attempt))
                 logger.warning(
                     "CryptoPanic network error (attempt %s/%s): %s, retrying in %.1fs",
-                    attempt + 1, attempts, exc, wait,
+                    attempt + 1,
+                    attempts,
+                    exc,
+                    wait,
                 )
                 time.sleep(wait)
                 continue

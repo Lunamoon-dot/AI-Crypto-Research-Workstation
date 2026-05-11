@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 
 from tradingagents.domain.trending import HealthReport, TrendPoint
-from tradingagents.domain.evaluation import EvaluationAnalytics, EvaluationMetricsRow, ThesisEvaluation
+from tradingagents.domain.evaluation import (
+    EvaluationAnalytics,
+    EvaluationMetricsRow,
+    ThesisEvaluation,
+)
 from tradingagents.domain.outcome import OutcomeResult
 
 
@@ -97,8 +101,9 @@ def _make_thesis(thesis_id, symbol="BTC/USDT", days_ago=30):
     )
 
 
-def _make_eval(thesis_id, symbol="BTC/USDT", result=OutcomeResult.HIT_TARGET,
-               mfe=0.10, mae=-0.03):
+def _make_eval(
+    thesis_id, symbol="BTC/USDT", result=OutcomeResult.HIT_TARGET, mfe=0.10, mae=-0.03
+):
     today = date.today()
     return ThesisEvaluation(
         thesis_id=thesis_id,
@@ -128,9 +133,7 @@ class TestEvaluateMaturedTheses:
         thesis = _make_thesis("thesis-1")
         tracker = _make_tracker()
         tracker._journal_svc.list_theses.return_value = [thesis]
-        tracker._eval_svc.list_evaluations.return_value = [
-            _make_eval("thesis-1")
-        ]
+        tracker._eval_svc.list_evaluations.return_value = [_make_eval("thesis-1")]
         assert tracker.evaluate_matured_theses() == 0
 
     def test_skips_recent_theses(self):
@@ -183,7 +186,9 @@ class TestGetTrend:
     def test_groups_by_week(self):
         today = date.today()
         monday = today - timedelta(days=today.weekday())
-        thesis_date = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+        thesis_date = datetime(
+            monday.year, monday.month, monday.day, tzinfo=timezone.utc
+        )
 
         thesis = _make_thesis("t1")
         thesis.created_at = thesis_date
@@ -339,15 +344,18 @@ class TestBuildFeedbackContext:
 class TestEvaluateMaturedCli:
     def test_matured_command_registered(self):
         from cli.evaluate_cmd import evaluate_app
+
         commands = [cmd.name for cmd in evaluate_app.registered_commands]
         assert "matured" in commands
 
     def test_trend_command_registered(self):
         from cli.evaluate_cmd import evaluate_app
+
         commands = [cmd.name for cmd in evaluate_app.registered_commands]
         assert "trend" in commands
 
     def test_health_command_registered(self):
         from cli.evaluate_cmd import evaluate_app
+
         commands = [cmd.name for cmd in evaluate_app.registered_commands]
         assert "health" in commands

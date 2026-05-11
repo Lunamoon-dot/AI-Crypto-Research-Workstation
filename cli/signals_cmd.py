@@ -49,6 +49,7 @@ def signals_list(
     table.add_column("Type")
     table.add_column("Direction")
     table.add_column("Confidence")
+    table.add_column("Reliability")
     table.add_column("Freshness")
     table.add_column("Observed")
     table.add_column("Source TS")
@@ -57,6 +58,12 @@ def signals_list(
         confidence = (
             f"{signal.confidence:.0%}" if signal.confidence is not None else "N/A"
         )
+        reliability = "N/A"
+        if signal.provenance.historical_reliability is not None:
+            n = signal.provenance.sample_size
+            reliability = f"{signal.provenance.historical_reliability:.0%}"
+            if n is not None:
+                reliability += f" (n={n})"
         source_ts = (
             signal.provenance.source_timestamp.isoformat()
             if signal.provenance.source_timestamp
@@ -68,6 +75,7 @@ def signals_list(
             signal.signal_type,
             signal.direction.value,
             confidence,
+            reliability,
             signal.provenance.freshness.value,
             signal.observed_at.isoformat(),
             source_ts,
@@ -114,9 +122,9 @@ def signals_show(
         )
     lines.extend(
         [
-        "",
-        "Evidence:",
-    ]
+            "",
+            "Evidence:",
+        ]
     )
     if signal.evidence:
         lines.extend(f"- {key}: {value}" for key, value in signal.evidence.items())

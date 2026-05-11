@@ -1,7 +1,5 @@
 """Tests for config hash computation and ResearchRun model identity fields."""
 
-
-
 from tradingagents.domain import ResearchRun, ResearchRunStatus
 from tradingagents.graph.config_hash import compute_config_hash
 

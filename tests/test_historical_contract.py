@@ -62,7 +62,9 @@ class TestFreshnessContract:
         assert fc.require_fresh is False
 
     def test_custom_values(self):
-        fc = FreshnessContract(max_age_hours=1.0, stale_action="reject", require_fresh=True)
+        fc = FreshnessContract(
+            max_age_hours=1.0, stale_action="reject", require_fresh=True
+        )
         assert fc.max_age_hours == 1.0
         assert fc.stale_action == "reject"
         assert fc.require_fresh is True
@@ -270,7 +272,9 @@ class TestHistoricalDataContract:
         issues = contract.validate_against(as_of_decl, "get_crypto_ohlcv")
         assert issues == []
 
-    def test_validate_against_latest_vendor_with_as_of_requirement(self, window, latest_decl):
+    def test_validate_against_latest_vendor_with_as_of_requirement(
+        self, window, latest_decl
+    ):
         contract = HistoricalDataContract(
             window=window,
             required_semantics=TimestampSemantics.AS_OF,
@@ -301,7 +305,9 @@ class TestHistoricalDataContract:
         assert len(issues) > 0
         assert any("Forward window" in issue for issue in issues)
 
-    def test_validate_against_latest_requirement_passes_when_lookback_respected(self, window, latest_decl):
+    def test_validate_against_latest_requirement_passes_when_lookback_respected(
+        self, window, latest_decl
+    ):
         # With LATEST semantics but max_lookback_days=0, any lookback > 0 is rejected
         contract = HistoricalDataContract(
             window=window,

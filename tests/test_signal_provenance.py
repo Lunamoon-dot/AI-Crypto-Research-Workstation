@@ -130,3 +130,111 @@ def test_thesis_signal_classification_by_direction():
     assert short_contra == ["sig_bull"]
     assert watch_support == []
     assert watch_contra == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 (tail): build_reliability_map_from_evaluations
+# ---------------------------------------------------------------------------
+
+
+def test_build_reliability_map_from_evaluations_empty():
+    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
+
+    result = build_reliability_map_from_evaluations([])
+    assert result == {}
+
+
+def test_build_reliability_map_from_factor_reliability_objects():
+    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
+    from tradingagents.domain.calibration import FactorReliability
+
+    factors = [
+        FactorReliability(
+            factor_name="funding_oi",
+            sample_size=50,
+            hit_rate=0.65,
+            directional_accuracy=0.70,
+        ),
+        FactorReliability(
+            factor_name="rsi_divergence",
+            sample_size=40,
+            hit_rate=0.55,
+            directional_accuracy=0.60,
+        ),
+        FactorReliability(
+            factor_name="regime",
+            sample_size=30,
+            hit_rate=0.80,
+            directional_accuracy=0.85,
+        ),
+    ]
+
+    result = build_reliability_map_from_evaluations(factors)
+    assert len(result) == 3
+    assert result["funding_oi"]["historical_reliability"] == 0.65
+    assert result["funding_oi"]["sample_size"] == 50
+    assert result["rsi_divergence"]["historical_reliability"] == 0.55
+    assert result["regime"]["historical_reliability"] == 0.80
+
+
+def test_build_reliability_map_skips_nameless():
+    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
+
+    class NamelessEval:
+        factor_name = None
+        historical_reliability = 0.5
+        sample_size = 10
+
+    result = build_reliability_map_from_evaluations([NamelessEval()])
+    assert result == {}
+
+
+def test_reliability_map_passed_to_signal_result():
+    from tradingagents.signals.provenance import signal_result_to_domain_signals
+
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = _sample_result("2026-05-08T10:00:00Z")
+
+    reliability_map = {
+        "funding_oi": {"historical_reliability": 0.65, "sample_size": 50},
+        "regime": {"historical_reliability": 0.80, "sample_size": 30},
+        "composite_quant": {"historical_reliability": 0.72, "sample_size": 60},
+    }
+
+    signals = signal_result_to_domain_signals(
+        result, now=now, reliability_map=reliability_map
+    )
+
+    # Check composite signal
+    composite = signals[0]
+    assert composite.provenance.historical_reliability == 0.72
+    assert composite.provenance.sample_size == 60
+
+    # Check per-factor signals
+    funding = signals[1]
+    assert funding.provenance.historical_reliability == 0.65
+    assert funding.provenance.sample_size == 50
+
+    regime = signals[2]
+    assert regime.provenance.historical_reliability == 0.80
+    assert regime.provenance.sample_size == 30
+
+
+def test_reliability_map_missing_key_no_effect():
+    from tradingagents.signals.provenance import signal_result_to_domain_signals
+
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = _sample_result("2026-05-08T10:00:00Z")
+
+    reliability_map = {
+        "some_other_signal": {"historical_reliability": 0.99, "sample_size": 999},
+    }
+
+    signals = signal_result_to_domain_signals(
+        result, now=now, reliability_map=reliability_map
+    )
+
+    # None of the signals should have reliability set
+    for signal in signals:
+        assert signal.provenance.historical_reliability is None
+        assert signal.provenance.sample_size is None

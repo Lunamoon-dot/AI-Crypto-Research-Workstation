@@ -31,6 +31,4 @@ class HealthReport(BaseModel):
     baseline_hit_rate: float | None = None
     alerts: list[str] = Field(default_factory=list)
     recommendation: str = ""
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

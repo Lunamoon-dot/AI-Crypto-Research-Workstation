@@ -25,7 +25,12 @@ from .provenance import DataFreshness, SignalProvenance
 from .research_run import ResearchRun, ResearchRunStatus
 from .scenario import Scenario, ScenarioProbabilityBand
 from .signal import Signal, SignalDirection
-from .snapshot import MarketSnapshot, SignalSnapshot
+from .snapshot import (
+    FactorReliabilityEntry,
+    MarketSnapshot,
+    ReliabilitySnapshot,
+    SignalSnapshot,
+)
 from .template import SetupTemplate, TemplateField
 from .thesis import ThesisDirection, TradeThesis
 from .timeline import TimelineEvent
@@ -47,6 +52,7 @@ __all__ = [
     "AgentStance",
     "ConflictLevel",
     "FactorReliability",
+    "FactorReliabilityEntry",
     "FactorReliabilityReport",
     "OutcomeResult",
     "OutcomeReview",
@@ -54,6 +60,7 @@ __all__ = [
     "ResearchRun",
     "ResearchRunStatus",
     "ResearchDebate",
+    "ReliabilitySnapshot",
     "RetrospectiveInsight",
     "Scenario",
     "ScenarioProbabilityBand",

@@ -27,14 +27,14 @@ class GraphSetup:
         deep_thinking_llm: Any,
         tool_nodes: Dict[str, ToolNode],
         conditional_logic: ConditionalLogic,
-        config: Dict[str, Any] = None,
+        config: Dict[str, Any] | None = None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.tool_nodes = tool_nodes
         self.conditional_logic = conditional_logic
-        self.config = config or {}
+        self.config: Dict[str, Any] = config or {}
 
     def setup_graph(self, selected_analysts=["market", "social", "news", "onchain"]):
         """Set up and compile the agent workflow graph.

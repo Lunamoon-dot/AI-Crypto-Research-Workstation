@@ -407,7 +407,8 @@ def select_asset_class() -> str:
                 "Crypto (cryptocurrencies) — recommended", value="crypto"
             ),
             questionary.Choice(
-                "Stock (equities, ETFs) — crypto-only fork; data providers removed", value="stock"
+                "Stock (equities, ETFs) — crypto-only fork; data providers removed",
+                value="stock",
             ),
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",

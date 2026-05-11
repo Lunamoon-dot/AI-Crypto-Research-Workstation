@@ -14,14 +14,16 @@ import sys
 from typing import Any, Iterator, Mapping
 
 
-_OBSERVABILITY_CONTEXT = contextvars.ContextVar(
+_OBSERVABILITY_CONTEXT: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "tradingagents_observability_context",
     default={},
 )
 
-_OBS_RUN_EVENT_PERSIST = contextvars.ContextVar(
-    "tradingagents_obs_run_event_persist",
-    default=None,
+_OBS_RUN_EVENT_PERSIST: contextvars.ContextVar[dict[str, Any] | None] = (
+    contextvars.ContextVar(
+        "tradingagents_obs_run_event_persist",
+        default=None,
+    )
 )
 
 _TIMELINE_EVENT_TYPES = {

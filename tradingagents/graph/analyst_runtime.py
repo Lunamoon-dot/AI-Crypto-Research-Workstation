@@ -40,7 +40,7 @@ def make_analyst_runner(
             tool_out = tool_node.invoke({"messages": [ai_message]}) or {}
             local_messages.extend(list(tool_out.get("messages", [])))
 
-        result = {report_key: report}
+        result: dict[str, Any] = {report_key: report}
         if last_ai_message is not None:
             result["messages"] = [last_ai_message]
         return result

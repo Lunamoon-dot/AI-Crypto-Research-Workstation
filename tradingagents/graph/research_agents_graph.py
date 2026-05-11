@@ -60,7 +60,9 @@ def _extract_thesis_field(text: str, field: str) -> str | None:
         **Entry Zone**: $90,500 – $91,200
         Invalidation Level: below $88,000
     """
-    pattern = rf"(\*{{0,2}}{field}\s*(?:Zone|Level|Price)?\*{{0,2}}\s*:?\s*)(.+?)(?:\n|$)"
+    pattern = (
+        rf"(\*{{0,2}}{field}\s*(?:Zone|Level|Price)?\*{{0,2}}\s*:?\s*)(.+?)(?:\n|$)"
+    )
     match = _re.search(pattern, text, _re.IGNORECASE)
     if match:
         return match.group(2).strip()
@@ -88,7 +90,7 @@ class ResearchAgentsGraph:
         self,
         selected_analysts=["market", "social", "news", "onchain"],
         debug=False,
-        config: Dict[str, Any] = None,
+        config: Dict[str, Any] | None = None,
         callbacks: Optional[List] = None,
     ):
         """Initialize the research-workstation graph and components."""
@@ -131,7 +133,7 @@ class ResearchAgentsGraph:
         self.signal_processor = SignalProcessor(self.quick_thinking_llm)
 
         # State tracking
-        self.curr_state = None
+        self.curr_state: dict[str, Any] | None = None
         self.ticker = None
         self.current_research_run: ResearchRun | None = None
         self.current_trade_thesis: TradeThesis | None = None
@@ -139,8 +141,9 @@ class ResearchAgentsGraph:
         self.current_agent_opinions: list[AgentOpinion] = []
         self.current_debate: ResearchDebate | None = None
         self.journal_bridge = JournalBridge(self.config)
-        self.log_states_dict = {}
+        self.log_states_dict: dict[str, Any] = {}
         self.quant_signal_result = None
+        self._replay_thread_id: str | None = None
         self.current_scenario_plan: str = ""
 
         # Set up the graph
@@ -187,8 +190,9 @@ class ResearchAgentsGraph:
             return
         scenario_plan = getattr(self, "current_scenario_plan", "") or ""
         scenario_json = ""
-        if getattr(self, "curr_state", None):
-            scenario_json = self.curr_state.get("scenario_plan_json", "") or ""
+        curr_state = self.curr_state
+        if curr_state is not None:
+            scenario_json = curr_state.get("scenario_plan_json", "") or ""
         self.current_research_run, self.current_trade_thesis = bridge.complete_run(
             self.current_research_run,
             self.current_trade_thesis,
@@ -566,7 +570,9 @@ class ResearchAgentsGraph:
         except Exception as exc:
             logger.warning(
                 "ReportGenerator.save_report failed for %s on %s: %s",
-                safe_ticker, trade_date, exc
+                safe_ticker,
+                trade_date,
+                exc,
             )
 
     def process_signal(self, full_signal):

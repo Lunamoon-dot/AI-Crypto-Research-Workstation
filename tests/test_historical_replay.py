@@ -171,9 +171,7 @@ class TestHistoricalReplay:
             mock_graph = MagicMock()
             mock_graph.propagate.side_effect = RuntimeError("Simulated failure")
             mock_graph_class.return_value = mock_graph
-            with patch(
-                "tradingagents.graph.historical_replay.config_context"
-            ):
+            with patch("tradingagents.graph.historical_replay.config_context"):
                 result = replay.run(
                     ticker="BTC/USDT",
                     anchor_date=date(2025, 1, 15),
@@ -299,3 +297,85 @@ class TestReplayCliRegistration:
         result = runner.invoke(cli_main.app, ["research", "replay", "--help"])
         assert result.exit_code == 0
         assert "single" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Phase 9C: Provider capability report CLI
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestReplayCapabilitiesCli:
+    def test_capabilities_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli_main.app, ["replay", "capabilities", "--help"])
+        assert result.exit_code == 0
+        assert "provider" in result.stdout.lower()
+
+    def test_capabilities_all_vendors(self):
+        runner = CliRunner()
+        result = runner.invoke(cli_main.app, ["replay", "capabilities"])
+        assert result.exit_code == 0
+        assert "ccxt" in result.stdout.lower()
+        assert "coingecko" in result.stdout.lower()
+
+    def test_capabilities_json_output(self):
+        runner = CliRunner()
+        result = runner.invoke(cli_main.app, ["replay", "capabilities", "--json"])
+        assert result.exit_code == 0
+        import json
+
+        payload = json.loads(result.stdout)
+        assert "providers" in payload
+        assert "ccxt" in payload["providers"]
+        assert "coingecko" in payload["providers"]
+
+    def test_capabilities_filter_by_vendor(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main.app, ["replay", "capabilities", "--vendor", "ccxt"]
+        )
+        assert result.exit_code == 0
+        assert "ccxt" in result.stdout.lower()
+
+    def test_capabilities_unknown_vendor(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main.app, ["replay", "capabilities", "--vendor", "unknown_vendor"]
+        )
+        assert result.exit_code == 1
+        assert "Unknown vendor" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Phase 9C: Strict mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStrictMode:
+    def test_single_accepts_strict_flag(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main.app,
+            ["replay", "single", "BTC/USDT", "2025-12-15", "--strict", "--help"],
+        )
+        assert result.exit_code == 0
+        assert "--strict" in result.stdout
+
+    def test_batch_accepts_strict_flag(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "replay",
+                "batch",
+                "BTC/USDT",
+                "2025-01-01",
+                "2025-01-07",
+                "--strict",
+                "--help",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "--strict" in result.stdout

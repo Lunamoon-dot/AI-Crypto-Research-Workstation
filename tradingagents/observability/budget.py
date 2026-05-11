@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BUDGETS: dict[str, dict[str, float]] = {
     # Per-analyst budgets (applied to each of market, social, news, onchain)
     "analyst": {
-        "max_tokens": 20_000,       # combined input+output tokens
-        "max_latency_sec": 60.0,    # wall-clock seconds
+        "max_tokens": 20_000,  # combined input+output tokens
+        "max_latency_sec": 60.0,  # wall-clock seconds
     },
     # Total analyst phase budget (sum of all analysts)
     "analysts_total": {
@@ -151,9 +151,7 @@ class BudgetTracker:
             stage_cfg = budgets_cfg.get(stage_name, {})
             self._budgets[stage_name] = StageBudget(
                 stage=stage_name,
-                max_tokens=float(
-                    stage_cfg.get("max_tokens", defaults["max_tokens"])
-                ),
+                max_tokens=float(stage_cfg.get("max_tokens", defaults["max_tokens"])),
                 max_latency_sec=float(
                     stage_cfg.get("max_latency_sec", defaults["max_latency_sec"])
                 ),
@@ -225,9 +223,7 @@ def merge_budget_config(config: dict[str, Any]) -> dict[str, dict[str, float]]:
     for stage_name, defaults in _DEFAULT_BUDGETS.items():
         user = config.get("budgets", {}).get(stage_name, {})
         merged[stage_name] = {
-            "max_tokens": float(
-                user.get("max_tokens", defaults["max_tokens"])
-            ),
+            "max_tokens": float(user.get("max_tokens", defaults["max_tokens"])),
             "max_latency_sec": float(
                 user.get("max_latency_sec", defaults["max_latency_sec"])
             ),

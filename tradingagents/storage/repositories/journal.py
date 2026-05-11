@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 import json
 from uuid import uuid4
 
@@ -1023,3 +1024,77 @@ class JournalRepository:
             message=row["message"],
             payload=json.loads(row["payload_json"] or "{}"),
         )
+
+    # ------------------------------------------------------------------
+    # Phase 4 (tail): Reliability snapshots
+    # ------------------------------------------------------------------
+
+    def save_reliability_snapshot(self, snapshot) -> Any:
+        """Save a reliability snapshot as a payload_json row."""
+        if not snapshot.id:
+            snapshot.id = _new_id("rel_snap")
+        self.store.execute(
+            """
+            INSERT INTO reliability_snapshots (
+                id, symbol, snapshot_date, rolling_window_days,
+                overall_hit_rate, overall_sample_size, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                overall_hit_rate=excluded.overall_hit_rate,
+                overall_sample_size=excluded.overall_sample_size,
+                payload_json=excluded.payload_json
+            """,
+            (
+                snapshot.id,
+                snapshot.symbol,
+                _iso(snapshot.snapshot_date),
+                snapshot.rolling_window_days,
+                snapshot.overall_hit_rate,
+                snapshot.overall_sample_size,
+                model_to_json(snapshot),
+            ),
+        )
+        return snapshot
+
+    def get_reliability_snapshot(self, snapshot_id: str) -> Any | None:
+        row = self.store.fetchone(
+            "SELECT payload_json FROM reliability_snapshots WHERE id = ?",
+            (snapshot_id,),
+        )
+        if not row:
+            return None
+        from tradingagents.domain.snapshot import ReliabilitySnapshot
+
+        return model_from_json(ReliabilitySnapshot, row["payload_json"])
+
+    def list_reliability_snapshots(
+        self,
+        *,
+        symbol: str | None = None,
+        rolling_window_days: int | None = None,
+        limit: int = 20,
+    ) -> list:
+        from tradingagents.domain.snapshot import ReliabilitySnapshot
+
+        conditions = []
+        params: list[object] = []
+        if symbol:
+            conditions.append("symbol = ?")
+            params.append(symbol)
+        if rolling_window_days is not None:
+            conditions.append("rolling_window_days = ?")
+            params.append(rolling_window_days)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.store.fetchall(
+            f"""
+            SELECT payload_json FROM reliability_snapshots
+            {where_clause}
+            ORDER BY snapshot_date DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        )
+        return [
+            model_from_json(ReliabilitySnapshot, row["payload_json"]) for row in rows
+        ]
