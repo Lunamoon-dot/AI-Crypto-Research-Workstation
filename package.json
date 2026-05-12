@@ -1,11 +1,18 @@
 {
-  "name": "tradingagents-product-boundary",
+  "name": "lunaperception",
   "version": "0.3.0",
   "private": true,
-  "description": "NestJS product backend boundary for the TradingAgents Python research engine.",
+  "packageManager": "pnpm@10.33.2",
+  "description": "Monorepo for the LunaPerception crypto research product.",
   "scripts": {
-    "build": "npm run build:api",
-    "build:api": "tsc -p apps/api/tsconfig.app.json"
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "build:api": "tsc -p apps/api/tsconfig.app.json",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "ai:install": "python -m pip install -e \"./apps/ai-service[dev]\"",
+    "ai:test": "pnpm --filter @lunaperception/ai-service test"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -22,6 +29,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "turbo": "^2.5.8",
     "typescript": "^5.8.0"
   }
 }

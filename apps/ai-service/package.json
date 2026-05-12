@@ -1,0 +1,12 @@
+{
+  "name": "@lunaperception/ai-service",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "dev": "python -m cli.main",
+    "build": "python -m compileall tradingagents cli",
+    "lint": "python -m ruff check . && python -m ruff format --check .",
+    "typecheck": "python -m mypy tradingagents cli",
+    "test": "python -m pytest"
+  }
+}

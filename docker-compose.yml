@@ -1,6 +1,8 @@
 services:
-  tradingagents:
-    build: .
+  ai-service:
+    build:
+      context: ./apps/ai-service
+      dockerfile: Dockerfile
     env_file:
       - .env
     volumes:
@@ -15,8 +17,10 @@ services:
     profiles:
       - ollama
 
-  tradingagents-ollama:
-    build: .
+  ai-service-ollama:
+    build:
+      context: ./apps/ai-service
+      dockerfile: Dockerfile
     env_file:
       - .env
     environment:
