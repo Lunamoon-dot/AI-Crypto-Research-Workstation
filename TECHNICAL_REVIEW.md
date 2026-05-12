@@ -256,7 +256,7 @@ Why this matters: entry, invalidation, targets, and direction are critical field
 
 Residual risk: the fallback still exists for legacy prose-only graph output, so the next hardening step is to make structured thesis JSON mandatory at the agent boundary.
 
-Better approach: require the trader/portfolio-manager stage to emit a Pydantic-compatible JSON object with fields for direction, confidence, entry zone, invalidation, target zones, supporting evidence IDs, contradicting evidence IDs, missing data, and monitor-next. Store the prose as `rationale_markdown`.
+Better approach: require the setup-planner/portfolio-manager stage to emit a Pydantic-compatible JSON object with fields for direction, confidence, entry zone, invalidation, target zones, supporting evidence IDs, contradicting evidence IDs, missing data, and monitor-next. Store the prose as `rationale_markdown`.
 
 ### 7. Error handling hides degraded artifacts
 

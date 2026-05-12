@@ -78,6 +78,7 @@ class EngineRunner:
                 {
                     "run_id": saved.id,
                     "workspace_id": request.workspace_id,
+                    "market_type": request.market_type,
                     "summary": result.decision,
                     "status": saved.status.value,
                     "degradation_reasons": saved.degradation_reasons,
@@ -108,6 +109,7 @@ class EngineRunner:
                 {
                     "run_id": saved.id,
                     "workspace_id": request.workspace_id,
+                    "market_type": request.market_type,
                     "error_type": classification.error_type,
                     "error": classification.message,
                     "retryable": classification.retryable,
@@ -130,6 +132,7 @@ class EngineRunner:
             profile = None
         overrides: dict[str, Any] = {
             "asset_class": request.asset_class,
+            "market_type": request.market_type,
             "_engine": {
                 "run_id": request.run_id,
                 "workspace_id": request.workspace_id,
@@ -157,6 +160,7 @@ class EngineRunner:
             workspace_id=request.workspace_id,
             symbol=request.symbol,
             asset_class=request.asset_class,
+            market_type=request.market_type,
             timeframe=request.analysis_date.isoformat(),
             status=ResearchRunStatus.RUNNING,
             deep_think_model=config.get("deep_think_llm"),
@@ -176,6 +180,7 @@ class EngineRunner:
                 "workspace_id": request.workspace_id,
                 "symbol": request.symbol,
                 "asset_class": request.asset_class,
+                "market_type": request.market_type,
                 "analysis_date": request.analysis_date.isoformat(),
                 "analysts": request.analysts,
                 "config_profile": request.config_profile,
@@ -204,6 +209,7 @@ class EngineRunner:
                 "run_id": saved.id,
                 "workspace_id": request.workspace_id,
                 "dry_run": True,
+                "market_type": request.market_type,
                 "engine_contract": "v1",
             },
         )

@@ -39,6 +39,10 @@ _DEFAULT_BUDGETS: dict[str, dict[str, float]] = {
         "max_tokens": 15_000,
         "max_latency_sec": 45.0,
     },
+    "setup_planner": {
+        "max_tokens": 10_000,
+        "max_latency_sec": 30.0,
+    },
     "trader": {
         "max_tokens": 10_000,
         "max_latency_sec": 30.0,

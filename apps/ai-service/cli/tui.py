@@ -107,7 +107,7 @@ def update_display(
             "Bear Researcher",
             "Research Manager",
         ],
-        "Thesis Team": ["Trader"],
+        "Thesis Team": ["Setup Planner"],
         "Risk Management": [
             "Aggressive Analyst",
             "Neutral Analyst",

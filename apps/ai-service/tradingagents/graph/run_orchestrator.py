@@ -238,6 +238,7 @@ class ResearchRunOrchestrator:
         init_agent_state = host.propagator.create_initial_state(
             company_name,
             trade_date,
+            market_type=host.config.get("market_type", "spot"),
         )
         init_agent_state["quant_signal"] = quant_signal_text
         args = host.propagator.get_graph_args(callbacks=run_callbacks or None)

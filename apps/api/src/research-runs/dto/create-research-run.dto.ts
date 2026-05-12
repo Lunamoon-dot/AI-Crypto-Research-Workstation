@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsDateString,
+  IsIn,
   IsOptional,
   IsString,
   MinLength,
@@ -22,6 +23,10 @@ export class CreateResearchRunDto {
   @IsOptional()
   @IsString()
   asset_class?: string;
+
+  @IsOptional()
+  @IsIn(['spot', 'perp'])
+  market_type?: 'spot' | 'perp';
 
   @IsDateString()
   analysis_date: string;

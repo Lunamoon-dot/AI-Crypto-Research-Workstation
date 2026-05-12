@@ -258,6 +258,13 @@ class ThesisBuilder:
         supporting_evidence = signal_evidence(signals, supporting_ids)
         contradicting_evidence = signal_evidence(signals, contradicting_ids)
         stale_or_missing_data = stale_or_missing_data_notes(signals)
+        run: ResearchRun | None = getattr(self.host, "current_research_run", None)
+        market_type = (
+            structured_payload.get("market_type")
+            or final_state.get("market_type")
+            or getattr(run, "market_type", None)
+            or (getattr(self.host, "config", None) or {}).get("market_type", "spot")
+        )
         why_this_thesis = first_nonempty_line(clean_decision) or (
             f"{direction.value} thesis generated from agent debate"
         )
@@ -290,8 +297,8 @@ class ThesisBuilder:
             contradictions=contradictions,
             why_this_thesis=why_this_thesis,
             contract_degradation_reasons=contract_degradation_reasons,
+            market_type=market_type,
         )
-        run: ResearchRun | None = getattr(self.host, "current_research_run", None)
 
         thesis = TradeThesis(
             id=str(uuid.uuid4()),
@@ -395,10 +402,12 @@ class ThesisBuilder:
         contradictions: list[str],
         why_this_thesis: str,
         contract_degradation_reasons: list[str],
+        market_type: str,
     ) -> TradeThesisStructuredSummary:
         summary_payload = dict(payload)
         summary_payload["rating"] = rating
         summary_payload["direction"] = direction.value
+        summary_payload["market_type"] = summary_payload.get("market_type") or market_type
         summary_payload["confidence"] = confidence
         executive_summary = extract_thesis_field(thesis_text, "executive summary")
         summary_payload["action_summary"] = (
@@ -424,6 +433,9 @@ class ThesisBuilder:
             or contradictions[:3]
             or ["Manual review required before any action."]
         )
+        summary_payload["missing_data"] = summary_payload.get("missing_data") or (
+            stale_or_missing_data[:3]
+        )
         summary_payload["is_degraded"] = bool(contract_degradation_reasons)
         summary_payload["degradation_reasons"] = contract_degradation_reasons
         try:
@@ -433,6 +445,7 @@ class ThesisBuilder:
                 {
                     "rating": rating,
                     "direction": direction.value,
+                    "market_type": market_type,
                     "confidence": confidence,
                     "action_summary": executive_summary or why_this_thesis,
                     "entry_zone": entry_zone or "",
@@ -445,6 +458,7 @@ class ThesisBuilder:
                     "risks": stale_or_missing_data[:3]
                     or contradictions[:3]
                     or ["Manual review required before any action."],
+                    "missing_data": stale_or_missing_data[:3],
                     "is_degraded": bool(contract_degradation_reasons),
                     "degradation_reasons": contract_degradation_reasons,
                 }

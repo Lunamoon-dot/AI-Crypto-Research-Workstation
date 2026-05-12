@@ -1,6 +1,6 @@
 """End-to-end smoke for structured-output agents against a real LLM provider.
 
-Runs the three decision-making agents (Research Manager, Trader, Portfolio
+Runs the three decision-making agents (Research Manager, Setup Planner, Portfolio
 Manager) directly with their structured-output bindings and prints the
 typed Pydantic instance + the rendered markdown for each.  Use this to
 verify a provider's native structured-output mode (json_schema for
@@ -25,7 +25,7 @@ import sys
 
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.managers.research_manager import create_research_manager
-from tradingagents.agents.trader.trader import create_trader
+from tradingagents.agents.trader.trader import create_setup_planner
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.signal_processing import SignalProcessor
 from tradingagents.llm_clients import create_llm_client
@@ -68,14 +68,15 @@ def _make_rm_state():
     }
 
 
-def _make_trader_state(investment_plan: str):
+def _make_setup_state(investment_plan: str):
     return {
         "company_of_interest": "NVDA",
+        "market_type": "spot",
         "investment_plan": investment_plan,
     }
 
 
-def _make_pm_state(investment_plan: str, trader_plan: str):
+def _make_pm_state(investment_plan: str, setup_plan: str):
     return {
         "company_of_interest": "NVDA",
         "past_context": "",
@@ -95,7 +96,7 @@ def _make_pm_state(investment_plan: str, trader_plan: str):
         "news_report": "News report.",
         "fundamentals_report": "Fundamentals report.",
         "investment_plan": investment_plan,
-        "trader_investment_plan": trader_plan,
+        "trader_investment_plan": setup_plan,
     }
 
 
@@ -131,15 +132,15 @@ def main() -> int:
     investment_plan = rm_result["investment_plan"]
     _print_section("[1] Research Manager - investment_plan", investment_plan)
 
-    # 2) Trader (consumes RM's plan)
-    trader = create_trader(quick_llm)
-    trader_result = trader(_make_trader_state(investment_plan))
-    trader_plan = trader_result["trader_investment_plan"]
-    _print_section("[2] Trader - trader_investment_plan", trader_plan)
+    # 2) Setup Planner (consumes RM's plan)
+    setup_planner = create_setup_planner(quick_llm)
+    setup_result = setup_planner(_make_setup_state(investment_plan))
+    setup_plan = setup_result["trader_investment_plan"]
+    _print_section("[2] Setup Planner - trader_investment_plan", setup_plan)
 
     # 3) Portfolio Manager (consumes both)
     pm = create_portfolio_manager(deep_llm, config=DEFAULT_CONFIG)
-    pm_result = pm(_make_pm_state(investment_plan, trader_plan))
+    pm_result = pm(_make_pm_state(investment_plan, setup_plan))
     final_decision = pm_result["final_trade_decision"]
     _print_section("[3] Portfolio Manager - final_trade_decision", final_decision)
 
@@ -153,7 +154,7 @@ def main() -> int:
     #    saved reports) keep working.
     checks = [
         ("Research Manager", investment_plan, ["**Recommendation**:"]),
-        ("Trader", trader_plan, ["**Action**:", "FINAL TRANSACTION PROPOSAL:"]),
+        ("Setup Planner", setup_plan, ["**Action**:", "FINAL SETUP PROPOSAL:"]),
         (
             "Portfolio Manager",
             final_decision,

@@ -41,6 +41,7 @@ export class ResearchRunsService {
       workspace_id: workspaceId,
       symbol: dto.symbol,
       asset_class: dto.asset_class ?? 'crypto',
+      market_type: dto.market_type ?? 'spot',
       analysis_date: dto.analysis_date,
       analysts: dto.analysts,
       config_profile: dto.config_profile ?? 'default',

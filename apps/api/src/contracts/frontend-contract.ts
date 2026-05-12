@@ -22,6 +22,7 @@ export interface ResearchRunResponse {
   workspace_id: string;
   symbol: string;
   asset_class: string;
+  market_type: string;
   timeframe: string | null;
   status: string;
   started_at: string | null;
@@ -50,6 +51,7 @@ export interface ThesisSummaryResponse {
   rating: string;
   direction: string;
   confidence: number | null;
+  market_type: string;
   action_summary: string;
   entry_zone: string;
   upside_catalyst: string;
@@ -57,6 +59,9 @@ export interface ThesisSummaryResponse {
   target_zones: string[];
   key_reasons: string[];
   risks: string[];
+  spot_notes: string;
+  perp_notes: string;
+  missing_data: string[];
   is_degraded: boolean;
   degradation_reasons: string[];
 }
@@ -154,6 +159,7 @@ export function toResearchRunResponse(run: JsonRecord): ResearchRunResponse {
     workspace_id: stringValue(run.workspace_id, 'local'),
     symbol: stringValue(run.symbol),
     asset_class: stringValue(run.asset_class, 'crypto'),
+    market_type: stringValue(run.market_type, 'spot'),
     timeframe: nullableString(run.timeframe),
     status: stringValue(run.status, 'unknown'),
     started_at: nullableString(run.started_at),
@@ -306,6 +312,7 @@ function toThesisSummaryResponse(
     rating: stringValue(summary.rating, 'Hold'),
     direction: stringValue(summary.direction, 'watch'),
     confidence: nullableNumber(summary.confidence),
+    market_type: stringValue(summary.market_type, 'spot'),
     action_summary: stringValue(summary.action_summary),
     entry_zone: entryZone,
     upside_catalyst: stringValue(summary.upside_catalyst),
@@ -313,6 +320,9 @@ function toThesisSummaryResponse(
     target_zones: targetZones,
     key_reasons: stringList(summary.key_reasons),
     risks: stringList(summary.risks),
+    spot_notes: stringValue(summary.spot_notes),
+    perp_notes: stringValue(summary.perp_notes),
+    missing_data: stringList(summary.missing_data),
     is_degraded: booleanValue(summary.is_degraded),
     degradation_reasons: stringList(summary.degradation_reasons),
   };

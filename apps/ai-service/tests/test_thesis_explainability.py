@@ -17,7 +17,11 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     graph.quant_signal_result = SimpleNamespace(confidence=0.72)
     graph.current_debate = None
     graph.current_agent_opinions = []
-    graph.current_research_run = ResearchRun(id="run_1", symbol="BTC/USDT")
+    graph.current_research_run = ResearchRun(
+        id="run_1",
+        symbol="BTC/USDT",
+        market_type="perp",
+    )
     graph.current_signals = [
         Signal(
             id="sig_support",
@@ -62,6 +66,8 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     assert thesis.structured_summary.is_degraded is True
     assert "structured_summary_missing" in thesis.structured_summary.degradation_reasons
     assert "entry_zone_from_prose" in thesis.structured_summary.degradation_reasons
+    assert thesis.structured_summary.market_type == "perp"
+    assert thesis.structured_summary.missing_data == ["regime: unknown", "funding: stale"]
 
 
 def test_graph_builds_thesis_from_structured_summary_json_first():
@@ -92,7 +98,10 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
               "entry_zone": "Failed reclaim near 100000",
               "invalidation": "Close above 105000",
               "target_zones": ["92000", "88000"],
-              "risks": ["Squeeze risk"]
+              "risks": ["Squeeze risk"],
+              "market_type": "perp",
+              "perp_notes": "Funding is elevated; cap leverage at 2x.",
+              "missing_data": ["liquidation heatmap"]
             }
             """,
         },
@@ -108,6 +117,9 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     assert thesis.invalidation == "Close above 105000"
     assert thesis.structured_summary is not None
     assert thesis.structured_summary.is_degraded is False
+    assert thesis.structured_summary.market_type == "perp"
+    assert thesis.structured_summary.perp_notes == "Funding is elevated; cap leverage at 2x."
+    assert thesis.structured_summary.missing_data == ["liquidation heatmap"]
 
 
 def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():

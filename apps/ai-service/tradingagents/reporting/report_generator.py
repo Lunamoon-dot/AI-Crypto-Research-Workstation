@@ -178,8 +178,8 @@ class ReportGenerator:
 
     def _trader_plan(self, state: dict) -> str:
         plan = state.get("trader_investment_plan", "")
-        section = "## Thesis Planner Proposal\n\n"
-        section += plan if plan else "_No trader proposal available._"
+        section = "## Setup Planner Proposal\n\n"
+        section += plan if plan else "_No setup proposal available._"
         return section
 
     def _risk_debate(self, state: dict) -> str:
@@ -267,13 +267,19 @@ class ReportGenerator:
                     label="Analysis Date",
                 )
 
-            # Try to parse entry/stop/target from trader plan
-            trader_plan = state.get("trader_investment_plan", "")
+            # Try to parse entry/stop/target from the setup proposal.
+            setup_plan = state.get("trader_investment_plan", "")
             import re
 
-            entry_m = re.search(r"\*\*Entry Price\*\*:\s*([\d.]+)", trader_plan)
-            sl_m = re.search(r"\*\*Stop Loss\*\*:\s*([\d.]+)", trader_plan)
-            tp_m = re.search(r"\*\*Take Profit\*\*:\s*([\d.]+)", trader_plan)
+            entry_m = re.search(
+                r"\*\*(?:Entry Zone|Entry Price)\*\*:\s*([\d.]+)", setup_plan
+            )
+            sl_m = re.search(
+                r"\*\*(?:Invalidation|Stop Loss)\*\*:\s*([\d.]+)", setup_plan
+            )
+            tp_m = re.search(
+                r"\*\*(?:Target Zones|Take Profit)\*\*:\s*([\d.]+)", setup_plan
+            )
 
             if entry_m:
                 entry = float(entry_m.group(1))

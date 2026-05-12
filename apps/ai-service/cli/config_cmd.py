@@ -406,6 +406,7 @@ def config_validate(
         console.print(f"  Deep thinker: [cyan]{config.get('deep_think_llm')}[/cyan]")
         console.print(f"  Quick thinker: [cyan]{config.get('quick_think_llm')}[/cyan]")
         console.print(f"  Asset class: [cyan]{config.get('asset_class')}[/cyan]")
+        console.print(f"  Market type: [cyan]{config.get('market_type')}[/cyan]")
         fb = config.get("llm_fallback", {})
         if fb.get("enabled"):
             console.print(

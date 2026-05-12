@@ -11,7 +11,7 @@ class MessageBuffer:
 
     FIXED_AGENTS = {
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Thesis Team": ["Trader"],
+        "Thesis Team": ["Setup Planner"],
         "Risk Management": [
             "Aggressive Analyst",
             "Neutral Analyst",
@@ -33,7 +33,7 @@ class MessageBuffer:
         "news_report": ("news", "News Analyst"),
         "fundamentals_report": ("onchain", "Onchain Analyst"),
         "investment_plan": (None, "Research Manager"),
-        "trader_investment_plan": (None, "Trader"),
+        "trader_investment_plan": (None, "Setup Planner"),
         "final_trade_decision": (None, "Portfolio Manager"),
     }
 

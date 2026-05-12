@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.app.json",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "test": "npm run build && node --test ../../dist/apps/api/test/*.test.js"
   }

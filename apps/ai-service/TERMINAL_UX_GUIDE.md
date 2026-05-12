@@ -641,7 +641,1027 @@ Authentication errors như 401, 403 hoặc invalid API key cần sửa key. Khô
 - `replay` và `research evaluate` là historical research/thesis review, không phải broker backtest.
 - Nếu sau này có execution layer, nó phải đi qua user approval, execution ticket, manual confirmation và audit trail.
 
-## 20. Quick Start
+## 20. Command Cookbook Và Kết Quả Dự Kiến
+
+Phần này dùng như UX cookbook cho terminal. `Kết quả dự kiến` là hình dạng output phỏng đoán dựa trên command thật; ID, số lượng dòng và trạng thái sẽ thay đổi theo local journal, API key, provider health và dữ liệu đã lưu.
+
+Quy ước placeholder:
+
+```text
+<run_id>      ID của research run đã lưu
+<thesis_id>   ID của trade thesis đã lưu
+<signal_id>   ID của signal provenance đã lưu
+<brief_id>    ID của market brief đã lưu
+<item_id>     ID của watchlist item
+```
+
+### 20.1 Setup, validate và provider health
+
+Dùng khi mới clone repo, đổi máy, đổi API key, hoặc cần xác nhận CLI đang đọc đúng config.
+
+```text
+tradingagents config setup
+```
+
+Kết quả dự kiến:
+
+```text
+TradingAgents Setup Summary
+Journal path: ~/.tradingagents/cache/research_journal.sqlite
+Journal enabled: yes
+Disabled data vendors: none
+
+Active provider routing:
+- market: ccxt, coingecko
+- news: cryptopanic
+- onchain: coingecko
+
+Next Useful Commands
+- tradingagents research run
+- tradingagents dashboard
+- tradingagents config health
+```
+
+Side effect: read-only, không tạo file, không gọi provider live.
+
+```bash
+tradingagents config validate --warn
+```
+
+Kết quả dự kiến khi hợp lệ:
+
+```text
+Configuration is valid.
+  LLM Provider: openai
+  Deep thinker: gpt-5.4
+  Quick thinker: gpt-5.4-mini
+  Asset class: crypto
+  LLM fallback: enabled (openrouter -> openai)
+  Secrets source: env
+```
+
+Kết quả dự kiến khi thiếu key hoặc config sai:
+
+```text
+Configuration validation failed:
+Missing required API key for provider openai
+```
+
+Side effect: read-only. Dùng `--warn` khi muốn gom cảnh báo thay vì fail ngay ở lỗi đầu tiên.
+
+```bash
+tradingagents config health --no-live --no-llm
+tradingagents config health --json
+```
+
+Kết quả dự kiến:
+
+```text
+Provider Status
+Provider      Status
+ccxt          enabled
+coingecko     enabled
+cryptopanic   disabled
+
+Category Routing
+Category      Configured           Enabled       Disabled
+market        ccxt, coingecko      ccxt          -
+news          cryptopanic          -             cryptopanic
+
+System Health: degraded
+provider_config   healthy
+news_provider     warning   disabled vendor=cryptopanic
+```
+
+Side effect: `--no-live --no-llm` là local-only. Không truyền các flag này thì command có thể probe provider và LLM.
+
+```bash
+tradingagents config effective
+tradingagents config effective --profile scalping
+```
+
+Kết quả dự kiến:
+
+```yaml
+llm_provider: openai
+deep_think_llm: gpt-5.4
+quick_think_llm: gpt-5.4-mini
+secrets:
+  source: env
+openai_api_key: sk-...abcd
+```
+
+Side effect: read-only, secrets được redact. Hữu ích khi debug vì sao CLI chọn provider/model khác kỳ vọng.
+
+```bash
+tradingagents config save scalping
+tradingagents config list
+tradingagents config show scalping --effective
+tradingagents config delete scalping
+```
+
+Kết quả dự kiến:
+
+```text
+Profile saved: scalping
+Location: ~/.tradingagents/profiles/scalping.yaml
+
+Saved Configuration Profiles
+Profile Name    File
+scalping        ~/.tradingagents/profiles/scalping.yaml
+```
+
+Side effect: `save` và `delete` ghi/xóa file profile trong `~/.tradingagents/profiles/`.
+
+### 20.2 Research run và dry-run
+
+Dùng khi muốn tạo một research workspace đầy đủ: market snapshot, signal snapshot, debate, thesis, timeline và next commands.
+
+```bash
+tradingagents research run BTC/USDT \
+  --yes \
+  --plain \
+  --date 2026-05-08 \
+  --analysts market,social,news,onchain \
+  --research-depth 1 \
+  --dry-run
+```
+
+Kết quả dự kiến:
+
+```text
+Dry-Run Summary
+Ticker: BTC/USDT
+Analysis Date: 2026-05-08
+Asset Class: crypto
+Exchange: default
+Analysts: market, social, news, onchain
+Research Depth: 1
+LLM Provider: openai
+Quick Model: gpt-5.4-mini
+Deep Model: gpt-5.4
+
+Data provider health check:
+  OK ccxt: healthy
+  WARN cryptopanic: missing_api_key
+
+Dry-run complete - configuration is valid.
+Remove --dry-run to run the full research pipeline.
+```
+
+Side effect: không chạy LLM pipeline và không tạo thesis. Dùng trước khi tốn token hoặc khi debug config.
+
+```bash
+tradingagents research run BTC/USDT \
+  --yes \
+  --plain \
+  --date 2026-05-08 \
+  --llm-provider openai \
+  --quick-model gpt-5.4-mini \
+  --deep-model gpt-5.4
+```
+
+Kết quả dự kiến khi thành công:
+
+```text
+Research run complete
+Run ID: <run_id>
+Symbol: BTC/USDT
+Status: completed
+Thesis: <thesis_id>
+Signal Snapshot: <snapshot_id>
+
+Next Useful Commands:
+- tradingagents journal workspace <run_id>
+- tradingagents thesis show <thesis_id>
+- tradingagents watchlist add-thesis <thesis_id>
+```
+
+Kết quả dự kiến khi provider lỗi:
+
+```text
+openai is rate-limiting requests (HTTP 429).
+Wait a few minutes and try again, or switch to a different provider.
+No research report was generated.
+```
+
+Side effect: chạy provider/data/LLM thật, ghi journal SQLite, có thể ghi checkpoints nếu bật `--checkpoint`.
+
+```bash
+tradingagents analyze --ticker ETH/USDT --non-interactive --plain --dry-run
+```
+
+Kết quả dự kiến: giống `research run --dry-run`. Đây là compatibility path cho script cũ.
+
+```bash
+tradingagents analyze --checkpoint
+tradingagents analyze --clear-checkpoints
+```
+
+Kết quả dự kiến:
+
+```text
+Cleared 3 checkpoint(s).
+```
+
+Side effect: `--checkpoint` lưu checkpoint trong cache; `--clear-checkpoints` xóa checkpoint đã lưu.
+
+### 20.3 Dashboard
+
+Dùng làm màn hình home mỗi sáng hoặc sau nhiều lần research.
+
+```bash
+tradingagents dashboard --watchlist default --limit 10
+```
+
+Kết quả dự kiến:
+
+```text
+Research Workspace
+Journal DB: ~/.tradingagents/cache/research_journal.sqlite
+Watchlist: default | Items: 4 | Theses: 3 | Recent alerts: 2
+
+Recent Research Runs
+Run ID       Symbol     Status       Started                 Thesis
+<run_id>     BTC/USDT   completed    2026-05-12T08:30:00Z   <thesis_id>
+
+Watched Theses
+Thesis        Symbol     Direction   Confidence
+<thesis_id>   BTC/USDT   long        62%
+
+Recent Alerts
+- target_zone_reached: BTC/USDT reached target zone 110000
+```
+
+Side effect: read-only. Dashboard chỉ đọc local data đã persist, không gọi provider live.
+
+### 20.4 Journal workspace và evidence bundle
+
+Dùng để xem lại toàn bộ một run, audit evidence, hoặc export bundle cho review.
+
+```bash
+tradingagents journal path
+tradingagents journal migrate
+```
+
+Kết quả dự kiến:
+
+```text
+~/.tradingagents/cache/research_journal.sqlite
+Journal migrated: ~/.tradingagents/cache/research_journal.sqlite
+```
+
+Side effect: `path` read-only. `migrate` apply migration idempotent vào SQLite.
+
+```bash
+tradingagents journal list --limit 5
+tradingagents journal list --limit 5 --plain
+tradingagents journal list --limit 5 --json
+```
+
+Kết quả dự kiến:
+
+```text
+Research Runs
+ID           Symbol     Status       Started                 Thesis
+<run_id>     BTC/USDT   completed    2026-05-12T08:30:00Z   <thesis_id>
+```
+
+Khi chưa có data:
+
+```text
+No research runs saved yet.
+```
+
+Side effect: read-only. Dùng `--json` cho automation và parsing.
+
+```bash
+tradingagents journal show <run_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Research Run
+ID: <run_id>
+Symbol: BTC/USDT
+Status: completed
+Market Snapshot: <snapshot_id>
+Signal Snapshot: <snapshot_id>
+Signals: 12
+Debate: <debate_id>
+Thesis: <thesis_id>
+User Decision: N/A
+Outcome Review: N/A
+Completion Quality: clean
+```
+
+Side effect: read-only. Nếu run không tồn tại, exit code 1 với `Research run not found`.
+
+```bash
+tradingagents journal workspace <run_id>
+tradingagents research workspace <run_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Research Workspace
+ID: <run_id>
+Symbol: BTC/USDT
+Status: completed
+Signals: 12
+Debate: <debate_id>
+Thesis: <thesis_id>
+
+Signal Reliability (latest snapshot)
+Window: 30 day(s)
+Sample size: 18
+
+Debate
+Consensus: bullish
+Confidence: 64%
+Conflict: medium
+
+Trade Thesis
+Direction: long
+Setup: trend_pullback
+Confidence: 62%
+
+Next Useful Commands
+- tradingagents journal timeline <run_id>
+- tradingagents thesis show <thesis_id>
+- tradingagents watchlist add-thesis <thesis_id>
+```
+
+Side effect: read-only. Đây là màn hình chính sau khi research xong.
+
+```bash
+tradingagents journal timeline <run_id>
+tradingagents thesis timeline <thesis_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Research Run Timeline: <run_id>
+Time                    Event             Message
+2026-05-12T08:30:01Z    run.started       Engine run started for BTC/USDT
+2026-05-12T08:34:52Z    thesis.created    Trade thesis saved
+```
+
+Side effect: read-only. Dùng để debug lifecycle hoặc audit thay đổi.
+
+```bash
+tradingagents journal market-snapshot <snapshot_id>
+tradingagents journal signal-snapshot <snapshot_id>
+tradingagents journal debate <debate_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Market Snapshot
+Symbol: BTC/USDT
+Price: 110100
+Trend: up
+Volatility: high
+Source: ccxt
+
+Signal Snapshot
+Signal Count: 12
+Bullish: 7
+Bearish: 3
+Neutral: 2
+
+Research Debate
+Consensus: bullish
+Conflict: medium
+Opinions: 4
+```
+
+Side effect: read-only. Các command này giúp đi từ summary xuống evidence chi tiết.
+
+```bash
+tradingagents journal bundle <run_id> --out reports/run_bundle.json
+```
+
+Kết quả dự kiến:
+
+```text
+Wrote bundle to reports/run_bundle.json
+```
+
+Side effect: ghi một JSON evidence bundle gồm run, snapshots, thesis, scenarios và hashes.
+
+```bash
+tradingagents journal outcomes --symbol BTC/USDT
+tradingagents journal retrospective --symbol BTC/USDT
+```
+
+Kết quả dự kiến:
+
+```text
+Outcome Analytics
+Symbol: BTC/USDT
+Reviewed Outcomes: 12
+Hit Rate: 42%
+Invalidation Rate: 25%
+Mixed Rate: 33%
+
+Retrospective Insights
+Type                 Evidence   Message
+factor_weakness      6          Funding squeeze setups underperformed
+```
+
+Side effect: read-only. Dùng cho review chất lượng research, không phải PnL broker.
+
+### 20.5 Thesis lifecycle
+
+Dùng để xem thesis, đưa vào watchlist, ghi quyết định thủ công và review outcome sau này.
+
+```bash
+tradingagents thesis list --limit 10
+tradingagents thesis show <thesis_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Trade Theses
+ID            Symbol     Direction   Confidence   Created
+<thesis_id>   BTC/USDT   long        62%          2026-05-12T08:34:52Z
+
+Trade Thesis
+Symbol: BTC/USDT
+Direction: long
+Setup: trend_pullback
+Confidence: 62%
+
+Price Levels:
+  Entry Zone: 108000-110000
+  Invalidation: 104500
+  Target Zones:
+    - 113500
+    - 118000
+
+Quick Check:
+  Signals:       7 support / 3 contradict
+  Data Gaps:     none reported
+  Consensus:     medium conflict, stance=bullish
+```
+
+Side effect: read-only. `show` là nơi tốt nhất để review thesis trước khi quyết định.
+
+```bash
+tradingagents thesis scenarios <thesis_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Thesis Scenarios: <thesis_id>
+Probability   Condition                       Expected Behavior       Action
+base          Holds above 108000              Rotation higher         watch
+bear          Breaks invalidation 104500      Thesis invalidated      stand aside
+```
+
+Side effect: read-only. Dùng để biết `watchlist check` sẽ dựa vào điều kiện nào.
+
+```bash
+tradingagents thesis decide <thesis_id> watched --notes "Waiting for confirmation"
+```
+
+Kết quả dự kiến:
+
+```text
+Decision saved: <decision_id>
+```
+
+Side effect: ghi user decision vào journal. Không đặt lệnh giao dịch.
+
+```bash
+tradingagents thesis review <thesis_id> mixed \
+  --lessons "Funding overheated before confirmation" \
+  --mfe 0.08 \
+  --mae -0.03
+```
+
+Kết quả dự kiến:
+
+```text
+Outcome review saved: <review_id>
+```
+
+Side effect: ghi outcome review. Dữ liệu này feed vào `journal retrospective` và `research evaluate analytics`.
+
+### 20.6 Signal provenance
+
+Dùng khi muốn biết một conclusion dựa trên signal nào, signal có tươi không, và source timestamp là gì.
+
+```bash
+tradingagents signals list BTC/USDT --limit 20
+tradingagents signals list BTC/USDT --json
+```
+
+Kết quả dự kiến:
+
+```text
+Saved Signals
+ID            Symbol     Type                 Direction   Confidence   Reliability   Freshness
+<signal_id>   BTC/USDT   funding_oi_squeeze   bearish     68%          54% (n=39)    fresh
+```
+
+Side effect: read-only. Khi chưa có research run, output là `No signals saved yet.`
+
+```bash
+tradingagents signals show <signal_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Signal Provenance
+ID: <signal_id>
+Symbol: BTC/USDT
+Type: funding_oi_squeeze
+Direction: bearish
+Confidence: 0.68
+
+Provenance:
+- Source: ccxt
+- Source Timestamp: 2026-05-12T08:29:00Z
+- Observed At: 2026-05-12T08:30:12Z
+- Freshness: fresh
+- Historical reliability: 54% (n=39)
+
+Evidence:
+- funding_rate: 0.00042
+- open_interest_change: 0.12
+```
+
+Side effect: read-only. Dùng để audit freshness và source trước khi tin thesis.
+
+### 20.7 Watchlist và alerts
+
+Dùng khi muốn theo dõi symbol hoặc thesis theo kiểu explicit one-shot check.
+
+```bash
+tradingagents watchlist add-symbol SOL/USDT
+tradingagents watchlist list
+```
+
+Kết quả dự kiến:
+
+```text
+Watchlist
+Added SOL/USDT to watchlist default.
+Item id: <item_id>
+
+Watchlist: default
+Item ID      Type      Symbol     Thesis   Enabled
+<item_id>    symbol    SOL/USDT   -        yes
+```
+
+Side effect: ghi watchlist item. Symbol-only watch không có thesis rule.
+
+```bash
+tradingagents watchlist add-thesis <thesis_id>
+tradingagents watchlist brief --evaluate-snapshots
+```
+
+Kết quả dự kiến:
+
+```text
+Thesis Watch
+Watching thesis <thesis_id> for BTC/USDT.
+Item id: <item_id>
+
+Watchlist Brief
+Watchlist: default
+Items: 2 | Theses: 1 | Scenarios: 3 | Recent alerts: 0
+Snapshot evaluation: enabled
+
+Active Theses
+Thesis        Symbol     Direction   Confidence   Last Snapshot      Invalidation
+<thesis_id>   BTC/USDT   long        62%          110100 (ccxt)      104500
+
+Saved Scenarios
+Scenario      Symbol     Band   Activated   Snapshot Status
+<scenario_id> BTC/USDT   base   no          active: price holds above trigger
+```
+
+Side effect: `add-thesis` ghi watchlist item. `brief` read-only và không tạo alert.
+
+```bash
+tradingagents watchlist check --price BTC/USDT=110100
+tradingagents watchlist alerts --unread
+```
+
+Kết quả dự kiến:
+
+```text
+Watchlist Check
+Checked items: 2
+New alerts: 1
+Skipped: 0
+
+target_zone_reached BTC/USDT reached target zone 110000
+
+Research Alerts
+Created                 Type                 Symbol     Thesis        Message
+2026-05-12T09:00:00Z    target_zone_reached  BTC/USDT   <thesis_id>   BTC/USDT reached target zone 110000
+```
+
+Side effect: `check` có thể tạo alerts. Nó không chạy background và không gọi broker.
+
+```bash
+tradingagents watchlist remove <item_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Disabled watchlist item: <item_id>
+```
+
+Side effect: disable item, không xóa hard-delete. Dùng `watchlist list --all` để thấy item đã disable.
+
+### 20.8 Market brief
+
+Dùng để tạo daily brief từ journal/watchlist đã persist.
+
+```bash
+tradingagents brief daily --watchlist default --date 2026-05-12
+```
+
+Kết quả dự kiến:
+
+```text
+Daily Market Brief
+Brief ID: <brief_id>
+Date: 2026-05-12
+Watchlist: default
+Previous: <previous_brief_id>
+
+BTC / ETH / SOL And Watched Assets
+Symbol     Price      Regime      Trend      Volatility   Change
+BTC/USDT   110100     risk-on     up         high         higher vs previous brief
+
+Active Thesis Updates
+Thesis        Symbol     Direction   Status             Update
+<thesis_id>   BTC/USDT   long        monitoring         Base scenario still active
+
+Top Risks
+- Funding overheated before confirmation
+```
+
+Side effect: mặc định ghi brief vào journal. Dùng `--no-save` nếu chỉ muốn preview.
+
+```bash
+tradingagents brief list --watchlist default
+tradingagents brief show <brief_id>
+```
+
+Kết quả dự kiến:
+
+```text
+Market Briefs
+Brief ID     Date         Watchlist   Created                 Previous
+<brief_id>   2026-05-12   default     2026-05-12T09:10:00Z    <previous_brief_id>
+```
+
+Side effect: read-only.
+
+### 20.9 Diff thesis và run
+
+Dùng để so sánh hai lần research trước/sau sự kiện, hoặc so sánh thesis khi đổi model/provider.
+
+```bash
+tradingagents diff thesis <thesis_id_1> <thesis_id_2>
+tradingagents diff thesis <thesis_id_1> <thesis_id_2> --json
+```
+
+Kết quả dự kiến:
+
+```text
+Thesis Diff
+Comparing theses for BTC/USDT
+
+Direction          LONG                 LONG
+Confidence         62%                  48%
+Invalidation level 104500               106200
+
+Supporting signals
+  Common (5): sig_a, sig_b, sig_c
+  Only <thesis_id_2> (2): sig_new_1, sig_new_2
+
+Evidence
+  conflict_level (A): medium
+  conflict_level (B): high
+```
+
+Kết quả JSON dự kiến:
+
+```json
+{
+  "kind": "thesis_diff",
+  "direction_flip": false,
+  "changed_fields": ["confidence", "invalidation_level", "supporting_signal_ids"],
+  "change_severity": "major"
+}
+```
+
+Side effect: read-only.
+
+```bash
+tradingagents diff run <run_id_1> <run_id_2>
+```
+
+Kết quả dự kiến:
+
+```text
+Run Diff
+Comparing research runs
+
+Symbol          BTC/USDT             BTC/USDT
+Status          completed            completed
+Signal snapshot <snapshot_id_1>      <snapshot_id_2>
+
+Signal IDs
+  Common (8): sig_a, sig_b
+  Only <run_id_2> (4): sig_new_1, sig_new_2
+
+Thesis Diff
+Direction       LONG                 SHORT
+```
+
+Side effect: read-only. Nếu direction flip, review kỹ signals và timestamps.
+
+### 20.10 Historical replay và evaluation
+
+Dùng để replay research theo ngày quá khứ và review chất lượng thesis. Đây không phải broker backtest.
+
+```bash
+tradingagents replay capabilities
+tradingagents replay capabilities --vendor ccxt --json
+```
+
+Kết quả dự kiến:
+
+```text
+Provider: ccxt (default: hybrid)
+Method              Semantics   Lookback   Granularity   Notes
+get_ohlcv           as_of       365d       1d/1h         Historical candles
+get_ticker          latest      live       latest        Not point-in-time
+
+Known gaps:
+  - Some exchange metadata is latest-only
+```
+
+Side effect: read-only. Dùng trước khi tin replay historical.
+
+```bash
+tradingagents replay single BTC/USDT 2025-01-15 --lookback 60 --strict
+```
+
+Kết quả dự kiến:
+
+```text
+Historical Replay
+Replaying BTC/USDT as of 2025-01-15
+Lookback: 60d | Analysts: market, social, news, onchain STRICT MODE
+
+Replay Result
+Ticker      BTC/USDT
+Date        2025-01-15
+Signal      HOLD
+Data calls  18
+
+Thesis (excerpt)
+The market structure as of 2025-01-15 suggests...
+```
+
+Side effect: chạy replay pipeline. `--strict` fail fast nếu endpoint chỉ có latest semantics.
+
+```bash
+tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
+```
+
+Kết quả dự kiến:
+
+```text
+Historical Batch Replay
+Range: 2025-01-01 -> 2025-03-31 (step 7d)
+Total dates: 13 | Lookback: 30d
+
+Batch Results - BTC/USDT
+Date          Signal     Status
+2025-01-01    HOLD       success
+2025-01-08    BUY        success
+
+Completed: 12/13 successful
+```
+
+Side effect: chạy nhiều replay, có thể tốn thời gian/token tùy config.
+
+```bash
+tradingagents research evaluate thesis <thesis_id> --window 30 --record-review
+```
+
+Kết quả dự kiến:
+
+```text
+Thesis Evaluation - <thesis_id>
+Field        Value
+Result       mixed
+Symbol       BTC/USDT
+Window       30 day(s)
+MFE          8.20%
+MAE          -3.10%
+Invalidated  False
+```
+
+Side effect: `--record-review` ghi outcome review. Không có flag này thì chỉ tính và hiển thị.
+
+```bash
+tradingagents research evaluate analytics --symbol BTC/USDT
+tradingagents research evaluate factors --symbol BTC/USDT
+tradingagents research evaluate agents --symbol BTC/USDT
+tradingagents research evaluate confidence
+tradingagents research evaluate contradictions
+tradingagents research evaluate health --json
+```
+
+Kết quả dự kiến:
+
+```text
+Evaluation Analytics
+Sample size: 24 theses
+Hit rate: 46%
+Invalidation rate: 21%
+
+Factor Reliability
+Best factor: trend_strength
+Worst factor: funding_squeeze
+
+Agent Calibration
+Most accurate: market_analyst
+Most biased: social_media_analyst
+
+Performance Health Check
+Status: HEALTHY
+Recent (14d): 6 theses - hit rate: 50%
+Baseline (60d): 24 theses - hit rate: 46%
+```
+
+Side effect: analytics commands read-only. `matured` có thể tạo saved evaluations cho theses đủ tuổi:
+
+```bash
+tradingagents research evaluate matured --window 14 --max 10
+```
+
+Kết quả dự kiến:
+
+```text
+Evaluated 4 matured thesis(es).
+```
+
+### 20.11 Engine contract
+
+Dùng khi API service, queue worker hoặc external orchestrator muốn gọi Python engine bằng JSON file.
+
+Ví dụ `request.json`:
+
+```json
+{
+  "run_id": "manual-btc-2026-05-12",
+  "workspace_id": "local-alpha",
+  "symbol": "BTC/USDT",
+  "asset_class": "crypto",
+  "analysis_date": "2026-05-12",
+  "analysts": ["market", "social", "news", "onchain"],
+  "config_profile": "default",
+  "dry_run": true
+}
+```
+
+Chạy:
+
+```bash
+tradingagents engine run --request request.json
+```
+
+Kết quả dự kiến khi dry-run:
+
+```json
+{
+  "run_id": "manual-btc-2026-05-12",
+  "workspace_id": "local-alpha",
+  "status": "completed",
+  "thesis_id": null,
+  "summary": "Dry run validated request and persistence contract.",
+  "events_written": 2,
+  "error_type": null,
+  "error": null
+}
+```
+
+Kết quả dự kiến khi lỗi:
+
+```json
+{
+  "run_id": "manual-btc-2026-05-12",
+  "workspace_id": "local-alpha",
+  "status": "failed",
+  "error_type": "llm_credential_error",
+  "error": "Missing API key"
+}
+```
+
+Side effect: ghi run lifecycle events vào journal. Exit code khác 0 nếu `status` không phải `completed`.
+
+### 20.12 Kịch bản sử dụng ghép command
+
+Onboard máy mới:
+
+```bash
+tradingagents config setup
+tradingagents config validate --warn
+tradingagents config health --no-live --no-llm
+tradingagents research run BTC/USDT --yes --plain --dry-run
+```
+
+Kết quả kỳ vọng: biết journal nằm ở đâu, provider nào đang enabled, profile có hợp lệ không, và research input có thể chạy trước khi tốn token.
+
+Research một symbol rồi đưa vào watchlist:
+
+```bash
+tradingagents research run BTC/USDT --yes --plain --date 2026-05-12
+tradingagents journal workspace <run_id>
+tradingagents thesis show <thesis_id>
+tradingagents thesis decide <thesis_id> watched --notes "Monitor base scenario"
+tradingagents watchlist add-thesis <thesis_id>
+tradingagents watchlist brief --evaluate-snapshots
+```
+
+Kết quả kỳ vọng: có workspace để review, thesis được ghi decision, watchlist brief hiển thị thesis/scenarios và next commands.
+
+Check khi giá chạm vùng quan trọng:
+
+```bash
+tradingagents watchlist check --price BTC/USDT=110100
+tradingagents watchlist alerts --unread
+tradingagents journal timeline <run_id>
+```
+
+Kết quả kỳ vọng: nếu điều kiện scenario/invalidation/target match, CLI tạo alert và timeline cho thấy lifecycle liên quan.
+
+So sánh research trước và sau tin tức:
+
+```bash
+tradingagents research run BTC/USDT --yes --plain --date 2026-05-11
+tradingagents research run BTC/USDT --yes --plain --date 2026-05-12
+tradingagents diff run <run_id_1> <run_id_2>
+tradingagents diff thesis <thesis_id_1> <thesis_id_2>
+```
+
+Kết quả kỳ vọng: thấy direction có flip không, confidence đổi bao nhiêu, signal set nào mới xuất hiện, invalidation/targets có thay đổi không.
+
+Retrospective cuối tuần:
+
+```bash
+tradingagents research evaluate matured --window 14 --max 20
+tradingagents research evaluate analytics
+tradingagents research evaluate factors
+tradingagents research evaluate agents
+tradingagents journal retrospective
+```
+
+Kết quả kỳ vọng: biết setup nào underperform, factor nào đáng tin hơn, agent nào bias, và lesson nào nên feed vào research process tuần sau.
+
+Ops/provider debug:
+
+```bash
+tradingagents config effective
+tradingagents config health --json
+tradingagents replay capabilities
+tradingagents research run ETH/USDT --yes --plain --dry-run
+```
+
+Kết quả kỳ vọng: phân biệt lỗi config, lỗi credential, provider disabled, provider latest-only, hoặc data access timeout.
+
+Worker/API integration smoke test:
+
+```bash
+tradingagents engine run --request request.json
+tradingagents journal show manual-btc-2026-05-12
+tradingagents journal timeline manual-btc-2026-05-12
+```
+
+Kết quả kỳ vọng: engine contract trả JSON, journal có `run.started` và `run.completed` hoặc `run.failed`, backend có thể map status sang job lifecycle.
+
+## 21. Quick Start
 
 Một flow ngắn để test sản phẩm:
 
@@ -662,3 +1682,4 @@ tradingagents thesis review <thesis_id> mixed --lessons "Manual review note"
 tradingagents journal retrospective
 tradingagents research evaluate thesis <thesis_id> --window 14
 ```
+

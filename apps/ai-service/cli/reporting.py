@@ -87,11 +87,12 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
     if final_state.get("trader_investment_plan"):
         trading_dir = save_path / "3_trading"
         trading_dir.mkdir(exist_ok=True)
-        (trading_dir / "trader.md").write_text(
+        (trading_dir / "setup_planner.md").write_text(
             final_state["trader_investment_plan"], encoding="utf-8"
         )
         sections.append(
-            f"## III. Thesis Team Plan\n\n### Trader\n{final_state['trader_investment_plan']}"
+            "## III. Thesis Team Plan\n\n"
+            f"### Setup Planner\n{final_state['trader_investment_plan']}"
         )
 
     # 4. Risk Management
@@ -231,7 +232,7 @@ def display_complete_report(final_state):
         console.print(
             Panel(
                 Markdown(final_state["trader_investment_plan"]),
-                title="Trader",
+                title="Setup Planner",
                 border_style="blue",
                 padding=(1, 2),
             )

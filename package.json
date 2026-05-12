@@ -29,7 +29,9 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "eslint": "^10.3.0",
     "turbo": "^2.5.8",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.59.3"
   }
 }

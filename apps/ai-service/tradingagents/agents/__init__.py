@@ -17,7 +17,7 @@ from .managers.portfolio_manager import create_portfolio_manager
 
 from .planners.scenario_planner import create_scenario_planner
 
-from .trader.trader import create_trader
+from .trader.trader import create_setup_planner, create_trader
 
 __all__ = [
     "AgentState",
@@ -33,6 +33,7 @@ __all__ = [
     "create_aggressive_debator",
     "create_portfolio_manager",
     "create_scenario_planner",
+    "create_setup_planner",
     "create_conservative_debator",
     "create_social_media_analyst",
     "create_trader",

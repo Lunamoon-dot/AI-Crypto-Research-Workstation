@@ -8,8 +8,13 @@ This file provides guidance to Claude Code when working in the LunaPerception mo
 # Root workspace
 pnpm install
 pnpm lint
+pnpm build:api
 pnpm typecheck
 pnpm test
+
+# TypeScript API
+pnpm --filter @lunaperception/api lint
+pnpm --filter @lunaperception/api test
 
 # Python AI service
 pnpm ai:install

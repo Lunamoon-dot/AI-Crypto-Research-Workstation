@@ -35,6 +35,7 @@ class ResearchRun(BaseModel):
     workspace_id: str = "local"
     symbol: str
     asset_class: str = "crypto"
+    market_type: str = "spot"
     timeframe: str | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
@@ -65,6 +66,14 @@ class ResearchRun(BaseModel):
     @classmethod
     def _normalize_workspace_id(cls, value: str | None) -> str:
         return normalize_workspace_id(value)
+
+    @field_validator("market_type", mode="before")
+    @classmethod
+    def _normalize_market_type(cls, value: str | None) -> str:
+        normalized = str(value or "spot").strip().lower()
+        if normalized in {"perp", "perpetual", "futures", "future"}:
+            return "perp"
+        return "spot"
 
     def has_degradation(self) -> bool:
         return bool(

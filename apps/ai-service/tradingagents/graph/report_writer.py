@@ -23,6 +23,9 @@ class ReportWriter:
         self.host.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
+            "market_type": final_state.get(
+                "market_type", self.host.config.get("market_type", "spot")
+            ),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],
             "news_report": final_state["news_report"],
@@ -38,6 +41,7 @@ class ReportWriter:
                     "judge_decision"
                 ],
             },
+            "setup_planner_proposal": final_state["trader_investment_plan"],
             "trader_investment_decision": final_state["trader_investment_plan"],
             "risk_debate_state": {
                 "aggressive_history": final_state["risk_debate_state"][

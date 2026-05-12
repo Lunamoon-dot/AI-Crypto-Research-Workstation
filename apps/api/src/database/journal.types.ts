@@ -5,6 +5,7 @@ export interface EngineRunRequest {
   workspace_id: string;
   symbol: string;
   asset_class: string;
+  market_type: 'spot' | 'perp';
   analysis_date: string;
   analysts: string[];
   config_profile: string;

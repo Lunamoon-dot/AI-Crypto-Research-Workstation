@@ -212,10 +212,12 @@ def _validated_structured_summary(
     stale_or_missing_data: list[str],
     contradictions: list[str],
     why_this_thesis: str,
+    market_type: str,
 ) -> TradeThesisStructuredSummary:
     summary_payload = dict(payload)
     summary_payload["rating"] = rating
     summary_payload["direction"] = direction.value
+    summary_payload["market_type"] = summary_payload.get("market_type") or market_type
     if confidence is not None:
         summary_payload["confidence"] = confidence
     else:
@@ -241,6 +243,9 @@ def _validated_structured_summary(
         or contradictions[:3]
         or ["Manual review required before any action."]
     )
+    summary_payload["missing_data"] = summary_payload.get("missing_data") or (
+        stale_or_missing_data[:3]
+    )
 
     try:
         return TradeThesisStructuredSummary.model_validate(summary_payload)
@@ -249,6 +254,7 @@ def _validated_structured_summary(
             {
                 "rating": rating,
                 "direction": direction.value,
+                "market_type": market_type,
                 "confidence": confidence,
                 "action_summary": executive_summary or why_this_thesis,
                 "upside_catalyst": target_zones[0] if target_zones else "",
@@ -259,6 +265,7 @@ def _validated_structured_summary(
                 "risks": stale_or_missing_data[:3]
                 or contradictions[:3]
                 or ["Manual review required before any action."],
+                "missing_data": stale_or_missing_data[:3],
             }
         )
 
@@ -550,6 +557,12 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         why_this_thesis = _first_nonempty_line(final_decision) or (
             f"{direction.value} thesis generated from agent debate"
         )
+        market_type = (
+            summary_payload.get("market_type")
+            or final_state.get("market_type")
+            or getattr(getattr(self, "current_research_run", None), "market_type", None)
+            or (getattr(self, "config", None) or {}).get("market_type", "spot")
+        )
         monitor_next = [
             item
             for item in [
@@ -583,6 +596,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             stale_or_missing_data=stale_or_missing_data,
             contradictions=contradictions,
             why_this_thesis=why_this_thesis,
+            market_type=market_type,
         )
 
         thesis = TradeThesis(
@@ -884,6 +898,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         init_agent_state = self.propagator.create_initial_state(
             company_name,
             trade_date,
+            market_type=self.config.get("market_type", "spot"),
         )
         init_agent_state["quant_signal"] = quant_signal_text
         args = self.propagator.get_graph_args(callbacks=run_callbacks or None)
@@ -987,6 +1002,9 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
+            "market_type": final_state.get(
+                "market_type", self.config.get("market_type", "spot")
+            ),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],
             "news_report": final_state["news_report"],
@@ -1002,6 +1020,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                     "judge_decision"
                 ],
             },
+            "setup_planner_proposal": final_state["trader_investment_plan"],
             "trader_investment_decision": final_state["trader_investment_plan"],
             "risk_debate_state": {
                 "aggressive_history": final_state["risk_debate_state"][

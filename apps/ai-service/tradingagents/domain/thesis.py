@@ -30,6 +30,7 @@ class TradeThesisStructuredSummary(BaseModel):
     )
     direction: ThesisDirection = ThesisDirection.WATCH
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    market_type: str = "spot"
     action_summary: str = ""
     entry_zone: str = ""
     upside_catalyst: str = ""
@@ -37,6 +38,9 @@ class TradeThesisStructuredSummary(BaseModel):
     target_zones: list[str] = Field(default_factory=list)
     key_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    spot_notes: str = ""
+    perp_notes: str = ""
+    missing_data: list[str] = Field(default_factory=list)
     is_degraded: bool = False
     degradation_reasons: list[str] = Field(default_factory=list)
 
@@ -92,11 +96,21 @@ class TradeThesisStructuredSummary(BaseModel):
             return number
         return value
 
+    @field_validator("market_type", mode="before")
+    @classmethod
+    def _normalize_market_type(cls, value: Any) -> str:
+        normalized = str(value or "spot").strip().lower()
+        if normalized in {"perp", "perpetual", "futures", "future"}:
+            return "perp"
+        return "spot"
+
     @field_validator(
         "action_summary",
         "entry_zone",
         "upside_catalyst",
         "invalidation",
+        "spot_notes",
+        "perp_notes",
         mode="before",
     )
     @classmethod
@@ -106,7 +120,12 @@ class TradeThesisStructuredSummary(BaseModel):
         return str(value).strip()[:500]
 
     @field_validator(
-        "target_zones", "key_reasons", "risks", "degradation_reasons", mode="before"
+        "target_zones",
+        "key_reasons",
+        "risks",
+        "missing_data",
+        "degradation_reasons",
+        mode="before",
     )
     @classmethod
     def _normalize_text_list(cls, value: Any) -> list[str]:

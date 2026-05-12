@@ -20,7 +20,7 @@ _MARKET_SYSTEM_CONTENT = (
     "   investigate a conflict.\n"
     "4. Write a concise report covering: the quant signal and your confidence "
     "   in it, which factors drive the signal, any conflicting indicators, "
-    "   and actionable insights for the Trader.\n\n"
+    "   and actionable insights for the Setup Planner.\n\n"
     "Your role is INTERPRETATION, not computation."
     + " Append a brief Markdown table organizing the signal factors at the end."
 )

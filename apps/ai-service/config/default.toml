@@ -52,6 +52,7 @@ warn_on_plaintext_env = true
 # ── Runtime environment / asset class ────────────────────────────────────────
 runtime_environment = "local" # "local" | "dev" | "production"
 asset_class = "crypto"
+market_type = "spot" # "spot" | "perp"
 crypto_exchange = "binance"
 crypto_benchmark = "BTC/USDT"
 

@@ -161,7 +161,7 @@ class ChunkProcessor:
                 )
 
     def update_research_team_status(self, status):
-        """Update status for research team members (not Trader)."""
+        """Update status for research team members."""
         research_team = [
             "Bull Researcher",
             "Bear Researcher",
@@ -220,14 +220,16 @@ class ChunkProcessor:
                     f"### Research Manager Decision\n{judge}",
                 )
                 self.update_research_team_status("completed")
-                self.message_buffer.update_agent_status("Trader", "in_progress")
+                self.message_buffer.update_agent_status(
+                    "Setup Planner", "in_progress"
+                )
 
         if chunk.get("trader_investment_plan"):
             self.message_buffer.update_report_section(
                 "trader_investment_plan", chunk["trader_investment_plan"]
             )
-            if self.message_buffer.agent_status.get("Trader") != "completed":
-                self.message_buffer.update_agent_status("Trader", "completed")
+            if self.message_buffer.agent_status.get("Setup Planner") != "completed":
+                self.message_buffer.update_agent_status("Setup Planner", "completed")
                 self.message_buffer.update_agent_status(
                     "Aggressive Analyst", "in_progress"
                 )

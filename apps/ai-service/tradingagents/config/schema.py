@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _VALIDATION_MODES = {"fail_fast", "warn"}
 _RUNTIME_ENVIRONMENTS = {"local", "dev", "production"}
+_MARKET_TYPES = {"spot", "perp"}
 
 
 def _normalize_mode(mode: Any) -> str:
@@ -84,6 +85,14 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
             )
         if not validate_llm_keys:
             issues.append("production runtime_environment requires LLM key validation")
+
+    market_type = str(normalized.get("market_type", "spot")).strip().lower()
+    if market_type in {"perpetual", "futures", "future"}:
+        market_type = "perp"
+    if market_type not in _MARKET_TYPES:
+        issues.append("market_type must be one of: spot, perp")
+        market_type = "spot"
+    normalized["market_type"] = market_type
 
     disabled = normalized.get("disabled_data_vendors", [])
     if disabled is None:

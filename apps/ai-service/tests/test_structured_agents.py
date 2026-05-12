@@ -1,9 +1,9 @@
-"""Tests for structured-output agents (Trader and Research Manager).
+"""Tests for structured-output agents (Setup Planner and Research Manager).
 
 The Portfolio Manager has its own coverage in tests/test_memory_log.py
 (which exercises the full memory-log → PM injection cycle).  This file
 covers the parallel schemas, render functions, and graceful-fallback
-behavior we added for the Trader and Research Manager so all three
+behavior we added for the Setup Planner and Research Manager so all three
 decision-making agents share the same shape.
 """
 
@@ -13,14 +13,18 @@ import pytest
 
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
+    MarketType,
     PortfolioRating,
     ResearchPlan,
+    SetupAction,
+    SetupProposal,
     TraderAction,
     TraderProposal,
     render_research_plan,
+    render_setup_proposal,
     render_trader_proposal,
 )
-from tradingagents.agents.trader.trader import create_trader
+from tradingagents.agents.trader.trader import create_setup_planner, create_trader
 
 
 # ---------------------------------------------------------------------------
@@ -29,40 +33,70 @@ from tradingagents.agents.trader.trader import create_trader
 
 
 @pytest.mark.unit
-class TestRenderTraderProposal:
+class TestRenderSetupProposal:
     def test_minimal_required_fields(self):
-        p = TraderProposal(
-            action=TraderAction.HOLD, reasoning="Balanced setup; no edge."
+        p = SetupProposal(
+            action=SetupAction.HOLD, reasoning="Balanced setup; no edge."
         )
-        md = render_trader_proposal(p)
+        md = render_setup_proposal(p)
+        assert "**Market Type**: spot" in md
         assert "**Action**: Hold" in md
         assert "**Reasoning**: Balanced setup; no edge." in md
-        # The trailing FINAL TRANSACTION PROPOSAL line is preserved for the
-        # analyst stop-signal text and any external code that greps for it.
-        assert "FINAL TRANSACTION PROPOSAL: **HOLD**" in md
+        assert "FINAL SETUP PROPOSAL: **HOLD**" in md
 
-    def test_optional_fields_included_when_present(self):
-        p = TraderProposal(
-            action=TraderAction.BUY,
+    def test_spot_fields_included_when_present(self):
+        p = SetupProposal(
+            action=SetupAction.BUY,
             reasoning="Strong technicals + fundamentals.",
+            entry_zone="188-192",
+            invalidation="Daily close below 178",
+            target_zones=["205", "220"],
+            position_sizing="6% of portfolio",
+            spot_notes="Use staged accumulation; no leverage.",
+        )
+        md = render_setup_proposal(p)
+        assert "**Action**: Buy" in md
+        assert "**Entry Zone**: 188-192" in md
+        assert "**Invalidation**: Daily close below 178" in md
+        assert "**Target Zones**: 205; 220" in md
+        assert "**Position Sizing**: 6% of portfolio" in md
+        assert "**Spot Notes**: Use staged accumulation; no leverage." in md
+        assert "FINAL SETUP PROPOSAL: **BUY**" in md
+
+    def test_perp_fields_and_missing_data_render(self):
+        p = SetupProposal(
+            market_type=MarketType.PERP,
+            action=SetupAction.SELL,
+            reasoning="Funding is crowded and OI is deteriorating.",
+            perp_notes="Cap leverage at 2x; avoid isolated margin.",
+            missing_data=["liquidation heatmap"],
+        )
+        md = render_setup_proposal(p)
+        assert "**Market Type**: perp" in md
+        assert "**Perp Notes**: Cap leverage at 2x; avoid isolated margin." in md
+        assert "**Missing Data**: liquidation heatmap" in md
+
+    def test_legacy_alias_and_fields_map_to_setup_fields(self):
+        p = TraderProposal(
+            action=TraderAction.SELL,
+            reasoning="Guidance cut.",
             entry_price=189.5,
             stop_loss=178.0,
-            position_sizing="6% of portfolio",
+            take_profit=160.0,
         )
         md = render_trader_proposal(p)
-        assert "**Action**: Buy" in md
-        assert "**Entry Price**: 189.5" in md
-        assert "**Stop Loss**: 178.0" in md
-        assert "**Position Sizing**: 6% of portfolio" in md
-        assert "FINAL TRANSACTION PROPOSAL: **BUY**" in md
+        assert "**Entry Zone**: 189.5" in md
+        assert "**Invalidation**: 178.0" in md
+        assert "**Target Zones**: 160.0" in md
+        assert "FINAL SETUP PROPOSAL: **SELL**" in md
 
     def test_optional_fields_omitted_when_absent(self):
-        p = TraderProposal(action=TraderAction.SELL, reasoning="Guidance cut.")
-        md = render_trader_proposal(p)
-        assert "Entry Price" not in md
-        assert "Stop Loss" not in md
+        p = SetupProposal(action=SetupAction.SELL, reasoning="Guidance cut.")
+        md = render_setup_proposal(p)
+        assert "Entry Zone" not in md
+        assert "Invalidation" not in md
         assert "Position Sizing" not in md
-        assert "FINAL TRANSACTION PROPOSAL: **SELL**" in md
+        assert "FINAL SETUP PROPOSAL: **SELL**" in md
 
 
 @pytest.mark.unit
@@ -90,24 +124,25 @@ class TestRenderResearchPlan:
 
 
 # ---------------------------------------------------------------------------
-# Trader agent: structured happy path + fallback
+# Setup Planner agent: structured happy path + fallback
 # ---------------------------------------------------------------------------
 
 
-def _make_trader_state():
+def _make_setup_state(market_type: str = "spot"):
     return {
         "company_of_interest": "NVDA",
+        "market_type": market_type,
         "investment_plan": "**Recommendation**: Buy\n**Rationale**: ...\n**Strategic Actions**: ...",
     }
 
 
-def _structured_trader_llm(captured: dict, proposal: TraderProposal | None = None):
+def _structured_setup_llm(captured: dict, proposal: SetupProposal | None = None):
     """Build a MagicMock LLM whose with_structured_output binding captures the
-    prompt and returns a real TraderProposal so render_trader_proposal works.
+    prompt and returns a real SetupProposal so render_setup_proposal works.
     """
     if proposal is None:
-        proposal = TraderProposal(
-            action=TraderAction.BUY,
+        proposal = SetupProposal(
+            action=SetupAction.BUY,
             reasoning="Strong setup.",
         )
     structured = MagicMock()
@@ -120,48 +155,66 @@ def _structured_trader_llm(captured: dict, proposal: TraderProposal | None = Non
 
 
 @pytest.mark.unit
-class TestTraderAgent:
+class TestSetupPlannerAgent:
     def test_structured_path_produces_rendered_markdown(self):
         captured = {}
-        proposal = TraderProposal(
-            action=TraderAction.BUY,
+        proposal = SetupProposal(
+            action=SetupAction.BUY,
             reasoning="AI capex cycle intact; institutional flows constructive.",
-            entry_price=189.5,
-            stop_loss=178.0,
+            entry_zone="188-192",
+            invalidation="Below 178",
             position_sizing="6% of portfolio",
         )
-        llm = _structured_trader_llm(captured, proposal)
-        trader = create_trader(llm)
-        result = trader(_make_trader_state())
+        llm = _structured_setup_llm(captured, proposal)
+        setup_planner = create_setup_planner(llm)
+        result = setup_planner(_make_setup_state())
         plan = result["trader_investment_plan"]
         assert "**Action**: Buy" in plan
-        assert "**Entry Price**: 189.5" in plan
-        assert "FINAL TRANSACTION PROPOSAL: **BUY**" in plan
+        assert "**Entry Zone**: 188-192" in plan
+        assert "FINAL SETUP PROPOSAL: **BUY**" in plan
         # The same rendered markdown is also added to messages for downstream agents.
         assert plan in result["messages"][0].content
+        assert result["sender"] == "Setup Planner"
 
     def test_prompt_includes_investment_plan(self):
         captured = {}
-        llm = _structured_trader_llm(captured)
-        trader = create_trader(llm)
-        trader(_make_trader_state())
+        llm = _structured_setup_llm(captured)
+        setup_planner = create_setup_planner(llm)
+        setup_planner(_make_setup_state())
         # The investment plan is in the user message of the captured prompt.
         prompt = captured["prompt"]
         assert any("Proposed Investment Plan" in m["content"] for m in prompt)
+        assert any("Setup Planner" in m["content"] for m in prompt)
+
+    def test_prompt_includes_perp_guidance(self):
+        captured = {}
+        llm = _structured_setup_llm(captured)
+        setup_planner = create_setup_planner(llm)
+        setup_planner(_make_setup_state("perp"))
+        prompt = captured["prompt"]
+        assert any("Market type: perp" in m["content"] for m in prompt)
+        assert any("funding" in m["content"] for m in prompt)
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (
             "**Action**: Sell\n\nGuidance cut hits margins.\n\n"
-            "FINAL TRANSACTION PROPOSAL: **SELL**"
+            "FINAL SETUP PROPOSAL: **SELL**"
         )
         llm = MagicMock()
         llm.with_structured_output.side_effect = NotImplementedError(
             "provider unsupported"
         )
         llm.invoke.return_value = MagicMock(content=plain_response)
-        trader = create_trader(llm)
-        result = trader(_make_trader_state())
+        setup_planner = create_setup_planner(llm)
+        result = setup_planner(_make_setup_state())
         assert result["trader_investment_plan"] == plain_response
+
+    def test_create_trader_alias_still_works(self):
+        captured = {}
+        llm = _structured_setup_llm(captured)
+        setup_planner = create_trader(llm)
+        result = setup_planner(_make_setup_state())
+        assert "FINAL SETUP PROPOSAL" in result["trader_investment_plan"]
 
 
 # ---------------------------------------------------------------------------

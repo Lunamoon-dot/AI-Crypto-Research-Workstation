@@ -37,6 +37,25 @@ Run a workspace command directly:
 
 ```bash
 pnpm --filter @lunaperception/ai-service test
+pnpm --filter @lunaperception/api lint
+pnpm --filter @lunaperception/api test
+```
+
+## Release Gate Checklist
+
+Before opening a new product phase or release candidate, run the same gates CI
+enforces:
+
+```bash
+pnpm lint
+pnpm build:api
+pnpm --filter @lunaperception/api test
+
+cd apps/ai-service
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy tradingagents cli
+python -m pytest
 ```
 
 ## AI Service

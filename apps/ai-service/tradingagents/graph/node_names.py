@@ -48,7 +48,8 @@ class RiskNode(_StrEnum):
 class PipelineNode(_StrEnum):
     """Non-debate pipeline node names."""
 
-    TRADER = "Trader"
+    SETUP_PLANNER = "Setup Planner"
+    TRADER = "Setup Planner"
     PORTFOLIO_MANAGER = "Portfolio Manager"
     SCENARIO_PLANNER = "Scenario Planner"
 
@@ -96,7 +97,8 @@ class OpinionSource(_StrEnum):
     BULL_RESEARCHER = "Bull Researcher"
     BEAR_RESEARCHER = "Contrarian Analyst"
     RESEARCH_MANAGER = "Research Manager"
-    TRADER = "Trader"
+    SETUP_PLANNER = "Setup Planner"
+    TRADER = "Setup Planner"
     RISK_AGGRESSIVE = "Risk Analyst - Aggressive"
     RISK_CONSERVATIVE = "Risk Analyst - Conservative"
     RISK_NEUTRAL = "Risk Analyst - Neutral"

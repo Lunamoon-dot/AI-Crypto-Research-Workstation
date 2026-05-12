@@ -162,17 +162,17 @@ def build_agent_opinions(
         if opinion:
             opinions.append(opinion)
 
-    trader_plan = final_state.get("trader_investment_plan")
-    if trader_plan:
-        trader_opinion = _text_opinion(
-            "Trader",
-            trader_plan,
+    setup_plan = final_state.get("trader_investment_plan")
+    if setup_plan:
+        setup_opinion = _text_opinion(
+            "Setup Planner",
+            setup_plan,
             research_run_id=research_run_id,
             role="planning",
-            source_report_type="trader_plan",
+            source_report_type="setup_plan",
         )
-        if trader_opinion:
-            opinions.append(trader_opinion)
+        if setup_opinion:
+            opinions.append(setup_opinion)
 
     risk = final_state.get("risk_debate_state") or {}
     for agent_name, text, stance in [

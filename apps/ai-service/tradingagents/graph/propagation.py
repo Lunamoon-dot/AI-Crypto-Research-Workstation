@@ -19,12 +19,14 @@ class Propagator:
         company_name: str,
         trade_date: str,
         past_context: str = "",
+        market_type: str = "spot",
     ) -> Dict[str, Any]:
         """Create the initial state for the agent graph."""
         return {
             "messages": [("human", company_name)],
             "company_of_interest": company_name,
             "trade_date": str(trade_date),
+            "market_type": market_type,
             "past_context": past_context,
             "investment_debate_state": InvestDebateState(
                 {

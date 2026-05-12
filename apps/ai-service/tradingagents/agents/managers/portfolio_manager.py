@@ -52,7 +52,10 @@ def create_portfolio_manager(llm, config=None):
         history = state["risk_debate_state"]["history"]
         risk_debate_state = state["risk_debate_state"]
         research_plan = state["investment_plan"]
-        trader_plan = state["trader_investment_plan"]
+        setup_proposal = state["trader_investment_plan"]
+        market_type = (
+            state.get("market_type") or (config or {}).get("market_type") or "spot"
+        )
 
         past_context = state.get("past_context", "")
         lessons_line = (
@@ -67,11 +70,13 @@ def create_portfolio_manager(llm, config=None):
             _get_feedback_context(config),
         )
 
-        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final research thesis decision.
 
 {instrument_context}
 
 ---
+
+Market type: {market_type}
 
 **Rating Scale** (use exactly one):
 - **Buy**: Strong conviction to enter or add to position
@@ -82,7 +87,7 @@ def create_portfolio_manager(llm, config=None):
 
 **Context:**
 - Research Manager's investment plan: {guard_untrusted_context("research_plan", research_plan)}
-- Trader's transaction proposal: {guard_untrusted_context("trader_plan", trader_plan)}
+- Setup Planner's proposal: {guard_untrusted_context("setup_proposal", setup_proposal)}
 {lessons_line}
 {feedback_context}
 
@@ -92,6 +97,8 @@ def create_portfolio_manager(llm, config=None):
 ---
 
 Be decisive and ground every conclusion in specific evidence from the analysts.
+This is a research decision for manual review, not an exchange order or automated execution instruction.
+For spot, include accumulation/DCA/allocation notes where relevant. For perp, include funding, OI, liquidation, leverage cap, stop distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
 
 For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block:
 
@@ -101,11 +108,15 @@ TRADE_THESIS_JSON:
   "rating": "Buy | Overweight | Hold | Underweight | Sell",
   "direction": "long | short | watch | avoid | neutral",
   "confidence": null,
+  "market_type": "spot | perp",
   "action_summary": "one short UI action summary",
   "upside_catalyst": "specific condition that improves the thesis",
   "invalidation": "specific condition that invalidates the thesis",
   "key_reasons": ["reason 1", "reason 2", "reason 3"],
-  "risks": ["risk 1", "risk 2"]
+  "risks": ["risk 1", "risk 2"],
+  "spot_notes": "spot-specific notes or empty string",
+  "perp_notes": "perp-specific notes or empty string",
+  "missing_data": ["missing data item"]
 }}
 ```
 Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""

@@ -234,7 +234,7 @@ class TestBudgetTracker:
         monkeypatch.setattr(graph_setup_module, "create_bull_researcher", node_factory)
         monkeypatch.setattr(graph_setup_module, "create_bear_researcher", node_factory)
         monkeypatch.setattr(graph_setup_module, "create_research_manager", node_factory)
-        monkeypatch.setattr(graph_setup_module, "create_trader", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_setup_planner", node_factory)
         monkeypatch.setattr(
             graph_setup_module, "create_aggressive_debator", node_factory
         )
@@ -266,7 +266,7 @@ class TestBudgetTracker:
             "debate",
             "debate",
             "research_manager",
-            "trader",
+            "setup_planner",
             "risk_debate",
             "risk_debate",
             "risk_debate",
@@ -354,6 +354,7 @@ class TestDefaultBudgets:
             "analysts_total",
             "debate",
             "research_manager",
+            "setup_planner",
             "trader",
             "risk_debate",
             "portfolio_manager",

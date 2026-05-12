@@ -44,6 +44,7 @@ _ENV_CONFIG_MAP: dict[str, str | tuple[str, ...]] = {
     "TRADINGAGENTS_BACKEND_URL": "backend_url",
     "TRADINGAGENTS_RUNTIME_ENVIRONMENT": "runtime_environment",
     "TRADINGAGENTS_ASSET_CLASS": "asset_class",
+    "TRADINGAGENTS_MARKET_TYPE": "market_type",
     "TRADINGAGENTS_CRYPTO_EXCHANGE": "crypto_exchange",
     "TRADINGAGENTS_CRYPTO_BENCHMARK": "crypto_benchmark",
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS": "max_debate_rounds",
@@ -213,6 +214,7 @@ class ConfigLoader:
             "max_risk_discuss_rounds": selections.get("research_depth", 1),
             "output_language": selections.get("output_language", "English"),
             "asset_class": selections.get("asset_class", "crypto"),
+            "market_type": selections.get("market_type", "spot"),
             "checkpoint_enabled": checkpoint,
         }
         optional_overrides = {

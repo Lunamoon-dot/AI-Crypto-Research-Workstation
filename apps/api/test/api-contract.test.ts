@@ -190,11 +190,31 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
       workspace_id: 'workspace_a',
       symbol: 'ETH/USDT',
       asset_class: 'crypto',
+      market_type: 'spot',
       analysis_date: '2026-05-12',
       analysts: ['market', 'news'],
       config_profile: 'default',
     },
   ]);
+});
+
+test('POST /research-runs passes explicit market_type to engine request', async () => {
+  const { researchRunsController, jobs } = buildHarness();
+
+  await researchRunsController.create(
+    {
+      run_id: 'run_perp_contract',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      analysis_date: '2026-05-12',
+      analysts: ['market'],
+      market_type: 'perp',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(jobs.listMemoryJobs()[0]?.market_type, 'perp');
 });
 
 test('read APIs scope research runs and signals to the request workspace', async () => {

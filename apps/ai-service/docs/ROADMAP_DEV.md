@@ -16,7 +16,7 @@ Technical implementation phases (1–9), refactor priorities, and engineering ti
 This section replaces the old branch-specific narrative. Update it when architecture changes materially.
 
 - **Product:** AI crypto **research workstation** only — no autonomous order placement; CCXT and vendors are used for **market data**, not execution adapters.
-- **Graph:** `ResearchAgentsGraph` → analysts → debate → trader → risk debate → portfolio manager → scenario planner → end; artifacts persisted via `JournalBridge` (runs, snapshots, signals, opinions, debates).
+- **Graph:** `ResearchAgentsGraph` → analysts → debate → setup planner → risk debate → portfolio manager → scenario planner → end; artifacts persisted via `JournalBridge` (runs, snapshots, signals, opinions, debates).
 - **Removed / out of core:** execution stack for orders, CLI `risk` / `backtest` groups, markdown memory log + post-trade reflection loop, assisted trade-plan builder (`graph/planning` style).
 - **Config:** `signal_weights`, `signal_thresholds`, and `fixed_sizing` are **research / display knobs**, not live sizing engines.
 - **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts — parsed from graph state after each run.
@@ -43,7 +43,7 @@ Criteria below push the product from **good** toward **best-in-class**. They ext
 - **Refusal / insufficient data** as first-class outcomes (visible in journal), not generic filler prose.
 - **Token and latency budgets** per graph stage; optional routing of lighter models for shallow subtasks when configured.
 
-### Trader-grade workflow
+### Research workflow for active traders
 
 - **Compare or diff** two runs or theses (same symbol, nearby dates) to see what changed in evidence and stance.
 - **Research bundles**: export a portable set (run ID, snapshot IDs, thesis, hashes) for archival or peer review.
@@ -435,7 +435,7 @@ Estimated time: 3-5 weeks.
 Turn the agent system into a useful research team, not prompt theater.
 
 MVP implementation status: completed. Existing analyst reports, bull/bear
-research debate, trader plan, and risk debate are adapted into typed
+research debate, setup proposal, and risk debate are adapted into typed
 `AgentOpinion` records and persisted with a `ResearchDebate` summary. Consensus
 confidence is adjusted for conflict, missing data, and stale/unknown data;
 contradictions are exposed with typed messages; trade theses include opinion

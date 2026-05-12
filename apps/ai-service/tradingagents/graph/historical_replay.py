@@ -112,7 +112,7 @@ class HistoricalReplay:
         """Run the full research pipeline for *ticker* as of *anchor_date*.
 
         Only data available on or before *anchor_date* is used.  The
-        pipeline proceeds through analyst → debate → trader → risk →
+        pipeline proceeds through analyst → debate → setup planner → risk →
         portfolio manager, identically to a live run.
         """
         if anchor_date > date.today():

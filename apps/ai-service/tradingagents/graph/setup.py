@@ -20,8 +20,8 @@ from tradingagents.agents import (
     create_portfolio_manager,
     create_research_manager,
     create_scenario_planner,
+    create_setup_planner,
     create_social_media_analyst,
-    create_trader,
 )
 from tradingagents.agents.utils.agent_states import AgentState
 from tradingagents.agents.utils.agent_utils import create_analyst_opinion_builder
@@ -164,7 +164,9 @@ class GraphSetup:
             self.quick_thinking_llm, config=self.config
         )
         research_manager_node = create_research_manager(self.deep_thinking_llm)
-        trader_node = create_trader(self.quick_thinking_llm)
+        setup_planner_node = create_setup_planner(
+            self.quick_thinking_llm, config=self.config
+        )
 
         # -- Risk nodes -------------------------------------------------------
         aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
@@ -252,11 +254,11 @@ class GraphSetup:
             ),
         )
         workflow.add_node(
-            PipelineNode.TRADER,
+            PipelineNode.SETUP_PLANNER,
             self._budgeted_node(
-                trader_node,
-                "trader",
-                graph_node=str(PipelineNode.TRADER),
+                setup_planner_node,
+                "setup_planner",
+                graph_node=str(PipelineNode.SETUP_PLANNER),
             ),
         )
         workflow.add_node(
@@ -315,8 +317,8 @@ class GraphSetup:
                 DebateNode.RESEARCH_MANAGER: DebateNode.RESEARCH_MANAGER,
             },
         )
-        workflow.add_edge(DebateNode.RESEARCH_MANAGER, PipelineNode.TRADER)
-        workflow.add_edge(PipelineNode.TRADER, RiskNode.AGGRESSIVE)
+        workflow.add_edge(DebateNode.RESEARCH_MANAGER, PipelineNode.SETUP_PLANNER)
+        workflow.add_edge(PipelineNode.SETUP_PLANNER, RiskNode.AGGRESSIVE)
         workflow.add_conditional_edges(
             RiskNode.AGGRESSIVE,
             self.conditional_logic.should_continue_risk_analysis,

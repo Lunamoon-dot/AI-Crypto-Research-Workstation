@@ -103,6 +103,11 @@ def analyze(
         "--asset-class",
         help="Asset class for non-interactive research: crypto or stock.",
     ),
+    market_type: str = typer.Option(
+        "spot",
+        "--market-type",
+        help="Research market type for crypto setups: spot or perp.",
+    ),
     exchange: Optional[str] = typer.Option(
         None,
         "--exchange",
@@ -190,6 +195,7 @@ def analyze(
             ticker=ticker,
             analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
             asset_class=asset_class,
+            market_type=market_type,
             exchange=exchange,
             analysts=analysts,
             research_depth=research_depth,
@@ -233,6 +239,11 @@ def research_run(
     ),
     exchange: Optional[str] = typer.Option(
         None, "--exchange", help="Crypto exchange id."
+    ),
+    market_type: str = typer.Option(
+        "spot",
+        "--market-type",
+        help="Research market type for crypto setups: spot or perp.",
     ),
     analysts: str = typer.Option(
         "market,social,news,onchain",
@@ -279,6 +290,7 @@ def research_run(
         ticker=ticker,
         analysis_date=analysis_date or datetime.datetime.now().strftime("%Y-%m-%d"),
         asset_class="crypto",
+        market_type=market_type,
         exchange=exchange,
         analysts=analysts,
         research_depth=research_depth,

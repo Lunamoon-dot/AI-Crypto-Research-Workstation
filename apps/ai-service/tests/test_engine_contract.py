@@ -43,5 +43,24 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
     }
     assert run is not None
     assert run.workspace_id == "workspace_1"
+    assert run.market_type == "spot"
     assert run.status.value == "completed"
     assert [event.event_type for event in events] == ["run.started", "run.completed"]
+    assert events[0].payload["market_type"] == "spot"
+
+
+def test_engine_request_accepts_perp_market_type():
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_perp_contract",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "market_type": "perpetual",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market"],
+            "config_profile": "default",
+        }
+    )
+
+    assert request.market_type == "perp"

@@ -477,6 +477,7 @@ class AnalysisOrchestrator:
         table.add_row("Ticker", selections.get("ticker", "N/A"))
         table.add_row("Analysis Date", selections.get("analysis_date", "N/A"))
         table.add_row("Asset Class", selections.get("asset_class", "crypto"))
+        table.add_row("Market Type", selections.get("market_type", "spot"))
         table.add_row("Exchange", selections.get("exchange", "default"))
         table.add_row(
             "Analysts",

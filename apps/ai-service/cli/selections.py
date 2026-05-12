@@ -69,6 +69,15 @@ def _parse_analysts(value: str) -> list[AnalystType]:
     return analysts
 
 
+def _validate_market_type(value: str | None) -> str:
+    normalized = str(value or "spot").strip().lower()
+    if normalized in {"perp", "perpetual", "futures", "future"}:
+        return "perp"
+    if normalized == "spot":
+        return "spot"
+    raise typer.BadParameter("Market type must be 'spot' or 'perp'.")
+
+
 # ---------------------------------------------------------------------------
 # Selection builders
 # ---------------------------------------------------------------------------
@@ -255,6 +264,7 @@ def get_user_selections():
         "anthropic_effort": anthropic_effort,
         "output_language": output_language,
         "asset_class": selected_asset_class,
+        "market_type": "spot",
         "crypto_exchange": crypto_exchange,
         "crypto_benchmark": crypto_benchmark,
     }
@@ -274,6 +284,7 @@ def selections_from_cli_options(
     deep_model: str | None,
     output_language: str,
     profile: str | None = None,
+    market_type: str = "spot",
 ) -> dict:
     """Build the same selection shape as the interactive wizard."""
 
@@ -303,6 +314,7 @@ def selections_from_cli_options(
         "anthropic_effort": None,
         "output_language": output_language,
         "asset_class": selected_asset_class,
+        "market_type": _validate_market_type(market_type),
         "crypto_exchange": (
             crypto_exchange if selected_asset_class == "crypto" else None
         ),

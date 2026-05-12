@@ -3,8 +3,8 @@
 The framework's primary artifact is still prose: each agent's natural-language
 reasoning is what users read in the saved markdown reports and what the
 downstream agents read as context.  Structured output is layered onto the
-three decision-making agents (Research Manager, Trader, Portfolio Manager)
-so that:
+three decision-making agents (Research Manager, Setup Planner, Portfolio
+Manager) so that:
 
 - Their outputs follow consistent section headers across runs and providers
 - Each provider's native structured-output mode is used (json_schema for
@@ -21,7 +21,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tradingagents.agents.utils.thesis_json import render_trade_thesis_json_block
 
@@ -41,18 +41,30 @@ class PortfolioRating(str, Enum):
     SELL = "Sell"
 
 
-class TraderAction(str, Enum):
-    """3-tier transaction direction used by the Trader.
+class MarketType(str, Enum):
+    """Research market type for spot/perp setup planning."""
 
-    The Trader's job is to translate the Research Manager's investment plan
-    into a concrete transaction proposal: should the desk execute a Buy, a
-    Sell, or sit on Hold this round.  Position sizing and the nuanced
-    Overweight / Underweight calls happen later at the Portfolio Manager.
+    SPOT = "spot"
+    PERP = "perp"
+
+
+class SetupAction(str, Enum):
+    """3-tier setup direction used by the Setup Planner.
+
+    The Setup Planner translates the Research Manager's investment plan into
+    a research setup proposal for manual review: Buy, Sell, or Hold/Watch.
+    Position sizing and the nuanced Overweight / Underweight calls happen
+    later at the Portfolio Manager.
     """
 
     BUY = "Buy"
     HOLD = "Hold"
     SELL = "Sell"
+
+
+# Backward-compatible public aliases. Keep these until downstream callers
+# have migrated from the old Trader naming.
+TraderAction = SetupAction
 
 
 # ---------------------------------------------------------------------------
@@ -63,10 +75,10 @@ class TraderAction(str, Enum):
 class ResearchPlan(BaseModel):
     """Structured investment plan produced by the Research Manager.
 
-    Hand-off to the Trader: the recommendation pins the directional view,
+    Hand-off to the Setup Planner: the recommendation pins the directional view,
     the rationale captures which side of the bull/bear debate carried the
     argument, and the strategic actions translate that into concrete
-    instructions the trader can execute against.
+    setup-planning guidance for manual review.
     """
 
     recommendation: PortfolioRating = Field(
@@ -86,14 +98,14 @@ class ResearchPlan(BaseModel):
     )
     strategic_actions: str = Field(
         description=(
-            "Concrete steps for the trader to implement the recommendation, "
+            "Concrete steps for the Setup Planner to convert into a research setup, "
             "including position sizing guidance consistent with the rating."
         ),
     )
 
 
 def render_research_plan(plan: ResearchPlan) -> str:
-    """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
+    """Render a ResearchPlan to markdown for storage and setup-planner context."""
     return "\n".join(
         [
             f"**Recommendation**: {plan.recommendation.value}",
@@ -106,21 +118,24 @@ def render_research_plan(plan: ResearchPlan) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Trader
+# Setup Planner
 # ---------------------------------------------------------------------------
 
 
-class TraderProposal(BaseModel):
-    """Structured transaction proposal produced by the Trader.
+class SetupProposal(BaseModel):
+    """Structured research setup proposal produced by the Setup Planner.
 
-    The trader reads the Research Manager's investment plan and the analyst
-    reports, then turns them into a concrete transaction: what action to
-    take, the reasoning that justifies it, and the practical levels for
-    entry, stop-loss, and sizing.
+    The Setup Planner reads the Research Manager's investment plan and the
+    analyst reports, then turns them into a spot/perp-aware setup proposal
+    for manual review. It does not route orders or imply automated execution.
     """
 
-    action: TraderAction = Field(
-        description="The transaction direction. Exactly one of Buy / Hold / Sell.",
+    market_type: MarketType = Field(
+        default=MarketType.SPOT,
+        description="The market structure being researched. Exactly one of spot or perp.",
+    )
+    action: SetupAction = Field(
+        description="The setup direction. Exactly one of Buy / Hold / Sell.",
     )
     reasoning: str = Field(
         description=(
@@ -128,6 +143,40 @@ class TraderProposal(BaseModel):
             "the research plan. Two to four sentences."
         ),
     )
+    entry_zone: Optional[str] = Field(
+        default=None,
+        description="Entry area or trigger zone for manual review.",
+    )
+    invalidation: Optional[str] = Field(
+        default=None,
+        description="Condition or level that invalidates the setup.",
+    )
+    target_zones: list[str] = Field(
+        default_factory=list,
+        description="Target zones or take-profit areas for the setup.",
+    )
+    position_sizing: Optional[str] = Field(
+        default=None,
+        description="Optional sizing guidance, e.g. '5% of portfolio'.",
+    )
+    spot_notes: Optional[str] = Field(
+        default=None,
+        description="Spot-specific notes such as DCA, accumulation, or allocation guidance.",
+    )
+    perp_notes: Optional[str] = Field(
+        default=None,
+        description=(
+            "Perp-specific notes such as funding, OI, liquidation risk, "
+            "leverage cap, or margin risk."
+        ),
+    )
+    missing_data: list[str] = Field(
+        default_factory=list,
+        description="Missing data that weakens confidence in the setup.",
+    )
+
+    # Legacy field names accepted for backward compatibility with older
+    # structured-output tests and external callers.
     entry_price: Optional[float] = Field(
         default=None,
         description="Optional entry price target in the instrument's quote currency.",
@@ -140,39 +189,80 @@ class TraderProposal(BaseModel):
         default=None,
         description="Optional take-profit price in the instrument's quote currency.",
     )
-    position_sizing: Optional[str] = Field(
-        default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
-    )
+
+    @field_validator("market_type", mode="before")
+    @classmethod
+    def _normalize_market_type(cls, value: Any) -> MarketType:
+        if isinstance(value, MarketType):
+            return value
+        normalized = str(value or "spot").strip().lower()
+        if normalized in {"perp", "perpetual", "futures", "future"}:
+            return MarketType.PERP
+        return MarketType.SPOT
+
+    @field_validator("target_zones", "missing_data", mode="before")
+    @classmethod
+    def _normalize_text_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            value = list(value) if isinstance(value, tuple) else [value]
+        return [str(item).strip() for item in value if str(item).strip()]
 
 
-def render_trader_proposal(proposal: TraderProposal) -> str:
-    """Render a TraderProposal to markdown.
+TraderProposal = SetupProposal
 
-    The trailing ``FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**`` line is
-    preserved for backward compatibility with the analyst stop-signal text
-    and any external code that greps for it.
-    """
+
+def render_setup_proposal(proposal: SetupProposal) -> str:
+    """Render a SetupProposal to markdown for downstream agents and reports."""
+    entry_zone = proposal.entry_zone
+    if not entry_zone and proposal.entry_price is not None:
+        entry_zone = str(proposal.entry_price)
+
+    invalidation = proposal.invalidation
+    if not invalidation and proposal.stop_loss is not None:
+        invalidation = str(proposal.stop_loss)
+
+    target_zones = list(proposal.target_zones)
+    if not target_zones and proposal.take_profit is not None:
+        target_zones = [str(proposal.take_profit)]
+
+    market_label = proposal.market_type.value
     parts = [
+        f"**Market Type**: {market_label}",
+        "",
         f"**Action**: {proposal.action.value}",
         "",
         f"**Reasoning**: {proposal.reasoning}",
     ]
-    if proposal.entry_price is not None:
-        parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
-    if proposal.stop_loss is not None:
-        parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
-    if proposal.take_profit is not None:
-        parts.extend(["", f"**Take Profit**: {proposal.take_profit}"])
+    if entry_zone:
+        parts.extend(["", f"**Entry Zone**: {entry_zone}"])
+    if invalidation:
+        parts.extend(["", f"**Invalidation**: {invalidation}"])
+    if target_zones:
+        parts.extend(["", "**Target Zones**: " + "; ".join(target_zones)])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+    if proposal.spot_notes:
+        parts.extend(["", f"**Spot Notes**: {proposal.spot_notes}"])
+    if proposal.perp_notes:
+        parts.extend(["", f"**Perp Notes**: {proposal.perp_notes}"])
+    if proposal.missing_data:
+        parts.extend(["", "**Missing Data**: " + "; ".join(proposal.missing_data)])
     parts.extend(
         [
             "",
-            f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+            f"FINAL SETUP PROPOSAL: **{proposal.action.value.upper()}**",
         ]
     )
     return "\n".join(parts)
+
+
+def render_trader_proposal(proposal: TraderProposal) -> str:
+    """Backward-compatible alias for render_setup_proposal."""
+    return render_setup_proposal(proposal)
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +306,10 @@ class PortfolioDecision(BaseModel):
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
+    market_type: MarketType = Field(
+        default=MarketType.SPOT,
+        description="Market structure for the final thesis. Exactly spot or perp.",
+    )
     action_summary: str = Field(
         default="",
         description=(
@@ -245,6 +339,42 @@ class PortfolioDecision(BaseModel):
         default_factory=list,
         description="Main risks, missing data, or caveats that could weaken the thesis.",
     )
+    spot_notes: str = Field(
+        default="",
+        description="Spot-specific notes such as DCA, accumulation, or allocation guidance.",
+    )
+    perp_notes: str = Field(
+        default="",
+        description=(
+            "Perp-specific notes such as funding, OI, liquidation risk, "
+            "leverage cap, or margin risk."
+        ),
+    )
+    missing_data: list[str] = Field(
+        default_factory=list,
+        description="Missing data that weakens confidence in the final thesis.",
+    )
+
+    @field_validator("market_type", mode="before")
+    @classmethod
+    def _normalize_market_type(cls, value: Any) -> MarketType:
+        if isinstance(value, MarketType):
+            return value
+        normalized = str(value or "spot").strip().lower()
+        if normalized in {"perp", "perpetual", "futures", "future"}:
+            return MarketType.PERP
+        return MarketType.SPOT
+
+    @field_validator("missing_data", mode="before")
+    @classmethod
+    def _normalize_missing_data(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            value = list(value) if isinstance(value, tuple) else [value]
+        return [str(item).strip()[:500] for item in value if str(item).strip()]
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
@@ -266,12 +396,19 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    parts.extend(["", f"**Market Type**: {decision.market_type.value}"])
     if decision.invalidation:
         parts.extend(["", f"**Invalidation**: {decision.invalidation}"])
     if decision.upside_catalyst:
         parts.extend(["", f"**Upside Catalyst**: {decision.upside_catalyst}"])
     if decision.risks:
         parts.extend(["", "**Risks**: " + "; ".join(decision.risks)])
+    if decision.spot_notes:
+        parts.extend(["", f"**Spot Notes**: {decision.spot_notes}"])
+    if decision.perp_notes:
+        parts.extend(["", f"**Perp Notes**: {decision.perp_notes}"])
+    if decision.missing_data:
+        parts.extend(["", "**Missing Data**: " + "; ".join(decision.missing_data)])
     parts.extend(["", render_trade_thesis_json_block(_pm_summary_payload(decision))])
     return "\n".join(parts)
 
@@ -288,11 +425,15 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "rating": decision.rating.value,
         "direction": direction_by_rating[decision.rating],
         "confidence": None,
+        "market_type": decision.market_type.value,
         "action_summary": decision.action_summary or decision.executive_summary,
         "upside_catalyst": decision.upside_catalyst,
         "invalidation": decision.invalidation,
         "key_reasons": decision.key_reasons,
         "risks": decision.risks,
+        "spot_notes": decision.spot_notes,
+        "perp_notes": decision.perp_notes,
+        "missing_data": decision.missing_data,
     }
 
 

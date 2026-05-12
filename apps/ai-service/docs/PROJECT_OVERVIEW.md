@@ -68,7 +68,7 @@ Dữ liệu thị trường → Tín hiệu định lượng → Nghiên cứu �
 │  Onchain Analyst  │  Volume Profile   │  ResearchDebate       │
 │  Bull/Bear        │  Liquidations     │  AgentOpinion         │
 │  Research Mgr     │  Regime           │  Scenario             │
-│  Trader           │  Onchain          │  UserDecision         │
+│  Setup Planner    │  Onchain          │  UserDecision         │
 │  Risk Analysts    │  Composite        │  OutcomeReview        │
 │  Portfolio Mgr    │  Scoring          │  ...                  │
 ├──────────────────────────────────────────────────────────────┤
@@ -153,7 +153,7 @@ AI-Crypto-Research-Workstation/
 │   │   ├── researchers/            # 2 debate agents
 │   │   ├── managers/               # 2 decision agents (deep llm)
 │   │   ├── risk_mgmt/              # 3 risk debate agents
-│   │   ├── trader/                 # 1 trader agent
+│   │   ├── trader/                 # Setup Planner agent (legacy module path)
 │   │   ├── aggregation/            # Confidence/consensus/contradiction
 │   │   └── utils/                  # Shared: state, memory, tools, structured
 │   │
@@ -231,7 +231,7 @@ propagate("BTC/USDT", "2026-05-08")
 │   └─ Research Manager  → investment_plan (structured: ResearchPlan)
 │
 ├─ BƯỚC 4: TRADER
-│   └─ Trader → trader_investment_plan (structured: TraderProposal)
+│   └─ Setup Planner → trader_investment_plan (structured: SetupProposal)
 │
 ├─ BƯỚC 5: RISK DEBATE (conditional: max M rounds)
 │   ├─ Aggressive ⇄ Conservative ⇄ Neutral
@@ -270,7 +270,7 @@ After Bull/Bear Debate:
 After Research Manager:
   └─ investment_plan ✓
 
-After Trader:
+After Setup Planner:
   └─ trader_investment_plan ✓
 
 After Risk Debate:
@@ -289,7 +289,7 @@ After Scenario Planner:
 
 ### 6.1 Structured Output + Fallback
 
-Research Manager, Trader, Portfolio Manager, Scenario Planner dùng Pydantic schemas để LLM trả JSON (khi provider hỗ trợ).
+Research Manager, Setup Planner, Portfolio Manager, Scenario Planner dùng Pydantic schemas để LLM trả JSON (khi provider hỗ trợ).
 Nếu provider không hỗ trợ → fallback về free-text. Sau đó render → markdown.
 
 ```python
@@ -415,7 +415,7 @@ tradingagents evaluate
 
 | Khía cạnh | Giá trị |
 |-----------|---------|
-| Agent AI | 12 (4 analysts + 2 debaters + 2 managers + 3 risk + 1 trader) |
+| Agent AI | 12 (4 analysts + 2 debaters + 2 managers + 3 risk + 1 setup planner) |
 | Signal generators | 7 (deterministic) |
 | Domain models | 28+ |
 | SQLite tables | 14 |

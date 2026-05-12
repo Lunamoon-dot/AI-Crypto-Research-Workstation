@@ -15,6 +15,7 @@ class EngineRunRequest(BaseModel):
     workspace_id: str
     symbol: str
     asset_class: str = "crypto"
+    market_type: str = "spot"
     analysis_date: date
     analysts: list[str] = Field(default_factory=lambda: ["market", "news"])
     config_profile: str | None = "default"
@@ -29,6 +30,16 @@ class EngineRunRequest(BaseModel):
         if not clean:
             raise ValueError("must not be blank")
         return clean
+
+    @field_validator("market_type", mode="before")
+    @classmethod
+    def _market_type_valid(cls, value: str | None) -> str:
+        normalized = str(value or "spot").strip().lower()
+        if normalized in {"perp", "perpetual", "futures", "future"}:
+            return "perp"
+        if normalized == "spot":
+            return "spot"
+        raise ValueError("market_type must be spot or perp")
 
     @field_validator("analysts")
     @classmethod
