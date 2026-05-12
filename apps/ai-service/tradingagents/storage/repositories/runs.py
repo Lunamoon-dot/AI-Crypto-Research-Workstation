@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from .base import *
+from datetime import datetime, timezone
+
+from .base import (
+    ResearchRun,
+    ResearchRunStatus,
+    RepositoryMixinBase,
+    _iso,
+    _new_id,
+    dumps_payload,
+    model_from_json,
+    model_to_json,
+)
 
 
-class RunsRepositoryMixin:
+class RunsRepositoryMixin(RepositoryMixinBase):
     def save_research_run(self, run: ResearchRun, *, _conn=None) -> ResearchRun:
         if not run.id:
             run.id = _new_id("run")

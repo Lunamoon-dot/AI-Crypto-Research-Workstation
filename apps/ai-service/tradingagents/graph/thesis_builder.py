@@ -17,7 +17,6 @@ from tradingagents.agents.utils.thesis_json import (
 from tradingagents.domain import (
     ResearchRun,
     Signal,
-    SignalDirection,
     ThesisDirection,
     TradeThesis,
     TradeThesisStructuredSummary,
@@ -125,6 +124,29 @@ def summary_direction(payload: dict[str, Any]) -> ThesisDirection | None:
     return aliases.get(str(raw).strip().lower()) if raw is not None else None
 
 
+def structured_text(payload: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def structured_list(payload: dict[str, Any], *keys: str) -> list[str]:
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            parts = re.split(r"[,;\n]|\band\b", value)
+            return [part.strip() for part in parts if part.strip()]
+        if isinstance(value, (list, tuple)):
+            return [str(part).strip() for part in value if str(part).strip()]
+        text = str(value).strip()
+        return [text] if text else []
+    return []
+
+
 class ThesisBuilder:
     """Builds journal ``TradeThesis`` artifacts from graph output."""
 
@@ -182,12 +204,53 @@ class ThesisBuilder:
         opinions = getattr(self.host, "current_agent_opinions", []) or []
         opinion_ids = [o.id for o in opinions if o.id]
 
-        entry_zone = extract_thesis_field(clean_decision, "entry")
-        invalidation_level = (
-            structured_payload.get("invalidation")
-            or extract_thesis_field(clean_decision, "invalidation")
+        entry_zone = structured_text(
+            structured_payload,
+            "entry_zone",
+            "entry",
+            "entry_level",
+            "entry_price",
         )
-        target_zones = extract_thesis_list_field(clean_decision, "target")
+        invalidation_level = structured_text(
+            structured_payload,
+            "invalidation_level",
+            "invalidation",
+            "stop_loss",
+            "stop",
+        )
+        target_zones = structured_list(
+            structured_payload,
+            "target_zones",
+            "targets",
+            "target",
+            "take_profit",
+            "take_profit_zones",
+        )
+        contract_degradation_reasons: list[str] = []
+        if not structured_payload:
+            contract_degradation_reasons.append("structured_summary_missing")
+            prose_entry = extract_thesis_field(clean_decision, "entry")
+            prose_invalidation = extract_thesis_field(clean_decision, "invalidation")
+            prose_targets = extract_thesis_list_field(clean_decision, "target")
+            if prose_entry:
+                entry_zone = prose_entry
+                contract_degradation_reasons.append("entry_zone_from_prose")
+            if prose_invalidation:
+                invalidation_level = prose_invalidation
+                contract_degradation_reasons.append("invalidation_from_prose")
+            if prose_targets:
+                target_zones = prose_targets
+                contract_degradation_reasons.append("target_zones_from_prose")
+
+        for field_name, value in (
+            ("entry_zone", entry_zone),
+            ("invalidation", invalidation_level),
+            ("target_zones", target_zones),
+        ):
+            if not value:
+                contract_degradation_reasons.append(
+                    f"{field_name}_missing_from_structured_summary"
+                )
 
         contradictions = getattr(debate, "contradictions", None) or []
         consensus = getattr(debate, "consensus", None) or {}
@@ -218,6 +281,7 @@ class ThesisBuilder:
             direction=direction,
             confidence=confidence,
             thesis_text=clean_decision,
+            entry_zone=entry_zone,
             invalidation_level=invalidation_level,
             target_zones=target_zones,
             supporting_evidence=supporting_evidence,
@@ -225,6 +289,7 @@ class ThesisBuilder:
             stale_or_missing_data=stale_or_missing_data,
             contradictions=contradictions,
             why_this_thesis=why_this_thesis,
+            contract_degradation_reasons=contract_degradation_reasons,
         )
         run: ResearchRun | None = getattr(self.host, "current_research_run", None)
 
@@ -253,6 +318,8 @@ class ThesisBuilder:
                 "opinions_linked": len(opinion_ids),
                 "debate_linked": debate_id is not None,
                 "structured_summary": bool(structured_payload),
+                "contract_degraded": bool(contract_degradation_reasons),
+                "contract_degradation_reasons": contract_degradation_reasons,
             },
             why_this_thesis=why_this_thesis,
             supporting_evidence=supporting_evidence,
@@ -319,6 +386,7 @@ class ThesisBuilder:
         direction: ThesisDirection,
         confidence: float | None,
         thesis_text: str,
+        entry_zone: str | None,
         invalidation_level: str | None,
         target_zones: list[str],
         supporting_evidence: list[str],
@@ -326,6 +394,7 @@ class ThesisBuilder:
         stale_or_missing_data: list[str],
         contradictions: list[str],
         why_this_thesis: str,
+        contract_degradation_reasons: list[str],
     ) -> TradeThesisStructuredSummary:
         summary_payload = dict(payload)
         summary_payload["rating"] = rating
@@ -337,12 +406,14 @@ class ThesisBuilder:
             or executive_summary
             or why_this_thesis
         )
-        summary_payload["upside_catalyst"] = summary_payload.get(
-            "upside_catalyst"
-        ) or (target_zones[0] if target_zones else "")
+        summary_payload["upside_catalyst"] = summary_payload.get("upside_catalyst") or (
+            target_zones[0] if target_zones else ""
+        )
+        summary_payload["entry_zone"] = entry_zone or ""
         summary_payload["invalidation"] = (
             summary_payload.get("invalidation") or invalidation_level or ""
         )
+        summary_payload["target_zones"] = target_zones
         summary_payload["key_reasons"] = summary_payload.get("key_reasons") or (
             supporting_evidence[:3]
             or contradicting_evidence[:3]
@@ -353,6 +424,8 @@ class ThesisBuilder:
             or contradictions[:3]
             or ["Manual review required before any action."]
         )
+        summary_payload["is_degraded"] = bool(contract_degradation_reasons)
+        summary_payload["degradation_reasons"] = contract_degradation_reasons
         try:
             return TradeThesisStructuredSummary.model_validate(summary_payload)
         except ValidationError:
@@ -362,13 +435,17 @@ class ThesisBuilder:
                     "direction": direction.value,
                     "confidence": confidence,
                     "action_summary": executive_summary or why_this_thesis,
+                    "entry_zone": entry_zone or "",
                     "upside_catalyst": target_zones[0] if target_zones else "",
                     "invalidation": invalidation_level or "",
+                    "target_zones": target_zones,
                     "key_reasons": supporting_evidence[:3]
                     or contradicting_evidence[:3]
                     or ([why_this_thesis] if why_this_thesis else []),
                     "risks": stale_or_missing_data[:3]
                     or contradictions[:3]
                     or ["Manual review required before any action."],
+                    "is_degraded": bool(contract_degradation_reasons),
+                    "degradation_reasons": contract_degradation_reasons,
                 }
             )

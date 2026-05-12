@@ -31,10 +31,14 @@ class TradeThesisStructuredSummary(BaseModel):
     direction: ThesisDirection = ThesisDirection.WATCH
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     action_summary: str = ""
+    entry_zone: str = ""
     upside_catalyst: str = ""
     invalidation: str = ""
+    target_zones: list[str] = Field(default_factory=list)
     key_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    is_degraded: bool = False
+    degradation_reasons: list[str] = Field(default_factory=list)
 
     @field_validator("rating", mode="before")
     @classmethod
@@ -88,14 +92,22 @@ class TradeThesisStructuredSummary(BaseModel):
             return number
         return value
 
-    @field_validator("action_summary", "upside_catalyst", "invalidation", mode="before")
+    @field_validator(
+        "action_summary",
+        "entry_zone",
+        "upside_catalyst",
+        "invalidation",
+        mode="before",
+    )
     @classmethod
     def _normalize_text(cls, value: Any) -> str:
         if value is None:
             return ""
         return str(value).strip()[:500]
 
-    @field_validator("key_reasons", "risks", mode="before")
+    @field_validator(
+        "target_zones", "key_reasons", "risks", "degradation_reasons", mode="before"
+    )
     @classmethod
     def _normalize_text_list(cls, value: Any) -> list[str]:
         if value is None:

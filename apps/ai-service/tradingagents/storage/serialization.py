@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -24,5 +24,5 @@ def model_from_json(model_cls: type[ModelT], payload: str) -> ModelT:
     return model_cls.parse_raw(payload)
 
 
-def dumps_payload(payload: dict) -> str:
+def dumps_payload(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=True, sort_keys=True)

@@ -5,6 +5,11 @@ import {
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import {
+  toThesisDecisionResponse,
+  toThesisResponse,
+  toThesisReviewResponse,
+} from '../contracts/frontend-contract';
 
 @Injectable()
 export class ThesesService {
@@ -16,10 +21,9 @@ export class ThesesService {
   ) {}
 
   list(limit = 50, userId?: string, workspaceHeader?: string) {
-    return this.journal.listTheses(
-      limit,
-      this.resolveWorkspace(userId, workspaceHeader),
-    );
+    return this.journal
+      .listTheses(limit, this.resolveWorkspace(userId, workspaceHeader))
+      .then((theses) => theses.map(toThesisResponse));
   }
 
   async get(id: string, userId?: string, workspaceHeader?: string) {
@@ -28,7 +32,7 @@ export class ThesesService {
     if (!thesis) {
       throw new NotFoundException(`Thesis ${id} not found`);
     }
-    return thesis;
+    return toThesisResponse(thesis);
   }
 
   async decide(
@@ -40,7 +44,13 @@ export class ThesesService {
   ) {
     const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
     await this.get(id, userId, workspaceId);
-    return this.journal.recordThesisDecision(id, action, notes, workspaceId);
+    const decision = await this.journal.recordThesisDecision(
+      id,
+      action,
+      notes,
+      workspaceId,
+    );
+    return toThesisDecisionResponse(decision);
   }
 
   async review(
@@ -52,7 +62,13 @@ export class ThesesService {
   ) {
     const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
     await this.get(id, userId, workspaceId);
-    return this.journal.recordThesisReview(id, result, notes, workspaceId);
+    const review = await this.journal.recordThesisReview(
+      id,
+      result,
+      notes,
+      workspaceId,
+    );
+    return toThesisReviewResponse(review);
   }
 
   private resolveWorkspace(userId?: string, workspaceHeader?: string): string {

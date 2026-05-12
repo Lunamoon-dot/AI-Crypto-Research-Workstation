@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from .base import *
+from datetime import datetime, timezone
+
+from .base import (
+    Alert,
+    RepositoryMixinBase,
+    Watchlist,
+    WatchlistItem,
+    _iso,
+    _new_id,
+    model_from_json,
+    model_to_json,
+)
 
 
-class WatchlistsRepositoryMixin:
+class WatchlistsRepositoryMixin(RepositoryMixinBase):
     def save_watchlist(self, watchlist: Watchlist) -> Watchlist:
         if not watchlist.id:
             watchlist.id = _new_id("watchlist")

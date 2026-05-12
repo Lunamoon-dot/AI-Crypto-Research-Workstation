@@ -92,12 +92,8 @@ def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tm
 
     run_a = service_a.start_research_run(ResearchRun(symbol="BTC/USDT"))
     run_b = service_b.start_research_run(ResearchRun(symbol="ETH/USDT"))
-    thesis_a = service_a.save_thesis(
-        TradeThesis(symbol="BTC/USDT", thesis_text="A")
-    )
-    thesis_b = service_b.save_thesis(
-        TradeThesis(symbol="ETH/USDT", thesis_text="B")
-    )
+    thesis_a = service_a.save_thesis(TradeThesis(symbol="BTC/USDT", thesis_text="A"))
+    thesis_b = service_b.save_thesis(TradeThesis(symbol="ETH/USDT", thesis_text="B"))
     signal_a = service_a.save_signal(
         Signal(
             symbol="BTC/USDT",
@@ -120,12 +116,8 @@ def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tm
     watch_b = service_b.repo.save_watchlist(
         Watchlist(name="default", workspace_id="workspace_b")
     )
-    service_a.repo.save_market_brief(
-        MarketBrief(title="A", workspace_id="workspace_a")
-    )
-    service_b.repo.save_market_brief(
-        MarketBrief(title="B", workspace_id="workspace_b")
-    )
+    service_a.repo.save_market_brief(MarketBrief(title="A", workspace_id="workspace_a"))
+    service_b.repo.save_market_brief(MarketBrief(title="B", workspace_id="workspace_b"))
     service_a.add_run_event(run_a.id, "run.note", "A")
     service_b.add_run_event(run_b.id, "run.note", "B")
 
@@ -135,8 +127,12 @@ def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tm
     assert [thesis.id for thesis in service_b.list_theses()] == [thesis_b.id]
     assert [signal.id for signal in service_a.list_signals()] == [signal_a.id]
     assert [signal.id for signal in service_b.list_signals()] == [signal_b.id]
-    assert service_a.repo.list_watchlists(workspace_id="workspace_a")[0].id == watch_a.id
-    assert service_b.repo.list_watchlists(workspace_id="workspace_b")[0].id == watch_b.id
+    assert (
+        service_a.repo.list_watchlists(workspace_id="workspace_a")[0].id == watch_a.id
+    )
+    assert (
+        service_b.repo.list_watchlists(workspace_id="workspace_b")[0].id == watch_b.id
+    )
     assert service_a.repo.list_market_briefs(workspace_id="workspace_a")[0].title == "A"
     assert service_b.repo.list_market_briefs(workspace_id="workspace_b")[0].title == "B"
     assert service_a.list_timeline_events(workspace_id="workspace_a")[0].message == "A"

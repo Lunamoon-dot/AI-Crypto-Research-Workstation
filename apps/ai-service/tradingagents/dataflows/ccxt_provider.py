@@ -264,6 +264,7 @@ def get_crypto_ohlcv(
     df = _get_crypto_ohlcv_df(symbol, start_date, end_date)
     return df.to_csv(index=False)
 
+
 # ---------------------------------------------------------------------------
 # Ticker snapshot
 # ---------------------------------------------------------------------------

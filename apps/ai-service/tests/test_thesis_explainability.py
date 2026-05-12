@@ -59,6 +59,9 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     assert thesis.invalidation == "95000"
     assert "target: 110000" in thesis.monitor_next
     assert "0.72" in thesis.confidence_rationale
+    assert thesis.structured_summary.is_degraded is True
+    assert "structured_summary_missing" in thesis.structured_summary.degradation_reasons
+    assert "entry_zone_from_prose" in thesis.structured_summary.degradation_reasons
 
 
 def test_graph_builds_thesis_from_structured_summary_json_first():
@@ -86,7 +89,9 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
               "direction": "short",
               "confidence": 0.81,
               "action_summary": "Fade failed reclaim",
+              "entry_zone": "Failed reclaim near 100000",
               "invalidation": "Close above 105000",
+              "target_zones": ["92000", "88000"],
               "risks": ["Squeeze risk"]
             }
             """,
@@ -98,8 +103,11 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     assert thesis.confidence == 0.81
     assert thesis.structured_summary.rating == "Sell"
     assert thesis.structured_summary.action_summary == "Fade failed reclaim"
+    assert thesis.entry_zone == "Failed reclaim near 100000"
+    assert thesis.target_zones == ["92000", "88000"]
     assert thesis.invalidation == "Close above 105000"
     assert thesis.structured_summary is not None
+    assert thesis.structured_summary.is_degraded is False
 
 
 def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():

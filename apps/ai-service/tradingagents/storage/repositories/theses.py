@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
-from .base import *
+from .base import (
+    AgentOpinion,
+    RepositoryMixinBase,
+    ResearchDebate,
+    Scenario,
+    TradeThesis,
+    UserDecision,
+    _chunks,
+    _iso,
+    _new_id,
+    model_from_json,
+    model_to_json,
+)
 
 
-class ThesesRepositoryMixin:
+class ThesesRepositoryMixin(RepositoryMixinBase):
     def save_agent_opinion(self, opinion: AgentOpinion, *, _conn=None) -> AgentOpinion:
         if not opinion.id:
             opinion.id = _new_id("opinion")

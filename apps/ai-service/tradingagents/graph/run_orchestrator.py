@@ -204,7 +204,9 @@ class ResearchRunOrchestrator:
         host.current_debate = None
 
         host._start_journal_run()
-        bind_observability_context(run_id=getattr(host.current_research_run, "id", None))
+        bind_observability_context(
+            run_id=getattr(host.current_research_run, "id", None)
+        )
         log_event(
             logger,
             "research_run_started",
@@ -246,8 +248,8 @@ class ResearchRunOrchestrator:
                 "thread_id"
             ] = tid
 
+        final_state: dict[str, Any] | None = None
         if node_callback is not None:
-            final_state = None
             for chunk in host.graph.stream(init_agent_state, **args):
                 node_callback(chunk)
                 final_state = chunk
@@ -260,6 +262,11 @@ class ResearchRunOrchestrator:
             final_state = trace[-1]
         else:
             final_state = host.graph.invoke(init_agent_state, **args)
+
+        if final_state is None:
+            raise RuntimeError(
+                "Research graph completed without returning final state."
+            )
 
         host.curr_state = final_state
         host._save_journal_agent_research(final_state)

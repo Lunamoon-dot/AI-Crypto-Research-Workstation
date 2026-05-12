@@ -15,7 +15,6 @@ from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
-from tradingagents.llm_clients.orchestrator import LLMOrchestrator
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.config_validation import validate_and_normalize_config
@@ -24,9 +23,7 @@ from tradingagents.dataflows.utils import safe_ticker_component
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
 from .quant_signals import precompute_quant_signal
-from .setup import DEFAULT_ANALYSTS, GraphSetup
 from .propagation import Propagator
-from .signal_processing import SignalProcessor
 from .tooling import create_tool_nodes
 from .config_hash import compute_config_hash
 from .graph_factory import GraphFactory
@@ -60,8 +57,6 @@ from tradingagents.observability import (
     observability_run_event_persistence,
     start_span,
 )
-from tradingagents.observability.budget import BudgetCallbackHandler, BudgetTracker
-from tradingagents.graph.journal_bridge import JournalBridge
 from tradingagents.graph.journal_mixin import JournalPersistenceMixin
 
 
@@ -230,8 +225,8 @@ def _validated_structured_summary(
     summary_payload["action_summary"] = (
         summary_payload.get("action_summary") or executive_summary or why_this_thesis
     )
-    summary_payload["upside_catalyst"] = (
-        summary_payload.get("upside_catalyst") or (target_zones[0] if target_zones else "")
+    summary_payload["upside_catalyst"] = summary_payload.get("upside_catalyst") or (
+        target_zones[0] if target_zones else ""
     )
     summary_payload["invalidation"] = (
         summary_payload.get("invalidation") or invalidation_level or ""
@@ -979,7 +974,9 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                     thesis_id=saved.thesis_id,
                 )
         except Exception as persist_exc:
-            logger.debug("Could not mark failed research run in journal: %s", persist_exc)
+            logger.debug(
+                "Could not mark failed research run in journal: %s", persist_exc
+            )
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""

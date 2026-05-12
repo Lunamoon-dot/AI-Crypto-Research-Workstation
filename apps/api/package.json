@@ -1,0 +1,10 @@
+{
+  "name": "@lunaperception/api",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.app.json",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "test": "npm run build && node --test ../../dist/apps/api/test/*.test.js"
+  }
+}

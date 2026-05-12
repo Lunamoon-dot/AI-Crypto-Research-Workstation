@@ -28,12 +28,8 @@ class ReportWriter:
             "news_report": final_state["news_report"],
             "fundamentals_report": final_state["fundamentals_report"],
             "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"][
-                    "bull_history"
-                ],
-                "bear_history": final_state["investment_debate_state"][
-                    "bear_history"
-                ],
+                "bull_history": final_state["investment_debate_state"]["bull_history"],
+                "bear_history": final_state["investment_debate_state"]["bear_history"],
                 "history": final_state["investment_debate_state"]["history"],
                 "current_response": final_state["investment_debate_state"][
                     "current_response"
@@ -50,9 +46,7 @@ class ReportWriter:
                 "conservative_history": final_state["risk_debate_state"][
                     "conservative_history"
                 ],
-                "neutral_history": final_state["risk_debate_state"][
-                    "neutral_history"
-                ],
+                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
                 "history": final_state["risk_debate_state"]["history"],
                 "judge_decision": final_state["risk_debate_state"]["judge_decision"],
             },
@@ -65,7 +59,9 @@ class ReportWriter:
 
         safe_ticker = safe_ticker_component(self.host.ticker)
         directory = (
-            Path(self.host.config["results_dir"]) / safe_ticker / "ResearchWorkspace_logs"
+            Path(self.host.config["results_dir"])
+            / safe_ticker
+            / "ResearchWorkspace_logs"
         )
         directory.mkdir(parents=True, exist_ok=True)
 

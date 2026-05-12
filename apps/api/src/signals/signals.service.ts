@@ -5,6 +5,7 @@ import {
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { toSignalResponse } from '../contracts/frontend-contract';
 
 @Injectable()
 export class SignalsService {
@@ -19,6 +20,8 @@ export class SignalsService {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     this.workspaces.assertAccess(user, workspaceId);
-    return this.journal.listSignals(symbol, limit, workspaceId);
+    return this.journal
+      .listSignals(symbol, limit, workspaceId)
+      .then((signals) => signals.map(toSignalResponse));
   }
 }

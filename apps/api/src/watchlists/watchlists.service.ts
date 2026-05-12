@@ -5,6 +5,10 @@ import {
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import {
+  toWatchlistItemResponse,
+  toWatchlistResponse,
+} from '../contracts/frontend-contract';
 import { AddWatchlistItemDto } from './dto/add-watchlist-item.dto';
 
 @Injectable()
@@ -17,10 +21,9 @@ export class WatchlistsService {
   ) {}
 
   list(limit = 50, userId?: string, workspaceHeader?: string) {
-    return this.journal.listWatchlists(
-      limit,
-      this.resolveWorkspace(userId, workspaceHeader),
-    );
+    return this.journal
+      .listWatchlists(limit, this.resolveWorkspace(userId, workspaceHeader))
+      .then((watchlists) => watchlists.map(toWatchlistResponse));
   }
 
   addItem(
@@ -29,11 +32,9 @@ export class WatchlistsService {
     userId?: string,
     workspaceHeader?: string,
   ) {
-    return this.journal.addWatchlistItem(
-      id,
-      { ...dto },
-      this.resolveWorkspace(userId, workspaceHeader),
-    );
+    return this.journal
+      .addWatchlistItem(id, { ...dto }, this.resolveWorkspace(userId, workspaceHeader))
+      .then(toWatchlistItemResponse);
   }
 
   private resolveWorkspace(userId?: string, workspaceHeader?: string): string {

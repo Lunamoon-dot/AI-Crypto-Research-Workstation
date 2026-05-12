@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from .base import *
+from .base import (
+    MarketBrief,
+    RepositoryMixinBase,
+    _iso,
+    _new_id,
+    model_from_json,
+    model_to_json,
+)
 
 
-class BriefsRepositoryMixin:
+class BriefsRepositoryMixin(RepositoryMixinBase):
     def save_market_brief(self, brief: MarketBrief) -> MarketBrief:
         if not brief.id:
             brief.id = _new_id("brief")

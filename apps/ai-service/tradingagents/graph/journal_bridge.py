@@ -40,7 +40,9 @@ def _append_degradation_reason(run: ResearchRun, value: str) -> None:
     _append_unique(run.degradation_reasons, value)
 
 
-def _merge_run_quality_from_signal_result(run: ResearchRun, result: SignalResult) -> None:
+def _merge_run_quality_from_signal_result(
+    run: ResearchRun, result: SignalResult
+) -> None:
     for item in getattr(result, "missing_core_data", []) or []:
         _append_unique(run.missing_core_data, item)
     for item in getattr(result, "missing_optional_data", []) or []:

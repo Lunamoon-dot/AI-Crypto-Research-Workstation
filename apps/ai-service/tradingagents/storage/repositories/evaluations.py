@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from .base import *
+from .base import (
+    OutcomeReview,
+    RepositoryMixinBase,
+    ThesisEvaluation,
+    _iso,
+    _new_id,
+    model_from_json,
+    model_to_json,
+)
 
 
-class EvaluationsRepositoryMixin:
+class EvaluationsRepositoryMixin(RepositoryMixinBase):
     def save_thesis_evaluation(self, evaluation: ThesisEvaluation) -> ThesisEvaluation:
         if not evaluation.id:
             evaluation.id = _new_id("evaluation")

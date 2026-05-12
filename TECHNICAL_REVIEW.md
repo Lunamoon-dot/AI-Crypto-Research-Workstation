@@ -32,13 +32,13 @@ Judged only through phases 1-11, this is materially stronger than a generic prot
 
 The best engineering decisions are the research-only product boundary, journal-first storage, Pydantic domain models, signal provenance/freshness, explicit config/secrets work, and a broad Python test suite. Those are not cosmetic. They are the right foundation for a serious local research workstation.
 
-The harsh part: two hidden runtime/data correctness issues still undermine trust inside the current phase 1-11 scope.
+The harsh part: one runtime-boundary issue still undermines trust inside the current phase 1-11 scope, while the previously noted CCXT data-window issue has been fixed and covered by tests.
 
 1. Provider resilience runs vendor functions inside `ThreadPoolExecutor`, while per-run config is stored in a `ContextVar`. Context variables do not automatically propagate into worker threads. Real provider functions such as CCXT call `get_config()` inside the worker. With provider runtime enabled by default, real data calls can fail with no config context even when unit tests pass.
 
-2. The CCXT OHLCV fetcher ignores `end_date`, fetches from `start_date` with a large fixed limit, returns the unfiltered frame, and leaves the older range-filtering implementation inside an unreachable triple-quoted block. This is a direct lookahead risk for historical thesis evaluation and replay.
+2. Resolved: the CCXT OHLCV fetcher now parses both `start_date` and `end_date`, paginates to the requested window, filters returned candles to `[start_date, end_date]`, and has fake-exchange tests that reject lookahead candles.
 
-So the corrected verdict is: strong local alpha/beta research engine, not yet trustable for serious historical claims until data-window correctness is fixed. For phases 1-11, the project is around 7/10, not 5-6/10. The lower score from the earlier review was mostly because it judged phase 12+ hosted platform scaffolding, which is outside the requested scope now.
+So the corrected verdict is: strong local alpha/beta research engine, now materially stronger on historical data-window correctness, but still not fully trustable for serious beta use until provider runtime boundaries are fixed. For phases 1-11, the project is around 7/10, not 5-6/10. The lower score from the earlier review was mostly because it judged phase 12+ hosted platform scaffolding, which is outside the requested scope now.
 
 ## Inferred Product Purpose
 
@@ -159,13 +159,13 @@ Better approach: keep soft warnings for local/dev, but add hard budget policy mo
 
 ### 7. Tests are meaningfully broad
 
-The Python suite passing 536 tests is a real strength. Coverage includes domain behavior, CLI flows, config, journal, watchlists, brief service, historical replay contracts, engine contract, exceptions, and LLM fallback behavior.
+The Python suite passing 550 tests is a real strength. Coverage includes domain behavior, CLI flows, config, journal, watchlists, brief service, historical replay contracts, engine contract, exceptions, thesis structured-field degradation, CCXT OHLCV date-window enforcement, and LLM fallback behavior.
 
 Why this is good: this is far beyond a weekend LLM project.
 
-But: the suite is still too mocked at the provider/runtime boundary. It did not catch the `ContextVar`/threading issue or the OHLCV `end_date` issue.
+But: the suite is still too mocked at the provider/runtime boundary. It now covers the CCXT `end_date` regression, but it still needs a direct `ContextVar`/threading regression.
 
-Better approach: add a small "real boundary fake provider" suite where fake vendor functions call `get_config()` inside the same resilience wrapper used by real vendors, and add provider-level OHLCV tests asserting `max(Date) <= end_date`.
+Better approach: add a small "real boundary fake provider" suite where fake vendor functions call `get_config()` inside the same resilience wrapper used by real vendors.
 
 ## Major Weaknesses
 
@@ -203,34 +203,26 @@ Better approach:
 - For hard isolation, run provider calls in a cancellable async client or subprocess/job with a real kill boundary.
 - Add a test that sleeps longer than timeout and asserts wall-clock duration is actually bounded.
 
-### 3. OHLCV fetching has a real lookahead risk
+### 3. OHLCV fetching now enforces the requested window
 
 Evidence:
 
-- `_get_crypto_ohlcv_df(symbol, start_date, end_date)` parses only `start_date`.
-- It calls `fetch_ohlcv(..., since=since, limit=365 * 2)`.
-- It returns the dataframe without filtering to `end_date`.
-- `get_crypto_ohlcv()` returns that CSV immediately.
-- The range-filtering/pagination code exists only inside an unreachable triple-quoted string after the return.
+- `_get_crypto_ohlcv_df(symbol, start_date, end_date)` parses both dates.
+- `_fetch_ohlcv_until(exchange, symbol, since_ms, end_ms)` paginates until the end timestamp.
+- The dataframe is deduplicated, sorted, and filtered to `start_dt <= timestamp <= end_dt` before CSV serialization.
+- `tests/test_ccxt_provider.py` includes a fake exchange that returns candles beyond `end_date` and asserts the returned max date is capped.
 
-Why problematic: phase 9 historical thesis evaluation and replay depend on point-in-time data. If candles after the requested end date are returned, evaluation/replay can use future information.
+Why this matters: phase 9 historical thesis evaluation and replay depend on point-in-time data. This removes the direct lookahead risk from the CCXT OHLCV implementation.
 
-Future consequence: thesis quality metrics become contaminated. Users may see apparently strong historical performance that vanishes when data is correctly windowed.
+Residual risk: keep this test close to the provider implementation because exchange pagination quirks can change over time.
 
-Better approach:
-
-- Parse both `start_date` and `end_date`.
-- Paginate until end timestamp.
-- Filter rows to `[start_date, end_date]`.
-- Assert `df["Date"].max() <= end_date` in strict/historical mode.
-- Remove the unreachable triple-quoted implementation.
-- Add a fake-exchange unit test that returns candles beyond the end date.
+Better approach: retain provider-level fake-exchange tests and add one evaluation-level assertion that returned candles never exceed `evaluation_end`.
 
 ### 4. Historical evaluation is labeled correctly, but data enforcement is not complete
 
-`EvaluationService` correctly describes itself as saved-thesis quality evaluation, not broker-accurate backtesting. That is good. But it calls `route_to_vendor("get_crypto_ohlcv", symbol, start, end)` and therefore inherits the OHLCV implementation risk above.
+`EvaluationService` correctly describes itself as saved-thesis quality evaluation, not broker-accurate backtesting. That is good. The direct CCXT OHLCV lookahead bug is fixed, but the evaluation layer should still validate candle ranges as a defense-in-depth boundary.
 
-Why problematic: the service copy is honest, but the data path can still leak future candles.
+Why problematic: relying only on provider-level correctness means a future provider change could reintroduce future candles without the evaluation layer catching it.
 
 Future consequence: users may trust MFE/MAE, invalidation, and target-hit metrics more than they should.
 
@@ -256,15 +248,15 @@ Better approach:
 
 Keep `ResearchAgentsGraph` as a compatibility facade if needed.
 
-### 6. Thesis construction still parses important fields from prose
+### 6. Thesis construction now marks structured-field degradation
 
-Evidence: `_build_trade_thesis()` reads `final_trade_decision`, calls `process_signal()`, uses regex helpers such as `_extract_thesis_field()` and `_extract_thesis_list_field()`, and maps inferred ratings into thesis direction.
+Evidence: `ThesisBuilder` prefers `final_trade_summary_json` for `direction`, `confidence`, `entry_zone`, `invalidation`, and `target_zones`. If the structured payload is missing or a legacy prose fallback is used, `TradeThesisStructuredSummary.is_degraded` and `degradation_reasons` are populated.
 
-Why problematic: entry, invalidation, targets, and direction are critical fields. Regex extraction from LLM prose is inherently brittle. A small prompt wording change can silently drop fields or misclassify thesis direction.
+Why this matters: entry, invalidation, targets, and direction are critical fields for UI/watchlist/alert flows. Missing structured data is no longer silently persisted as if it were complete.
 
-Future consequence: watchlist monitoring, invalidation alerts, and historical evaluation can become inconsistent because the stored thesis schema is only partially grounded in structured output.
+Residual risk: the fallback still exists for legacy prose-only graph output, so the next hardening step is to make structured thesis JSON mandatory at the agent boundary.
 
-Better approach: require the trader/portfolio-manager stage to emit a Pydantic-compatible JSON object with fields for direction, confidence, invalidation, target zones, supporting evidence IDs, contradicting evidence IDs, missing data, and monitor-next. Store the prose as `rationale_markdown`.
+Better approach: require the trader/portfolio-manager stage to emit a Pydantic-compatible JSON object with fields for direction, confidence, entry zone, invalidation, target zones, supporting evidence IDs, contradicting evidence IDs, missing data, and monitor-next. Store the prose as `rationale_markdown`.
 
 ### 7. Error handling hides degraded artifacts
 
@@ -390,13 +382,13 @@ Consequence if ignored: local beta reliability is poor and failures will look pr
 
 Better approach: pass config explicitly into provider clients, or short-term wrap worker invocation in `contextvars.copy_context().run(...)`.
 
-### P0: Fix OHLCV `end_date` enforcement
+### Resolved: OHLCV `end_date` enforcement
 
 Why: no-lookahead claims depend on data windows being enforced in implementation, not just docs/tests.
 
-Consequence if ignored: historical thesis evaluation and replay can be materially wrong.
+Current state: CCXT OHLCV parses both requested dates, paginates, filters returned candles, and has fake-exchange tests for lookahead candles.
 
-Better approach: implement pagination/filtering/assertions around requested date windows and add provider-level tests.
+Remaining work: add an evaluation-level range assertion so downstream analytics fail loudly if any provider returns candles beyond the requested window.
 
 ### P0: Stop parsing thesis source-of-truth fields from prose
 
@@ -483,16 +475,16 @@ Out of scope for this review. Do not use hosted/API/cloud readiness to judge pha
 
 ### Controlled local alpha/beta
 
-Rating: close, with P0 fixes required first.
+Rating: close, with the provider runtime P0 still required first.
 
-The product is suitable for developer/local research testing because tests pass, CLI/domain/storage are coherent, and safety copy is aligned. But the provider context bug and OHLCV lookahead issue should be fixed before inviting serious beta users.
+The product is suitable for developer/local research testing because tests pass, CLI/domain/storage are coherent, and safety copy is aligned. The CCXT OHLCV lookahead issue is fixed; the provider context bug should still be fixed before inviting serious beta users.
 
 ### Serious local beta
 
 Required before calling it serious:
 
 - provider runtime context fixed
-- OHLCV `end_date` fixed and tested
+- evaluation-level candle range assertion added on top of provider tests
 - degraded-run status visible
 - strict historical evaluation validation
 - clean install/Docker verification
@@ -583,7 +575,7 @@ Rating: strong for a local Python project, but missing the highest-risk boundary
 What is good:
 
 - 49 Python test files.
-- 536 tests pass locally.
+- 550 tests pass locally.
 - Domain, CLI, config, journal, watchlist, brief, evaluation, replay contracts, and exceptions are covered.
 - Ruff and mypy gates are present.
 
@@ -591,17 +583,16 @@ What is missing:
 
 - provider-runtime context propagation regression test
 - provider timeout wall-clock test
-- CCXT OHLCV `end_date` filter test
 - strict historical evaluation test that fails if returned candles exceed `evaluation_end`
-- structured-output validation tests for thesis generation
+- hard structured-output requirement at the agent boundary
 - clean-install/Docker release test
 - coverage threshold
 
 Highest ROI tests:
 
 1. Fake provider calls `get_config()` inside `_invoke_with_resilience()`.
-2. Fake exchange returns candles beyond `end_date`; `get_crypto_ohlcv()` must filter or fail.
-3. LLM trader output missing invalidation/targets; thesis builder must reject or mark degraded, not silently persist partial fields.
+2. Evaluation loader receives candles beyond `evaluation_end`; evaluation must fail or mark degraded.
+3. LLM trader output missing invalidation/targets at the structured-output boundary; the agent stage must reject before graph persistence.
 4. Journal write failure in audited mode must fail or mark `completed_degraded`.
 
 ## CI/CD Quality
@@ -724,8 +715,7 @@ Best extension strategy: stabilize data/provider/thesis contracts before adding 
 
 ## What Looks Junior-Level Or Immature
 
-- Unreachable triple-quoted code after `return` in the OHLCV provider.
-- Regex extraction of critical thesis fields from LLM prose.
+- Legacy prose fallback for critical thesis fields still exists, though it is now marked degraded.
 - Broad `except Exception` usage in important paths.
 - Mutable graph object state across runs.
 - Mypy passing with untyped bodies unchecked.
@@ -738,7 +728,7 @@ Best extension strategy: stabilize data/provider/thesis contracts before adding 
 
 - `ResearchAgentsGraph` as a central change hotspot.
 - `JournalRepository` as a 1,600+ line multi-aggregate file.
-- Historical/replay credibility if point-in-time data is not fixed now.
+- Historical/replay credibility if evaluation does not assert provider date ranges.
 - Cost/latency if debate stages grow without hard budgets.
 - User trust if degraded data is hidden behind complete-looking thesis output.
 - Schema drift if graph state remains untyped.
@@ -747,8 +737,8 @@ Best extension strategy: stabilize data/provider/thesis contracts before adding 
 ## Rewrite First
 
 1. `tradingagents/dataflows/interface.py` provider invocation: fix context propagation and real timeout semantics.
-2. `tradingagents/dataflows/ccxt_provider.py` OHLCV implementation: enforce `end_date`, remove dead code, test no-lookahead.
-3. `ResearchAgentsGraph._build_trade_thesis()`: replace prose parsing with structured output contract.
+2. Evaluation price loading: assert returned candles do not exceed the requested evaluation window.
+3. Agent thesis output: make structured thesis JSON mandatory instead of allowing legacy prose fallback.
 4. `ResearchAgentsGraph` orchestration responsibilities: split into smaller services.
 5. `JournalRepository`: split after P0 runtime/data fixes, not before.
 
@@ -834,6 +824,6 @@ Scores below are scoped to phases 1-11 only.
 
 For phases 1-11, this is not a weak or directionless codebase. It is a serious local AI crypto research workstation with a strong product thesis and several senior-level architectural choices.
 
-The brutal truth is narrower: the project has already built enough surface area that data correctness and runtime boundaries now matter more than adding more agents or UI. The provider context bug and OHLCV lookahead risk should be treated as release blockers for any serious local beta.
+The brutal truth is narrower: the project has already built enough surface area that data correctness and runtime boundaries now matter more than adding more agents or UI. The provider context bug should still be treated as a release blocker for any serious local beta; the CCXT OHLCV lookahead risk has moved from implementation blocker to regression-test coverage that must stay in place.
 
 After those are fixed, the highest-leverage path is structured thesis output, explicit degraded-run semantics, and graph/repository decomposition. Do that, and the project can credibly become a strong open-source local research tool. Skip that and the product will look impressive in demos while quietly producing untrustworthy research artifacts.

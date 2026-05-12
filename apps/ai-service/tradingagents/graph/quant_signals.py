@@ -57,14 +57,10 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
         "get_crypto_funding_rate_history", "funding_rate_history", symbol, 60
     )
     if funding_csv is None:
-        funding_csv = _fetch_or_none(
-            "get_crypto_funding_rate", "funding_rate", symbol
-        )
+        funding_csv = _fetch_or_none("get_crypto_funding_rate", "funding_rate", symbol)
         if funding_csv is not None:
             missing_optional_data = [
-                item
-                for item in missing_optional_data
-                if item != "missing_funding_rate"
+                item for item in missing_optional_data if item != "missing_funding_rate"
             ]
             if _looks_unavailable(funding_csv):
                 missing_optional_data.append("missing_funding_rate")

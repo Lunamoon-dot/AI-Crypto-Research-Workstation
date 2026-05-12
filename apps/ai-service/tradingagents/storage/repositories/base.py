@@ -51,7 +51,13 @@ def _iso(dt) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 
-class JournalRepositoryBase:
+class RepositoryMixinBase:
+    """Store contract shared by aggregate repository mixins."""
+
+    store: SQLiteStore
+
+
+class JournalRepositoryBase(RepositoryMixinBase):
     """Base store holder shared by aggregate repository mixins."""
 
     def __init__(self, store: SQLiteStore):
@@ -71,6 +77,7 @@ __all__ = [
     "OutcomeReview",
     "ProviderHealthRecord",
     "ResearchDebate",
+    "RepositoryMixinBase",
     "ResearchRun",
     "ResearchRunStatus",
     "Scenario",

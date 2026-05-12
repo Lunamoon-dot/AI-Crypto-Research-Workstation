@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from .base import *
+from .base import (
+    MarketSnapshot,
+    RepositoryMixinBase,
+    Signal,
+    SignalSnapshot,
+    _chunks,
+    _iso,
+    _new_id,
+    model_from_json,
+    model_to_json,
+)
 
 
-class SignalsRepositoryMixin:
+class SignalsRepositoryMixin(RepositoryMixinBase):
     def save_market_snapshot(
         self, snapshot: MarketSnapshot, *, _conn=None
     ) -> MarketSnapshot:

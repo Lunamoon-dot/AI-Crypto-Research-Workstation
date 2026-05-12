@@ -8,6 +8,11 @@ import {
 import { JobsService } from '../jobs/jobs.service';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import {
+  ResearchRunQueuedResponse,
+  toResearchRunEventResponse,
+  toResearchRunResponse,
+} from '../contracts/frontend-contract';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 
 @Injectable()
@@ -20,7 +25,11 @@ export class ResearchRunsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  async create(dto: CreateResearchRunDto, userId?: string, workspaceHeader?: string) {
+  async create(
+    dto: CreateResearchRunDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchRunQueuedResponse> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.assertRequestWorkspace(
       dto.workspace_id,
@@ -40,7 +49,12 @@ export class ResearchRunsService {
     return {
       run_id: request.run_id,
       workspace_id: request.workspace_id,
-      status: job.backend === 'inline' ? job.result?.status ?? 'submitted' : 'queued',
+      status:
+        job.backend === 'inline' && typeof job.result?.status === 'string'
+          ? job.result.status
+          : job.backend === 'inline'
+            ? 'submitted'
+            : 'queued',
       job_id: job.id,
       queue_backend: job.backend,
       permission,
@@ -54,13 +68,14 @@ export class ResearchRunsService {
     if (!run) {
       throw new NotFoundException(`Research run ${id} not found`);
     }
-    return run;
+    return toResearchRunResponse(run);
   }
 
   async events(id: string, userId?: string, workspaceHeader?: string) {
     const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
     await this.get(id, userId, workspaceId);
-    return this.journal.listRunEvents(id, workspaceId);
+    const events = await this.journal.listRunEvents(id, workspaceId);
+    return events.map(toResearchRunEventResponse);
   }
 
   private resolveWorkspace(userId?: string, workspaceHeader?: string): string {

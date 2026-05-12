@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
-from .base import *
+import json
+from datetime import datetime
+from typing import Any
+
+from .base import (
+    DataFreshnessCheck,
+    LLMCallRecord,
+    ProviderHealthRecord,
+    RepositoryMixinBase,
+    TimelineEvent,
+    _iso,
+    _new_id,
+    dumps_payload,
+    model_from_json,
+    model_to_json,
+)
 
 
-class ObservabilityRepositoryMixin:
+class ObservabilityRepositoryMixin(RepositoryMixinBase):
     def add_run_event(
         self,
         research_run_id: str,
@@ -18,7 +33,9 @@ class ObservabilityRepositoryMixin:
         _conn=None,
     ) -> TimelineEvent:
         workspace = (
-            workspace_id or self._workspace_for_run(research_run_id, _conn=_conn) or "local"
+            workspace_id
+            or self._workspace_for_run(research_run_id, _conn=_conn)
+            or "local"
         )
         event = TimelineEvent(
             id=_new_id("event"),
@@ -70,7 +87,7 @@ class ObservabilityRepositoryMixin:
                 SELECT id, research_run_id, thesis_id, event_type, created_at,
                        message, payload_json, workspace_id
                 FROM run_events
-                WHERE {' AND '.join(conditions)}
+                WHERE {" AND ".join(conditions)}
                 ORDER BY created_at
                 LIMIT ?
                 """,
@@ -87,7 +104,7 @@ class ObservabilityRepositoryMixin:
                 SELECT id, research_run_id, thesis_id, event_type, created_at,
                        message, payload_json, workspace_id
                 FROM run_events
-                WHERE {' AND '.join(conditions)}
+                WHERE {" AND ".join(conditions)}
                 ORDER BY created_at
                 LIMIT ?
                 """,
@@ -113,7 +130,9 @@ class ObservabilityRepositoryMixin:
     def _timeline_event_from_row(row) -> TimelineEvent:
         return TimelineEvent(
             id=row["id"],
-            workspace_id=row["workspace_id"] if "workspace_id" in row.keys() else "local",
+            workspace_id=row["workspace_id"]
+            if "workspace_id" in row.keys()
+            else "local",
             research_run_id=row["research_run_id"],
             thesis_id=row["thesis_id"],
             event_type=row["event_type"],

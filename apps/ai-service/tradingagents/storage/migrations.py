@@ -118,7 +118,9 @@ def _ensure_workspace_columns(conn: sqlite3.Connection) -> None:
 
 def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
     if _table_exists(conn, "research_runs"):
-        ensure_column(conn, "research_runs", "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
+        ensure_column(
+            conn, "research_runs", "workspace_id", "TEXT NOT NULL DEFAULT 'local'"
+        )
         ensure_column(conn, "research_runs", "deep_think_model", "TEXT")
         ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
         ensure_column(conn, "research_runs", "llm_provider", "TEXT")
@@ -149,7 +151,9 @@ def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
             "TEXT NOT NULL DEFAULT '[]'",
         )
     if _table_exists(conn, "run_events"):
-        ensure_column(conn, "run_events", "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
+        ensure_column(
+            conn, "run_events", "workspace_id", "TEXT NOT NULL DEFAULT 'local'"
+        )
         ensure_column(conn, "run_events", "thesis_id", "TEXT")
     for table in ("trade_theses", "signals", "watchlists", "market_briefs"):
         if _table_exists(conn, table):
@@ -168,7 +172,8 @@ def _rebuild_legacy_watchlists_table(conn: sqlite3.Connection) -> None:
     table_sql = (row[0] or "").lower() if row else ""
     has_global_unique_name = "name text not null unique" in table_sql
     has_workspace_id = any(
-        column[1] == "workspace_id" for column in conn.execute("PRAGMA table_info(watchlists)")
+        column[1] == "workspace_id"
+        for column in conn.execute("PRAGMA table_info(watchlists)")
     )
     if has_workspace_id and not has_global_unique_name:
         return

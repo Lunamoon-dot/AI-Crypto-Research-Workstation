@@ -5,6 +5,7 @@ import {
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { toBriefResponse } from '../contracts/frontend-contract';
 
 @Injectable()
 export class BriefsService {
@@ -19,6 +20,8 @@ export class BriefsService {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     this.workspaces.assertAccess(user, workspaceId);
-    return this.journal.listDailyBriefs(date, limit, workspaceId);
+    return this.journal
+      .listDailyBriefs(date, limit, workspaceId)
+      .then((briefs) => briefs.map(toBriefResponse));
   }
 }

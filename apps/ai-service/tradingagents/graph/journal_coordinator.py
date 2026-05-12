@@ -72,4 +72,6 @@ class JournalCoordinator:
                     thesis_id=saved.thesis_id,
                 )
         except Exception as persist_exc:
-            logger.debug("Could not mark failed research run in journal: %s", persist_exc)
+            logger.debug(
+                "Could not mark failed research run in journal: %s", persist_exc
+            )

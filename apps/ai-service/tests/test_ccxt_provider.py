@@ -9,7 +9,9 @@ from tradingagents.dataflows import ccxt_provider
 
 
 def _ms(day: str) -> int:
-    return int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    return int(
+        datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp() * 1000
+    )
 
 
 class _FakeExchange:
