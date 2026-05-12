@@ -135,6 +135,108 @@ def test_migration_is_idempotent(tmp_path):
     assert health.checks[0].details["missing_indexes"] == []
 
 
+def test_migration_backfills_legacy_signal_payloads_idempotently(tmp_path):
+    db_path = tmp_path / "legacy_signals.sqlite"
+    migrate_path(db_path)
+    legacy_signal = {
+        "id": "sig_legacy_quant",
+        "symbol": "ETH/USDT",
+        "signal_type": "composite_quant",
+        "direction": "neutral",
+        "confidence": 0.07,
+        "observed_at": "2026-05-12T18:43:28Z",
+        "provenance": {
+            "source": "signal_engine",
+            "observed_at": "2026-05-12T18:43:28Z",
+            "metadata": {"score": "Neutral"},
+        },
+        "evidence": {"score": "Neutral"},
+    }
+    legacy_snapshot = {
+        "id": "signal_snapshot_legacy",
+        "research_run_id": "run_legacy",
+        "symbol": "ETH/USDT",
+        "captured_at": "2026-05-12T18:43:28Z",
+        "signal_ids": ["sig_legacy_quant"],
+        "composite_signal_id": "sig_legacy_quant",
+        "bullish_count": 0,
+        "bearish_count": 0,
+        "neutral_count": 1,
+        "stale_count": 0,
+        "unknown_freshness_count": 0,
+        "payload": {"signal_types": ["composite_quant"]},
+    }
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO signals (
+                id, workspace_id, symbol, signal_type, direction, confidence,
+                observed_at, source, source_timestamp, payload_json
+            )
+            VALUES (?, 'local', ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "sig_legacy_quant",
+                "ETH/USDT",
+                "composite_quant",
+                "neutral",
+                0.07,
+                "2026-05-12T18:43:28Z",
+                "signal_engine",
+                "2026-05-12T18:43:28Z",
+                json.dumps(legacy_signal),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO signal_snapshots (
+                id, research_run_id, symbol, captured_at, composite_signal_id,
+                signal_count, bullish_count, bearish_count, neutral_count,
+                stale_count, unknown_freshness_count, payload_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "signal_snapshot_legacy",
+                "run_legacy",
+                "ETH/USDT",
+                "2026-05-12T18:43:28Z",
+                "sig_legacy_quant",
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                json.dumps(legacy_snapshot),
+            ),
+        )
+
+    migrate_path(db_path)
+    migrate_path(db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        signal_type, signal_payload = conn.execute(
+            "SELECT signal_type, payload_json FROM signals WHERE id = ?",
+            ("sig_legacy_quant",),
+        ).fetchone()
+        snapshot_payload = conn.execute(
+            "SELECT payload_json FROM signal_snapshots WHERE id = ?",
+            ("signal_snapshot_legacy",),
+        ).fetchone()[0]
+
+    normalized_signal = json.loads(signal_payload)
+    normalized_snapshot = json.loads(snapshot_payload)
+    assert signal_type == "quant_bias"
+    assert normalized_signal["signal_type"] == "quant_bias"
+    assert normalized_signal["evidence_lane"] == "quant_bias"
+    assert normalized_signal["evidence_category"] == "aggregate"
+    assert normalized_signal["watch_conditions"]["review_trigger"]
+    assert normalized_snapshot["payload"]["signal_types"] == ["quant_bias"]
+    assert normalized_snapshot["payload"]["spot_signal_ids"] == []
+    assert normalized_snapshot["payload"]["perp_signal_ids"] == []
+
+
 def test_migration_adds_research_run_provenance_columns(tmp_path):
     db_path = tmp_path / "legacy.sqlite"
     with sqlite3.connect(db_path) as conn:

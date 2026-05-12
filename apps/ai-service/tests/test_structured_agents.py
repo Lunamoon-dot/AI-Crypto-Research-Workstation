@@ -43,9 +43,9 @@ class TestRenderSetupProposal:
         )
         md = render_setup_proposal(p)
         assert "**Market Type**: spot" in md
-        assert "**Action**: Hold" in md
+        assert "**Setup Stance**: Hold" in md
         assert "**Reasoning**: Balanced setup; no edge." in md
-        assert "FINAL SETUP PROPOSAL: **HOLD**" in md
+        assert "FINAL SETUP STANCE: **HOLD**" in md
 
     def test_spot_fields_included_when_present(self):
         p = SetupProposal(
@@ -58,13 +58,13 @@ class TestRenderSetupProposal:
             spot_notes="Use staged accumulation; no leverage.",
         )
         md = render_setup_proposal(p)
-        assert "**Action**: Buy" in md
-        assert "**Entry Zone**: 188-192" in md
+        assert "**Setup Stance**: Buy" in md
+        assert "**Review Zone**: 188-192" in md
         assert "**Invalidation**: Daily close below 178" in md
-        assert "**Target Zones**: 205; 220" in md
-        assert "**Position Sizing**: 6% of portfolio" in md
+        assert "**Objective Zones**: 205; 220" in md
+        assert "**Conviction Context**: 6% of portfolio" in md
         assert "**Spot Notes**: Use staged accumulation; no leverage." in md
-        assert "FINAL SETUP PROPOSAL: **BUY**" in md
+        assert "FINAL SETUP STANCE: **BUY**" in md
 
     def test_perp_fields_and_missing_data_render(self):
         p = SetupProposal(
@@ -88,18 +88,18 @@ class TestRenderSetupProposal:
             take_profit=160.0,
         )
         md = render_trader_proposal(p)
-        assert "**Entry Zone**: 189.5" in md
+        assert "**Review Zone**: 189.5" in md
         assert "**Invalidation**: 178.0" in md
-        assert "**Target Zones**: 160.0" in md
-        assert "FINAL SETUP PROPOSAL: **SELL**" in md
+        assert "**Objective Zones**: 160.0" in md
+        assert "FINAL SETUP STANCE: **SELL**" in md
 
     def test_optional_fields_omitted_when_absent(self):
         p = SetupProposal(action=SetupAction.SELL, reasoning="Guidance cut.")
         md = render_setup_proposal(p)
-        assert "Entry Zone" not in md
+        assert "Review Zone" not in md
         assert "Invalidation" not in md
-        assert "Position Sizing" not in md
-        assert "FINAL SETUP PROPOSAL: **SELL**" in md
+        assert "Conviction Context" not in md
+        assert "FINAL SETUP STANCE: **SELL**" in md
 
 
 @pytest.mark.unit
@@ -108,12 +108,12 @@ class TestRenderResearchPlan:
         p = ResearchPlan(
             recommendation=PortfolioRating.OVERWEIGHT,
             rationale="Bull case carried; tailwinds intact.",
-            strategic_actions="Build position over two weeks; cap at 5%.",
+            strategic_actions="Increase attention over two weeks; cap conviction at 5%.",
         )
         md = render_research_plan(p)
-        assert "**Recommendation**: Overweight" in md
+        assert "**Research Stance**: Overweight" in md
         assert "**Rationale**: Bull case carried" in md
-        assert "**Strategic Actions**: Build position" in md
+        assert "**Review Focus**: Increase attention" in md
 
     def test_all_5_tier_ratings_render(self):
         for rating in PortfolioRating:
@@ -123,7 +123,7 @@ class TestRenderResearchPlan:
                 strategic_actions="s",
             )
             md = render_research_plan(p)
-            assert f"**Recommendation**: {rating.value}" in md
+            assert f"**Research Stance**: {rating.value}" in md
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ def _make_setup_state(market_type: str = "spot"):
     return {
         "company_of_interest": "NVDA",
         "market_type": market_type,
-        "investment_plan": "**Recommendation**: Buy\n**Rationale**: ...\n**Strategic Actions**: ...",
+        "investment_plan": "**Research Stance**: Buy\n**Rationale**: ...\n**Review Focus**: ...",
     }
 
 
@@ -172,9 +172,9 @@ class TestSetupPlannerAgent:
         setup_planner = create_setup_planner(llm)
         result = setup_planner(_make_setup_state())
         plan = result["trader_investment_plan"]
-        assert "**Action**: Buy" in plan
-        assert "**Entry Zone**: 188-192" in plan
-        assert "FINAL SETUP PROPOSAL: **BUY**" in plan
+        assert "**Setup Stance**: Buy" in plan
+        assert "**Review Zone**: 188-192" in plan
+        assert "FINAL SETUP STANCE: **BUY**" in plan
         # The same rendered markdown is also added to messages for downstream agents.
         assert plan in result["messages"][0].content
         assert result["sender"] == "Setup Planner"
@@ -186,7 +186,7 @@ class TestSetupPlannerAgent:
         setup_planner(_make_setup_state())
         # The investment plan is in the user message of the captured prompt.
         prompt = captured["prompt"]
-        assert any("Proposed Investment Plan" in m["content"] for m in prompt)
+        assert any("Proposed Research Plan" in m["content"] for m in prompt)
         assert any("Setup Planner" in m["content"] for m in prompt)
 
     def test_prompt_includes_perp_guidance(self):
@@ -200,8 +200,8 @@ class TestSetupPlannerAgent:
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (
-            "**Action**: Sell\n\nGuidance cut hits margins.\n\n"
-            "FINAL SETUP PROPOSAL: **SELL**"
+            "**Setup Stance**: Sell\n\nGuidance cut hits margins.\n\n"
+            "FINAL SETUP STANCE: **SELL**"
         )
         llm = MagicMock()
         llm.with_structured_output.side_effect = NotImplementedError(
@@ -217,7 +217,7 @@ class TestSetupPlannerAgent:
         llm = _structured_setup_llm(captured)
         setup_planner = create_trader(llm)
         result = setup_planner(_make_setup_state())
-        assert "FINAL SETUP PROPOSAL" in result["trader_investment_plan"]
+        assert "FINAL SETUP STANCE" in result["trader_investment_plan"]
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +244,7 @@ def _structured_rm_llm(captured: dict, plan: ResearchPlan | None = None):
         plan = ResearchPlan(
             recommendation=PortfolioRating.HOLD,
             rationale="Balanced view across both sides.",
-            strategic_actions="Hold current position; reassess after earnings.",
+            strategic_actions="Keep on watch; reassess after earnings.",
         )
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
@@ -262,15 +262,15 @@ class TestResearchManagerAgent:
         plan = ResearchPlan(
             recommendation=PortfolioRating.OVERWEIGHT,
             rationale="Bull case is stronger; AI tailwind intact.",
-            strategic_actions="Build position gradually over two weeks.",
+            strategic_actions="Increase attention gradually over two weeks.",
         )
         llm = _structured_rm_llm(captured, plan)
         rm = create_research_manager(llm)
         result = rm(_make_rm_state())
         ip = result["investment_plan"]
-        assert "**Recommendation**: Overweight" in ip
+        assert "**Research Stance**: Overweight" in ip
         assert "**Rationale**: Bull case" in ip
-        assert "**Strategic Actions**: Build position" in ip
+        assert "**Review Focus**: Increase attention" in ip
 
     def test_prompt_uses_5_tier_rating_scale(self):
         """The RM prompt must list all five tiers so the schema enum matches user expectations."""

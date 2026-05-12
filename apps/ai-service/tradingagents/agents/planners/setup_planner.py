@@ -39,11 +39,11 @@ def create_setup_planner(llm, config=None):
         market_type = _market_type_from(config, state)
         market_guidance = (
             "For spot research, focus on accumulation/DCA or swing setup logic, "
-            "capital allocation, liquidity, invalidation, and target zones. "
+            "allocation risk, liquidity, invalidation, and objective zones. "
             "Do not discuss leverage or margin."
             if market_type == MarketType.SPOT
             else "For perpetual futures research, explicitly evaluate funding, "
-            "open interest, liquidation risk, leverage cap, stop distance, and "
+            "open interest, liquidation risk, leverage cap, invalidation distance, and "
             "margin risk. If funding/OI/liquidation data is missing, list it in "
             "missing_data instead of overstating confidence."
         )
@@ -62,16 +62,17 @@ def create_setup_planner(llm, config=None):
             {
                 "role": "user",
                 "content": (
-                    f"Based on a comprehensive analysis by a team of analysts, here is an investment "
+                    f"Based on a comprehensive analysis by a team of analysts, here is a research "
                     f"plan tailored for {company_name}. {instrument_context} Market type: "
                     f"{market_type.value}. {market_guidance} This plan incorporates "
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for a setup proposal, "
-                    "not an execution instruction.\n\nProposed Investment Plan: "
+                    "not an execution instruction.\n\nProposed Research Plan: "
                     f"{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
-                    "Return a research setup proposal with market_type, action, reasoning, "
-                    "entry_zone, invalidation, target_zones, position_sizing, spot_notes "
-                    "or perp_notes, and missing_data where relevant."
+                    "Return a research setup proposal with market_type, action as a setup "
+                    "stance, reasoning, entry_zone as the manual review zone, invalidation, "
+                    "target_zones as objective zones, position_sizing as conviction context, "
+                    "spot_notes or perp_notes, and missing_data where relevant."
                 ),
             },
         ]

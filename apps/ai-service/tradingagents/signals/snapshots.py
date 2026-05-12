@@ -10,7 +10,11 @@ from tradingagents.domain import (
     SignalSnapshot,
 )
 from tradingagents.signals.base import SignalResult
-from tradingagents.signals.provenance import parse_signal_timestamp, signal_score_to_direction
+from tradingagents.signals.provenance import (
+    parse_signal_timestamp,
+    signal_score_to_direction,
+)
+from tradingagents.signals.rules import canonical_signal_type
 
 
 def build_market_snapshot(
@@ -49,7 +53,7 @@ def build_signal_snapshot(
         (
             signal.id
             for signal in signals
-            if signal.signal_type in ("quant_bias", "composite_quant")
+            if canonical_signal_type(signal.signal_type) == "quant_bias"
         ),
         None,
     )
@@ -79,7 +83,9 @@ def build_signal_snapshot(
         stale_count=stale,
         unknown_freshness_count=unknown,
         payload={
-            "signal_types": [signal.signal_type for signal in signals],
+            "signal_types": [
+                canonical_signal_type(signal.signal_type) for signal in signals
+            ],
             "spot_signal_ids": [
                 signal.id
                 for signal in signals

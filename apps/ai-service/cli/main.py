@@ -187,7 +187,9 @@ def analyze(
     ),
 ):
     if clear_checkpoints:
-        n = ResearchService().clear_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        service = ResearchService()
+        clear_fn = getattr(service, "clear_checkpoints", None)
+        n = clear_fn(DEFAULT_CONFIG["data_cache_dir"]) if callable(clear_fn) else 0
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
         if not (non_interactive or plain or ticker):
             return

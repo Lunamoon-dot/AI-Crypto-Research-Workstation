@@ -336,7 +336,7 @@ class ThesisBuilder:
             monitor_next=monitor_next,
             confidence_rationale=confidence_rationale,
             risk_notes=structured_summary.risks
-            or ["Manual review required before any action."],
+            or ["Manual review required before changing thesis stance."],
         )
 
         if run and not run.decision_id:
@@ -409,7 +409,9 @@ class ThesisBuilder:
         summary_payload["direction"] = direction.value
         summary_payload["market_type"] = summary_payload.get("market_type") or market_type
         summary_payload["confidence"] = confidence
-        executive_summary = extract_thesis_field(thesis_text, "executive summary")
+        executive_summary = extract_thesis_field(
+            thesis_text, "research summary"
+        ) or extract_thesis_field(thesis_text, "executive summary")
         summary_payload["action_summary"] = (
             summary_payload.get("action_summary")
             or executive_summary
@@ -431,7 +433,7 @@ class ThesisBuilder:
         summary_payload["risks"] = summary_payload.get("risks") or (
             stale_or_missing_data[:3]
             or contradictions[:3]
-            or ["Manual review required before any action."]
+            or ["Manual review required before changing thesis stance."]
         )
         summary_payload["missing_data"] = summary_payload.get("missing_data") or (
             stale_or_missing_data[:3]
@@ -457,7 +459,7 @@ class ThesisBuilder:
                     or ([why_this_thesis] if why_this_thesis else []),
                     "risks": stale_or_missing_data[:3]
                     or contradictions[:3]
-                    or ["Manual review required before any action."],
+                    or ["Manual review required before changing thesis stance."],
                     "missing_data": stale_or_missing_data[:3],
                     "is_degraded": bool(contract_degradation_reasons),
                     "degradation_reasons": contract_degradation_reasons,

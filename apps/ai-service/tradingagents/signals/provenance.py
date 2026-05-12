@@ -21,34 +21,15 @@ from tradingagents.signals.base import (
     SignalScore,
     score_to_quant_bias,
 )
+from tradingagents.signals.rules import (
+    build_watch_condition_payload,
+    canonical_signal_type,
+    classify_signal,
+)
 
 logger = logging.getLogger(__name__)
 
 FRESHNESS_WINDOW = timedelta(hours=24)
-
-SPOT_EVIDENCE_CATEGORIES = {
-    "rsi_divergence": "price",
-    "macd": "price",
-    "price": "price",
-    "volume_profile": "volume",
-    "volume": "volume",
-    "regime": "regime",
-    "onchain": "on-chain",
-    "relative_strength": "relative_strength",
-}
-
-PERP_EVIDENCE_CATEGORIES = {
-    "funding": "funding",
-    "funding_oi": "funding_oi",
-    "open_interest": "oi",
-    "oi": "oi",
-    "liquidations": "liquidations",
-    "long_short": "long_short",
-    "long_short_ratio": "long_short",
-    "basis": "basis",
-    "perp_basis": "basis",
-}
-
 
 def signal_score_to_direction(score: SignalScore) -> SignalDirection:
     """Map the quant layer's 5-tier score to journal signal direction."""
@@ -63,12 +44,8 @@ def signal_score_to_direction(score: SignalScore) -> SignalDirection:
 
 def classify_evidence_lane(factor_name: str) -> tuple[SignalEvidenceLane, str]:
     """Classify deterministic factors into spot/perp evidence lanes."""
-    key = factor_name.lower().strip()
-    if key in SPOT_EVIDENCE_CATEGORIES:
-        return SignalEvidenceLane.SPOT, SPOT_EVIDENCE_CATEGORIES[key]
-    if key in PERP_EVIDENCE_CATEGORIES:
-        return SignalEvidenceLane.PERP, PERP_EVIDENCE_CATEGORIES[key]
-    return SignalEvidenceLane.UNKNOWN, "unknown"
+    _canonical, lane, category = classify_signal(factor_name)
+    return _lane_enum(lane), category
 
 
 def parse_signal_timestamp(timestamp: str | None) -> datetime | None:
@@ -254,12 +231,13 @@ def _factor_signal(
     freshness_seconds: int | None,
     observed_at: datetime,
 ) -> Signal:
+    signal_type = canonical_signal_type(factor.name)
     direction = signal_score_to_direction(factor.score)
     confidence = factor.confidence
-    lane, category = classify_evidence_lane(factor.name)
+    lane, category = classify_evidence_lane(signal_type)
     return Signal(
         symbol=result.symbol,
-        signal_type=factor.name,
+        signal_type=signal_type,
         direction=direction,
         evidence_lane=lane,
         evidence_category=category,
@@ -267,7 +245,7 @@ def _factor_signal(
         confidence=confidence,
         observed_at=observed_at,
         provenance=SignalProvenance(
-            source=factor.name,
+            source=signal_type,
             source_timestamp=source_timestamp,
             observed_at=observed_at,
             freshness=freshness,
@@ -293,7 +271,7 @@ def _factor_signal(
         },
         watch_conditions=_build_watch_conditions(
             symbol=result.symbol,
-            signal_type=factor.name,
+            signal_type=signal_type,
             direction=direction,
             lane=lane,
             category=category,
@@ -311,11 +289,12 @@ def _lane_evidence(factors: list[FactorSignal]) -> dict[str, dict[str, list[dict
         "unknown": {},
     }
     for factor in factors:
-        lane, category = classify_evidence_lane(factor.name)
+        signal_type = canonical_signal_type(factor.name)
+        lane, category = classify_evidence_lane(signal_type)
         lane_key = lane.value if lane in (SignalEvidenceLane.SPOT, SignalEvidenceLane.PERP) else "unknown"
         grouped[lane_key].setdefault(category, []).append(
             {
-                "signal_type": factor.name,
+                "signal_type": signal_type,
                 "quant_bias": score_to_quant_bias(factor.score),
                 "confidence": factor.confidence,
                 "data_quality": factor.data_quality,
@@ -336,44 +315,23 @@ def _build_watch_conditions(
     confidence: float | None,
     threshold_breached: bool | None = None,
 ) -> SignalWatchConditions:
-    bias = direction.value
-    confidence_text = "unknown confidence"
-    if confidence is not None:
-        confidence_text = f"{confidence:.0%} confidence"
-
-    if lane == SignalEvidenceLane.QUANT_BIAS:
-        return SignalWatchConditions(
-            what_changed=(
-                f"{symbol} aggregate quant bias is {bias} with {confidence_text}."
-            ),
-            invalidation=(
-                "Invalidate the bias if spot and perp lanes both move against it, "
-                "or if source freshness degrades."
-            ),
-            review_trigger=(
-                "Review when quant bias flips, confidence materially changes, "
-                "or a lane shows a high-confidence contradiction."
-            ),
-        )
-
-    threshold_text = (
-        " Threshold is breached." if threshold_breached else " No threshold breach."
+    payload = build_watch_condition_payload(
+        symbol=symbol,
+        signal_type=signal_type,
+        direction=direction.value,
+        lane=lane.value,
+        category=category,
+        confidence=confidence,
+        threshold_breached=threshold_breached,
     )
-    lane_text = lane.value if lane != SignalEvidenceLane.UNKNOWN else "unclassified"
-    return SignalWatchConditions(
-        what_changed=(
-            f"{symbol} {lane_text} {category} evidence is {bias} "
-            f"for {signal_type} with {confidence_text}.{threshold_text}"
-        ),
-        invalidation=(
-            f"Invalidate this evidence if {category} flips away from {bias}, "
-            "the source becomes stale, or the signal no longer has enough data quality."
-        ),
-        review_trigger=(
-            f"Review when {category} crosses a threshold, changes bias, "
-            "or contradicts the current aggregate quant bias."
-        ),
-    )
+    return SignalWatchConditions(**payload)
+
+
+def _lane_enum(lane: str) -> SignalEvidenceLane:
+    try:
+        return SignalEvidenceLane(lane)
+    except ValueError:
+        return SignalEvidenceLane.UNKNOWN
 
 
 def build_reliability_map_from_evaluations(

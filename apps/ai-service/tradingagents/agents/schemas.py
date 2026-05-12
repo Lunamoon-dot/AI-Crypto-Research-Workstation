@@ -32,7 +32,7 @@ from tradingagents.agents.utils.thesis_json import render_trade_thesis_json_bloc
 
 
 class PortfolioRating(str, Enum):
-    """5-tier rating used by the Research Manager and Portfolio Manager."""
+    """5-tier research stance used by the Research and Portfolio Managers."""
 
     BUY = "Buy"
     OVERWEIGHT = "Overweight"
@@ -52,8 +52,8 @@ class SetupAction(str, Enum):
     """3-tier setup direction used by the Setup Planner.
 
     The Setup Planner translates the Research Manager's investment plan into
-    a research setup proposal for manual review: Buy, Sell, or Hold/Watch.
-    Position sizing and the nuanced Overweight / Underweight calls happen
+    a research setup proposal for manual review: bullish setup, bearish setup,
+    or Hold/Watch. Nuanced Overweight / Underweight research stances happen
     later at the Portfolio Manager.
     """
 
@@ -75,7 +75,7 @@ TraderAction = SetupAction
 class ResearchPlan(BaseModel):
     """Structured investment plan produced by the Research Manager.
 
-    Hand-off to the Setup Planner: the recommendation pins the directional view,
+    Hand-off to the Setup Planner: the recommendation pins the research stance,
     the rationale captures which side of the bull/bear debate carried the
     argument, and the strategic actions translate that into concrete
     setup-planning guidance for manual review.
@@ -83,7 +83,7 @@ class ResearchPlan(BaseModel):
 
     recommendation: PortfolioRating = Field(
         description=(
-            "The investment recommendation. Exactly one of Buy / Overweight / "
+            "The research stance. Exactly one of Buy / Overweight / "
             "Hold / Underweight / Sell. Reserve Hold for situations where the "
             "evidence on both sides is genuinely balanced; otherwise commit to "
             "the side with the stronger arguments."
@@ -98,8 +98,9 @@ class ResearchPlan(BaseModel):
     )
     strategic_actions: str = Field(
         description=(
-            "Concrete steps for the Setup Planner to convert into a research setup, "
-            "including position sizing guidance consistent with the rating."
+            "Concrete review focus for the Setup Planner to convert into a "
+            "research setup, including attention/conviction guidance consistent "
+            "with the rating."
         ),
     )
 
@@ -108,11 +109,11 @@ def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and setup-planner context."""
     return "\n".join(
         [
-            f"**Recommendation**: {plan.recommendation.value}",
+            f"**Research Stance**: {plan.recommendation.value}",
             "",
             f"**Rationale**: {plan.rationale}",
             "",
-            f"**Strategic Actions**: {plan.strategic_actions}",
+            f"**Review Focus**: {plan.strategic_actions}",
         ]
     )
 
@@ -135,17 +136,20 @@ class SetupProposal(BaseModel):
         description="The market structure being researched. Exactly one of spot or perp.",
     )
     action: SetupAction = Field(
-        description="The setup direction. Exactly one of Buy / Hold / Sell.",
+        description=(
+            "The setup stance. Exactly one of Buy / Hold / Sell, interpreted as "
+            "bullish setup / watch / bearish or avoid setup."
+        ),
     )
     reasoning: str = Field(
         description=(
-            "The case for this action, anchored in the analysts' reports and "
+            "The case for this setup stance, anchored in the analysts' reports and "
             "the research plan. Two to four sentences."
         ),
     )
     entry_zone: Optional[str] = Field(
         default=None,
-        description="Entry area or trigger zone for manual review.",
+        description="Setup area or trigger zone for manual review.",
     )
     invalidation: Optional[str] = Field(
         default=None,
@@ -153,15 +157,15 @@ class SetupProposal(BaseModel):
     )
     target_zones: list[str] = Field(
         default_factory=list,
-        description="Target zones or take-profit areas for the setup.",
+        description="Potential thesis confirmation or objective zones for the setup.",
     )
     position_sizing: Optional[str] = Field(
         default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
+        description="Optional attention or conviction sizing context for manual review.",
     )
     spot_notes: Optional[str] = Field(
         default=None,
-        description="Spot-specific notes such as DCA, accumulation, or allocation guidance.",
+        description="Spot-specific research notes such as DCA context or allocation risk.",
     )
     perp_notes: Optional[str] = Field(
         default=None,
@@ -233,18 +237,18 @@ def render_setup_proposal(proposal: SetupProposal) -> str:
     parts = [
         f"**Market Type**: {market_label}",
         "",
-        f"**Action**: {proposal.action.value}",
+        f"**Setup Stance**: {proposal.action.value}",
         "",
         f"**Reasoning**: {proposal.reasoning}",
     ]
     if entry_zone:
-        parts.extend(["", f"**Entry Zone**: {entry_zone}"])
+        parts.extend(["", f"**Review Zone**: {entry_zone}"])
     if invalidation:
         parts.extend(["", f"**Invalidation**: {invalidation}"])
     if target_zones:
-        parts.extend(["", "**Target Zones**: " + "; ".join(target_zones)])
+        parts.extend(["", "**Objective Zones**: " + "; ".join(target_zones)])
     if proposal.position_sizing:
-        parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+        parts.extend(["", f"**Conviction Context**: {proposal.position_sizing}"])
     if proposal.spot_notes:
         parts.extend(["", f"**Spot Notes**: {proposal.spot_notes}"])
     if proposal.perp_notes:
@@ -254,7 +258,7 @@ def render_setup_proposal(proposal: SetupProposal) -> str:
     parts.extend(
         [
             "",
-            f"FINAL SETUP PROPOSAL: **{proposal.action.value.upper()}**",
+            f"FINAL SETUP STANCE: **{proposal.action.value.upper()}**",
         ]
     )
     return "\n".join(parts)
@@ -282,13 +286,14 @@ class PortfolioDecision(BaseModel):
     rating: PortfolioRating = Field(
         description=(
             "The final position rating. Exactly one of Buy / Overweight / Hold / "
-            "Underweight / Sell, picked based on the analysts' debate."
+            "Underweight / Sell, interpreted as a research stance based on the "
+            "analysts' debate."
         ),
     )
     executive_summary: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "A concise research summary covering thesis stance, conviction, key "
+            "risk levels, and time horizon. Two to four sentences."
         ),
     )
     investment_thesis: str = Field(
@@ -313,15 +318,15 @@ class PortfolioDecision(BaseModel):
     action_summary: str = Field(
         default="",
         description=(
-            "Short UI-ready action summary. Keep it under 120 characters, e.g. "
-            "'Trim 25-50%; do not open new longs'."
+            "Short UI-ready research summary. Keep it under 120 characters, e.g. "
+            "'Reduce conviction until reclaim confirmation'."
         ),
     )
     upside_catalyst: str = Field(
         default="",
         description=(
             "Concrete condition that would improve the thesis or justify "
-            "adding risk. Include a price/volume/event trigger when possible."
+            "increased attention. Include a price/volume/event trigger when possible."
         ),
     )
     invalidation: str = Field(
@@ -381,14 +386,14 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
     Memory log, CLI display, and saved report files all read this markdown,
-    so the rendered output preserves the exact section headers (``**Rating**``,
-    ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
+    so the rendered output preserves parseable section headers (``**Rating**``,
+    ``**Research Summary**``, ``**Investment Thesis**``) that downstream
     parsers and the report writers already handle.
     """
     parts = [
         f"**Rating**: {decision.rating.value}",
         "",
-        f"**Executive Summary**: {decision.executive_summary}",
+        f"**Research Summary**: {decision.executive_summary}",
         "",
         f"**Investment Thesis**: {decision.investment_thesis}",
     ]

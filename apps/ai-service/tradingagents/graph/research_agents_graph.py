@@ -223,7 +223,9 @@ def _validated_structured_summary(
     else:
         summary_payload.setdefault("confidence", None)
 
-    executive_summary = _extract_thesis_field(thesis_text, "executive summary")
+    executive_summary = _extract_thesis_field(
+        thesis_text, "research summary"
+    ) or _extract_thesis_field(thesis_text, "executive summary")
     summary_payload["action_summary"] = (
         summary_payload.get("action_summary") or executive_summary or why_this_thesis
     )
@@ -241,7 +243,7 @@ def _validated_structured_summary(
     summary_payload["risks"] = summary_payload.get("risks") or (
         stale_or_missing_data[:3]
         or contradictions[:3]
-        or ["Manual review required before any action."]
+        or ["Manual review required before changing thesis stance."]
     )
     summary_payload["missing_data"] = summary_payload.get("missing_data") or (
         stale_or_missing_data[:3]
@@ -264,7 +266,7 @@ def _validated_structured_summary(
                 or ([why_this_thesis] if why_this_thesis else []),
                 "risks": stale_or_missing_data[:3]
                 or contradictions[:3]
-                or ["Manual review required before any action."],
+                or ["Manual review required before changing thesis stance."],
                 "missing_data": stale_or_missing_data[:3],
             }
         )
@@ -629,7 +631,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             invalidation=invalidation_level or "",
             monitor_next=monitor_next,
             confidence_rationale=confidence_rationale,
-            risk_notes=["Manual review required before any action."],
+            risk_notes=["Manual review required before changing thesis stance."],
         )
 
         if self.current_research_run and not self.current_research_run.decision_id:

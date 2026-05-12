@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 from typer.testing import CliRunner
 
@@ -80,6 +81,181 @@ def _save_signal_run(tmp_path, monkeypatch, symbol: str = "ETH/USDT"):
     return run, saved_signals, snapshot
 
 
+def _legacy_signal_payload(
+    *,
+    signal_id: str,
+    symbol: str,
+    signal_type: str,
+    direction: str,
+    score: str,
+    detail: str,
+) -> dict:
+    return {
+        "id": signal_id,
+        "symbol": symbol,
+        "signal_type": signal_type,
+        "direction": direction,
+        "strength": 0.61,
+        "confidence": 0.61,
+        "observed_at": "2026-05-12T18:43:28Z",
+        "expires_at": None,
+        "provenance": {
+            "source": "signal_engine" if signal_type == "composite_quant" else signal_type,
+            "source_timestamp": "2026-05-12T18:43:28Z",
+            "observed_at": "2026-05-12T18:43:28Z",
+            "freshness": "fresh",
+            "freshness_seconds": 0,
+            "confidence": 0.61,
+            "metadata": {
+                "score": score,
+                "data_quality": 0.8,
+                "threshold_breached": signal_type == "funding_oi",
+                "raw_metadata": {
+                    "funding_percentile": 0.93,
+                    "oi_delta_5d": 0.07,
+                    "price_delta_5d": -0.01,
+                },
+            },
+        },
+        "evidence": {
+            "score": score,
+            "value": 0.08,
+            "detail": detail,
+            "data_quality": 0.8,
+            "threshold_breached": signal_type == "funding_oi",
+        },
+        "summary": detail,
+        "supporting": True,
+    }
+
+
+def _save_legacy_signal_run(tmp_path, monkeypatch, symbol: str = "ETH/USDT"):
+    config = _config(tmp_path)
+    monkeypatch.setattr(signals_cmd, "DEFAULT_CONFIG", config)
+    service = JournalService(config)
+    run = service.start_research_run(ResearchRun(symbol=symbol))
+    signal_ids = [
+        "sig_legacy_quant",
+        "sig_legacy_regime",
+        "sig_legacy_macd",
+        "sig_legacy_funding",
+        "sig_legacy_onchain",
+    ]
+    legacy_signals = [
+        _legacy_signal_payload(
+            signal_id=signal_ids[0],
+            symbol=symbol,
+            signal_type="composite_quant",
+            direction="neutral",
+            score="Neutral",
+            detail="Legacy composite quant signal.",
+        ),
+        _legacy_signal_payload(
+            signal_id=signal_ids[1],
+            symbol=symbol,
+            signal_type="regime",
+            direction="neutral",
+            score="Neutral",
+            detail="Legacy regime signal.",
+        ),
+        _legacy_signal_payload(
+            signal_id=signal_ids[2],
+            symbol=symbol,
+            signal_type="macd",
+            direction="bearish",
+            score="Sell",
+            detail="Legacy MACD signal.",
+        ),
+        _legacy_signal_payload(
+            signal_id=signal_ids[3],
+            symbol=symbol,
+            signal_type="funding_oi",
+            direction="neutral",
+            score="Neutral",
+            detail="Legacy funding signal.",
+        ),
+        _legacy_signal_payload(
+            signal_id=signal_ids[4],
+            symbol=symbol,
+            signal_type="onchain",
+            direction="bullish",
+            score="Buy",
+            detail="Legacy onchain signal.",
+        ),
+    ]
+    for payload in legacy_signals:
+        service.store.execute(
+            """
+            INSERT INTO signals (
+                id, workspace_id, symbol, signal_type, direction, confidence,
+                observed_at, source, source_timestamp, payload_json
+            )
+            VALUES (?, 'local', ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["symbol"],
+                payload["signal_type"],
+                payload["direction"],
+                payload["confidence"],
+                payload["observed_at"],
+                payload["provenance"]["source"],
+                payload["provenance"]["source_timestamp"],
+                json.dumps(payload),
+            ),
+        )
+    snapshot_payload = {
+        "id": "signal_snapshot_legacy",
+        "research_run_id": run.id,
+        "symbol": symbol,
+        "captured_at": "2026-05-12T18:43:28Z",
+        "signal_ids": signal_ids,
+        "composite_signal_id": signal_ids[0],
+        "bullish_count": 1,
+        "bearish_count": 1,
+        "neutral_count": 3,
+        "stale_count": 0,
+        "unknown_freshness_count": 0,
+        "payload": {
+            "signal_types": [
+                "composite_quant",
+                "regime",
+                "macd",
+                "funding_oi",
+                "onchain",
+            ]
+        },
+    }
+    service.store.execute(
+        """
+        INSERT INTO signal_snapshots (
+            id, research_run_id, symbol, captured_at, composite_signal_id,
+            signal_count, bullish_count, bearish_count, neutral_count,
+            stale_count, unknown_freshness_count, payload_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            snapshot_payload["id"],
+            run.id,
+            symbol,
+            snapshot_payload["captured_at"],
+            signal_ids[0],
+            len(signal_ids),
+            1,
+            1,
+            3,
+            0,
+            0,
+            json.dumps(snapshot_payload),
+        ),
+    )
+    run.signal_ids = signal_ids
+    run.signal_snapshot_id = snapshot_payload["id"]
+    service.update_research_run(run)
+    return run, signal_ids, snapshot_payload["id"]
+
+
 def test_signals_cli_import_smoke():
     assert signals_cmd.signals_app is not None
 
@@ -144,3 +320,51 @@ def test_signals_explain_surfaces_watch_conditions(tmp_path, monkeypatch):
     assert "funding_oi" in result.output
     assert "Buy" not in result.output
     assert "Sell" not in result.output
+
+
+def test_signals_latest_normalizes_legacy_signal_payloads(tmp_path, monkeypatch):
+    run, signal_ids, snapshot_id = _save_legacy_signal_run(tmp_path, monkeypatch)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        signals_cmd.signals_app,
+        ["latest", "ETH/USDT", "--plain"],
+    )
+
+    assert result.exit_code == 0
+    assert run.id in result.output
+    assert snapshot_id in result.output
+    assert "quant_bias:" in result.output
+    assert "composite_quant" not in result.output
+    assert "spot:" in result.output
+    assert "perp:" in result.output
+    assert "unknown:" not in result.output
+    assert "sig_legacy_funding\tfunding_oi\tfunding_oi" in result.output
+    assert "sig_legacy_macd\tmacd\tprice" in result.output
+    assert "Buy" not in result.output
+    assert "Sell" not in result.output
+
+    snapshot_result = runner.invoke(
+        signals_cmd.signals_app,
+        ["snapshot", run.id, "--json"],
+    )
+    assert snapshot_result.exit_code == 0
+    snapshot_payload = json.loads(snapshot_result.output)
+    signal_snapshot = snapshot_payload["signal_snapshot"]
+    assert signal_snapshot["quant_bias_signal_id"] == signal_ids[0]
+    assert signal_snapshot["payload"]["signal_types"][0] == "quant_bias"
+    assert signal_snapshot["payload"]["spot_signal_ids"] == [
+        "sig_legacy_regime",
+        "sig_legacy_macd",
+        "sig_legacy_onchain",
+    ]
+    assert signal_snapshot["payload"]["perp_signal_ids"] == ["sig_legacy_funding"]
+
+    explain_result = runner.invoke(
+        signals_cmd.signals_app,
+        ["explain", "sig_legacy_funding"],
+    )
+    assert explain_result.exit_code == 0
+    assert "Lane: perp" in explain_result.output
+    assert "Category: funding_oi" in explain_result.output
+    assert "funding percentile rises above 90%" in explain_result.output

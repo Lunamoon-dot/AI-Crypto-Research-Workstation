@@ -1,4 +1,4 @@
-"""Portfolio Manager: synthesises the risk-analyst debate into the final decision.
+"""Portfolio Manager: synthesises the risk-analyst debate into the final thesis.
 
 Uses LangChain's ``with_structured_output`` so the LLM produces a typed
 ``PortfolioDecision`` directly, in a single call.  The result is rendered
@@ -70,7 +70,7 @@ def create_portfolio_manager(llm, config=None):
             _get_feedback_context(config),
         )
 
-        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final research thesis decision.
+        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final research thesis stance.
 
 {instrument_context}
 
@@ -78,12 +78,12 @@ def create_portfolio_manager(llm, config=None):
 
 Market type: {market_type}
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction to enter or add to position
-- **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
-- **Underweight**: Reduce exposure, take partial profits
-- **Sell**: Exit position or avoid entry
+**Research Stance Scale** (use exactly one):
+- **Buy**: Strong bullish thesis; prioritize bullish setup review
+- **Overweight**: Favorable outlook; increase attention as confirmation improves
+- **Hold**: Balanced thesis; keep on watch and reassess new evidence
+- **Underweight**: Cautious thesis; reduce conviction and reassess exposure
+- **Sell**: Strong bearish thesis; prefer bearish or avoid-setup review
 
 **Context:**
 - Research Manager's investment plan: {guard_untrusted_context("research_plan", research_plan)}
@@ -97,8 +97,8 @@ Market type: {market_type}
 ---
 
 Be decisive and ground every conclusion in specific evidence from the analysts.
-This is a research decision for manual review, not an exchange order or automated execution instruction.
-For spot, include accumulation/DCA/allocation notes where relevant. For perp, include funding, OI, liquidation, leverage cap, stop distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
+This is a research stance for manual review, not an exchange order or automated execution instruction.
+For spot, include accumulation/DCA/allocation-risk notes where relevant. For perp, include funding, OI, liquidation, leverage cap, invalidation distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
 
 For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block:
 
@@ -109,7 +109,7 @@ TRADE_THESIS_JSON:
   "direction": "long | short | watch | avoid | neutral",
   "confidence": null,
   "market_type": "spot | perp",
-  "action_summary": "one short UI action summary",
+  "action_summary": "one short UI research stance summary",
   "upside_catalyst": "specific condition that improves the thesis",
   "invalidation": "specific condition that invalidates the thesis",
   "key_reasons": ["reason 1", "reason 2", "reason 3"],

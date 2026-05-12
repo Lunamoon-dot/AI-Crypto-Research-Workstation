@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from tradingagents.signals.rules import (
+    normalize_signal_payload,
+    normalize_signal_snapshot_payload,
+)
+
 from .base import (
     MarketSnapshot,
     RepositoryMixinBase,
@@ -9,6 +16,7 @@ from .base import (
     SignalSnapshot,
     _chunks,
     _iso,
+    json,
     _new_id,
     model_from_json,
     model_to_json,
@@ -130,6 +138,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         return result
 
     def save_signal(self, signal: Signal, *, _conn=None) -> Signal:
+        signal = _normalize_signal_model(signal)
         if not signal.id:
             signal.id = _new_id("sig")
         self.store.execute(
@@ -169,6 +178,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         """
         if not signals:
             return []
+        signals = [_normalize_signal_model(signal) for signal in signals]
         if len(signals) == 1:
             return [self.save_signal(signals[0], _conn=_conn)]
 
@@ -221,7 +231,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         row = self.store.fetchone(
             "SELECT payload_json FROM signals WHERE id = ?", (signal_id,)
         )
-        return model_from_json(Signal, row["payload_json"]) if row else None
+        return _signal_from_json(row["payload_json"]) if row else None
 
     def get_signals_by_ids(self, signal_ids: list[str]) -> dict[str, Signal]:
         """Batch-fetch multiple signals by ID. Returns {id: Signal}."""
@@ -234,7 +244,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         )
         result: dict[str, Signal] = {}
         for row in rows:
-            signal = model_from_json(Signal, row["payload_json"])
+            signal = _signal_from_json(row["payload_json"])
             if signal and signal.id:
                 result[signal.id] = signal
         return result
@@ -266,7 +276,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
                 """,
                 (workspace_id, limit),
             )
-        return [model_from_json(Signal, row["payload_json"]) for row in rows]
+        return [_signal_from_json(row["payload_json"]) for row in rows]
 
     def save_signal_snapshot(
         self, snapshot: SignalSnapshot, *, _conn=None
@@ -313,7 +323,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         row = self.store.fetchone(
             "SELECT payload_json FROM signal_snapshots WHERE id = ?", (snapshot_id,)
         )
-        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+        return self._signal_snapshot_from_json(row["payload_json"]) if row else None
 
     def get_signal_snapshot_for_run(
         self, research_run_id: str
@@ -327,7 +337,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
             """,
             (research_run_id,),
         )
-        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+        return self._signal_snapshot_from_json(row["payload_json"]) if row else None
 
     def get_latest_signal_snapshot(
         self,
@@ -348,7 +358,7 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
             """,
             (symbol, workspace_id),
         )
-        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+        return self._signal_snapshot_from_json(row["payload_json"]) if row else None
 
     def get_signal_snapshot_for_signal(
         self,
@@ -369,4 +379,52 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
             """,
             (f"%{signal_id}%", workspace_id),
         )
-        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+        return self._signal_snapshot_from_json(row["payload_json"]) if row else None
+
+    def _signal_snapshot_from_json(self, payload_json: str) -> SignalSnapshot:
+        payload = json.loads(payload_json)
+        signal_ids = [str(item) for item in payload.get("signal_ids") or [] if item]
+        signal_payloads = self._raw_signal_payloads_by_ids(signal_ids)
+        normalized = normalize_signal_snapshot_payload(
+            payload,
+            signal_payloads_by_id=signal_payloads,
+        )
+        return _model_from_payload(SignalSnapshot, normalized)
+
+    def _raw_signal_payloads_by_ids(
+        self,
+        signal_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        if not signal_ids:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for chunk in _chunks(signal_ids):
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = self.store.fetchall(
+                f"SELECT id, payload_json FROM signals WHERE id IN ({placeholders})",
+                tuple(chunk),
+            )
+            for row in rows:
+                try:
+                    result[row["id"]] = json.loads(row["payload_json"])
+                except json.JSONDecodeError:
+                    continue
+        return result
+
+
+def _signal_from_json(payload_json: str) -> Signal:
+    return _model_from_payload(Signal, normalize_signal_payload(json.loads(payload_json)))
+
+
+def _normalize_signal_model(signal: Signal) -> Signal:
+    if hasattr(signal, "model_dump"):
+        payload = signal.model_dump(mode="json")
+    else:
+        payload = json.loads(signal.json())
+    return _model_from_payload(Signal, normalize_signal_payload(payload))
+
+
+def _model_from_payload(model_cls, payload: dict[str, Any]):
+    if hasattr(model_cls, "model_validate"):
+        return model_cls.model_validate(payload)
+    return model_cls.parse_obj(payload)

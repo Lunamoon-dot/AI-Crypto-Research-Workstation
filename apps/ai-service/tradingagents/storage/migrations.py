@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Iterable
 
 from .schema import SCHEMA_SQL
+from tradingagents.signals.rules import (
+    normalize_signal_payload,
+    normalize_signal_snapshot_payload,
+)
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 HARDENING_SQL: tuple[str, ...] = (
@@ -101,6 +105,7 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
     for sql in TENANCY_SQL:
         conn.execute(sql)
     backfill_alert_trigger_keys(conn)
+    backfill_legacy_signal_payloads(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
@@ -260,6 +265,93 @@ def backfill_alert_trigger_keys(conn: sqlite3.Connection) -> None:
         )
 
 
+def backfill_legacy_signal_payloads(conn: sqlite3.Connection) -> None:
+    """Normalize legacy signal payloads from the pre-lane schema.
+
+    This is intentionally idempotent. It handles old rows that stored
+    ``composite_quant`` and factor payloads without lane/category/watch fields.
+    """
+    if not _table_exists(conn, "signals"):
+        return
+
+    signal_rows = conn.execute(
+        "SELECT id, signal_type, direction, payload_json FROM signals"
+    ).fetchall()
+    signal_updates: list[tuple[str, str, str, str]] = []
+    normalized_payloads: dict[str, dict] = {}
+
+    for signal_id, signal_type, direction, payload_json in signal_rows:
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        normalized = normalize_signal_payload(payload)
+        normalized_payloads[signal_id] = normalized
+        new_signal_type = str(normalized.get("signal_type") or signal_type)
+        new_direction = str(normalized.get("direction") or direction)
+        new_payload_json = _compact_json(normalized)
+        if (
+            new_signal_type != signal_type
+            or new_direction != direction
+            or new_payload_json != payload_json
+        ):
+            signal_updates.append(
+                (new_signal_type, new_direction, new_payload_json, signal_id)
+            )
+
+    if signal_updates:
+        conn.executemany(
+            """
+            UPDATE signals
+            SET signal_type = ?, direction = ?, payload_json = ?
+            WHERE id = ?
+            """,
+            signal_updates,
+        )
+
+    if not _table_exists(conn, "signal_snapshots"):
+        return
+
+    snapshot_rows = conn.execute(
+        "SELECT id, composite_signal_id, payload_json FROM signal_snapshots"
+    ).fetchall()
+    snapshot_updates: list[tuple[str | None, str, str]] = []
+    for snapshot_id, composite_signal_id, payload_json in snapshot_rows:
+        try:
+            payload = json.loads(payload_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        signal_ids = [str(item) for item in payload.get("signal_ids") or [] if item]
+        payloads_by_id = {
+            signal_id: normalized_payloads[signal_id]
+            for signal_id in signal_ids
+            if signal_id in normalized_payloads
+        }
+        normalized = normalize_signal_snapshot_payload(
+            payload,
+            signal_payloads_by_id=payloads_by_id,
+        )
+        new_composite_signal_id = normalized.get("composite_signal_id")
+        new_payload_json = _compact_json(normalized)
+        if (
+            new_composite_signal_id != composite_signal_id
+            or new_payload_json != payload_json
+        ):
+            snapshot_updates.append(
+                (new_composite_signal_id, new_payload_json, snapshot_id)
+            )
+
+    if snapshot_updates:
+        conn.executemany(
+            """
+            UPDATE signal_snapshots
+            SET composite_signal_id = ?, payload_json = ?
+            WHERE id = ?
+            """,
+            snapshot_updates,
+        )
+
+
 def index_names(conn: sqlite3.Connection) -> set[str]:
     rows: Iterable[sqlite3.Row | tuple] = conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'index'"
@@ -281,3 +373,7 @@ def _extract_trigger_key(payload_json: str | None) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _compact_json(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))

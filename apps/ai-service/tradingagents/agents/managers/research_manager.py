@@ -22,7 +22,7 @@ def create_research_manager(llm):
 
         investment_debate_state = state["investment_debate_state"]
 
-        prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the Setup Planner.
+        prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear research stance for the Setup Planner.
 
 {instrument_context}
 
@@ -32,12 +32,12 @@ def create_research_manager(llm):
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction in the bull thesis; recommend taking or growing the position
-- **Overweight**: Constructive view; recommend gradually increasing exposure
-- **Hold**: Balanced view; recommend maintaining the current position
-- **Underweight**: Cautious view; recommend trimming exposure
-- **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
+**Research Stance Scale** (use exactly one):
+- **Buy**: Strong conviction in the bullish thesis; prioritize bullish setup review
+- **Overweight**: Constructive view; increase attention as evidence confirms
+- **Hold**: Balanced view; keep the thesis on watch and reassess new evidence
+- **Underweight**: Cautious view; reduce conviction in bullish setups and reassess exposure
+- **Sell**: Strong conviction in the bearish thesis; prefer bearish or avoid-setup review
 
 Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
 

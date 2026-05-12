@@ -15,6 +15,12 @@ from tradingagents.signals.provenance import (
     signal_result_to_domain_signals,
     signal_score_to_direction,
 )
+from tradingagents.signals.rules import (
+    build_watch_condition_payload,
+    canonical_signal_type,
+    classify_signal,
+    normalize_signal_payload,
+)
 
 
 def _sample_result(timestamp: str) -> SignalResult:
@@ -100,7 +106,60 @@ def test_signal_result_to_domain_signals_preserves_provenance_and_evidence():
     assert funding.evidence["quant_bias"] == "bearish"
     assert funding.evidence["threshold_breached"] is True
     assert funding.provenance.metadata["data_quality"] == 0.8
-    assert funding.watch_conditions.review_trigger
+    assert "funding percentile rises above 90%" in (
+        funding.watch_conditions.review_trigger
+    )
+    assert "funding resets to neutral" in funding.watch_conditions.invalidation
+
+
+def test_signal_rule_registry_maps_legacy_aliases_and_concrete_triggers():
+    assert canonical_signal_type("composite_quant") == "quant_bias"
+    assert classify_signal("funding_oi") == ("funding_oi", "perp", "funding_oi")
+    assert classify_signal("long_short_ratio") == (
+        "long_short",
+        "perp",
+        "long_short",
+    )
+    assert classify_signal("macd") == ("macd", "spot", "price")
+    assert classify_signal("regime") == ("regime", "spot", "regime")
+    assert classify_signal("onchain") == ("onchain", "spot", "on-chain")
+
+    macd_watch = build_watch_condition_payload(
+        symbol="ETH/USDT",
+        signal_type="macd",
+        direction="bearish",
+        lane="spot",
+        category="price",
+        confidence=0.65,
+    )
+
+    assert "histogram flips sign" in macd_watch["review_trigger"]
+    assert "opposite direction" in macd_watch["invalidation"]
+
+
+def test_legacy_signal_payload_normalizes_to_registry_defaults():
+    payload = {
+        "id": "sig_legacy",
+        "symbol": "ETH/USDT",
+        "signal_type": "composite_quant",
+        "direction": "neutral",
+        "confidence": 0.07,
+        "observed_at": "2026-05-12T18:43:28Z",
+        "provenance": {
+            "source": "signal_engine",
+            "observed_at": "2026-05-12T18:43:28Z",
+            "metadata": {"score": "Neutral", "factor_count": 7},
+        },
+        "evidence": {"score": "Neutral"},
+    }
+
+    normalized = normalize_signal_payload(payload)
+
+    assert normalized["signal_type"] == "quant_bias"
+    assert normalized["evidence_lane"] == "quant_bias"
+    assert normalized["evidence_category"] == "aggregate"
+    assert normalized["evidence"]["quant_bias"] == "neutral"
+    assert normalized["watch_conditions"]["review_trigger"]
 
 
 def test_parse_signal_timestamp_returns_none_for_invalid_timestamp():
