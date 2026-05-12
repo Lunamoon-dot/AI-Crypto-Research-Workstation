@@ -15,7 +15,7 @@ from rich.table import Table
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import ThesisDirection, TradeThesis
-from tradingagents.services import JournalService
+from tradingagents.services import ThesisService
 
 from cli.json_emit import print_json_stdout
 
@@ -24,7 +24,7 @@ diff_app = typer.Typer(help="Diff two theses or research runs side-by-side.")
 
 
 def _service():
-    return JournalService(DEFAULT_CONFIG)
+    return ThesisService(DEFAULT_CONFIG)
 
 
 def _list_delta(items_a: list[str], items_b: list[str]) -> dict[str, Any]:
@@ -480,7 +480,7 @@ def diff_thesis(
 
 
 def _load_run_pair(
-    service: JournalService, run_id_1: str, run_id_2: str
+    service: ThesisService, run_id_1: str, run_id_2: str
 ) -> tuple[Any, Any]:
     run_a = service.get_research_run(run_id_1)
     if not run_a:

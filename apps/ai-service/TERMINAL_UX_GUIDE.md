@@ -1,324 +1,348 @@
 # TradingAgents Terminal UX Guide
 
-Hướng dẫn này mô tả cách dùng TradingAgents như một **AI Crypto Research Workstation** trên terminal. Mục tiêu là research, quản lý thesis, theo dõi watchlist, ghi journal và review outcome. Tool không tự động đặt lệnh giao dịch.
+> Cập nhật: 2026-05-12. Áp dụng cho `apps/ai-service` version `0.3.0`.
 
-## 1. Lệnh Chính
+Hướng dẫn này mô tả cách dùng TradingAgents như một **AI Crypto Research Workstation** trên terminal. Terminal UX tập trung vào research, thesis, journal, watchlist, market brief, replay và outcome review.
 
-Entry point:
+TradingAgents không phải autonomous trading bot. CLI không tự đặt lệnh, không mở/đóng vị thế, không biến prose của LLM thành lệnh exchange, và không chạy background execution loop.
+
+## 1. Entry Point
+
+Chạy từ package đã cài:
 
 ```bash
 tradingagents
 ```
 
-Các nhóm lệnh quan trọng:
+Chạy trực tiếp từ source trong `apps/ai-service`:
 
 ```bash
-tradingagents research run
-tradingagents research ...
+python -m cli.main
+```
+
+Nếu chưa cài editable package:
+
+```bash
+cd apps/ai-service
+python -m pip install -e ".[dev]"
+```
+
+Không truyền subcommand sẽ mở interactive research wizard.
+
+## 2. Command Map Hiện Tại
+
+Top-level commands đang được mount:
+
+```bash
+tradingagents analyze
+tradingagents watchlist ...
 tradingagents dashboard
+tradingagents config ...
 tradingagents journal ...
 tradingagents thesis ...
 tradingagents signals ...
-tradingagents watchlist ...
-tradingagents evaluate ...
-tradingagents config ...
-tradingagents risk ...
+tradingagents brief ...
+tradingagents diff ...
+tradingagents research ...
+tradingagents replay ...
+tradingagents engine ...
 ```
 
-## 2. Workflow Khuyến Nghị Hằng Ngày
+Namespace `research` gom các workflow research-first và alias:
+
+```bash
+tradingagents research run
+tradingagents research workspace
+tradingagents research brief
+tradingagents research journal ...
+tradingagents research thesis ...
+tradingagents research signals ...
+tradingagents research watchlist ...
+tradingagents research briefs ...
+tradingagents research evaluate ...
+tradingagents research replay ...
+tradingagents research diff ...
+```
+
+Lưu ý: `evaluate` hiện được mount dưới `research evaluate`, chưa phải top-level command. Không có top-level `risk` command trong CLI hiện tại.
+
+## 3. Workflow Khuyến Nghị Hằng Ngày
 
 ```text
 Setup/config
 -> Run research
 -> Inspect journal workspace
 -> Decide or watch thesis
--> Check watchlist/alerts
+-> Build daily brief
+-> Check watchlist alerts explicitly
 -> Review outcome later
--> Retrospective
+-> Evaluate / retrospective
 ```
 
-## 3. Setup Và Cấu Hình
+Các màn hình dùng nhiều nhất:
+
+```bash
+tradingagents dashboard
+tradingagents journal workspace <run_id>
+tradingagents thesis show <thesis_id>
+tradingagents watchlist brief
+tradingagents brief daily
+tradingagents journal retrospective
+```
+
+## 4. Setup Và Cấu Hình
+
+### First-run summary
+
+Lệnh read-only để xem journal path, provider routing và next commands:
+
+```bash
+tradingagents config setup
+```
 
 ### File cấu hình
 
-TradingAgents dùng một chuỗi ưu tiên thống nhất (lowest → highest):
+TradingAgents dùng chuỗi ưu tiên cấu hình từ thấp đến cao:
 
-1. Code defaults (`tradingagents/default_config.py`)
-2. `config/default.toml` (auto-load nếu có)
-3. `config/local.toml` (override cá nhân, gitignored, auto-load nếu có)
-4. Profile từ `~/.tradingagents/profiles/<name>.yaml`
+1. Code defaults trong `tradingagents/default_config.py`
+2. `config/default.toml`
+3. `config/local.toml`, dùng cho override cá nhân và gitignored
+4. Profile trong `~/.tradingagents/profiles/<name>.yaml`
 5. Biến môi trường prefix `TRADINGAGENTS_`
-6. CLI / programmatic overrides
+6. CLI hoặc programmatic overrides
 
-### API Keys
+### API keys
 
-Tạo file `.env` từ template:
+Tạo `.env` từ template:
 
 ```bash
 cp .env.example .env
-# sửa .env và điền API keys bạn dùng
 ```
 
-Các biến được hỗ trợ: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `XAI_API_KEY`, `DASHSCOPE_API_KEY`, `ZHIPU_API_KEY`, `OPENROUTER_API_KEY`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `CRYPTOPANIC_API_TOKEN`, `COINGECKO_API_KEY`.
+Các biến phổ biến:
 
-Override key cho riêng TradingAgents: `TRADINGAGENTS_DEEPSEEK_API_KEY`, `TRADINGAGENTS_OPENAI_API_KEY`, v.v.
+```text
+DEEPSEEK_API_KEY
+OPENAI_API_KEY
+ANTHROPIC_API_KEY
+GOOGLE_API_KEY
+XAI_API_KEY
+DASHSCOPE_API_KEY
+ZHIPU_API_KEY
+OPENROUTER_API_KEY
+AZURE_OPENAI_API_KEY
+AZURE_OPENAI_ENDPOINT
+CRYPTOPANIC_API_TOKEN
+COINGECKO_API_KEY
+```
 
-### Validate cấu hình
+Override key riêng cho TradingAgents dùng prefix `TRADINGAGENTS_`, ví dụ:
 
-Kiểm tra config hiện tại có hợp lệ không:
+```bash
+export TRADINGAGENTS_OPENAI_API_KEY=...
+```
+
+### Validate và health check
+
+Kiểm tra cấu hình effective:
 
 ```bash
 tradingagents config validate
-```
-
-Lệnh này kiểm tra: provider hợp lệ, data vendor routing, API key có mặt (fail-fast nếu thiếu), LLM fallback setup.
-
-Dùng `--warn` để thấy tất cả warnings thay vì fail ở lỗi đầu tiên:
-
-```bash
 tradingagents config validate --warn
+tradingagents config validate --profile <profile_name>
 ```
 
-### Xem effective config
-
-Xem config đã resolve đầy đủ (tất cả layers merged):
+Xem config đã merge và đã redact secrets:
 
 ```bash
-tradingagents config show <profile_name> --effective
 tradingagents config effective
+tradingagents config effective --profile <profile_name>
+tradingagents config show <profile_name> --effective
 ```
 
-Không có profile sẽ hiển thị defaults + local.toml + env vars.
-
-### Tạo local config interactively
+Tạo `config/local.toml` bằng wizard:
 
 ```bash
 tradingagents config init
 ```
 
-Lệnh này sẽ hỏi từng bước (LLM provider, model, fallback, language) và ghi ra `config/local.toml`.
+Health check provider:
 
-### Profile management
+```bash
+tradingagents config health
+tradingagents config health --no-live
+tradingagents config health --no-llm
+tradingagents config health --json
+```
+
+Profile management:
 
 ```bash
 tradingagents config list
 tradingagents config save <profile_name>
 tradingagents config show <profile_name>
-tradingagents config show <profile_name> --full       # merge với defaults
-tradingagents config show <profile_name> --effective  # tất cả layers
+tradingagents config show <profile_name> --full
 tradingagents config delete <profile_name>
 ```
 
-### Health check (data + LLM)
+## 5. Chạy Research
 
-```bash
-tradingagents config health
-```
-
-Hiển thị:
-- Provider status (enabled/disabled)
-- Category routing (configured → enabled → disabled)
-- Runtime resilience settings (timeout, retries, backoff, rate limit)
-- **Live connectivity check** cho data vendors (CCXT, CoinGecko)
-- **LLM connectivity check** cho provider đang configured (smoke test với 1 prompt nhỏ)
-
-### Xem file SQLite journal đang lưu ở đâu
-
-```bash
-tradingagents journal path
-```
-
-Mở terminal home screen:
-
-```bash
-tradingagents dashboard
-```
-
-Dashboard hiện dùng dữ liệu local đã persist: recent research runs, watched theses, recent alerts. Nó không gọi provider live.
-
-## 4. Chạy Research
-
-### Interactive Mode
-
-Chạy wizard mặc định:
+### Interactive mode
 
 ```bash
 tradingagents
-```
-
-Hoặc:
-
-```bash
 tradingagents research run
 ```
 
-Wizard sẽ hỏi symbol, date, analysts, model/provider, research depth và thesis planning.
+Wizard hỏi symbol, date, analysts, provider/model, research depth và thesis planning.
 
-### Non-Interactive Mode
+### Non-interactive mode
 
-Dùng khi muốn chạy bằng script/CI/terminal nhanh:
+Dùng cho script, CI hoặc terminal nhanh:
 
 ```bash
 tradingagents research run BTC/USDT \
-  --non-interactive \
+  --yes \
   --plain \
   --date 2026-05-08 \
   --analysts market,social,news,onchain \
   --research-depth 1
 ```
 
-Có thể chỉ định model/provider:
+Chỉ định provider/model:
 
 ```bash
 tradingagents research run ETH/USDT \
-  --non-interactive \
+  --yes \
   --plain \
   --llm-provider openai \
   --quick-model gpt-5.4-mini \
   --deep-model gpt-5.4
 ```
 
-Lưu report không cần prompt:
+Lưu report:
 
 ```bash
 tradingagents research run BTC/USDT \
-  --non-interactive \
+  --yes \
   --plain \
   --save-report \
   --save-path reports/BTC_manual_run
 ```
 
-### Provider Fallback & Circuit Breaker
+Dry run để validate config/data access mà không chạy LLM pipeline:
 
-Khi LLM provider chính gặp lỗi (timeout, connection, rate limit), TradingAgents tự động thử fallback providers (mặc định: `openrouter` → `openai`). Sau 3 lần fail liên tiếp, circuit breaker mở — provider bị skip trong 5 phút trước khi thử lại (half-open).
-
-Cấu hình trong `config/local.toml`:
-
-```toml
-[llm_fallback]
-enabled = true
-fallback_providers = ["openrouter", "openai"]
-circuit_breaker_threshold = 3
-circuit_breaker_window_sec = 300
+```bash
+tradingagents research run BTC/USDT --yes --dry-run
+tradingagents analyze --ticker BTC/USDT --non-interactive --dry-run
 ```
 
-Tắt fallback:
+Checkpoint resume:
 
-```toml
-[llm_fallback]
-enabled = false
+```bash
+tradingagents analyze --checkpoint
+tradingagents analyze --clear-checkpoints
 ```
 
-Các lỗi authentication (401, 403, invalid API key) không trigger fallback — sửa key sai không tự động chuyển provider.
+## 6. Research Namespace
 
-## 5. Research Namespace
-
-`research` là namespace mới để gom các workflow research-first. Các lệnh cũ vẫn dùng được.
-
-Chạy research:
+`research` là namespace cho terminal-first research workflow. Các alias quan trọng:
 
 ```bash
 tradingagents research run BTC/USDT --date 2026-05-08
-```
-
-Mở workspace:
-
-```bash
 tradingagents research workspace <run_id>
-```
-
-Mở daily brief/watchlist brief:
-
-```bash
 tradingagents research brief
+tradingagents research brief --watchlist default --no-save
 ```
 
-Các alias group:
+Các group con:
 
 ```bash
 tradingagents research journal ...
 tradingagents research thesis ...
 tradingagents research signals ...
 tradingagents research watchlist ...
+tradingagents research briefs ...
+tradingagents research evaluate ...
+tradingagents research replay ...
+tradingagents research diff ...
 ```
 
-## 6. Journal Workflow
+## 7. Journal Workflow
 
-Sau khi chạy research, xem danh sách runs:
+Xem journal SQLite path:
+
+```bash
+tradingagents journal path
+```
+
+Apply idempotent migrations:
+
+```bash
+tradingagents journal migrate
+```
+
+List và inspect runs:
 
 ```bash
 tradingagents journal list
-```
-
-Xem một run:
-
-```bash
+tradingagents journal list --limit 50
 tradingagents journal show <run_id>
 ```
 
-Màn hình quan trọng nhất sau research:
+Màn hình chính sau research:
 
 ```bash
 tradingagents journal workspace <run_id>
 ```
 
-Workspace hiển thị:
+Workspace hiển thị run, market snapshot, signal snapshot, debate, thesis, scenarios, timeline và next useful commands.
 
-- run id, symbol, status;
-- market/signal snapshot IDs;
-- debate id;
-- thesis id;
-- consensus/conflict nếu có;
-- thesis, scenarios;
-- timeline;
-- next useful commands.
-
-Xem timeline:
+Xem timeline, snapshots và debate:
 
 ```bash
 tradingagents journal timeline <run_id>
-```
-
-Xem snapshots:
-
-```bash
 tradingagents journal market-snapshot <snapshot_id>
 tradingagents journal signal-snapshot <snapshot_id>
-```
-
-Xem debate:
-
-```bash
 tradingagents journal debate <debate_id>
 ```
 
-## 7. Thesis Workflow
+Export portable evidence bundle:
 
-List thesis:
+```bash
+tradingagents journal bundle <run_id>
+tradingagents journal bundle <run_id> --out reports/run_bundle.json
+```
+
+Outcome analytics:
+
+```bash
+tradingagents journal outcomes
+tradingagents journal outcomes --symbol BTC/USDT
+tradingagents journal retrospective
+tradingagents journal retrospective --symbol BTC/USDT
+```
+
+Nhiều journal commands hỗ trợ `--json` và `--plain` cho automation.
+
+## 8. Thesis Workflow
+
+List và inspect thesis:
 
 ```bash
 tradingagents thesis list
-```
-
-Xem thesis chi tiết:
-
-```bash
 tradingagents thesis show <thesis_id>
-```
-
-Xem scenarios gắn với thesis:
-
-```bash
 tradingagents thesis scenarios <thesis_id>
+tradingagents thesis timeline <thesis_id>
 ```
 
-Ghi decision của user:
+Ghi decision thủ công:
 
 ```bash
-tradingagents thesis decide <thesis_id> --action watched --notes "Waiting for confirmation"
+tradingagents thesis decide <thesis_id> watched --notes "Waiting for confirmation"
 ```
 
-Các action thường dùng:
+Actions hợp lệ:
 
 ```text
 accepted
@@ -328,29 +352,33 @@ ignored
 needs_more_research
 ```
 
-Xem thesis timeline:
-
-```bash
-tradingagents thesis timeline <thesis_id>
-```
-
 Review outcome sau khi thị trường đã diễn biến:
 
 ```bash
-tradingagents thesis review <thesis_id> \
-  --result mixed \
+tradingagents thesis review <thesis_id> mixed \
   --lessons "Funding overheated before confirmation" \
   --mfe 0.08 \
   --mae -0.03
 ```
 
-## 8. Signals Workflow
+Results hợp lệ:
+
+```text
+hit_target
+invalidated
+mixed
+expired
+unknown
+```
+
+## 9. Signals Workflow
 
 List signals:
 
 ```bash
 tradingagents signals list
 tradingagents signals list BTC/USDT
+tradingagents signals list BTC/USDT --limit 100
 ```
 
 Xem signal provenance:
@@ -359,16 +387,9 @@ Xem signal provenance:
 tradingagents signals show <signal_id>
 ```
 
-Signal view giúp kiểm tra:
+Signal view giúp kiểm tra source, observed time, source timestamp, freshness, confidence, evidence và historical reliability nếu có.
 
-- source;
-- observed time;
-- source timestamp;
-- freshness;
-- confidence;
-- evidence.
-
-## 9. Watchlist Và Alerts
+## 10. Watchlist Và Alerts
 
 Thêm symbol watch-only:
 
@@ -386,21 +407,19 @@ Xem watchlist:
 
 ```bash
 tradingagents watchlist list
+tradingagents watchlist list --all
+tradingagents watchlist list --watchlist default --json
 ```
 
-Daily home screen:
+Daily watchlist brief:
 
 ```bash
 tradingagents watchlist brief
-```
-
-Brief là read-only. Nó không tạo alert mới.
-
-Nếu muốn brief dùng last persisted market snapshot để đánh giá scenario status:
-
-```bash
+tradingagents watchlist brief --unread
 tradingagents watchlist brief --evaluate-snapshots
 ```
+
+`watchlist brief` là read-only. Nó không tạo alert mới.
 
 Chạy one-shot monitoring check:
 
@@ -416,9 +435,9 @@ tradingagents watchlist check --price BTC/USDT=110100
 
 `check` có thể tạo alerts như:
 
-- `thesis_invalidated`;
-- `target_zone_reached`;
-- `scenario_activated`.
+- `thesis_invalidated`
+- `target_zone_reached`
+- `scenario_activated`
 
 Xem alerts:
 
@@ -429,112 +448,217 @@ tradingagents watchlist alerts --symbol BTC/USDT
 tradingagents watchlist alerts --thesis-id <thesis_id>
 ```
 
-Remove/disable watchlist item:
+Disable watchlist item:
 
 ```bash
 tradingagents watchlist remove <item_id>
 ```
 
-## 10. Retrospective Và Outcome Analytics
+## 11. Market Brief
 
-Xem outcomes:
+`brief` tạo daily market brief từ dữ liệu đã persist trong journal/watchlist.
 
-```bash
-tradingagents journal outcomes
-tradingagents journal outcomes --symbol BTC/USDT
-```
-
-Xem retrospective intelligence:
+Tạo brief:
 
 ```bash
-tradingagents journal retrospective
-tradingagents journal retrospective --symbol BTC/USDT
+tradingagents brief daily
+tradingagents brief daily --watchlist default --date 2026-05-12
+tradingagents brief daily --no-evaluate-snapshots
+tradingagents brief daily --no-save
 ```
 
-Mục tiêu là học từ lịch sử thesis:
-
-- hit rate;
-- invalidation rate;
-- average MFE;
-- average MAE;
-- lessons.
-
-## 11. Historical Thesis Evaluation
-
-Lệnh historical evaluation:
+List và show brief đã lưu:
 
 ```bash
-tradingagents evaluate run ...
+tradingagents brief list
+tradingagents brief list --watchlist default
+tradingagents brief show <brief_id>
 ```
 
-Đây là **historical thesis evaluation**, không phải broker-accurate backtest. Không nên đọc nó như PnL thật, Sharpe thật, hoặc performance execution thật.
-
-## 12. Risk Utilities
-
-Các lệnh risk hiện là utilities riêng:
+Alias trong research namespace:
 
 ```bash
-tradingagents risk var
-tradingagents risk stress
-tradingagents risk decompose
+tradingagents research brief
+tradingagents research briefs list
 ```
 
-Chúng không phải live execution workflow.
+## 12. Diff Workflow
 
-## 13. Các Màn Hình Nên Dùng Nhiều Nhất
+So sánh hai thesis:
 
-Terminal home:
+```bash
+tradingagents diff thesis <thesis_id_1> <thesis_id_2>
+tradingagents diff thesis <thesis_id_1> <thesis_id_2> --json
+```
+
+So sánh hai research runs:
+
+```bash
+tradingagents diff run <run_id_1> <run_id_2>
+tradingagents diff run <run_id_1> <run_id_2> --json
+```
+
+Diff dùng để review thay đổi về signals, thesis, debate stance và analyst opinions giữa hai lần research.
+
+## 13. Historical Replay
+
+`replay` chạy lại research pipeline cho ngày quá khứ với no-lookahead guardrails. Đây là replay research, không phải broker backtest.
+
+Single-date replay:
+
+```bash
+tradingagents replay single BTC/USDT 2025-01-15 --lookback 60
+tradingagents replay single BTC/USDT 2025-01-15 --strict
+```
+
+Batch replay:
+
+```bash
+tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
+tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7 --strict
+```
+
+Xem capability contract của data providers:
+
+```bash
+tradingagents replay capabilities
+tradingagents replay capabilities --vendor ccxt
+tradingagents replay capabilities --vendor ccxt --json
+```
+
+Alias:
+
+```bash
+tradingagents research replay single BTC/USDT 2025-01-15
+```
+
+## 14. Historical Thesis Evaluation
+
+Evaluation hiện nằm dưới `research evaluate`:
+
+```bash
+tradingagents research evaluate thesis <thesis_id>
+tradingagents research evaluate thesis <thesis_id> --window 30
+tradingagents research evaluate thesis <thesis_id> --record-review
+```
+
+Batch và saved evaluations:
+
+```bash
+tradingagents research evaluate batch --symbol BTC/USDT --limit 20
+tradingagents research evaluate list
+tradingagents research evaluate analytics
+tradingagents research evaluate analytics --json
+```
+
+Reliability và calibration:
+
+```bash
+tradingagents research evaluate factors
+tradingagents research evaluate agents
+tradingagents research evaluate confidence
+tradingagents research evaluate contradictions
+```
+
+Auto-evaluation và health:
+
+```bash
+tradingagents research evaluate matured
+tradingagents research evaluate trend
+tradingagents research evaluate health
+tradingagents research evaluate health --json
+```
+
+Evaluation là historical thesis quality review. Không đọc nó như PnL thật, Sharpe thật hoặc broker-accurate execution performance.
+
+## 15. Dashboard
+
+Mở terminal home screen:
 
 ```bash
 tradingagents dashboard
+tradingagents dashboard --watchlist default --limit 10
 ```
 
-Sau research:
+Dashboard dùng dữ liệu local đã persist: recent research runs, watched theses và recent alerts. Nó không gọi provider live.
+
+## 16. Scriptable Output
+
+Các command inspect chính hỗ trợ output machine-readable:
 
 ```bash
-tradingagents journal workspace <run_id>
+tradingagents journal list --json
+tradingagents journal workspace <run_id> --json
+tradingagents thesis show <thesis_id> --json
+tradingagents signals list BTC/USDT --json
+tradingagents watchlist brief --json
+tradingagents watchlist alerts --plain
+tradingagents diff run <run_id_1> <run_id_2> --json
 ```
 
-Daily monitoring:
+Không dùng `--json` và `--plain` cùng lúc. CLI sẽ reject để tránh output mơ hồ.
+
+## 17. Engine Contract
+
+`engine` là contract cho worker hoặc service khác gọi Python research engine bằng JSON request file:
 
 ```bash
-tradingagents watchlist brief
+tradingagents engine run --request request.json
 ```
 
-Thesis detail:
+Output là JSON. Exit code khác 0 nếu engine result không phải `completed`.
 
-```bash
-tradingagents thesis show <thesis_id>
+## 18. Provider Fallback Và Circuit Breaker
+
+Khi LLM provider chính gặp timeout, connection error hoặc rate limit, TradingAgents có thể thử fallback providers. Sau số lần fail liên tiếp theo cấu hình, circuit breaker sẽ tạm skip provider trước khi thử lại.
+
+Ví dụ cấu hình trong `config/local.toml`:
+
+```toml
+[llm_fallback]
+enabled = true
+fallback_providers = ["openrouter", "openai"]
+circuit_breaker_threshold = 3
+circuit_breaker_window_sec = 300
 ```
 
-Outcome learning:
+Tắt fallback:
 
-```bash
-tradingagents journal retrospective
+```toml
+[llm_fallback]
+enabled = false
 ```
 
-## 14. Nguyên Tắc An Toàn
+Authentication errors như 401, 403 hoặc invalid API key cần sửa key. Không nên dựa vào fallback để che lỗi credential.
+
+## 19. Nguyên Tắc An Toàn
 
 - AI không tự đặt lệnh.
 - Alerts không phải lệnh buy/sell.
 - Copy trong terminal dùng ngôn ngữ `review`, `watch`, `reassess`, `stand aside`.
-- `watchlist brief` là read-only.
+- `watchlist brief` và `brief daily` là read-only với provider live.
 - `watchlist check` là explicit command có thể tạo alert.
-- Historical evaluation không phải broker backtest.
+- `replay` và `research evaluate` là historical research/thesis review, không phải broker backtest.
+- Nếu sau này có execution layer, nó phải đi qua user approval, execution ticket, manual confirmation và audit trail.
 
-## 15. Quick Start
+## 20. Quick Start
 
 Một flow ngắn để test sản phẩm:
 
 ```bash
-tradingagents research run BTC/USDT --non-interactive --plain --date 2026-05-08
+tradingagents config setup
+tradingagents config validate --warn
+tradingagents research run BTC/USDT --yes --plain --date 2026-05-08
 tradingagents journal list
 tradingagents journal workspace <run_id>
 tradingagents thesis list
+tradingagents thesis show <thesis_id>
 tradingagents watchlist add-thesis <thesis_id>
-tradingagents watchlist brief
+tradingagents watchlist brief --evaluate-snapshots
+tradingagents brief daily
 tradingagents watchlist check --price BTC/USDT=110100
 tradingagents watchlist alerts
-tradingagents thesis review <thesis_id> --result mixed --lessons "Manual review note"
+tradingagents thesis review <thesis_id> mixed --lessons "Manual review note"
 tradingagents journal retrospective
+tradingagents research evaluate thesis <thesis_id> --window 14
 ```

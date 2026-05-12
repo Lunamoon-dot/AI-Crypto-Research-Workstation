@@ -255,7 +255,7 @@ def test_dashboard_renders_terminal_home(tmp_path, monkeypatch):
     journal.update_research_run(run)
     watchlists.add_thesis(thesis.id)
 
-    monkeypatch.setattr(dashboard, "JournalService", lambda _config: journal)
+    monkeypatch.setattr(dashboard, "ThesisService", lambda _config: journal)
     monkeypatch.setattr(dashboard, "WatchlistService", lambda _config: watchlists)
     runner = CliRunner()
 

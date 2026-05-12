@@ -440,6 +440,27 @@ class JournalBridge:
                 opinions,
                 debate,
             )
+            risk_state = final_state.get("risk_debate_state") or {}
+            if run.id and risk_state:
+                self.service.add_run_event(
+                    run.id,
+                    "risk.debate.recorded",
+                    f"Risk debate recorded for {run.symbol}",
+                    {
+                        "debate_id": debate.id,
+                        "judge_decision": risk_state.get("judge_decision", ""),
+                        "history_length": len(str(risk_state.get("history", ""))),
+                        "aggressive_history_length": len(
+                            str(risk_state.get("aggressive_history", ""))
+                        ),
+                        "neutral_history_length": len(
+                            str(risk_state.get("neutral_history", ""))
+                        ),
+                        "conservative_history_length": len(
+                            str(risk_state.get("conservative_history", ""))
+                        ),
+                    },
+                )
             log_event(
                 logger,
                 "risk_checked",

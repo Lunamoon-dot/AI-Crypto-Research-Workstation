@@ -33,6 +33,42 @@ def test_journal_bridge_completes_run(tmp_path):
     assert run.thesis_id == thesis.id
 
 
+def test_journal_bridge_records_risk_debate_timeline_event(tmp_path):
+    bridge = JournalBridge(_config(tmp_path))
+    run = bridge.start_run(ResearchRun(symbol="BTC/USDT"))
+
+    run, opinions, debate = bridge.save_agent_research(
+        run,
+        {
+            "market_report": "Bullish market structure.",
+            "sentiment_report": "",
+            "news_report": "",
+            "fundamentals_report": "",
+            "investment_debate_state": {
+                "bull_history": "Bullish because momentum improved.",
+                "bear_history": "Bearish risk is funding.",
+                "judge_decision": "Watch for confirmation.",
+            },
+            "trader_investment_plan": "Review long thesis.",
+            "risk_debate_state": {
+                "aggressive_history": "Upside if reclaim holds.",
+                "neutral_history": "Wait for confirmation.",
+                "conservative_history": "Protect against downside.",
+                "history": "Risk debate history.",
+                "judge_decision": "Review thesis only after confirmation.",
+            },
+            "final_trade_decision": "Hold",
+        },
+        None,
+    )
+
+    assert run is not None
+    assert opinions
+    assert debate is not None
+    timeline = bridge.service.list_timeline_events(research_run_id=run.id)
+    assert any(event.event_type == "risk.debate.recorded" for event in timeline)
+
+
 def test_journal_bridge_saves_scenarios_from_json_plan(tmp_path):
     bridge = JournalBridge(_config(tmp_path))
     run = bridge.start_run(ResearchRun(symbol="BTC/USDT"))

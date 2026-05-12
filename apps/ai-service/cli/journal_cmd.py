@@ -20,7 +20,7 @@ from tradingagents.domain import (
     UserDecision,
     UserDecisionAction,
 )
-from tradingagents.services import JournalService
+from tradingagents.services import ThesisService
 
 from cli.json_emit import (
     ensure_single_output_mode,
@@ -34,8 +34,8 @@ journal_app = typer.Typer(help="Inspect saved research runs.")
 thesis_app = typer.Typer(help="Inspect and update saved trade theses.")
 
 
-def _service() -> JournalService:
-    return JournalService(DEFAULT_CONFIG)
+def _service() -> ThesisService:
+    return ThesisService(DEFAULT_CONFIG)
 
 
 def _plain_model_lines(payload: dict) -> list[str]:
@@ -88,58 +88,8 @@ def _workspace_evidence_lines(
     return lines
 
 
-def _workspace_json_payload(service: JournalService, run_id: str) -> dict:
-    run = service.get_research_run(run_id)
-    if not run:
-        raise ValueError(run_id)
-
-    debate = service.get_debate(run.debate_id) if run.debate_id else None
-    thesis = service.get_thesis(run.thesis_id) if run.thesis_id else None
-    opinions = (
-        service.list_agent_opinions(debate_id=debate.id) if debate and debate.id else []
-    )
-    scenarios = (
-        service.list_scenarios(thesis_id=thesis.id) if thesis and thesis.id else []
-    )
-    events = service.list_timeline_events(research_run_id=run.id)
-    signal_snap = {}
-    market_snap = {}
-    if run.signal_snapshot_id:
-        ss = service.get_signal_snapshot(run.signal_snapshot_id)
-        if ss:
-            signal_snap = ss.model_dump(mode="json")
-    if run.market_snapshot_id:
-        ms = service.get_market_snapshot(run.market_snapshot_id)
-        if ms:
-            market_snap = ms.model_dump(mode="json")
-
-    return {
-        "run": run.model_dump(mode="json"),
-        "market_snapshot": market_snap or None,
-        "signal_snapshot": signal_snap or None,
-        "debate": debate.model_dump(mode="json") if debate else None,
-        "agent_opinions": [o.model_dump(mode="json") for o in opinions],
-        "trade_thesis": thesis.model_dump(mode="json") if thesis else None,
-        "scenarios": [s.model_dump(mode="json") for s in scenarios],
-        "timeline_events": [e.model_dump(mode="json") for e in events],
-        "evidence_notes": _workspace_evidence_lines(thesis=thesis, debate=debate),
-        "next_commands": [
-            f"tradingagents journal timeline {run.id}",
-            *(
-                [
-                    f"tradingagents thesis show {run.thesis_id}",
-                    f"tradingagents watchlist add-thesis {run.thesis_id}",
-                ]
-                if run.thesis_id
-                else []
-            ),
-            *(
-                [f"tradingagents journal debate {run.debate_id}"]
-                if run.debate_id
-                else []
-            ),
-        ],
-    }
+def _workspace_json_payload(service: ThesisService, run_id: str) -> dict:
+    return service.build_workspace_payload(run_id)
 
 
 @journal_app.command("path")

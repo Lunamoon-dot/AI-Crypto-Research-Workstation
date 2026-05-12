@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from tradingagents.default_config import DEFAULT_CONFIG
+
 
 @dataclass(frozen=True)
 class ResearchRunResult:
@@ -69,3 +71,10 @@ class ResearchService:
         return ResearchRunResult(
             final_state=final_state, decision=decision, graph=graph
         )
+
+    def clear_checkpoints(self, data_cache_dir: str | None = None) -> int:
+        """Clear persisted graph checkpoints for the configured research cache."""
+        from tradingagents.graph.checkpointer import clear_all_checkpoints
+
+        cache_dir = data_cache_dir or DEFAULT_CONFIG["data_cache_dir"]
+        return clear_all_checkpoints(cache_dir)

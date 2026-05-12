@@ -401,7 +401,7 @@ ExecutionTicket
 - risk_summary
 - user_confirmed_at
 - submitted_at
-- broker_response
+- external_adapter_response
 - audit_status
 ```
 

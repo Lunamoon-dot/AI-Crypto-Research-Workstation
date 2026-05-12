@@ -6,6 +6,8 @@ from .evaluation_service import EvaluationService
 from .journal_service import JournalService
 from .performance_tracker import PerformanceTracker
 from .research_service import ResearchRunResult, ResearchService
+from .signal_service import SignalService
+from .thesis_service import ThesisService
 from .watchlist_service import MonitoringResult, WatchlistService
 
 __all__ = [
@@ -17,5 +19,7 @@ __all__ = [
     "PerformanceTracker",
     "ResearchRunResult",
     "ResearchService",
+    "SignalService",
+    "ThesisService",
     "WatchlistService",
 ]

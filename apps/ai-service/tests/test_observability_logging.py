@@ -326,6 +326,32 @@ def test_timeline_message_signal_generated():
     assert "Buy" in msg
 
 
+def test_timeline_message_research_stage_events():
+    from tradingagents.observability.logging import _timeline_message
+
+    opinions = _timeline_message(
+        "analyst.opinions.recorded",
+        {"opinion_count": 4},
+    )
+    debate = _timeline_message(
+        "debate.recorded",
+        {"consensus_stance": "bullish", "conflict_level": "medium"},
+    )
+    risk = _timeline_message(
+        "risk.debate.recorded",
+        {"judge_decision": "wait for confirmation"},
+    )
+    scenario = _timeline_message(
+        "scenario.plan.recorded",
+        {"scenario_count": 3},
+    )
+
+    assert "4" in opinions
+    assert "bullish" in debate
+    assert "wait for confirmation" in risk
+    assert "3" in scenario
+
+
 def test_timeline_message_decision_created():
     from tradingagents.observability.logging import _timeline_message
 
@@ -490,7 +516,11 @@ def test_all_new_timeline_event_types_are_mapped():
     for name in (
         "data_fetched",
         "signal_generated",
+        "analyst_opinions_recorded",
+        "debate_recorded",
+        "risk_debate_recorded",
         "thesis_generated",
+        "scenario_plan_recorded",
         "decision_created",
         "risk_checked",
         "plan_recorded",

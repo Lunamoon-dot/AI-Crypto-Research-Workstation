@@ -244,6 +244,51 @@ def test_journal_service_persists_scenarios_and_timeline(tmp_path):
     assert any(event.event_type == "scenarios_saved" for event in timeline)
 
 
+def test_journal_service_persists_stage_timeline_events(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    opinions = [
+        AgentOpinion(
+            research_run_id=run.id,
+            agent_name="Market Analyst",
+            stance=AgentStance.BULLISH,
+        )
+    ]
+    debate = ResearchDebate(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+        consensus_stance=AgentStance.BULLISH,
+        conflict_level=ConflictLevel.LOW,
+    )
+
+    run, _opinions, _debate = service.save_agent_research_bundle(
+        run,
+        opinions,
+        debate,
+    )
+    thesis = TradeThesis(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+        thesis_text="Watch reclaim.",
+    )
+    scenario = Scenario(
+        condition="Reclaim resistance.",
+        expected_market_behavior="Continuation improves.",
+        probability_band=ScenarioProbabilityBand.MEDIUM,
+        suggested_user_action="review thesis",
+    )
+    service.complete_research_run_bundle(run, thesis, [scenario])
+
+    event_types = [
+        event.event_type
+        for event in service.list_timeline_events(research_run_id=run.id)
+    ]
+
+    assert "analyst.opinions.recorded" in event_types
+    assert "debate.recorded" in event_types
+    assert "scenario.plan.recorded" in event_types
+
+
 def test_journal_service_saves_and_reads_signals(tmp_path):
     service = JournalService(_config(tmp_path))
     saved = service.save_signals(

@@ -472,6 +472,23 @@ class JournalService:
                         if not scenario.thesis_id:
                             scenario.thesis_id = thesis.id
                 saved_scenarios = self.repo.save_scenarios(scenarios, _conn=conn)
+                if run.id:
+                    self.repo.add_run_event(
+                        run.id,
+                        "scenario.plan.recorded",
+                        f"Scenario plan recorded for {run.symbol}",
+                        {
+                            "scenario_count": len(saved_scenarios),
+                            "scenario_ids": [
+                                scenario.id
+                                for scenario in saved_scenarios
+                                if scenario.id
+                            ],
+                            "thesis_id": thesis.id if thesis else None,
+                        },
+                        thesis_id=thesis.id if thesis else None,
+                        _conn=conn,
+                    )
                 self._add_scenarios_saved_event(
                     saved_scenarios,
                     thesis=thesis,
@@ -505,6 +522,32 @@ class JournalService:
             debate = self.repo.save_debate(debate, _conn=conn)
             run.debate_id = debate.id
             run = self.repo.save_research_run(run, _conn=conn)
+            if run.id:
+                self.repo.add_run_event(
+                    run.id,
+                    "analyst.opinions.recorded",
+                    f"Recorded {len(opinions)} analyst opinion(s) for {run.symbol}",
+                    {
+                        "opinion_count": len(opinions),
+                        "opinion_ids": [
+                            opinion.id for opinion in opinions if opinion.id
+                        ],
+                        "debate_id": debate.id,
+                    },
+                    _conn=conn,
+                )
+                self.repo.add_run_event(
+                    run.id,
+                    "debate.recorded",
+                    f"Research debate recorded for {run.symbol}",
+                    {
+                        "debate_id": debate.id,
+                        "opinion_ids": debate.opinion_ids,
+                        "consensus_stance": debate.consensus_stance.value,
+                        "conflict_level": debate.conflict_level.value,
+                    },
+                    _conn=conn,
+                )
             if is_new_debate and debate.research_run_id:
                 self.repo.add_run_event(
                     debate.research_run_id,

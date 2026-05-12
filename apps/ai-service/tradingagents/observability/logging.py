@@ -41,7 +41,11 @@ _TIMELINE_EVENT_TYPES = {
     "health_check_failed": "health.failed",
     "data_fetched": "data.fetched",
     "signal_generated": "signal.generated",
+    "analyst_opinions_recorded": "analyst.opinions.recorded",
+    "debate_recorded": "debate.recorded",
+    "risk_debate_recorded": "risk.debate.recorded",
     "thesis_generated": "thesis.generated",
+    "scenario_plan_recorded": "scenario.plan.recorded",
     "decision_created": "decision.created",
     "risk_checked": "risk.checked",
     "plan_recorded": "plan.recorded",
@@ -251,9 +255,22 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
         score = payload.get("composite_score", "?")
         direction = payload.get("composite_direction", "?")
         return f"Signal generated → {direction} ({score})"
+    if event_name == "analyst.opinions.recorded":
+        count = payload.get("opinion_count", "?")
+        return f"Analyst opinions recorded ({count})"
+    if event_name == "debate.recorded":
+        stance = payload.get("consensus_stance", "?")
+        conflict = payload.get("conflict_level", "?")
+        return f"Debate recorded → {stance} (conflict: {conflict})"
+    if event_name == "risk.debate.recorded":
+        decision = payload.get("judge_decision") or payload.get("risk_decision", "?")
+        return f"Risk debate recorded → {decision}"
     if event_name == "thesis.generated":
         direction = payload.get("thesis_direction", "?")
         return f"Thesis generated ({direction})"
+    if event_name == "scenario.plan.recorded":
+        count = payload.get("scenario_count", "?")
+        return f"Scenario plan recorded ({count} scenario(s))"
     if event_name == "decision.created":
         direction = payload.get("thesis_direction", "?")
         return f"Decision created ({direction})"

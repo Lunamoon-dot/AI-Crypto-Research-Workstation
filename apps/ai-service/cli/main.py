@@ -168,9 +168,7 @@ def analyze(
     ),
 ):
     if clear_checkpoints:
-        from tradingagents.graph.checkpointer import clear_all_checkpoints
-
-        n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        n = ResearchService().clear_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     if non_interactive or plain or ticker:
         if not ticker:

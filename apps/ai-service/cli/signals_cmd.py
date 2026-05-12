@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.services import JournalService
+from tradingagents.services import SignalService
 
 from cli.json_emit import (
     ensure_single_output_mode,
@@ -22,8 +22,8 @@ console = Console()
 signals_app = typer.Typer(help="Inspect saved signal provenance.")
 
 
-def _service() -> JournalService:
-    return JournalService(DEFAULT_CONFIG)
+def _service() -> SignalService:
+    return SignalService(DEFAULT_CONFIG)
 
 
 @signals_app.command("list")

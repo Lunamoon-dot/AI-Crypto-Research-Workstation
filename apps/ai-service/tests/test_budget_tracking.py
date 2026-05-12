@@ -1,5 +1,6 @@
 """Tests for token/latency budget tracking."""
 
+from types import SimpleNamespace
 import time
 
 from langchain_core.messages import AIMessage
@@ -13,6 +14,8 @@ from tradingagents.observability.budget import (
     merge_budget_config,
     _DEFAULT_BUDGETS,
 )
+import tradingagents.graph.setup as graph_setup_module
+from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
 from tradingagents.graph.setup import GraphSetup
 
 
@@ -200,6 +203,99 @@ class TestBudgetTracker:
 
         assert wrapped({"ok": True}) == {"ok": True}
         assert seen_stages == ["scenario_planner"]
+
+    def test_real_graph_setup_wraps_all_pipeline_stages(self, monkeypatch):
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.quick_thinking_llm = object()
+        setup.deep_thinking_llm = object()
+        setup.tool_nodes = {
+            definition.tool_key: object()
+            for definition in graph_setup_module.ANALYST_DEFINITIONS
+        }
+        setup.conditional_logic = SimpleNamespace(
+            should_continue_debate=lambda _state: (
+                graph_setup_module.DebateNode.RESEARCH_MANAGER
+            ),
+            should_continue_risk_analysis=lambda _state: (
+                graph_setup_module.PipelineNode.PORTFOLIO_MANAGER
+            ),
+        )
+        setup.config = {}
+        setup.budget_tracker = BudgetTracker()
+        wrapped_stages = []
+
+        def node_factory(*_args, **_kwargs):
+            return lambda state: state
+
+        def analyst_runner(*_args, **_kwargs):
+            return lambda state: state
+
+        monkeypatch.setattr(graph_setup_module, "create_market_analyst", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bull_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bear_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_research_manager", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_trader", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_aggressive_debator", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_neutral_debator", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_conservative_debator", node_factory
+        )
+        monkeypatch.setattr(
+            graph_setup_module, "create_portfolio_manager", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_scenario_planner", node_factory)
+        monkeypatch.setattr(graph_setup_module, "make_analyst_runner", analyst_runner)
+        monkeypatch.setattr(
+            graph_setup_module,
+            "create_analyst_opinion_builder",
+            lambda **_kwargs: lambda state: state,
+        )
+
+        def record_budgeted_node(node_fn, stage, **_ctx):
+            wrapped_stages.append(stage)
+            return node_fn
+
+        setup._budgeted_node = record_budgeted_node
+
+        setup.setup_graph(["market"])
+
+        assert wrapped_stages == [
+            "analyst",
+            "debate",
+            "debate",
+            "research_manager",
+            "trader",
+            "risk_debate",
+            "risk_debate",
+            "risk_debate",
+            "portfolio_manager",
+            "scenario_planner",
+        ]
+
+    def test_research_graph_propagate_wraps_total_budget_stage(self):
+        tracker = BudgetTracker()
+        graph = ResearchAgentsGraph.__new__(ResearchAgentsGraph)
+        graph.config = {
+            "checkpoint_enabled": False,
+            "observability": {"persist_run_events": False},
+            "asset_class": "crypto",
+        }
+        graph.journal_bridge = SimpleNamespace(service=None)
+        graph.budget_tracker = tracker
+        graph._checkpointer_ctx = None
+        graph.orchestrator = SimpleNamespace(execute_with_fallback=lambda fn: fn())
+        seen_stages = []
+
+        def run_graph(*_args, **_kwargs):
+            seen_stages.append(tracker.current_stage())
+            return {"ok": True}, "Hold"
+
+        graph._run_graph = run_graph
+
+        assert graph.propagate("BTC/USDT", "2026-05-12") == ({"ok": True}, "Hold")
+        assert seen_stages == ["total"]
 
 
 class TestMergeBudgetConfig:

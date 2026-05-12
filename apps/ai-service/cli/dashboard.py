@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.services import JournalService, WatchlistService
+from tradingagents.services import ThesisService, WatchlistService
 
 console = Console()
 app = typer.Typer()
@@ -24,7 +24,7 @@ def dashboard(
     ),
 ):
     """Show a local terminal home screen for research workflow state."""
-    journal = JournalService(DEFAULT_CONFIG)
+    journal = ThesisService(DEFAULT_CONFIG)
     watchlists = WatchlistService(DEFAULT_CONFIG)
     runs = journal.list_research_runs(limit=limit)
     brief = watchlists.build_brief(watchlist_name=watchlist, alerts_limit=5)
