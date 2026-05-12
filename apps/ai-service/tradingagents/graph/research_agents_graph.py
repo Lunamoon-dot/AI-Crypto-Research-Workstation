@@ -7,8 +7,11 @@ import uuid
 import asyncio
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,12 @@ from .propagation import Propagator
 from .signal_processing import SignalProcessor
 from .tooling import create_tool_nodes
 from .config_hash import compute_config_hash
+from .graph_factory import GraphFactory
+from .journal_coordinator import JournalCoordinator
+from .report_writer import ReportWriter
+from .run_orchestrator import ResearchRunOrchestrator
+from .thesis_builder import ThesisBuilder
+from .tool_runtime import ToolRuntime
 
 from tradingagents.domain import (
     AgentOpinion,
@@ -36,6 +45,11 @@ from tradingagents.domain import (
     SignalDirection,
     ThesisDirection,
     TradeThesis,
+    TradeThesisStructuredSummary,
+)
+from tradingagents.agents.utils.thesis_json import (
+    extract_trade_thesis_json,
+    strip_trade_thesis_json_block,
 )
 from tradingagents.reporting import ReportGenerator
 from tradingagents.observability import (
@@ -137,6 +151,135 @@ def _stale_or_missing_data_notes(signals: list[Signal]) -> list[str]:
     return notes
 
 
+def _parse_structured_summary_payload(raw_json: str | None) -> dict[str, Any]:
+    """Parse the UI summary JSON block with a small trailing-comma repair."""
+    if not raw_json:
+        return {}
+    raw = raw_json.strip()
+    object_match = _re.search(r"\{.*\}", raw, _re.DOTALL)
+    if object_match:
+        raw = object_match.group(0)
+    candidates = [raw, _re.sub(r",(\s*[}\]])", r"\1", raw)]
+    for candidate in candidates:
+        try:
+            loaded = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(loaded, dict):
+            return loaded
+    return {}
+
+
+def _summary_rating(payload: dict[str, Any]) -> str | None:
+    ratings = {
+        "buy": "Buy",
+        "overweight": "Overweight",
+        "hold": "Hold",
+        "underweight": "Underweight",
+        "sell": "Sell",
+    }
+    raw = payload.get("rating")
+    if raw is None:
+        return None
+    return ratings.get(str(raw).strip().lower())
+
+
+def _summary_direction(payload: dict[str, Any]) -> ThesisDirection | None:
+    aliases = {
+        "long": ThesisDirection.LONG,
+        "buy": ThesisDirection.LONG,
+        "bullish": ThesisDirection.LONG,
+        "short": ThesisDirection.SHORT,
+        "sell": ThesisDirection.SHORT,
+        "bearish": ThesisDirection.SHORT,
+        "watch": ThesisDirection.WATCH,
+        "hold": ThesisDirection.WATCH,
+        "avoid": ThesisDirection.AVOID,
+        "neutral": ThesisDirection.NEUTRAL,
+    }
+    raw = payload.get("direction")
+    if raw is None:
+        return None
+    return aliases.get(str(raw).strip().lower())
+
+
+def _validated_structured_summary(
+    *,
+    payload: dict[str, Any],
+    rating: str,
+    direction: ThesisDirection,
+    confidence: float | None,
+    thesis_text: str,
+    invalidation_level: str | None,
+    target_zones: list[str],
+    supporting_evidence: list[str],
+    contradicting_evidence: list[str],
+    stale_or_missing_data: list[str],
+    contradictions: list[str],
+    why_this_thesis: str,
+) -> TradeThesisStructuredSummary:
+    summary_payload = dict(payload)
+    summary_payload["rating"] = rating
+    summary_payload["direction"] = direction.value
+    if confidence is not None:
+        summary_payload["confidence"] = confidence
+    else:
+        summary_payload.setdefault("confidence", None)
+
+    executive_summary = _extract_thesis_field(thesis_text, "executive summary")
+    summary_payload["action_summary"] = (
+        summary_payload.get("action_summary") or executive_summary or why_this_thesis
+    )
+    summary_payload["upside_catalyst"] = (
+        summary_payload.get("upside_catalyst") or (target_zones[0] if target_zones else "")
+    )
+    summary_payload["invalidation"] = (
+        summary_payload.get("invalidation") or invalidation_level or ""
+    )
+    summary_payload["key_reasons"] = summary_payload.get("key_reasons") or (
+        supporting_evidence[:3]
+        or contradicting_evidence[:3]
+        or ([why_this_thesis] if why_this_thesis else [])
+    )
+    summary_payload["risks"] = summary_payload.get("risks") or (
+        stale_or_missing_data[:3]
+        or contradictions[:3]
+        or ["Manual review required before any action."]
+    )
+
+    try:
+        return TradeThesisStructuredSummary.model_validate(summary_payload)
+    except ValidationError:
+        return TradeThesisStructuredSummary.model_validate(
+            {
+                "rating": rating,
+                "direction": direction.value,
+                "confidence": confidence,
+                "action_summary": executive_summary or why_this_thesis,
+                "upside_catalyst": target_zones[0] if target_zones else "",
+                "invalidation": invalidation_level or "",
+                "key_reasons": supporting_evidence[:3]
+                or contradicting_evidence[:3]
+                or ([why_this_thesis] if why_this_thesis else []),
+                "risks": stale_or_missing_data[:3]
+                or contradictions[:3]
+                or ["Manual review required before any action."],
+            }
+        )
+
+
+def _run_quality_payload(run: ResearchRun | None) -> dict[str, Any]:
+    if run is None:
+        return {}
+    return {
+        "status": run.status.value,
+        "label": run.completion_label(),
+        "degradation_reasons": list(run.degradation_reasons),
+        "missing_core_data": list(run.missing_core_data),
+        "missing_optional_data": list(run.missing_optional_data),
+    }
+
+
 class ResearchAgentsGraph(JournalPersistenceMixin):
     """Main class that orchestrates the research-workstation graph."""
 
@@ -154,53 +297,47 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             source="ResearchAgentsGraph.__init__",
         )
         configure_opentelemetry(self.config)
-        self.budget_tracker = BudgetTracker(self.config)
-        self.callbacks = [
-            *(callbacks or []),
-            BudgetCallbackHandler(self.budget_tracker),
-        ]
-
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
         os.makedirs(self.config["results_dir"], exist_ok=True)
 
-        # LLM orchestration: creation, circuit breaker, and provider fallback.
-        self.orchestrator = LLMOrchestrator(
-            config=self.config, callbacks=self.callbacks
-        )
-        self.deep_thinking_llm, self.quick_thinking_llm = (
-            self.orchestrator.create_primary_llms()
-        )
+        self.tool_runtime = ToolRuntime(self.config, callbacks=callbacks)
+        self.budget_tracker = self.tool_runtime.budget_tracker
+        self.callbacks = self.tool_runtime.callbacks
+        self.orchestrator = self.tool_runtime.orchestrator
+        self.deep_thinking_llm = self.tool_runtime.deep_thinking_llm
+        self.quick_thinking_llm = self.tool_runtime.quick_thinking_llm
         self.orchestrator.on_provider_switched = self._on_llm_provider_switched
-
-        # Create tool nodes
-        self.tool_nodes = create_tool_nodes(self.config)
+        self.tool_nodes = self.tool_runtime.tool_nodes
 
         # Initialize components
         self.conditional_logic = ConditionalLogic(
             max_debate_rounds=self.config["max_debate_rounds"],
             max_risk_discuss_rounds=self.config["max_risk_discuss_rounds"],
         )
-        self.graph_setup = GraphSetup(
-            self.quick_thinking_llm,
-            self.deep_thinking_llm,
-            self.tool_nodes,
-            self.conditional_logic,
+        self.graph_factory = GraphFactory(
+            quick_thinking_llm=self.quick_thinking_llm,
+            deep_thinking_llm=self.deep_thinking_llm,
+            tool_nodes=self.tool_nodes,
+            conditional_logic=self.conditional_logic,
             config=self.config,
             budget_tracker=self.budget_tracker,
         )
+        self.graph_setup = self.graph_factory.graph_setup
 
         self.propagator = Propagator()
-        self.signal_processor = SignalProcessor(self.quick_thinking_llm)
+        self.signal_processor = self.tool_runtime.signal_processor
 
         # Mutable per-run state.
         self.run_context = GraphRunContext()
-        self.journal_bridge = JournalBridge(self.config)
+        self.journal_coordinator = JournalCoordinator(self.config)
+        self.journal_bridge = self.journal_coordinator.bridge
+        self.thesis_builder = ThesisBuilder(self)
+        self.report_writer = ReportWriter(self)
+        self.run_orchestrator = ResearchRunOrchestrator()
 
         # Set up the graph
-        self.workflow = self.graph_setup.setup_graph(
-            DEFAULT_ANALYSTS if selected_analysts is None else selected_analysts
-        )
-        self.graph = self.workflow.compile()
+        self.workflow = self.graph_factory.build_workflow(selected_analysts)
+        self.graph = self.graph_factory.compile(self.workflow)
         self._checkpointer_ctx = None
 
     def _ensure_run_context(self) -> GraphRunContext:
@@ -304,22 +441,79 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
 
     def _on_llm_provider_switched(self, deep_llm, quick_llm, new_provider):
         """Fan out new LLM references to all graph components after a provider switch."""
-        self.deep_thinking_llm = deep_llm
-        self.quick_thinking_llm = quick_llm
-        self.graph_setup.quick_thinking_llm = quick_llm
-        self.graph_setup.deep_thinking_llm = deep_llm
-        self.signal_processor = SignalProcessor(quick_llm)
+        self.tool_runtime.apply_provider_switch(self, deep_llm, quick_llm)
 
     def _create_tool_nodes(self):
         """Backward-compatible helper kept for older tests/callers."""
+        runtime = getattr(self, "tool_runtime", None)
+        if runtime is not None:
+            return runtime.create_tool_nodes()
         return create_tool_nodes(self.config)
 
     # _save_journal_agent_research is now provided by JournalPersistenceMixin
 
+    def _start_journal_run(self) -> None:
+        coordinator = getattr(self, "journal_coordinator", None)
+        if coordinator is None:
+            return super()._start_journal_run()
+        self.current_research_run = coordinator.start_run(self.current_research_run)
+
+    def _save_journal_quant_signals(self) -> None:
+        coordinator = getattr(self, "journal_coordinator", None)
+        if coordinator is None:
+            return super()._save_journal_quant_signals()
+        self.current_research_run, self.current_signals = (
+            coordinator.save_quant_signals(
+                self.current_research_run,
+                getattr(self, "quant_signal_result", None),
+            )
+        )
+
+    def _save_journal_agent_research(self, final_state: dict) -> None:
+        coordinator = getattr(self, "journal_coordinator", None)
+        if coordinator is None:
+            return super()._save_journal_agent_research(final_state)
+        (
+            self.current_research_run,
+            self.current_agent_opinions,
+            self.current_debate,
+        ) = coordinator.save_agent_research(
+            self.current_research_run,
+            final_state,
+            getattr(self, "quant_signal_result", None),
+        )
+
+    def _complete_journal_run(self) -> None:
+        coordinator = getattr(self, "journal_coordinator", None)
+        if coordinator is None:
+            return super()._complete_journal_run()
+        scenario_json = ""
+        if self.curr_state is not None:
+            scenario_json = self.curr_state.get("scenario_plan_json", "") or ""
+        self.current_research_run, self.current_trade_thesis = coordinator.complete_run(
+            self.current_research_run,
+            self.current_trade_thesis,
+            scenario_plan_text=getattr(self, "current_scenario_plan", "") or "",
+            scenario_plan_json=scenario_json,
+        )
+
     def _build_trade_thesis(self, final_state: dict) -> TradeThesis:
         """Build a simplified thesis artifact for journal persistence."""
-        final_decision = final_state.get("final_trade_decision", "")
-        rating = self.process_signal(final_decision)
+        builder = getattr(self, "thesis_builder", None)
+        if builder is not None:
+            return builder.build(final_state)
+        return ThesisBuilder(self).build(final_state)
+        raw_final_decision = final_state.get("final_trade_decision", "")
+        summary_json = final_state.get("final_trade_summary_json") or (
+            extract_trade_thesis_json(raw_final_decision)
+        )
+        summary_payload = _parse_structured_summary_payload(summary_json)
+        final_decision = (
+            strip_trade_thesis_json_block(raw_final_decision)
+            if summary_json
+            else raw_final_decision
+        ) or raw_final_decision
+        rating = _summary_rating(summary_payload) or self.process_signal(final_decision)
 
         direction_map = {
             "Buy": ThesisDirection.LONG,
@@ -328,7 +522,9 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             "Underweight": ThesisDirection.SHORT,
             "Hold": ThesisDirection.WATCH,
         }
-        direction = direction_map.get(rating, ThesisDirection.WATCH)
+        direction = _summary_direction(summary_payload) or direction_map.get(
+            rating, ThesisDirection.WATCH
+        )
 
         quant = getattr(self, "quant_signal_result", None)
         confidence = None
@@ -379,12 +575,27 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                 "quant confidence unavailable."
             )
         )
+        structured_summary = _validated_structured_summary(
+            payload=summary_payload,
+            rating=rating,
+            direction=direction,
+            confidence=confidence,
+            thesis_text=final_decision,
+            invalidation_level=invalidation_level,
+            target_zones=target_zones,
+            supporting_evidence=supporting_evidence,
+            contradicting_evidence=contradicting_evidence,
+            stale_or_missing_data=stale_or_missing_data,
+            contradictions=contradictions,
+            why_this_thesis=why_this_thesis,
+        )
 
         thesis = TradeThesis(
             id=str(uuid.uuid4()),
             symbol=self.ticker or final_state.get("company_of_interest", ""),
             direction=direction,
             setup_type="agent_debate",
+            structured_summary=structured_summary,
             thesis_text=final_decision,
             confidence=confidence,
             debate_id=debate_id,
@@ -474,6 +685,15 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         run_callbacks=None,
     ):
         """Run the research graph for a company on a specific date."""
+        orchestrator = getattr(self, "run_orchestrator", None)
+        if orchestrator is not None:
+            return orchestrator.propagate(
+                self,
+                company_name,
+                trade_date,
+                node_callback=node_callback,
+                run_callbacks=run_callbacks,
+            )
         self.ticker = company_name
 
         if self.config.get("checkpoint_enabled"):
@@ -554,6 +774,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
                                 )
                                 return result
                         except Exception as exc:
+                            self._mark_current_run_failed(exc)
                             log_event(
                                 logger,
                                 "research_run_failed",
@@ -578,6 +799,15 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         run_callbacks=None,
     ):
         """Async boundary wrapper for :meth:`propagate`."""
+        orchestrator = getattr(self, "run_orchestrator", None)
+        if orchestrator is not None:
+            return await orchestrator.apropagate(
+                self,
+                company_name,
+                trade_date,
+                node_callback=node_callback,
+                run_callbacks=run_callbacks,
+            )
         return await asyncio.to_thread(
             self.propagate,
             company_name,
@@ -595,9 +825,21 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
         run_callbacks=None,
     ):
         """Execute the graph and write the resulting state to disk."""
+        orchestrator = getattr(self, "run_orchestrator", None)
+        if orchestrator is not None:
+            return orchestrator.run_graph(
+                self,
+                company_name,
+                trade_date,
+                node_callback=node_callback,
+                run_callbacks=run_callbacks,
+            )
         self.current_research_run = ResearchRun(
             id=(self.config.get("_engine") or {}).get("run_id")
             or self.config.get("run_id"),
+            workspace_id=(self.config.get("_engine") or {}).get("workspace_id")
+            or self.config.get("workspace_id")
+            or "local",
             symbol=company_name,
             asset_class=self.config.get("asset_class", "crypto"),
             timeframe=str(trade_date),
@@ -676,7 +918,6 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
 
         self.curr_state = final_state
         self._save_journal_agent_research(final_state)
-        self._log_state(trade_date, final_state)
 
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
@@ -707,11 +948,45 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             self.current_trade_thesis = self._build_trade_thesis(final_state)
 
         self._complete_journal_run()
+        final_state["run_quality"] = _run_quality_payload(self.current_research_run)
+        self._log_state(trade_date, final_state)
 
         return final_state, final_signal
 
+    def _mark_current_run_failed(self, exc: Exception) -> None:
+        coordinator = getattr(self, "journal_coordinator", None)
+        if coordinator is not None:
+            coordinator.mark_failed(getattr(self, "current_research_run", None), exc)
+            return
+        run = getattr(self, "current_research_run", None)
+        bridge = getattr(self, "journal_bridge", None)
+        service = getattr(bridge, "service", None) if bridge is not None else None
+        if not run or not service:
+            return
+        try:
+            run.status = ResearchRunStatus.FAILED
+            run.completed_at = datetime.now(timezone.utc)
+            saved = service.update_research_run(run)
+            if saved.id:
+                service.add_run_event(
+                    saved.id,
+                    "run.failed",
+                    f"Research run failed for {saved.symbol}: {type(exc).__name__}",
+                    {
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:500],
+                    },
+                    thesis_id=saved.thesis_id,
+                )
+        except Exception as persist_exc:
+            logger.debug("Could not mark failed research run in journal: %s", persist_exc)
+
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
+        writer = getattr(self, "report_writer", None)
+        if writer is not None:
+            writer.write(trade_date, final_state)
+            return
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
@@ -745,6 +1020,7 @@ class ResearchAgentsGraph(JournalPersistenceMixin):
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
             "scenario_plan": final_state.get("scenario_plan", ""),
+            "run_quality": final_state.get("run_quality", {}),
         }
 
         safe_ticker = safe_ticker_component(self.ticker)

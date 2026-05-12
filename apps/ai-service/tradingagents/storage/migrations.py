@@ -14,7 +14,7 @@ from typing import Iterable
 
 from .schema import SCHEMA_SQL
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 HARDENING_SQL: tuple[str, ...] = (
@@ -43,14 +43,34 @@ HARDENING_SQL: tuple[str, ...] = (
 )
 
 
+TENANCY_SQL: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_research_runs_workspace_created "
+    "ON research_runs(workspace_id, started_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_trade_theses_workspace_created "
+    "ON trade_theses(workspace_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_signals_workspace_observed "
+    "ON signals(workspace_id, observed_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created "
+    "ON watchlists(workspace_id, created_at DESC)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name "
+    "ON watchlists(workspace_id, name)",
+    "CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created "
+    "ON market_briefs(workspace_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_run_events_workspace_created "
+    "ON run_events(workspace_id, created_at)",
+)
+
+
 def migrate_sqlite(conn: sqlite3.Connection) -> None:
     """Upgrade a journal database in-place.
 
     Safe to run repeatedly against both empty and existing databases.
     """
     conn.execute("PRAGMA foreign_keys = ON")
+    _rebuild_legacy_watchlists_table(conn)
     _preensure_legacy_columns(conn)
     conn.executescript(SCHEMA_SQL)
+    _ensure_workspace_columns(conn)
     ensure_column(conn, "research_runs", "deep_think_model", "TEXT")
     ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
     ensure_column(conn, "research_runs", "llm_provider", "TEXT")
@@ -62,16 +82,43 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "research_runs", "decision_id", "TEXT")
     ensure_column(conn, "research_runs", "user_decision_id", "TEXT")
     ensure_column(conn, "research_runs", "outcome_review_id", "TEXT")
+    ensure_column(
+        conn, "research_runs", "degradation_reasons_json", "TEXT NOT NULL DEFAULT '[]'"
+    )
+    ensure_column(
+        conn, "research_runs", "missing_core_data_json", "TEXT NOT NULL DEFAULT '[]'"
+    )
+    ensure_column(
+        conn,
+        "research_runs",
+        "missing_optional_data_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )
     ensure_column(conn, "run_events", "thesis_id", "TEXT")
     ensure_column(conn, "alerts", "trigger_key", "TEXT")
     for sql in HARDENING_SQL:
+        conn.execute(sql)
+    for sql in TENANCY_SQL:
         conn.execute(sql)
     backfill_alert_trigger_keys(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
+def _ensure_workspace_columns(conn: sqlite3.Connection) -> None:
+    for table in (
+        "research_runs",
+        "trade_theses",
+        "signals",
+        "watchlists",
+        "market_briefs",
+        "run_events",
+    ):
+        ensure_column(conn, table, "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
+
+
 def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
     if _table_exists(conn, "research_runs"):
+        ensure_column(conn, "research_runs", "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
         ensure_column(conn, "research_runs", "deep_think_model", "TEXT")
         ensure_column(conn, "research_runs", "quick_think_model", "TEXT")
         ensure_column(conn, "research_runs", "llm_provider", "TEXT")
@@ -83,10 +130,80 @@ def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
         ensure_column(conn, "research_runs", "decision_id", "TEXT")
         ensure_column(conn, "research_runs", "user_decision_id", "TEXT")
         ensure_column(conn, "research_runs", "outcome_review_id", "TEXT")
+        ensure_column(
+            conn,
+            "research_runs",
+            "degradation_reasons_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )
+        ensure_column(
+            conn,
+            "research_runs",
+            "missing_core_data_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )
+        ensure_column(
+            conn,
+            "research_runs",
+            "missing_optional_data_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )
     if _table_exists(conn, "run_events"):
+        ensure_column(conn, "run_events", "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
         ensure_column(conn, "run_events", "thesis_id", "TEXT")
+    for table in ("trade_theses", "signals", "watchlists", "market_briefs"):
+        if _table_exists(conn, table):
+            ensure_column(conn, table, "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
     if _table_exists(conn, "alerts"):
         ensure_column(conn, "alerts", "trigger_key", "TEXT")
+
+
+def _rebuild_legacy_watchlists_table(conn: sqlite3.Connection) -> None:
+    """Replace the old globally-unique watchlists table with workspace uniqueness."""
+    if not _table_exists(conn, "watchlists"):
+        return
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'watchlists'"
+    ).fetchone()
+    table_sql = (row[0] or "").lower() if row else ""
+    has_global_unique_name = "name text not null unique" in table_sql
+    has_workspace_id = any(
+        column[1] == "workspace_id" for column in conn.execute("PRAGMA table_info(watchlists)")
+    )
+    if has_workspace_id and not has_global_unique_name:
+        return
+
+    foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("DROP TABLE IF EXISTS watchlists_workspace_migration")
+        conn.execute(
+            """
+            CREATE TABLE watchlists_workspace_migration (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL DEFAULT 'local',
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        workspace_expr = "workspace_id" if has_workspace_id else "'local'"
+        conn.execute(
+            f"""
+            INSERT INTO watchlists_workspace_migration (
+                id, workspace_id, name, enabled, created_at, payload_json
+            )
+            SELECT id, COALESCE(NULLIF({workspace_expr}, ''), 'local'),
+                   name, enabled, created_at, payload_json
+            FROM watchlists
+            """
+        )
+        conn.execute("DROP TABLE watchlists")
+        conn.execute("ALTER TABLE watchlists_workspace_migration RENAME TO watchlists")
+    finally:
+        conn.execute(f"PRAGMA foreign_keys = {int(bool(foreign_keys))}")
 
 
 def migrate_path(path: str | Path) -> None:

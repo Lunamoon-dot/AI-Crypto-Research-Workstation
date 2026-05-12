@@ -7,6 +7,7 @@ talking to SQLite directly.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from tradingagents.domain import (
     ProviderHealthRecord,
     ResearchDebate,
     ResearchRun,
+    ResearchRunStatus,
     RetrospectiveInsight,
     Scenario,
     Signal,
@@ -30,9 +32,43 @@ from tradingagents.domain import (
     TradeThesis,
     UserDecision,
 )
+from tradingagents.domain.tenancy import normalize_workspace_id
 from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.migrations import migrate_path
 from tradingagents.storage.sqlite import SQLiteStore
+
+
+_CORE_CODE_ALIASES = {
+    "ohlcv": "ohlcv_unavailable",
+    "ohlcv_unavailable": "ohlcv_unavailable",
+    "symbol": "symbol_invalid",
+    "symbol_validity": "symbol_invalid",
+    "symbol_invalid": "symbol_invalid",
+    "market_snapshot": "market_snapshot_unavailable",
+    "market_snapshot_unavailable": "market_snapshot_unavailable",
+    "thesis": "thesis_row_missing",
+    "thesis_row": "thesis_row_missing",
+    "thesis_row_missing": "thesis_row_missing",
+    "run_events": "run_events_unavailable",
+    "run_events_unavailable": "run_events_unavailable",
+}
+
+_OPTIONAL_CODE_ALIASES = {
+    "news": "missing_news",
+    "missing_news": "missing_news",
+    "social": "missing_social",
+    "missing_social": "missing_social",
+    "onchain": "missing_onchain_secondary",
+    "onchain_secondary": "missing_onchain_secondary",
+    "missing_onchain_secondary": "missing_onchain_secondary",
+    "funding_rate": "missing_funding_rate",
+    "funding_rate_history": "missing_funding_rate",
+    "missing_funding_rate": "missing_funding_rate",
+    "open_interest": "exchange_oi_unsupported",
+    "open_interest_history": "exchange_oi_unsupported",
+    "oi": "exchange_oi_unsupported",
+    "exchange_oi_unsupported": "exchange_oi_unsupported",
+}
 
 
 def resolve_journal_db_path(config: dict[str, Any] | None = None) -> Path:
@@ -49,8 +85,18 @@ class JournalService:
 
     def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or DEFAULT_CONFIG
+        engine_cfg = self.config.get("_engine") or {}
+        self.workspace_id = normalize_workspace_id(
+            engine_cfg.get("workspace_id") or self.config.get("workspace_id")
+        )
         self.store = SQLiteStore(resolve_journal_db_path(self.config))
         self.repo = JournalRepository(self.store)
+
+    def _bind_workspace_id(self, workspace_id: str | None) -> str:
+        normalized = normalize_workspace_id(workspace_id)
+        if normalized == "local" and self.workspace_id != "local":
+            return self.workspace_id
+        return normalized
 
     @property
     def db_path(self) -> Path:
@@ -63,14 +109,27 @@ class JournalService:
         return self.store.path
 
     def start_research_run(self, run: ResearchRun) -> ResearchRun:
+        run.workspace_id = self._bind_workspace_id(run.workspace_id)
         saved = self.repo.save_research_run(run)
         return saved
 
-    def complete_research_run(self, run: ResearchRun) -> ResearchRun:
-        saved = self.repo.complete_research_run(run)
+    def complete_research_run(
+        self,
+        run: ResearchRun,
+        *,
+        quality_check: bool = True,
+        emit_event: bool = True,
+    ) -> ResearchRun:
+        with self.store.transaction() as conn:
+            if quality_check:
+                self._apply_completion_quality(run, _conn=conn)
+            saved = self.repo.complete_research_run(run, _conn=conn)
+            if emit_event and saved.id:
+                self._add_completion_event(saved, _conn=conn)
         return saved
 
     def update_research_run(self, run: ResearchRun) -> ResearchRun:
+        run.workspace_id = self._bind_workspace_id(run.workspace_id)
         return self.repo.save_research_run(run)
 
     def add_run_event(
@@ -100,6 +159,14 @@ class JournalService:
         if not run.id:
             raise ValueError("ResearchRun must have an id before saving signal bundle")
 
+        run.workspace_id = self._bind_workspace_id(run.workspace_id)
+        for signal in signals:
+            signal.workspace_id = (
+                run.workspace_id
+                if normalize_workspace_id(signal.workspace_id) == "local"
+                else self._bind_workspace_id(signal.workspace_id)
+            )
+
         with self.store.transaction() as conn:
             saved_signals = self.repo.save_signals(signals, _conn=conn)
             run.signal_ids = [signal.id for signal in saved_signals if signal.id]
@@ -128,6 +195,7 @@ class JournalService:
         return saved_run, saved_signals, saved_market, saved_snapshot
 
     def save_signal(self, signal: Signal) -> Signal:
+        signal.workspace_id = self._bind_workspace_id(signal.workspace_id)
         return self.repo.save_signal(signal)
 
     def save_market_snapshot(self, snapshot: MarketSnapshot) -> MarketSnapshot:
@@ -137,6 +205,8 @@ class JournalService:
         return self.repo.get_market_snapshot(snapshot_id)
 
     def save_signals(self, signals: list[Signal]) -> list[Signal]:
+        for signal in signals:
+            signal.workspace_id = self._bind_workspace_id(signal.workspace_id)
         return self.repo.save_signals(signals)
 
     def get_signal(self, signal_id: str) -> Signal | None:
@@ -147,8 +217,13 @@ class JournalService:
         *,
         symbol: str | None = None,
         limit: int = 50,
+        workspace_id: str | None = None,
     ) -> list[Signal]:
-        return self.repo.list_signals(symbol=symbol, limit=limit)
+        return self.repo.list_signals(
+            symbol=symbol,
+            limit=limit,
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+        )
 
     def save_signal_snapshot(self, snapshot: SignalSnapshot) -> SignalSnapshot:
         return self.repo.save_signal_snapshot(snapshot)
@@ -190,6 +265,7 @@ class JournalService:
         return self.repo.get_debate(debate_id)
 
     def save_thesis(self, thesis: TradeThesis) -> TradeThesis:
+        thesis.workspace_id = self._bind_workspace_id(thesis.workspace_id)
         is_new = thesis.id is None
         with self.store.transaction() as conn:
             saved = self.repo.save_thesis(thesis, _conn=conn)
@@ -326,11 +402,13 @@ class JournalService:
         research_run_id: str | None = None,
         thesis_id: str | None = None,
         limit: int = 200,
+        workspace_id: str | None = None,
     ) -> list[TimelineEvent]:
         return self.repo.list_timeline_events(
             research_run_id=research_run_id,
             thesis_id=thesis_id,
             limit=limit,
+            workspace_id=workspace_id,
         )
 
     def record_provider_health_from_payload(
@@ -422,17 +500,31 @@ class JournalService:
             limit=limit,
         )
 
-    def list_research_runs(self, limit: int = 20) -> list[ResearchRun]:
-        return self.repo.list_research_runs(limit=limit)
+    def list_research_runs(
+        self, limit: int = 20, *, workspace_id: str | None = None
+    ) -> list[ResearchRun]:
+        return self.repo.list_research_runs(
+            limit=limit,
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+        )
 
-    def get_research_run(self, run_id: str) -> ResearchRun | None:
-        return self.repo.get_research_run(run_id)
+    def get_research_run(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> ResearchRun | None:
+        return self.repo.get_research_run(run_id, workspace_id=workspace_id)
 
-    def list_theses(self, limit: int = 20) -> list[TradeThesis]:
-        return self.repo.list_theses(limit=limit)
+    def list_theses(
+        self, limit: int = 20, *, workspace_id: str | None = None
+    ) -> list[TradeThesis]:
+        return self.repo.list_theses(
+            limit=limit,
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+        )
 
-    def get_thesis(self, thesis_id: str) -> TradeThesis | None:
-        return self.repo.get_thesis(thesis_id)
+    def get_thesis(
+        self, thesis_id: str, *, workspace_id: str | None = None
+    ) -> TradeThesis | None:
+        return self.repo.get_thesis(thesis_id, workspace_id=workspace_id)
 
     def save_scenario(self, scenario: Scenario) -> Scenario:
         return self.save_scenarios([scenario])[0]
@@ -450,9 +542,15 @@ class JournalService:
         scenarios: list[Scenario] | None = None,
     ) -> tuple[ResearchRun, TradeThesis | None, list[Scenario]]:
         saved_scenarios: list[Scenario] = []
+        run.workspace_id = self._bind_workspace_id(run.workspace_id)
         with self.store.transaction() as conn:
             if thesis:
                 is_new_thesis = thesis.id is None
+                thesis.workspace_id = (
+                    run.workspace_id
+                    if normalize_workspace_id(thesis.workspace_id) == "local"
+                    else self._bind_workspace_id(thesis.workspace_id)
+                )
                 thesis.research_run_id = run.id
                 thesis = self.repo.save_thesis(thesis, _conn=conn)
                 run.thesis_id = thesis.id
@@ -495,13 +593,21 @@ class JournalService:
                     _conn=conn,
                 )
 
-            run = self.repo.complete_research_run(run, _conn=conn)
             self._add_template_degradation_event(
                 run,
                 thesis,
                 saved_scenarios,
                 _conn=conn,
             )
+            self._apply_completion_quality(
+                run,
+                thesis=thesis,
+                debate=self.repo.get_debate(run.debate_id) if run.debate_id else None,
+                scenarios=saved_scenarios,
+                _conn=conn,
+            )
+            run = self.repo.complete_research_run(run, _conn=conn)
+            self._add_completion_event(run, _conn=conn)
 
         return run, thesis, saved_scenarios
 
@@ -511,6 +617,7 @@ class JournalService:
         opinions: list[AgentOpinion],
         debate: ResearchDebate,
     ) -> tuple[ResearchRun, list[AgentOpinion], ResearchDebate]:
+        run.workspace_id = self._bind_workspace_id(run.workspace_id)
         with self.store.transaction() as conn:
             opinions = self.repo.save_agent_opinions(opinions, _conn=conn)
             is_new_debate = debate.id is None
@@ -611,6 +718,84 @@ class JournalService:
                 _conn=_conn,
             )
             break
+
+    def _apply_completion_quality(
+        self,
+        run: ResearchRun,
+        *,
+        thesis: TradeThesis | None = None,
+        debate: ResearchDebate | None = None,
+        scenarios: list[Scenario] | None = None,
+        _conn=None,
+    ) -> None:
+        missing_core = [_core_reason_code(item) for item in run.missing_core_data]
+        missing_optional = [
+            _optional_reason_code(item) for item in run.missing_optional_data
+        ]
+        reasons = [_reason_code(item) for item in run.degradation_reasons]
+
+        if not (run.symbol or "").strip():
+            missing_core.append("symbol_invalid")
+        if not run.market_snapshot_id:
+            missing_core.append("market_snapshot_unavailable")
+
+        thesis_exists = thesis is not None and thesis.id is not None
+        if not thesis_exists and run.thesis_id:
+            thesis_exists = self.repo.get_thesis(run.thesis_id) is not None
+        if not thesis_exists:
+            missing_core.append("thesis_row_missing")
+
+        if thesis:
+            missing_optional.extend(
+                _optional_reason_code(item) for item in thesis.stale_or_missing_data
+            )
+        if debate:
+            missing_optional.extend(
+                _optional_reason_code(item) for item in debate.missing_data
+            )
+        for scenario in scenarios or []:
+            metadata = scenario.template_metadata or {}
+            if metadata.get("template_degraded"):
+                reason = metadata.get("degrade_reason") or "template degraded"
+                missing_optional.append(_optional_reason_code(f"template_{reason}"))
+
+        run.missing_core_data = _dedupe(missing_core)
+        run.missing_optional_data = _dedupe(missing_optional)
+        if run.missing_core_data:
+            reasons.extend(run.missing_core_data)
+        if run.missing_optional_data:
+            reasons.extend(run.missing_optional_data)
+        run.degradation_reasons = _dedupe(reasons)
+        if run.missing_core_data:
+            run.status = ResearchRunStatus.FAILED
+        elif run.degradation_reasons or run.missing_optional_data:
+            run.status = ResearchRunStatus.COMPLETED_DEGRADED
+
+    def _add_completion_event(self, run: ResearchRun, *, _conn=None) -> None:
+        if not run.id:
+            return
+        if run.status == ResearchRunStatus.FAILED:
+            event_type = "run.failed"
+            message = f"Research run failed quality gate for {run.symbol}"
+        elif run.status == ResearchRunStatus.COMPLETED_DEGRADED:
+            event_type = "run.completed_degraded"
+            message = f"Research run completed with degraded data for {run.symbol}"
+        else:
+            event_type = "run.completed"
+            message = f"Research run completed cleanly for {run.symbol}"
+        self.repo.add_run_event(
+            run.id,
+            event_type,
+            message,
+            {
+                "status": run.status.value,
+                "degradation_reasons": run.degradation_reasons,
+                "missing_core_data": run.missing_core_data,
+                "missing_optional_data": run.missing_optional_data,
+            },
+            thesis_id=run.thesis_id,
+            _conn=_conn,
+        )
 
     def get_scenario(self, scenario_id: str) -> Scenario | None:
         return self.repo.get_scenario(scenario_id)
@@ -723,6 +908,37 @@ def _average(values: list[float]) -> float | None:
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _reason_code(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = text.split(":", 1)[0] if ":" in text else text
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    return text or "unknown_data_quality_issue"
+
+
+def _core_reason_code(value: Any) -> str:
+    code = _reason_code(value)
+    return _CORE_CODE_ALIASES.get(code, code)
+
+
+def _optional_reason_code(value: Any) -> str:
+    code = _reason_code(value)
+    if code.startswith("missing_") or code.startswith("exchange_"):
+        return _OPTIONAL_CODE_ALIASES.get(code, code)
+    return _OPTIONAL_CODE_ALIASES.get(code, f"missing_{code}")
 
 
 def _build_retrospective_insights(

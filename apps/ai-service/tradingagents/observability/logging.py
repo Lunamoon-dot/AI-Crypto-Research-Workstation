@@ -162,15 +162,15 @@ _MODULE_LOGGER = logging.getLogger(__name__)
 
 
 def configure_plain_observability_logging(level: int | None = None) -> None:
-    """Route ``tradingagents.*`` records to stderr so INFO JSON lines show in ``--plain`` mode.
+    """Route ``tradingagents.*`` warnings to stderr in ``--plain`` mode.
 
-    Level defaults to ``INFO``, or ``TRADINGAGENTS_LOG_LEVEL`` (e.g. ``DEBUG``, ``WARNING``).
+    Level defaults to ``WARNING``, or ``TRADINGAGENTS_LOG_LEVEL`` (e.g. ``DEBUG``, ``INFO``).
     Idempotent: only one stderr handler with message-only formatting is added per process.
     """
     log = logging.getLogger("tradingagents")
     if level is None:
-        raw = os.environ.get("TRADINGAGENTS_LOG_LEVEL", "INFO").upper()
-        level = getattr(logging, raw, logging.INFO)
+        raw = os.environ.get("TRADINGAGENTS_LOG_LEVEL", "WARNING").upper()
+        level = getattr(logging, raw, logging.WARNING)
 
     log.setLevel(level)
 

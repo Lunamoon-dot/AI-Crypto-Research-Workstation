@@ -86,9 +86,9 @@ It is not ready for:
 
 ### P2 Product And Operations
 
-- Define retention/deletion guidance for local journal and generated report artifacts.
-- Prepare troubleshooting docs for top install/provider failures.
-- Add release sign-off template usage to every release candidate.
+- [x] Define retention/deletion guidance for local journal and generated report artifacts: `docs/data-retention-and-boundary.md`.
+- [x] Prepare troubleshooting docs for top install/provider failures: `docs/TROUBLESHOOTING.md`.
+- [x] Add release sign-off template usage to every release candidate: `docs/release-sign-off-template.md`.
 - Keep cloud/API work out of scope until local workflows, auditability, and runbook drills are stable.
 
 ## Markdown Cleanup Policy

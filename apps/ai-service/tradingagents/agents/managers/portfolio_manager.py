@@ -20,6 +20,10 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.agents.utils.thesis_json import (
+    extract_trade_thesis_json,
+    strip_trade_thesis_json_block,
+)
 
 
 def _get_feedback_context(config) -> str:
@@ -87,14 +91,37 @@ def create_portfolio_manager(llm, config=None):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction(config=config)}"""
+Be decisive and ground every conclusion in specific evidence from the analysts.
 
-        final_trade_decision = invoke_structured_or_freetext(
+For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block:
+
+TRADE_THESIS_JSON:
+```json
+{{
+  "rating": "Buy | Overweight | Hold | Underweight | Sell",
+  "direction": "long | short | watch | avoid | neutral",
+  "confidence": null,
+  "action_summary": "one short UI action summary",
+  "upside_catalyst": "specific condition that improves the thesis",
+  "invalidation": "specific condition that invalidates the thesis",
+  "key_reasons": ["reason 1", "reason 2", "reason 3"],
+  "risks": ["risk 1", "risk 2"]
+}}
+```
+Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""
+
+        rendered_trade_decision = invoke_structured_or_freetext(
             structured_llm,
             llm,
             prompt,
             render_pm_decision,
             "Portfolio Manager",
+        )
+        final_trade_summary_json = extract_trade_thesis_json(rendered_trade_decision)
+        final_trade_decision = (
+            strip_trade_thesis_json_block(rendered_trade_decision)
+            if final_trade_summary_json
+            else rendered_trade_decision
         )
 
         new_risk_debate_state = {
@@ -117,6 +144,7 @@ Be decisive and ground every conclusion in specific evidence from the analysts.{
         return {
             "risk_debate_state": new_risk_debate_state,
             "final_trade_decision": final_trade_decision,
+            "final_trade_summary_json": final_trade_summary_json,
         }
 
     return portfolio_manager_node

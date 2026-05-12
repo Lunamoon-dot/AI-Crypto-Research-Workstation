@@ -42,5 +42,6 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
         "error": None,
     }
     assert run is not None
+    assert run.workspace_id == "workspace_1"
     assert run.status.value == "completed"
     assert [event.event_type for event in events] == ["run.started", "run.completed"]

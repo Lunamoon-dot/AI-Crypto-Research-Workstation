@@ -33,7 +33,7 @@ from .snapshot import (
     SignalSnapshot,
 )
 from .template import SetupTemplate, TemplateField
-from .thesis import ThesisDirection, TradeThesis
+from .thesis import ThesisDirection, TradeThesis, TradeThesisStructuredSummary
 from .timeline import TimelineEvent
 from .trending import HealthReport, TrendPoint
 from .watchlist import (
@@ -90,6 +90,7 @@ __all__ = [
     "EvaluationMetricsRow",
     "ThesisEvaluation",
     "TradeThesis",
+    "TradeThesisStructuredSummary",
     "TimelineEvent",
     "TrendPoint",
     "HealthReport",

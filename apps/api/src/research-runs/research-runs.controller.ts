@@ -10,17 +10,26 @@ export class ResearchRunsController {
   create(
     @Body() dto: CreateResearchRunDto,
     @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.researchRuns.create(dto, userId);
+    return this.researchRuns.create(dto, userId, workspaceId);
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.researchRuns.get(id);
+  get(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.get(id, userId, workspaceId);
   }
 
   @Get(':id/events')
-  events(@Param('id') id: string) {
-    return this.researchRuns.events(id);
+  events(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.events(id, userId, workspaceId);
   }
 }

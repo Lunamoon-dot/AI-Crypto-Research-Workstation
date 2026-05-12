@@ -8,12 +8,14 @@ from cli import (
     journal_cmd,
     main,
     orchestrator,
+    research_completion,
     signals_cmd,
     watch_cmd,
 )
 from tradingagents.domain import (
     DataFreshness,
     ResearchRun,
+    ResearchRunStatus,
     Signal,
     SignalDirection,
     SignalProvenance,
@@ -439,6 +441,33 @@ def test_journal_workspace_text_panel_includes_evidence_section(tmp_path, monkey
     assert "tradingagents thesis show" in result.output
 
 
+def test_journal_show_surfaces_completed_degraded(tmp_path, monkeypatch):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    journal = JournalService(
+        {
+            "data_cache_dir": str(tmp_path / "cache"),
+            "journal": {"enabled": True, "db_path": str(tmp_path / "journal.sqlite")},
+        }
+    )
+    run = journal.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            status=ResearchRunStatus.COMPLETED_DEGRADED,
+            degradation_reasons=["missing_news"],
+            missing_optional_data=["missing_news"],
+        )
+    )
+    journal.update_research_run(run)
+
+    runner = CliRunner()
+    result = runner.invoke(journal_cmd.journal_app, ["show", run.id])
+
+    assert result.exit_code == 0
+    assert "completed (degraded)" in result.output
+    assert "Missing Optional Data" in result.output
+    assert "missing_news" in result.output
+
+
 def test_journal_and_thesis_plain_modes_are_line_oriented(tmp_path, monkeypatch):
     _patch_journal_default_config(monkeypatch, tmp_path)
     journal = JournalService(
@@ -564,3 +593,52 @@ def test_research_run_yes_profile_is_noninteractive(monkeypatch, tmp_path):
     assert captured["plain"] is True
     assert captured["selections"]["profile"] == "default"
     assert captured["selections"]["ticker"] == "BTC/USDT"
+
+
+def test_research_completion_panel_prioritizes_readable_summary():
+    class FakeService:
+        def get_signal_snapshot(self, _snapshot_id):
+            return None
+
+        def get_thesis(self, thesis_id):
+            return TradeThesis(
+                id=thesis_id,
+                symbol="SOL/USDT",
+                direction="short",
+                confidence=0.24,
+                entry_zone="Break above $100 on daily volume",
+                invalidation_level="Close below $90",
+                target_zones=["Trim 25-50% at market"],
+                thesis_text="**Bottom Line:** Reduce risk and keep a smaller core.",
+            )
+
+    class FakeBridge:
+        service = FakeService()
+
+    class FakeGraph:
+        journal_bridge = FakeBridge()
+        current_debate = None
+        current_research_run = ResearchRun(
+            id="run_abc",
+            symbol="SOL/USDT",
+            thesis_id="thesis_abc",
+            signal_snapshot_id="signal_abc",
+        )
+
+    console = research_completion.Console(record=True, width=180)
+
+    research_completion.emit_research_run_complete_panel(
+        console,
+        graph=FakeGraph(),
+        selections={"ticker": "SOL/USDT", "analysis_date": "2026-05-12"},
+        rating="Underweight",
+        config={"journal": {"enabled": True}},
+    )
+
+    output = console.export_text()
+    assert "Readable Summary" in output
+    assert "PM rating: Underweight" in output
+    assert "Thesis direction: short" in output
+    assert "Invalidation: Close below $90" in output
+    assert "Record IDs: run=run_abc, thesis=thesis_abc, signals=signal_abc" in output
+    assert "Market Snapshot:" not in output

@@ -56,6 +56,7 @@ class ReportGenerator:
 
         sections = [
             self._header(ticker, trade_date),
+            self._data_quality(final_state),
             self._executive_summary(rating),
             self._analyst_reports(final_state),
             self._investment_debate(final_state),
@@ -128,6 +129,21 @@ class ReportGenerator:
                 break
 
         return section
+
+    def _data_quality(self, state: dict) -> str:
+        quality = state.get("run_quality") or {}
+        label = quality.get("label") or quality.get("status") or "unknown"
+        lines = ["## Data Quality", "", f"Completion: {label}"]
+        if quality.get("degradation_reasons"):
+            lines.extend(["", "Degradation reasons:"])
+            lines.extend(f"- {item}" for item in quality["degradation_reasons"])
+        if quality.get("missing_core_data"):
+            lines.extend(["", "Missing core data:"])
+            lines.extend(f"- {item}" for item in quality["missing_core_data"])
+        if quality.get("missing_optional_data"):
+            lines.extend(["", "Missing optional data:"])
+            lines.extend(f"- {item}" for item in quality["missing_optional_data"])
+        return "\n".join(lines)
 
     def _analyst_reports(self, state: dict) -> str:
         section = "## Analyst Reports\n\n"

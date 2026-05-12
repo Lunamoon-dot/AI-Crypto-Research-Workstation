@@ -20,12 +20,16 @@ export class ResearchRunsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  async create(dto: CreateResearchRunDto, userId?: string) {
+  async create(dto: CreateResearchRunDto, userId?: string, workspaceHeader?: string) {
     const user = this.auth.resolveUser(userId);
-    const permission = this.workspaces.assertAccess(user, dto.workspace_id);
+    const workspaceId = this.workspaces.assertRequestWorkspace(
+      dto.workspace_id,
+      workspaceHeader,
+    );
+    const permission = this.workspaces.assertAccess(user, workspaceId);
     const request: EngineRunRequest = {
       run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
-      workspace_id: dto.workspace_id,
+      workspace_id: workspaceId,
       symbol: dto.symbol,
       asset_class: dto.asset_class ?? 'crypto',
       analysis_date: dto.analysis_date,
@@ -44,16 +48,25 @@ export class ResearchRunsService {
     };
   }
 
-  async get(id: string) {
-    const run = await this.journal.getResearchRun(id);
+  async get(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const run = await this.journal.getResearchRun(id, workspaceId);
     if (!run) {
       throw new NotFoundException(`Research run ${id} not found`);
     }
     return run;
   }
 
-  async events(id: string) {
-    await this.get(id);
-    return this.journal.listRunEvents(id);
+  async events(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    await this.get(id, userId, workspaceId);
+    return this.journal.listRunEvents(id, workspaceId);
+  }
+
+  private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
+    const user = this.auth.resolveUser(userId);
+    const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
+    this.workspaces.assertAccess(user, workspaceId);
+    return workspaceId;
   }
 }

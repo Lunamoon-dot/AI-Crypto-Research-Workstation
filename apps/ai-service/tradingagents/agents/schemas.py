@@ -19,9 +19,11 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from tradingagents.agents.utils.thesis_json import render_trade_thesis_json_block
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +216,35 @@ class PortfolioDecision(BaseModel):
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
+    action_summary: str = Field(
+        default="",
+        description=(
+            "Short UI-ready action summary. Keep it under 120 characters, e.g. "
+            "'Trim 25-50%; do not open new longs'."
+        ),
+    )
+    upside_catalyst: str = Field(
+        default="",
+        description=(
+            "Concrete condition that would improve the thesis or justify "
+            "adding risk. Include a price/volume/event trigger when possible."
+        ),
+    )
+    invalidation: str = Field(
+        default="",
+        description=(
+            "Concrete condition that invalidates the position thesis. Include "
+            "specific price levels or event thresholds when possible."
+        ),
+    )
+    key_reasons: list[str] = Field(
+        default_factory=list,
+        description="Three concise reasons behind the final rating.",
+    )
+    risks: list[str] = Field(
+        default_factory=list,
+        description="Main risks, missing data, or caveats that could weaken the thesis.",
+    )
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
@@ -235,7 +266,34 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    if decision.invalidation:
+        parts.extend(["", f"**Invalidation**: {decision.invalidation}"])
+    if decision.upside_catalyst:
+        parts.extend(["", f"**Upside Catalyst**: {decision.upside_catalyst}"])
+    if decision.risks:
+        parts.extend(["", "**Risks**: " + "; ".join(decision.risks)])
+    parts.extend(["", render_trade_thesis_json_block(_pm_summary_payload(decision))])
     return "\n".join(parts)
+
+
+def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
+    direction_by_rating = {
+        PortfolioRating.BUY: "long",
+        PortfolioRating.OVERWEIGHT: "long",
+        PortfolioRating.HOLD: "watch",
+        PortfolioRating.UNDERWEIGHT: "short",
+        PortfolioRating.SELL: "short",
+    }
+    return {
+        "rating": decision.rating.value,
+        "direction": direction_by_rating[decision.rating],
+        "confidence": None,
+        "action_summary": decision.action_summary or decision.executive_summary,
+        "upside_catalyst": decision.upside_catalyst,
+        "invalidation": decision.invalidation,
+        "key_reasons": decision.key_reasons,
+        "risks": decision.risks,
+    }
 
 
 # ---------------------------------------------------------------------------

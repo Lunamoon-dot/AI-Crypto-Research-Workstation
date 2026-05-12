@@ -21,6 +21,8 @@ from .config import get_config
 
 logger = logging.getLogger(__name__)
 
+_OHLCV_FETCH_LIMIT = 1000
+
 
 def _reraise_rate_limit(exc: Exception, vendor: str) -> None:
     """Re-raise CCXT rate-limit exceptions as :exc:`RateLimitError`.
@@ -167,16 +169,84 @@ def _get_crypto_ohlcv_df(
     exchange = _get_configured_exchange()
     symbol = _normalize_symbol(symbol, exchange)
 
-    since = exchange.parse8601(start_date + "T00:00:00Z")
-    raw = exchange.fetch_ohlcv(symbol, timeframe="1d", since=since, limit=365 * 2)
+    start_dt = _parse_utc_day(start_date, "start_date")
+    end_dt = _parse_utc_day(end_date, "end_date")
+    if end_dt < start_dt:
+        raise ValueError(
+            f"end_date must be on or after start_date ({start_date} -> {end_date})"
+        )
 
+    since_ms = int(start_dt.timestamp() * 1000)
+    end_ms = int(end_dt.timestamp() * 1000)
+    raw = _fetch_ohlcv_until(exchange, symbol, since_ms, end_ms)
     df = pd.DataFrame(
         raw, columns=["timestamp", "open", "high", "low", "close", "volume"]
     )
-    if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-        df.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    if df.empty:
+        raise ValueError(
+            f"No OHLCV data returned for {symbol} from {start_date} to {end_date}. "
+            "The pair may not exist on this exchange or the date range may be too old."
+        )
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df = (
+        df.drop_duplicates(subset=["timestamp"])
+        .sort_values("timestamp")
+        .reset_index(drop=True)
+    )
+    df = df[(df["timestamp"] >= start_dt) & (df["timestamp"] <= end_dt)]
+    if df.empty:
+        raise ValueError(
+            f"No OHLCV data in range {start_date} -> {end_date} for {symbol}"
+        )
+    df.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
     return df
+
+
+def _parse_utc_day(value: str, field_name: str) -> datetime:
+    text = (value or "").strip()
+    if not text:
+        raise ValueError(f"{field_name} is required")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO date: {value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _fetch_ohlcv_until(exchange, symbol: str, since_ms: int, end_ms: int) -> list:
+    all_candles: list = []
+    fetch_since = since_ms
+    while True:
+        try:
+            candles = exchange.fetch_ohlcv(
+                symbol,
+                timeframe="1d",
+                since=fetch_since,
+                limit=_OHLCV_FETCH_LIMIT,
+            )
+        except Exception as exc:
+            _reraise_rate_limit(exc, exchange.id)
+            raise
+
+        if not candles:
+            break
+        all_candles.extend(candles)
+        last_ts = int(candles[-1][0])
+        if last_ts >= end_ms or len(candles) < _OHLCV_FETCH_LIMIT:
+            break
+        next_since = last_ts + 1
+        if next_since <= fetch_since:
+            break
+        fetch_since = next_since
+    return all_candles
 
 
 def get_crypto_ohlcv(
@@ -193,52 +263,6 @@ def get_crypto_ohlcv(
     """
     df = _get_crypto_ohlcv_df(symbol, start_date, end_date)
     return df.to_csv(index=False)
-    """
-
-    # Fetch candles — CCXT returns list of [ts, open, high, low, close, volume]
-    all_candles: list = []
-    fetch_since = since
-    limit = 1000
-    while True:
-        candles = exchange.fetch_ohlcv(
-            symbol, timeframe="1d", since=fetch_since, limit=limit
-        )
-        if not candles or len(candles) == 0:
-            break
-        all_candles.extend(candles)
-        last_ts = candles[-1][0]
-        if last_ts >= end_ms or len(candles) < limit:
-            break
-        fetch_since = last_ts + 1  # advance past last candle
-
-    if not all_candles:
-        raise ValueError(
-            f"No OHLCV data returned for {symbol} from {start_date} to {end_date}. "
-            "The pair may not exist on this exchange or the date range may be too old."
-        )
-
-    # Build DataFrame
-    df = pd.DataFrame(
-        all_candles,
-        columns=["timestamp", "Open", "High", "Low", "Close", "Volume"],
-    )
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-    df.set_index("timestamp", inplace=True)
-
-    # Filter to requested date range
-    df = df[
-        (df.index >= pd.Timestamp(start_dt, tz=timezone.utc))
-        & (df.index <= pd.Timestamp(end_dt, tz=timezone.utc))
-    ]
-
-    if df.empty:
-        raise ValueError(
-            f"No OHLCV data in range {start_date} → {end_date} for {symbol}"
-        )
-
-    return df.to_csv()
-    """
-
 
 # ---------------------------------------------------------------------------
 # Ticker snapshot

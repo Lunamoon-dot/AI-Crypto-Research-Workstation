@@ -26,6 +26,29 @@ from tradingagents.graph.opinions import build_agent_opinions, build_research_de
 logger = logging.getLogger(__name__)
 
 
+def _append_unique(items: list[str], value: str) -> None:
+    text = str(value).strip()
+    if text and text not in items:
+        items.append(text)
+
+
+def _append_missing_core(run: ResearchRun, value: str) -> None:
+    _append_unique(run.missing_core_data, value)
+
+
+def _append_degradation_reason(run: ResearchRun, value: str) -> None:
+    _append_unique(run.degradation_reasons, value)
+
+
+def _merge_run_quality_from_signal_result(run: ResearchRun, result: SignalResult) -> None:
+    for item in getattr(result, "missing_core_data", []) or []:
+        _append_unique(run.missing_core_data, item)
+    for item in getattr(result, "missing_optional_data", []) or []:
+        _append_unique(run.missing_optional_data, item)
+    for item in getattr(result, "degradation_reasons", []) or []:
+        _append_unique(run.degradation_reasons, item)
+
+
 class JournalBridge:
     """Keeps journal persistence out of graph orchestration code."""
 
@@ -106,10 +129,14 @@ class JournalBridge:
         result: SignalResult | None,
     ) -> tuple[ResearchRun | None, list[Signal]]:
         if not self.service or not run or result is None:
+            if run is not None and result is None:
+                _append_missing_core(run, "ohlcv_unavailable")
+                _append_degradation_reason(run, "ohlcv_unavailable")
             return run, []
         if not run.id:
             return run, []
         try:
+            _merge_run_quality_from_signal_result(run, result)
             stale_mode = self.config.get("stale_data", {}).get("mode", "warn")
 
             # --- Phase 4 (tail): build reliability map from historical evaluations ---

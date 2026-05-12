@@ -39,11 +39,12 @@ def compute_rsi_divergence(ohlcv_csv: str, period: int = 14) -> FactorSignal:
 
     if rsi is None or len(rsi) < 20:
         return _neutral("rsi_divergence", "RSI computation failed.", data_quality=dq)
+    last_rsi = float(rsi.iloc[-1])
 
     # Look at last 20 bars for divergence
     lookback = min(20, len(close) - 2)
     recent_close = close.iloc[-lookback:]
-    recent_rsi = rsi[-lookback:]
+    recent_rsi = rsi.iloc[-lookback:]
 
     # Find local peaks and troughs
     price_hh = _has_higher_high(recent_close.values)
@@ -57,12 +58,12 @@ def compute_rsi_divergence(ohlcv_csv: str, period: int = 14) -> FactorSignal:
             name="rsi_divergence",
             score=SignalScore.SELL,
             confidence=0.75,
-            value=float(rsi[-1]),
+            value=last_rsi,
             threshold_breached=True,
             data_quality=dq,
             detail=(
                 f"Bearish RSI divergence: price made higher high but RSI "
-                f"failed to confirm (RSI={rsi[-1]:.1f}). Momentum weakening."
+                f"failed to confirm (RSI={last_rsi:.1f}). Momentum weakening."
             ),
         )
 
@@ -72,45 +73,45 @@ def compute_rsi_divergence(ohlcv_csv: str, period: int = 14) -> FactorSignal:
             name="rsi_divergence",
             score=SignalScore.BUY,
             confidence=0.75,
-            value=float(rsi[-1]),
+            value=last_rsi,
             threshold_breached=True,
             data_quality=dq,
             detail=(
                 f"Bullish RSI divergence: price made lower low but RSI "
-                f"held higher low (RSI={rsi[-1]:.1f}). Selling pressure fading."
+                f"held higher low (RSI={last_rsi:.1f}). Selling pressure fading."
             ),
         )
 
     # Overbought/Oversold as secondary signal
-    if rsi[-1] > 70:
+    if last_rsi > 70:
         return FactorSignal(
             name="rsi_divergence",
             score=SignalScore.SELL,
             confidence=0.4,
-            value=float(rsi[-1]),
+            value=last_rsi,
             threshold_breached=True,
             data_quality=dq,
-            detail=f"RSI overbought at {rsi[-1]:.1f} — caution on new longs.",
+            detail=f"RSI overbought at {last_rsi:.1f} — caution on new longs.",
         )
-    if rsi[-1] < 30:
+    if last_rsi < 30:
         return FactorSignal(
             name="rsi_divergence",
             score=SignalScore.BUY,
             confidence=0.4,
-            value=float(rsi[-1]),
+            value=last_rsi,
             threshold_breached=True,
             data_quality=dq,
-            detail=f"RSI oversold at {rsi[-1]:.1f} — potential bounce.",
+            detail=f"RSI oversold at {last_rsi:.1f} — potential bounce.",
         )
 
     return FactorSignal(
         name="rsi_divergence",
         score=SignalScore.NEUTRAL,
         confidence=0.6,
-        value=float(rsi[-1]),
+        value=last_rsi,
         threshold_breached=False,
         data_quality=dq,
-        detail=f"RSI={rsi[-1]:.1f} — no divergence or extreme reading.",
+        detail=f"RSI={last_rsi:.1f} — no divergence or extreme reading.",
     )
 
 

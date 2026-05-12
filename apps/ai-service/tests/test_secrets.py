@@ -2,6 +2,7 @@
 
 import pytest
 
+from tradingagents.config import secrets as secrets_module
 from tradingagents.config.secrets import SecretsManager
 from tradingagents.exceptions import LLMCredentialError
 
@@ -42,6 +43,21 @@ class TestSecretsManagerResolve:
         # Change env var — cache should return old value
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-second")
         assert secrets.resolve("deepseek") == "sk-first"
+
+    def test_resolve_from_monorepo_root_dotenv(self, tmp_path, monkeypatch):
+        service_root = tmp_path / "repo" / "apps" / "ai-service"
+        (service_root / "config").mkdir(parents=True)
+        (service_root / "config" / "default.toml").write_text("", encoding="utf-8")
+        (tmp_path / "repo" / ".env").write_text(
+            "DEEPSEEK_API_KEY=sk-monorepo\n", encoding="utf-8"
+        )
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("TRADINGAGENTS_DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.setattr(secrets_module, "_project_root", lambda: service_root)
+
+        secrets = SecretsManager()
+
+        assert secrets.resolve("deepseek") == "sk-monorepo"
 
 
 class TestSecretsManagerResolveRequired:

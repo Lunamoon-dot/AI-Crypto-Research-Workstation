@@ -39,6 +39,14 @@ from tradingagents.utils.numbers import extract_numbers
 PriceLoader = Callable[[str, str, str], str]
 
 
+class OhlcvWindowViolation(ValueError):
+    """Raised when evaluation OHLCV contains candles outside its window."""
+
+    def __init__(self, message: str, payload: dict[str, Any]):
+        super().__init__(message)
+        self.payload = payload
+
+
 class EvaluationService:
     """Evaluate saved theses using forward OHLCV windows.
 
@@ -77,6 +85,18 @@ class EvaluationService:
             thesis.symbol, start_date.isoformat(), end_date.isoformat()
         )
         candles = _parse_ohlcv(raw)
+        try:
+            _assert_candles_within_window(candles, start_date, end_date)
+        except OhlcvWindowViolation as exc:
+            if thesis.research_run_id and thesis.id:
+                self.repo.add_run_event(
+                    thesis.research_run_id,
+                    "ohlcv_out_of_window",
+                    str(exc),
+                    exc.payload,
+                    thesis_id=thesis.id,
+                )
+            raise
         evaluation = _evaluate_candles(
             thesis,
             candles,
@@ -612,6 +632,15 @@ def _parse_ohlcv(raw_csv: str) -> pd.DataFrame:
     df = pd.read_csv(StringIO(raw_csv))
     normalized = {col: col.strip().lower() for col in df.columns}
     df = df.rename(columns=normalized)
+    date_col = _ohlcv_date_column(df)
+    if date_col is None:
+        raise ValueError(
+            "OHLCV data missing date/timestamp column; cannot enforce evaluation window"
+        )
+    df = df.rename(columns={date_col: "date"})
+    df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
+    if df["date"].isna().any():
+        raise ValueError("OHLCV data contains unparseable candle dates")
     required = {"open", "high", "low", "close"}
     missing = required - set(df.columns)
     if missing:
@@ -623,7 +652,40 @@ def _parse_ohlcv(raw_csv: str) -> pd.DataFrame:
     df = df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
     if df.empty:
         raise ValueError("OHLCV data has no valid numeric candles")
+    df = df.sort_values("date").reset_index(drop=True)
     return df
+
+
+def _ohlcv_date_column(df: pd.DataFrame) -> str | None:
+    for column in ("date", "timestamp", "datetime", "time"):
+        if column in df.columns:
+            return column
+    return None
+
+
+def _assert_candles_within_window(
+    candles: pd.DataFrame,
+    evaluation_start,
+    evaluation_end,
+) -> None:
+    dates = candles["date"].dt.date
+    min_date = dates.min()
+    max_date = dates.max()
+    if min_date >= evaluation_start and max_date <= evaluation_end:
+        return
+    payload = {
+        "reason_code": "ohlcv_out_of_window",
+        "min_candle_date": min_date.isoformat(),
+        "max_candle_date": max_date.isoformat(),
+        "evaluation_start": evaluation_start.isoformat(),
+        "evaluation_end": evaluation_end.isoformat(),
+    }
+    raise OhlcvWindowViolation(
+        "OHLCV data outside evaluation window: "
+        f"{min_date.isoformat()} -> {max_date.isoformat()}; expected "
+        f"{evaluation_start.isoformat()} -> {evaluation_end.isoformat()}",
+        payload,
+    )
 
 
 def _evaluate_candles(

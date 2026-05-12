@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .tenancy import normalize_workspace_id
 
 
 class BriefAssetSummary(BaseModel):
@@ -40,6 +42,7 @@ class MarketBrief(BaseModel):
     """Structured daily market brief built from persisted local journal data."""
 
     id: str | None = None
+    workspace_id: str = "local"
     brief_date: date = Field(default_factory=lambda: datetime.now(timezone.utc).date())
     watchlist_name: str = "default"
     title: str = "Market Brief"
@@ -53,3 +56,8 @@ class MarketBrief(BaseModel):
     previous_brief_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)

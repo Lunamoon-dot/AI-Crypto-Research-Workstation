@@ -195,6 +195,66 @@ def test_watchlist_brief_scopes_theses_scenarios_and_alerts(tmp_path):
     assert all(alert.thesis_id == thesis.id for alert in brief.alerts)
 
 
+def test_watchlist_brief_batches_thesis_snapshot_and_scenario_reads(tmp_path):
+    config = _config(tmp_path)
+    journal = JournalService(config)
+    watchlists = WatchlistService(config)
+
+    for idx in range(5):
+        symbol = f"BTC{idx}/USDT"
+        run = journal.start_research_run(ResearchRun(symbol=symbol))
+        thesis = journal.save_thesis(
+            TradeThesis(
+                research_run_id=run.id,
+                symbol=symbol,
+                direction=ThesisDirection.LONG,
+                thesis_text="Bullish continuation if resistance reclaim holds.",
+                target_zones=["110000"],
+            )
+        )
+        journal.save_market_snapshot(
+            MarketSnapshot(
+                research_run_id=run.id,
+                symbol=symbol,
+                current_price=110100.0 + idx,
+            )
+        )
+        journal.save_scenario(
+            Scenario(
+                thesis_id=thesis.id,
+                condition="If resistance reclaims 110000.",
+                expected_market_behavior="Bullish continuation becomes more likely.",
+                probability_band=ScenarioProbabilityBand.MEDIUM,
+                suggested_user_action="review long thesis",
+            )
+        )
+        watchlists.add_thesis(thesis.id)
+
+    reads: list[tuple[str, str]] = []
+    original_fetchone = watchlists.store.fetchone
+    original_fetchall = watchlists.store.fetchall
+
+    def counting_fetchone(sql, params=()):
+        reads.append(("one", sql))
+        return original_fetchone(sql, params)
+
+    def counting_fetchall(sql, params=()):
+        reads.append(("all", sql))
+        return original_fetchall(sql, params)
+
+    watchlists.store.fetchone = counting_fetchone
+    watchlists.store.fetchall = counting_fetchall
+
+    brief = watchlists.build_brief(evaluate_snapshots=True)
+
+    assert len(brief.theses) == 5
+    assert len(brief.scenarios) == 5
+    assert len(reads) <= 6
+    assert sum("FROM trade_theses" in sql for _, sql in reads) == 1
+    assert sum("FROM market_snapshots" in sql for _, sql in reads) == 1
+    assert sum("FROM scenarios" in sql for _, sql in reads) == 1
+
+
 def test_watchlist_cli_add_symbol_and_list(tmp_path, monkeypatch):
     service = WatchlistService(_config(tmp_path))
     monkeypatch.setattr(watch_cmd, "_service", lambda: service)

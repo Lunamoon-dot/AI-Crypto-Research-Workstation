@@ -4,6 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     symbol TEXT NOT NULL,
     asset_class TEXT NOT NULL,
     timeframe TEXT,
@@ -21,14 +22,21 @@ CREATE TABLE IF NOT EXISTS research_runs (
     decision_id TEXT,
     user_decision_id TEXT,
     outcome_review_id TEXT,
+    degradation_reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    missing_core_data_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    missing_optional_data_json JSONB NOT NULL DEFAULT '[]'::jsonb,
     payload_json JSONB NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_runs_status
 ON research_runs(status, started_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_research_runs_workspace_created
+ON research_runs(workspace_id, started_at DESC);
+
 CREATE TABLE IF NOT EXISTS run_events (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     research_run_id TEXT NOT NULL REFERENCES research_runs(id),
     thesis_id TEXT,
     event_type TEXT NOT NULL,
@@ -40,8 +48,12 @@ CREATE TABLE IF NOT EXISTS run_events (
 CREATE INDEX IF NOT EXISTS idx_run_events_run
 ON run_events(research_run_id, created_at);
 
+CREATE INDEX IF NOT EXISTS idx_run_events_workspace_created
+ON run_events(workspace_id, created_at);
+
 CREATE TABLE IF NOT EXISTS trade_theses (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     research_run_id TEXT REFERENCES research_runs(id),
     symbol TEXT NOT NULL,
     direction TEXT NOT NULL,
@@ -51,8 +63,12 @@ CREATE TABLE IF NOT EXISTS trade_theses (
     payload_json JSONB NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_trade_theses_workspace_created
+ON trade_theses(workspace_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     symbol TEXT NOT NULL,
     signal_type TEXT NOT NULL,
     direction TEXT NOT NULL,
@@ -63,13 +79,23 @@ CREATE TABLE IF NOT EXISTS signals (
     payload_json JSONB NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_signals_workspace_observed
+ON signals(workspace_id, observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS watchlists (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT NOT NULL,
     enabled INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     payload_json JSONB NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name
+ON watchlists(workspace_id, name);
+
+CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created
+ON watchlists(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
     id TEXT PRIMARY KEY,
@@ -85,6 +111,7 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
 
 CREATE TABLE IF NOT EXISTS market_briefs (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     brief_date DATE NOT NULL,
     watchlist_name TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -92,6 +119,9 @@ CREATE TABLE IF NOT EXISTS market_briefs (
     previous_brief_id TEXT,
     payload_json JSONB NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created
+ON market_briefs(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS user_decisions (
     id TEXT PRIMARY KEY,

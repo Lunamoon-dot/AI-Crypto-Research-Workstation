@@ -294,6 +294,13 @@ CI runs:
 - compile modules;
 - pytest.
 
+## Operations Docs
+
+- [Data retention and cloud boundary](docs/data-retention-and-boundary.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Go-live readiness checklist](docs/GO_LIVE_READINESS.md)
+- [Release sign-off template](docs/release-sign-off-template.md)
+
 ## Roadmap
 
 Start at [ROADMAP.md](ROADMAP.md) (hub). Detailed docs:

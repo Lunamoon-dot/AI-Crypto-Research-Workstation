@@ -8,17 +8,20 @@ from tradingagents.domain import (
     OutcomeReview,
     ResearchDebate,
     ResearchRun,
+    ResearchRunStatus,
     Scenario,
     ScenarioProbabilityBand,
     Signal,
     SignalDirection,
     SignalProvenance,
+    MarketBrief,
     MarketSnapshot,
     SignalSnapshot,
     ThesisDirection,
     TradeThesis,
     UserDecision,
     UserDecisionAction,
+    Watchlist,
 )
 from tradingagents.services import JournalService
 
@@ -74,6 +77,163 @@ def test_journal_service_persists_research_run_and_thesis(tmp_path):
     updated_run = service.get_research_run(run.id)
     assert updated_run.quick_think_model == "deepseek-v4-flash-updated"
     assert updated_run.config_hash == "fedcba9876543210"
+
+
+def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tmp_path):
+    db_path = tmp_path / "journal.sqlite"
+    config_a = _config(tmp_path)
+    config_a["journal"]["db_path"] = str(db_path)
+    config_a["_engine"] = {"workspace_id": "workspace_a"}
+    config_b = _config(tmp_path)
+    config_b["journal"]["db_path"] = str(db_path)
+    config_b["_engine"] = {"workspace_id": "workspace_b"}
+    service_a = JournalService(config_a)
+    service_b = JournalService(config_b)
+
+    run_a = service_a.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    run_b = service_b.start_research_run(ResearchRun(symbol="ETH/USDT"))
+    thesis_a = service_a.save_thesis(
+        TradeThesis(symbol="BTC/USDT", thesis_text="A")
+    )
+    thesis_b = service_b.save_thesis(
+        TradeThesis(symbol="ETH/USDT", thesis_text="B")
+    )
+    signal_a = service_a.save_signal(
+        Signal(
+            symbol="BTC/USDT",
+            signal_type="regime",
+            direction=SignalDirection.BULLISH,
+            provenance=SignalProvenance(source="test"),
+        )
+    )
+    signal_b = service_b.save_signal(
+        Signal(
+            symbol="ETH/USDT",
+            signal_type="regime",
+            direction=SignalDirection.BEARISH,
+            provenance=SignalProvenance(source="test"),
+        )
+    )
+    watch_a = service_a.repo.save_watchlist(
+        Watchlist(name="default", workspace_id="workspace_a")
+    )
+    watch_b = service_b.repo.save_watchlist(
+        Watchlist(name="default", workspace_id="workspace_b")
+    )
+    service_a.repo.save_market_brief(
+        MarketBrief(title="A", workspace_id="workspace_a")
+    )
+    service_b.repo.save_market_brief(
+        MarketBrief(title="B", workspace_id="workspace_b")
+    )
+    service_a.add_run_event(run_a.id, "run.note", "A")
+    service_b.add_run_event(run_b.id, "run.note", "B")
+
+    assert [run.symbol for run in service_a.list_research_runs()] == ["BTC/USDT"]
+    assert [run.symbol for run in service_b.list_research_runs()] == ["ETH/USDT"]
+    assert [thesis.id for thesis in service_a.list_theses()] == [thesis_a.id]
+    assert [thesis.id for thesis in service_b.list_theses()] == [thesis_b.id]
+    assert [signal.id for signal in service_a.list_signals()] == [signal_a.id]
+    assert [signal.id for signal in service_b.list_signals()] == [signal_b.id]
+    assert service_a.repo.list_watchlists(workspace_id="workspace_a")[0].id == watch_a.id
+    assert service_b.repo.list_watchlists(workspace_id="workspace_b")[0].id == watch_b.id
+    assert service_a.repo.list_market_briefs(workspace_id="workspace_a")[0].title == "A"
+    assert service_b.repo.list_market_briefs(workspace_id="workspace_b")[0].title == "B"
+    assert service_a.list_timeline_events(workspace_id="workspace_a")[0].message == "A"
+    assert service_b.list_timeline_events(workspace_id="workspace_b")[0].message == "B"
+
+
+def test_journal_service_marks_missing_core_data_as_failed(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = TradeThesis(
+        symbol="BTC/USDT",
+        direction=ThesisDirection.LONG,
+        thesis_text="Bullish continuation if reclaim holds.",
+    )
+
+    saved_run, saved_thesis, _scenarios = service.complete_research_run_bundle(
+        run,
+        thesis,
+        [],
+    )
+
+    loaded = service.get_research_run(saved_run.id)
+    events = service.list_timeline_events(research_run_id=saved_run.id)
+    assert saved_thesis is not None
+    assert loaded.status == ResearchRunStatus.FAILED
+    assert "market_snapshot_unavailable" in loaded.missing_core_data
+    assert "market_snapshot_unavailable" in loaded.degradation_reasons
+    assert any(event.event_type == "run.failed" for event in events)
+
+
+def test_journal_service_marks_optional_data_as_completed_degraded(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            missing_optional_data=["missing_funding_rate"],
+        )
+    )
+    market_snapshot = service.save_market_snapshot(
+        MarketSnapshot(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            current_price=100000.0,
+        )
+    )
+    run.market_snapshot_id = market_snapshot.id
+    thesis = TradeThesis(
+        symbol="BTC/USDT",
+        direction=ThesisDirection.WATCH,
+        thesis_text="Watch for confirmation.",
+    )
+
+    saved_run, _thesis, _scenarios = service.complete_research_run_bundle(
+        run,
+        thesis,
+        [],
+    )
+
+    loaded = service.get_research_run(saved_run.id)
+    assert loaded.status == ResearchRunStatus.COMPLETED_DEGRADED
+    assert loaded.missing_core_data == []
+    assert "missing_funding_rate" in loaded.missing_optional_data
+    assert "missing_funding_rate" in loaded.degradation_reasons
+
+
+def test_journal_service_does_not_mark_nonempty_reasons_completed(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            degradation_reasons=["missing_news"],
+        )
+    )
+    market_snapshot = service.save_market_snapshot(
+        MarketSnapshot(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            current_price=100000.0,
+        )
+    )
+    run.market_snapshot_id = market_snapshot.id
+    thesis = TradeThesis(
+        symbol="BTC/USDT",
+        direction=ThesisDirection.WATCH,
+        thesis_text="Watch for confirmation.",
+    )
+
+    saved_run, _thesis, _scenarios = service.complete_research_run_bundle(
+        run,
+        thesis,
+        [],
+    )
+
+    loaded = service.get_research_run(saved_run.id)
+    assert loaded.status == ResearchRunStatus.COMPLETED_DEGRADED
+    assert loaded.status != ResearchRunStatus.COMPLETED
+    assert loaded.degradation_reasons == ["missing_news"]
 
 
 def test_journal_service_records_decision_and_outcome(tmp_path):

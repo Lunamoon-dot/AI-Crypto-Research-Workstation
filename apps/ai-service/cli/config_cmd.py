@@ -410,7 +410,7 @@ def config_validate(
         if fb.get("enabled"):
             console.print(
                 f"  LLM fallback: [green]enabled[/green] "
-                f"({' → '.join(fb.get('fallback_providers', []))})"
+                f"({' -> '.join(fb.get('fallback_providers', []))})"
             )
         else:
             console.print("  LLM fallback: [dim]disabled[/dim]")

@@ -45,6 +45,27 @@ def _project_root() -> Path:
     return Path.cwd()
 
 
+def _dotenv_files() -> list[Path]:
+    """Find .env files from the package root up through parent directories."""
+    search_roots: list[Path] = []
+    for root in (_project_root(), Path.cwd()):
+        search_roots.extend([root, *root.parents])
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for root in search_roots:
+        env_file = root / ".env"
+        try:
+            key = env_file.resolve()
+        except OSError:
+            key = env_file
+        if key in seen or not env_file.exists():
+            continue
+        seen.add(key)
+        files.append(env_file)
+    return files
+
+
 class SecretsManager:
     """Resolve API keys from environment, .env, and optionally the system keyring.
 
@@ -209,10 +230,9 @@ class SecretsManager:
             from dotenv import load_dotenv  # type: ignore[import-untyped]
         except ImportError:
             return
-        root = _project_root()
-        env_file = root / ".env"
-        if env_file.exists():
+        for env_file in _dotenv_files():
             load_dotenv(dotenv_path=str(env_file), override=False)
+        root = _project_root()
         enterprise_file = root / ".env.enterprise"
         if enterprise_file.exists():
             load_dotenv(dotenv_path=str(enterprise_file), override=False)

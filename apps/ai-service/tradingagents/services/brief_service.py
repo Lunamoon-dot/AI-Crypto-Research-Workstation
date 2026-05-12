@@ -14,6 +14,7 @@ from tradingagents.services.journal_service import resolve_journal_db_path
 from tradingagents.services.watchlist_service import WatchlistBrief, WatchlistService
 from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.sqlite import SQLiteStore
+from tradingagents.domain.tenancy import normalize_workspace_id
 
 
 _DEFAULT_BRIEF_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
@@ -25,6 +26,10 @@ class BriefService:
 
     def __init__(self, config: dict | None = None):
         self.config = config or DEFAULT_CONFIG
+        engine_cfg = self.config.get("_engine") or {}
+        self.workspace_id = normalize_workspace_id(
+            engine_cfg.get("workspace_id") or self.config.get("workspace_id")
+        )
         self.store = SQLiteStore(resolve_journal_db_path(self.config))
         self.repo = JournalRepository(self.store)
         self.watchlists = WatchlistService(self.config)
@@ -49,6 +54,7 @@ class BriefService:
         previous = self.repo.get_latest_market_brief(
             watchlist_name=watchlist_name,
             before_date=target_date.isoformat(),
+            workspace_id=self.workspace_id,
         )
         symbols = _brief_symbols(watchlist)
         asset_summaries = [
@@ -56,6 +62,7 @@ class BriefService:
         ]
         thesis_updates = _thesis_updates(watchlist)
         brief = MarketBrief(
+            workspace_id=self.workspace_id,
             brief_date=target_date,
             watchlist_name=watchlist_name,
             title=f"Market Brief - {target_date.isoformat()}",
@@ -78,7 +85,7 @@ class BriefService:
         return self.repo.save_market_brief(brief) if save else brief
 
     def get_brief(self, brief_id: str) -> MarketBrief | None:
-        return self.repo.get_market_brief(brief_id)
+        return self.repo.get_market_brief(brief_id, workspace_id=self.workspace_id)
 
     def list_briefs(
         self,
@@ -86,7 +93,11 @@ class BriefService:
         watchlist_name: str | None = None,
         limit: int = 20,
     ) -> list[MarketBrief]:
-        return self.repo.list_market_briefs(watchlist_name=watchlist_name, limit=limit)
+        return self.repo.list_market_briefs(
+            watchlist_name=watchlist_name,
+            limit=limit,
+            workspace_id=self.workspace_id,
+        )
 
     def _asset_summary(
         self,
@@ -94,7 +105,10 @@ class BriefService:
         *,
         previous: MarketBrief | None,
     ) -> BriefAssetSummary:
-        snapshot = self.repo.get_latest_market_snapshot(symbol)
+        snapshot = self.repo.get_latest_market_snapshot(
+            symbol,
+            workspace_id=self.workspace_id,
+        )
         previous_asset = _previous_asset(previous, symbol)
         if not snapshot:
             return BriefAssetSummary(

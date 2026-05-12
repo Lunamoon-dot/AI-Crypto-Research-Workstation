@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .tenancy import normalize_workspace_id
 
 
 class ResearchRunStatus(str, Enum):
@@ -14,6 +16,7 @@ class ResearchRunStatus(str, Enum):
     CREATED = "created"
     RUNNING = "running"
     COMPLETED = "completed"
+    COMPLETED_DEGRADED = "completed_degraded"
     FAILED = "failed"
 
 
@@ -29,6 +32,7 @@ class ResearchRun(BaseModel):
     """
 
     id: str | None = None
+    workspace_id: str = "local"
     symbol: str
     asset_class: str = "crypto"
     timeframe: str | None = None
@@ -53,3 +57,26 @@ class ResearchRun(BaseModel):
     user_decision_id: str | None = None
     outcome_review_id: str | None = None
     status: ResearchRunStatus = ResearchRunStatus.CREATED
+    degradation_reasons: list[str] = Field(default_factory=list)
+    missing_core_data: list[str] = Field(default_factory=list)
+    missing_optional_data: list[str] = Field(default_factory=list)
+
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)
+
+    def has_degradation(self) -> bool:
+        return bool(
+            self.degradation_reasons
+            or self.missing_core_data
+            or self.missing_optional_data
+            or self.status == ResearchRunStatus.COMPLETED_DEGRADED
+        )
+
+    def completion_label(self) -> str:
+        if self.status == ResearchRunStatus.COMPLETED_DEGRADED:
+            return "completed (degraded)"
+        if self.status == ResearchRunStatus.COMPLETED:
+            return "completed (clean)"
+        return self.status.value

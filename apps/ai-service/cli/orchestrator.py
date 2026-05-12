@@ -265,7 +265,7 @@ class AnalysisOrchestrator:
                         final_state, selections["ticker"], save_path
                     )
                     console.print(
-                        f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}"
+                        f"\n[green]Report saved to:[/green] {save_path.resolve()}"
                     )
                     console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
                 except Exception as e:
@@ -506,17 +506,21 @@ class AnalysisOrchestrator:
             from tradingagents.dataflows.config import config_context
             from tradingagents.dataflows.interface import check_provider_health
 
+            health_timeout = max(
+                10.0,
+                float(config.get("provider_runtime", {}).get("timeout_sec", 10.0)),
+            )
             with config_context(config):
-                health = check_provider_health(timeout_sec=5.0)
+                health = check_provider_health(timeout_sec=health_timeout)
             for vendor, status in health.items():
                 if status == "healthy":
-                    console.print(f"  [green]✓[/green] {vendor}: {status}")
+                    console.print(f"  [green]OK[/green] {vendor}: {status}")
                 else:
-                    console.print(f"  [yellow]⚠[/yellow] {vendor}: {status}")
+                    console.print(f"  [yellow]WARN[/yellow] {vendor}: {status}")
         except Exception as exc:
-            console.print(f"  [yellow]⚠[/yellow] Could not probe providers: {exc}")
+            console.print(f"  [yellow]WARN[/yellow] Could not probe providers: {exc}")
 
-        console.print("\n[green]Dry-run complete — configuration is valid.[/green]")
+        console.print("\n[green]Dry-run complete - configuration is valid.[/green]")
         console.print("[dim]Remove --dry-run to run the full research pipeline.[/dim]")
 
 

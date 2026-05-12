@@ -51,17 +51,38 @@ class EngineRunner:
                 debug=False,
             )
             loaded = journal.get_research_run(run.id or "") or run
-            loaded.status = ResearchRunStatus.COMPLETED
+            if loaded.status not in {
+                ResearchRunStatus.COMPLETED_DEGRADED,
+                ResearchRunStatus.FAILED,
+            }:
+                loaded.status = ResearchRunStatus.COMPLETED
             loaded.completed_at = loaded.completed_at or datetime.now(timezone.utc)
             saved = journal.update_research_run(loaded)
+            event_type = (
+                "run.failed"
+                if saved.status == ResearchRunStatus.FAILED
+                else (
+                    "run.completed_degraded"
+                    if saved.status == ResearchRunStatus.COMPLETED_DEGRADED
+                    else "run.completed"
+                )
+            )
             journal.add_run_event(
                 saved.id or run.id or request.run_id or "",
-                "run.completed",
-                f"Engine run completed for {request.symbol}",
+                event_type,
+                (
+                    f"Engine run failed quality gate for {request.symbol}"
+                    if saved.status == ResearchRunStatus.FAILED
+                    else f"Engine run completed for {request.symbol}"
+                ),
                 {
                     "run_id": saved.id,
                     "workspace_id": request.workspace_id,
                     "summary": result.decision,
+                    "status": saved.status.value,
+                    "degradation_reasons": saved.degradation_reasons,
+                    "missing_core_data": saved.missing_core_data,
+                    "missing_optional_data": saved.missing_optional_data,
                     "engine_contract": "v1",
                 },
                 thesis_id=saved.thesis_id,
@@ -70,7 +91,7 @@ class EngineRunner:
                 journal,
                 request,
                 saved.id or run.id or "",
-                "completed",
+                saved.status.value,
                 thesis_id=saved.thesis_id,
                 summary=result.decision,
             )
@@ -133,6 +154,7 @@ class EngineRunner:
     ) -> ResearchRun:
         run = ResearchRun(
             id=request.run_id,
+            workspace_id=request.workspace_id,
             symbol=request.symbol,
             asset_class=request.asset_class,
             timeframe=request.analysis_date.isoformat(),
@@ -169,7 +191,11 @@ class EngineRunner:
         run: ResearchRun,
     ) -> EngineRunResult:
         run.status = ResearchRunStatus.COMPLETED
-        saved = journal.complete_research_run(run)
+        saved = journal.complete_research_run(
+            run,
+            quality_check=False,
+            emit_event=False,
+        )
         journal.add_run_event(
             saved.id or run.id or "",
             "run.completed",

@@ -13,6 +13,7 @@ Breaking changes within the 0.x line are called out explicitly.
 - Production readiness review and refreshed go-live checklist with current lint, type-check, compile, dependency, and test evidence.
 - Release evidence bundle for clean-clone verification, DeepSeek real-provider smoke, journal migration/backup/restore, dependency audit, secret scan triage, and operational drills.
 - Runbooks for journal backup/restore, credential leak tabletop, incident messaging, and local data retention/cloud boundary.
+- Troubleshooting guide for install/provider failures and a reusable release sign-off template.
 - Regression coverage for `ResearchRun` model/config provenance persistence and legacy journal migration.
 
 ### Changed
@@ -22,6 +23,7 @@ Breaking changes within the 0.x line are called out explicitly.
 - Journal migrations now add provenance columns to older `research_runs` tables.
 - Developer docs now point to `pip install -e ".[dev]"` and include the release quality gates.
 - `scripts/smoke_structured_output.py` now passes the default config into the Portfolio Manager and uses ASCII-safe smoke labels for Windows log capture.
+- Watchlist/dashboard reads now batch thesis, latest snapshot, scenario, and scoped alert lookups for brief/check workflows.
 
 ### Removed
 

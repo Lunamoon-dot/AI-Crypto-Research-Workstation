@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { JournalRepository, JsonRecord } from './journal.types';
@@ -16,14 +16,21 @@ export class PostgresJournalRepository implements JournalRepository {
     }
   }
 
-  async getResearchRun(id: string): Promise<JsonRecord | null> {
-    return this.one('SELECT payload_json FROM research_runs WHERE id = $1', [id]);
+  async getResearchRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      'SELECT payload_json FROM research_runs WHERE id = $1 AND workspace_id = $2',
+      [id, workspaceId],
+    );
   }
 
-  async listRunEvents(runId: string): Promise<JsonRecord[]> {
+  async listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT jsonb_build_object(
          'id', id,
+         'workspace_id', workspace_id,
          'research_run_id', research_run_id,
          'thesis_id', thesis_id,
          'event_type', event_type,
@@ -32,33 +39,40 @@ export class PostgresJournalRepository implements JournalRepository {
          'payload', payload_json
        ) AS payload_json
        FROM run_events
-       WHERE research_run_id = $1
+       WHERE research_run_id = $1 AND workspace_id = $2
        ORDER BY created_at ASC`,
-      [runId],
+      [runId, workspaceId],
     );
   }
 
-  async listTheses(limit: number): Promise<JsonRecord[]> {
+  async listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT payload_json FROM trade_theses
+       WHERE workspace_id = $1
        ORDER BY created_at DESC
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [workspaceId, limit],
     );
   }
 
-  async getThesis(id: string): Promise<JsonRecord | null> {
-    return this.one('SELECT payload_json FROM trade_theses WHERE id = $1', [id]);
+  async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    return this.one(
+      'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
+      [id, workspaceId],
+    );
   }
 
   async recordThesisDecision(
     thesisId: string,
     action: string,
     notes: string,
+    workspaceId: string,
   ): Promise<JsonRecord> {
+    await this.assertThesisInWorkspace(thesisId, workspaceId);
     const id = `decision_${randomUUID().replaceAll('-', '')}`;
     const payload = {
       id,
+      workspace_id: workspaceId,
       thesis_id: thesisId,
       action,
       user_notes: notes,
@@ -77,10 +91,13 @@ export class PostgresJournalRepository implements JournalRepository {
     thesisId: string,
     result: string,
     notes: string,
+    workspaceId: string,
   ): Promise<JsonRecord> {
+    await this.assertThesisInWorkspace(thesisId, workspaceId);
     const id = `outcome_${randomUUID().replaceAll('-', '')}`;
     const payload = {
       id,
+      workspace_id: workspaceId,
       thesis_id: thesisId,
       result,
       lessons: notes,
@@ -106,40 +123,52 @@ export class PostgresJournalRepository implements JournalRepository {
   async listSignals(
     symbol: string | undefined,
     limit: number,
+    workspaceId: string,
   ): Promise<JsonRecord[]> {
     if (symbol) {
       return this.many(
         `SELECT payload_json FROM signals
-         WHERE symbol = $1
+         WHERE workspace_id = $1 AND symbol = $2
          ORDER BY observed_at DESC
-         LIMIT $2`,
-        [symbol, limit],
+         LIMIT $3`,
+        [workspaceId, symbol, limit],
       );
     }
     return this.many(
       `SELECT payload_json FROM signals
+       WHERE workspace_id = $1
        ORDER BY observed_at DESC
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [workspaceId, limit],
     );
   }
 
-  async listWatchlists(limit: number): Promise<JsonRecord[]> {
+  async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT payload_json FROM watchlists
+       WHERE workspace_id = $1
        ORDER BY created_at DESC
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [workspaceId, limit],
     );
   }
 
   async addWatchlistItem(
     watchlistId: string,
     item: JsonRecord,
+    workspaceId: string,
   ): Promise<JsonRecord> {
+    const watchlist = await this.one(
+      'SELECT payload_json FROM watchlists WHERE id = $1 AND workspace_id = $2',
+      [watchlistId, workspaceId],
+    );
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${watchlistId} not found`);
+    }
     const id = `watch_item_${randomUUID().replaceAll('-', '')}`;
     const payload = {
       id,
+      workspace_id: workspaceId,
       watchlist_id: watchlistId,
       item_type: item.item_type ?? 'symbol',
       symbol: item.symbol ?? null,
@@ -170,21 +199,23 @@ export class PostgresJournalRepository implements JournalRepository {
   async listDailyBriefs(
     date: string | undefined,
     limit: number,
+    workspaceId: string,
   ): Promise<JsonRecord[]> {
     if (date) {
       return this.many(
         `SELECT payload_json FROM market_briefs
-         WHERE brief_date = $1
+         WHERE workspace_id = $1 AND brief_date = $2
          ORDER BY created_at DESC
-         LIMIT $2`,
-        [date, limit],
+         LIMIT $3`,
+        [workspaceId, date, limit],
       );
     }
     return this.many(
       `SELECT payload_json FROM market_briefs
+       WHERE workspace_id = $1
        ORDER BY brief_date DESC, created_at DESC
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [workspaceId, limit],
     );
   }
 
@@ -204,6 +235,19 @@ export class PostgresJournalRepository implements JournalRepository {
   private async exec(sql: string, params: unknown[]): Promise<void> {
     const pool = this.requirePool();
     await pool.query(sql, params);
+  }
+
+  private async assertThesisInWorkspace(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const thesis = await this.one(
+      'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
+      [thesisId, workspaceId],
+    );
+    if (!thesis) {
+      throw new NotFoundException(`Thesis ${thesisId} not found`);
+    }
   }
 
   private requirePool(): Pool {

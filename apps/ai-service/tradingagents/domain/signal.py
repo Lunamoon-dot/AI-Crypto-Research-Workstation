@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .provenance import SignalProvenance
+from .tenancy import normalize_workspace_id
 
 
 class SignalDirection(str, Enum):
@@ -25,6 +26,7 @@ class Signal(BaseModel):
     """A structured signal with evidence and provenance."""
 
     id: str | None = None
+    workspace_id: str = "local"
     symbol: str
     signal_type: str = Field(description="Stable signal identifier.")
     direction: SignalDirection = SignalDirection.UNKNOWN
@@ -39,3 +41,8 @@ class Signal(BaseModel):
         default=True,
         description="True when this supports the current thesis; false when it contradicts it.",
     )
+
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)

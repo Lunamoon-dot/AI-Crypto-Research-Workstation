@@ -117,7 +117,21 @@ def test_migration_is_idempotent(tmp_path):
     migrate_path(db_path)
 
     health = build_system_health_report(_config(tmp_path), live=False, llm=False)
+    store = SQLiteStore(db_path)
+    run_columns = {
+        row[1] for row in store.connect().execute("PRAGMA table_info(research_runs)")
+    }
+    indexes = {
+        row[0]
+        for row in store.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+        )
+    }
+
     assert health.status == "healthy"
+    assert "workspace_id" in run_columns
+    assert "idx_research_runs_workspace_created" in indexes
+    assert "idx_watchlists_workspace_name" in indexes
     assert health.checks[0].details["missing_indexes"] == []
 
 

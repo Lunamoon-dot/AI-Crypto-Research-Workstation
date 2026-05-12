@@ -74,14 +74,18 @@ def get_quant_signal(
     exchange_metrics_csv = None
 
     try:
-        funding_csv = route_to_vendor("get_crypto_funding_rate_history", symbol, 60)
+        funding_csv = route_to_vendor(
+            "get_crypto_funding_rate_history", symbol, 60, _quiet=True
+        )
     except Exception:
         try:
             funding_csv = route_to_vendor("get_crypto_funding_rate", symbol)
         except Exception as e:
             logger.debug("Funding rate snapshot fallback failed for %s: %s", symbol, e)
     try:
-        oi_csv = route_to_vendor("get_crypto_open_interest_history", symbol, 60)
+        oi_csv = route_to_vendor(
+            "get_crypto_open_interest_history", symbol, 60, _quiet=True
+        )
     except Exception:
         try:
             oi_csv = route_to_vendor("get_crypto_open_interest", symbol)

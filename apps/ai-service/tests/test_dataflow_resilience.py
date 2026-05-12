@@ -1,4 +1,5 @@
 from tradingagents.dataflows import interface
+from tradingagents.dataflows.config import config_context, get_config
 
 
 def test_route_to_vendor_retries_then_succeeds(monkeypatch):
@@ -45,3 +46,27 @@ def test_route_to_vendor_retries_then_succeeds(monkeypatch):
 
     assert interface.route_to_vendor("get_test_runtime_data") == "ok"
     assert calls["count"] == 2
+
+
+def test_resilience_worker_preserves_config_context():
+    def vendor_reads_context():
+        return get_config()["crypto_exchange"]
+
+    with config_context({"crypto_exchange": "binance"}):
+        result = interface._invoke_with_resilience(
+            vendor_reads_context,
+            vendor="ccxt",
+            method="get_test_runtime_data",
+            args=(),
+            kwargs={},
+            runtime_cfg={
+                "enabled": True,
+                "timeout_sec": 2.0,
+                "retries": 0,
+                "backoff_base_sec": 0.0,
+                "backoff_max_sec": 0.0,
+                "rate_limit_per_sec": 0.0,
+            },
+        )
+
+    assert result == "binance"

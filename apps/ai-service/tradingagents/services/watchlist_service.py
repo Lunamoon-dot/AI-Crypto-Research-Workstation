@@ -18,6 +18,7 @@ from tradingagents.domain import (
     WatchlistItemType,
 )
 from tradingagents.services.journal_service import resolve_journal_db_path
+from tradingagents.domain.tenancy import normalize_workspace_id
 from tradingagents.storage.repositories import JournalRepository
 from tradingagents.storage.sqlite import SQLiteStore
 from tradingagents.utils.numbers import extract_numbers
@@ -100,19 +101,32 @@ class WatchlistService:
 
     def __init__(self, config: dict | None = None):
         self.config = config or DEFAULT_CONFIG
+        engine_cfg = self.config.get("_engine") or {}
+        self.workspace_id = normalize_workspace_id(
+            engine_cfg.get("workspace_id") or self.config.get("workspace_id")
+        )
         self.store = SQLiteStore(resolve_journal_db_path(self.config))
         self.repo = JournalRepository(self.store)
 
     def get_or_create_watchlist(self, name: str = "default") -> Watchlist:
-        watchlist = self.repo.get_watchlist_by_name(name)
+        watchlist = self.repo.get_watchlist_by_name(
+            name,
+            workspace_id=self.workspace_id,
+        )
         if watchlist:
             return watchlist
-        return self.repo.save_watchlist(Watchlist(name=name))
+        return self.repo.save_watchlist(
+            Watchlist(name=name, workspace_id=self.workspace_id)
+        )
 
     def list_watchlists(
         self, *, enabled_only: bool = False, limit: int = 50
     ) -> list[Watchlist]:
-        return self.repo.list_watchlists(enabled_only=enabled_only, limit=limit)
+        return self.repo.list_watchlists(
+            enabled_only=enabled_only,
+            limit=limit,
+            workspace_id=self.workspace_id,
+        )
 
     def add_symbol(
         self, symbol: str, *, watchlist_name: str = "default"
@@ -131,7 +145,7 @@ class WatchlistService:
     def add_thesis(
         self, thesis_id: str, *, watchlist_name: str = "default"
     ) -> WatchlistItem:
-        thesis = self.repo.get_thesis(thesis_id)
+        thesis = self.repo.get_thesis(thesis_id, workspace_id=self.workspace_id)
         if not thesis:
             raise ValueError(f"Thesis not found: {thesis_id}")
         watchlist = self.get_or_create_watchlist(watchlist_name)
@@ -156,7 +170,10 @@ class WatchlistService:
     ) -> list[WatchlistItem]:
         watchlist_id = None
         if watchlist_name:
-            watchlist = self.repo.get_watchlist_by_name(watchlist_name)
+            watchlist = self.repo.get_watchlist_by_name(
+                watchlist_name,
+                workspace_id=self.workspace_id,
+            )
             if not watchlist:
                 return []
             watchlist_id = watchlist.id
@@ -214,10 +231,17 @@ class WatchlistService:
         scenarios: list[BriefScenarioRow] = []
         missing_items: list[str] = []
         item_ids = {item.id for item in items if item.id}
-        thesis_ids = {item.thesis_id for item in thesis_items if item.thesis_id}
+        thesis_ids = [item.thesis_id for item in thesis_items if item.thesis_id]
+        thesis_id_set = set(thesis_ids)
+        thesis_map = self.repo.get_theses_by_ids(thesis_ids)
+        snapshot_map = self.repo.get_latest_market_snapshots_by_symbols(
+            [thesis.symbol for thesis in thesis_map.values()],
+            workspace_id=self.workspace_id,
+        )
+        scenario_map = self.repo.list_scenarios_by_thesis_ids(thesis_ids)
         scoped_alerts = self._scoped_alerts(
             item_ids=item_ids,
-            thesis_ids=thesis_ids,
+            thesis_ids=thesis_id_set,
             unread_only=unread_only,
             limit=alerts_limit,
         )
@@ -231,12 +255,12 @@ class WatchlistService:
             item_tid = item.thesis_id
             if not item_tid:
                 continue
-            thesis = self.repo.get_thesis(item_tid)
+            thesis = thesis_map.get(item_tid)
             if not thesis:
                 missing_items.append(f"{item.id}: thesis not found ({item.thesis_id})")
                 continue
 
-            snapshot = self.repo.get_latest_market_snapshot(thesis.symbol)
+            snapshot = snapshot_map.get(thesis.symbol)
             theses.append(
                 BriefThesisRow(
                     item_id=item.id or "",
@@ -256,6 +280,7 @@ class WatchlistService:
             scenarios.extend(
                 self._brief_scenarios_for_thesis(
                     thesis,
+                    scenarios=scenario_map.get(thesis.id or "", []),
                     activated_scenario_ids=activated_scenario_ids,
                     evaluate_snapshots=evaluate_snapshots,
                     snapshot_price=snapshot.current_price if snapshot else None,
@@ -286,27 +311,49 @@ class WatchlistService:
         current_prices = current_prices or {}
         alerts: list[Alert] = []
         skipped: list[str] = []
+        thesis_items = [
+            item
+            for item in items
+            if item.item_type == WatchlistItemType.THESIS and item.thesis_id
+        ]
+        thesis_ids = [item.thesis_id for item in thesis_items if item.thesis_id]
+        thesis_map = self.repo.get_theses_by_ids(thesis_ids)
+        snapshot_map = self.repo.get_latest_market_snapshots_by_symbols(
+            [
+                thesis.symbol
+                for thesis in thesis_map.values()
+                if thesis.symbol not in current_prices
+            ]
+        )
+        scenario_map = self.repo.list_scenarios_by_thesis_ids(thesis_ids)
 
         for item in items:
             if item.item_type != WatchlistItemType.THESIS or not item.thesis_id:
                 skipped.append(f"{item.id}: no thesis monitoring rule")
                 continue
 
-            thesis = self.repo.get_thesis(item.thesis_id)
+            thesis = thesis_map.get(item.thesis_id)
             if not thesis:
                 skipped.append(f"{item.id}: thesis not found")
                 continue
 
             price = current_prices.get(thesis.symbol)
             if price is None:
-                snapshot = self.repo.get_latest_market_snapshot(thesis.symbol)
+                snapshot = snapshot_map.get(thesis.symbol)
                 price = snapshot.current_price if snapshot else None
             if price is None:
                 skipped.append(f"{item.id}: no current price for {thesis.symbol}")
                 continue
 
             alerts.extend(self._evaluate_thesis(item, thesis, float(price)))
-            alerts.extend(self._evaluate_scenarios(item, thesis, float(price)))
+            alerts.extend(
+                self._evaluate_scenarios(
+                    item,
+                    thesis,
+                    float(price),
+                    scenarios=scenario_map.get(thesis.id or "", []),
+                )
+            )
 
         return MonitoringResult(
             checked_items=len(items),
@@ -322,21 +369,18 @@ class WatchlistService:
         unread_only: bool,
         limit: int,
     ) -> list[Alert]:
-        alerts = self.repo.list_alerts(
-            unread_only=unread_only, limit=max(limit * 5, 100)
+        return self.repo.list_alerts_for_scope(
+            watchlist_item_ids=list(item_ids),
+            thesis_ids=list(thesis_ids),
+            unread_only=unread_only,
+            limit=limit,
         )
-        scoped = [
-            alert
-            for alert in alerts
-            if (alert.watchlist_item_id and alert.watchlist_item_id in item_ids)
-            or (alert.thesis_id and alert.thesis_id in thesis_ids)
-        ]
-        return scoped[:limit]
 
     def _brief_scenarios_for_thesis(
         self,
         thesis: TradeThesis,
         *,
+        scenarios: list[Scenario] | None = None,
         activated_scenario_ids: set[str | None],
         evaluate_snapshots: bool,
         snapshot_price: float | None,
@@ -344,7 +388,12 @@ class WatchlistService:
         rows: list[BriefScenarioRow] = []
         if not thesis.id:
             return rows
-        for scenario in self.repo.list_scenarios(thesis_id=thesis.id, limit=20):
+        scenario_rows = (
+            scenarios
+            if scenarios is not None
+            else self.repo.list_scenarios(thesis_id=thesis.id, limit=20)
+        )
+        for scenario in scenario_rows:
             snapshot_active = False
             snapshot_reason = None
             if evaluate_snapshots and snapshot_price is not None:
@@ -420,11 +469,18 @@ class WatchlistService:
         item: WatchlistItem,
         thesis: TradeThesis,
         current_price: float,
+        *,
+        scenarios: list[Scenario] | None = None,
     ) -> list[Alert]:
         alerts: list[Alert] = []
         if not thesis.id:
             return alerts
-        for scenario in self.repo.list_scenarios(thesis_id=thesis.id, limit=20):
+        scenario_rows = (
+            scenarios
+            if scenarios is not None
+            else self.repo.list_scenarios(thesis_id=thesis.id, limit=20)
+        )
+        for scenario in scenario_rows:
             activation = _scenario_activation(scenario, thesis, current_price)
             if not activation:
                 continue

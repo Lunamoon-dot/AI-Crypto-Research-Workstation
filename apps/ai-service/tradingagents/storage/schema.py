@@ -3,6 +3,7 @@
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     symbol TEXT NOT NULL,
     asset_class TEXT NOT NULL,
     timeframe TEXT,
@@ -20,11 +21,17 @@ CREATE TABLE IF NOT EXISTS research_runs (
     decision_id TEXT,
     user_decision_id TEXT,
     outcome_review_id TEXT,
+    degradation_reasons_json TEXT NOT NULL DEFAULT '[]',
+    missing_core_data_json TEXT NOT NULL DEFAULT '[]',
+    missing_optional_data_json TEXT NOT NULL DEFAULT '[]',
     payload_json TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_runs_started_at
 ON research_runs(started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_runs_workspace_created
+ON research_runs(workspace_id, started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_research_runs_symbol
 ON research_runs(symbol);
@@ -52,6 +59,7 @@ ON market_snapshots(symbol, captured_at DESC);
 
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     symbol TEXT NOT NULL,
     signal_type TEXT NOT NULL,
     direction TEXT NOT NULL,
@@ -64,6 +72,9 @@ CREATE TABLE IF NOT EXISTS signals (
 
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_observed
 ON signals(symbol, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signals_workspace_observed
+ON signals(workspace_id, observed_at DESC);
 
 CREATE TABLE IF NOT EXISTS signal_snapshots (
     id TEXT PRIMARY KEY,
@@ -126,6 +137,7 @@ ON agent_opinions(debate_id);
 
 CREATE TABLE IF NOT EXISTS trade_theses (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     research_run_id TEXT,
     symbol TEXT NOT NULL,
     direction TEXT NOT NULL,
@@ -138,6 +150,9 @@ CREATE TABLE IF NOT EXISTS trade_theses (
 
 CREATE INDEX IF NOT EXISTS idx_trade_theses_created_at
 ON trade_theses(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_trade_theses_workspace_created
+ON trade_theses(workspace_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_trade_theses_run
 ON trade_theses(research_run_id);
@@ -182,6 +197,7 @@ ON outcome_reviews(thesis_id);
 
 CREATE TABLE IF NOT EXISTS run_events (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     research_run_id TEXT NOT NULL,
     thesis_id TEXT,
     event_type TEXT NOT NULL,
@@ -193,6 +209,9 @@ CREATE TABLE IF NOT EXISTS run_events (
 
 CREATE INDEX IF NOT EXISTS idx_run_events_run
 ON run_events(research_run_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_workspace_created
+ON run_events(workspace_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_run_events_thesis
 ON run_events(thesis_id, created_at);
@@ -266,7 +285,8 @@ ON data_freshness_checks(source, status, observed_timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS watchlists (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT NOT NULL,
     enabled INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     payload_json TEXT NOT NULL
@@ -274,6 +294,12 @@ CREATE TABLE IF NOT EXISTS watchlists (
 
 CREATE INDEX IF NOT EXISTS idx_watchlists_enabled
 ON watchlists(enabled, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name
+ON watchlists(workspace_id, name);
+
+CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created
+ON watchlists(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
     id TEXT PRIMARY KEY,
@@ -330,6 +356,7 @@ ON alerts(alert_type, trigger_key, thesis_id, watchlist_item_id);
 
 CREATE TABLE IF NOT EXISTS market_briefs (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     brief_date TEXT NOT NULL,
     watchlist_name TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -341,6 +368,9 @@ CREATE TABLE IF NOT EXISTS market_briefs (
 
 CREATE INDEX IF NOT EXISTS idx_market_briefs_date
 ON market_briefs(brief_date DESC, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created
+ON market_briefs(workspace_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_market_briefs_watchlist
 ON market_briefs(watchlist_name, brief_date DESC);

@@ -9,6 +9,7 @@ After the God-file split, this module is a thin shell that:
 from __future__ import annotations
 
 import datetime
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +23,16 @@ from tradingagents.services import ResearchService
 # -- Post-split imports --------------------------------------------------
 from cli.orchestrator import run_analysis as _run_analysis
 from cli.selections import selections_from_cli_options
+
+
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(errors="replace")
+
+
+_configure_stdio()
 
 console = Console()
 

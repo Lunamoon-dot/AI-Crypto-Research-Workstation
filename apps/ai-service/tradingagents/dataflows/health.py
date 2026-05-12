@@ -109,7 +109,7 @@ def build_system_health_report(
     snapshot = provider_health_snapshot_model(config)
     checks = [journal_schema_health(config)]
     if live:
-        checks.append(_live_provider_health())
+        checks.append(_live_provider_health(config))
     if llm:
         checks.append(_llm_config_health(config))
     status = "healthy"
@@ -161,11 +161,17 @@ def journal_schema_health(config: dict) -> HealthCheckItem:
         )
 
 
-def _live_provider_health() -> HealthCheckItem:
+def _live_provider_health(config: dict) -> HealthCheckItem:
     try:
+        from tradingagents.dataflows.config import config_context
         from tradingagents.dataflows.interface import check_provider_health
 
-        results = check_provider_health(timeout_sec=5.0)
+        health_timeout = max(
+            10.0,
+            float(config.get("provider_runtime", {}).get("timeout_sec", 10.0)),
+        )
+        with config_context(config):
+            results = check_provider_health(timeout_sec=health_timeout)
         status = (
             "healthy" if any(v == "healthy" for v in results.values()) else "critical"
         )

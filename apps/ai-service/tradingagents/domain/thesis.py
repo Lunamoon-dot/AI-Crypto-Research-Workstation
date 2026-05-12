@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .tenancy import normalize_workspace_id
 
 
 class ThesisDirection(str, Enum):
@@ -19,15 +21,103 @@ class ThesisDirection(str, Enum):
     NEUTRAL = "neutral"
 
 
+class TradeThesisStructuredSummary(BaseModel):
+    """Short validated contract intended for UI clients."""
+
+    rating: str = Field(
+        default="Hold",
+        description="One of Buy, Overweight, Hold, Underweight, or Sell.",
+    )
+    direction: ThesisDirection = ThesisDirection.WATCH
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    action_summary: str = ""
+    upside_catalyst: str = ""
+    invalidation: str = ""
+    key_reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _normalize_rating(cls, value: Any) -> str:
+        ratings = {
+            "buy": "Buy",
+            "overweight": "Overweight",
+            "hold": "Hold",
+            "underweight": "Underweight",
+            "sell": "Sell",
+        }
+        if value is None:
+            return "Hold"
+        normalized = ratings.get(str(value).strip().lower())
+        return normalized or "Hold"
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def _normalize_direction(cls, value: Any) -> ThesisDirection:
+        if isinstance(value, ThesisDirection):
+            return value
+        aliases = {
+            "long": ThesisDirection.LONG,
+            "buy": ThesisDirection.LONG,
+            "bullish": ThesisDirection.LONG,
+            "short": ThesisDirection.SHORT,
+            "sell": ThesisDirection.SHORT,
+            "bearish": ThesisDirection.SHORT,
+            "watch": ThesisDirection.WATCH,
+            "hold": ThesisDirection.WATCH,
+            "avoid": ThesisDirection.AVOID,
+            "neutral": ThesisDirection.NEUTRAL,
+        }
+        return aliases.get(str(value or "").strip().lower(), ThesisDirection.WATCH)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            raw = value.strip()
+            is_percent = raw.endswith("%")
+            raw = raw.rstrip("%").strip()
+            try:
+                number = float(raw)
+            except ValueError:
+                return None
+            if is_percent or number > 1:
+                number = number / 100
+            return number
+        return value
+
+    @field_validator("action_summary", "upside_catalyst", "invalidation", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()[:500]
+
+    @field_validator("key_reasons", "risks", mode="before")
+    @classmethod
+    def _normalize_text_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            value = list(value) if isinstance(value, tuple) else [value]
+        return [str(item).strip()[:500] for item in value if str(item).strip()]
+
+
 class TradeThesis(BaseModel):
     """AI-generated thesis for manual trader review."""
 
     id: str | None = None
+    workspace_id: str = "local"
     research_run_id: str | None = None
     debate_id: str | None = None
     symbol: str
     direction: ThesisDirection = ThesisDirection.WATCH
     setup_type: str = "unspecified"
+    structured_summary: TradeThesisStructuredSummary | None = None
     thesis_text: str
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     entry_zone: str | None = None
@@ -48,3 +138,8 @@ class TradeThesis(BaseModel):
     monitor_next: list[str] = Field(default_factory=list)
     confidence_rationale: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)

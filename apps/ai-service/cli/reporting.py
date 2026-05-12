@@ -20,6 +20,8 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
     """Save complete analysis report to disk with organized subfolders."""
     save_path.mkdir(parents=True, exist_ok=True)
     sections = []
+    if final_state.get("run_quality"):
+        sections.append(_run_quality_markdown(final_state["run_quality"]))
 
     # 1. Analysts
     analysts_dir = save_path / "1_analysts"
@@ -141,10 +143,34 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
     return save_path / "complete_report.md"
 
 
+def _run_quality_markdown(quality: dict) -> str:
+    label = quality.get("label") or quality.get("status") or "unknown"
+    lines = ["## Data Quality", "", f"Completion: {label}"]
+    if quality.get("degradation_reasons"):
+        lines.extend(["", "Degradation reasons:"])
+        lines.extend(f"- {item}" for item in quality["degradation_reasons"])
+    if quality.get("missing_core_data"):
+        lines.extend(["", "Missing core data:"])
+        lines.extend(f"- {item}" for item in quality["missing_core_data"])
+    if quality.get("missing_optional_data"):
+        lines.extend(["", "Missing optional data:"])
+        lines.extend(f"- {item}" for item in quality["missing_optional_data"])
+    return "\n".join(lines)
+
+
 def display_complete_report(final_state):
     """Display the complete analysis report sequentially (avoids truncation)."""
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
+
+    if final_state.get("run_quality"):
+        console.print(
+            Panel(
+                Markdown(_run_quality_markdown(final_state["run_quality"])),
+                title="Data Quality",
+                border_style="yellow",
+            )
+        )
 
     # I. Analyst Team Reports
     analysts = []

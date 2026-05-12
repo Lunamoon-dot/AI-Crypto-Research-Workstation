@@ -61,6 +61,7 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 - [x] Core repo has no exchange order placement path.
 - [x] Historical evaluation is described as thesis-quality evaluation, not broker-accurate backtesting.
 - [x] Retention/deletion guidance for journal DB and generated reports is documented.
+- [x] Install/provider troubleshooting guidance is documented.
 - [x] Cloud/local data boundary is documented before any hosted tier.
 
 ## Production Blockers To Close
@@ -79,32 +80,6 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 
 ## Sign-Off Template
 
-```text
-Release: <version>
-Date: <YYYY-MM-DD>
+Canonical template: [release-sign-off-template.md](release-sign-off-template.md).
 
-Quality:
-- Ruff lint: PASS/FAIL
-- Ruff format: PASS/FAIL
-- Pytest: PASS/FAIL
-- Mypy: PASS/FAIL
-- Compile: PASS/FAIL
-
-Reliability:
-- Real provider smoke: PASS/FAIL
-- Migration on old journal copy: PASS/FAIL
-- Backup/restore: PASS/FAIL
-
-Security:
-- Dependency audit: PASS/FAIL
-- Secret scan: PASS/FAIL
-- Key rotation drill: PASS/FAIL
-
-Operations:
-- Provider outage drill: PASS/FAIL
-- LLM deprecation drill: PASS/FAIL
-
-Decision:
-- Approved by: <name>
-- Notes: <risks and mitigations>
-```
+Every release candidate should include a completed copy in its release evidence directory before tagging.

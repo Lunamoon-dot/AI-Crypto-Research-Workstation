@@ -60,6 +60,9 @@ class SignalResult:
 
     # Summary that the AI prompt can inject directly
     summary: str = ""
+    degradation_reasons: list[str] = field(default_factory=list)
+    missing_core_data: list[str] = field(default_factory=list)
+    missing_optional_data: list[str] = field(default_factory=list)
 
     def to_prompt_block(self) -> str:
         """Render as a prompt block for injection into AI agent context.
@@ -95,6 +98,14 @@ class SignalResult:
 
         if self.summary:
             lines.extend(["", self.summary])
+        if self.missing_optional_data:
+            lines.extend(
+                [
+                    "",
+                    "Optional data unavailable:",
+                    *[f"  - {item}" for item in self.missing_optional_data],
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -122,4 +133,7 @@ class SignalResult:
                 for f in self.factors
             ],
             "summary": self.summary,
+            "degradation_reasons": list(self.degradation_reasons),
+            "missing_core_data": list(self.missing_core_data),
+            "missing_optional_data": list(self.missing_optional_data),
         }

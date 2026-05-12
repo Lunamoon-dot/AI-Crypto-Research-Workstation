@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import contextvars
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -225,6 +226,7 @@ def route_to_vendor(method: str, *args, **kwargs):
     :func:`route_to_vendor_historical` with the point-in-time window and
     AS_OF semantics from the config — no caller changes needed.
     """
+    quiet = bool(kwargs.pop("_quiet", False))
     config = get_config()
 
     # -- Replay mode: delegate to contract-validated path -----------------
@@ -278,7 +280,9 @@ def route_to_vendor(method: str, *args, **kwargs):
     last_error: BaseException | None = None
     for vendor in fallback_vendors:
         if vendor in disabled_vendors:
-            logger.warning(
+            log_level = logging.DEBUG if quiet else logging.WARNING
+            logger.log(
+                log_level,
                 "Vendor '%s' is disabled by config; skipping method '%s'",
                 vendor,
                 method,
@@ -286,7 +290,7 @@ def route_to_vendor(method: str, *args, **kwargs):
             log_event(
                 logger,
                 "data_provider_call",
-                level=logging.WARNING,
+                level=log_level,
                 method=method,
                 category=category,
                 vendor=vendor,
@@ -327,7 +331,9 @@ def route_to_vendor(method: str, *args, **kwargs):
             return result
         except Exception as exc:
             last_error = exc
-            logger.warning(
+            log_level = logging.DEBUG if quiet else logging.WARNING
+            logger.log(
+                log_level,
                 "Vendor '%s' failed for method '%s': %s",
                 vendor,
                 method,
@@ -336,7 +342,7 @@ def route_to_vendor(method: str, *args, **kwargs):
             log_event(
                 logger,
                 "data_provider_call",
-                level=logging.WARNING,
+                level=log_level,
                 method=method,
                 category=category,
                 vendor=vendor,
@@ -514,8 +520,9 @@ def _invoke_with_resilience(
     for attempt in range(1, attempts + 1):
         _apply_vendor_rate_limit(vendor, rate_limit)
         try:
+            ctx = contextvars.copy_context()
             with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(impl_func, *args, **kwargs)
+                fut = ex.submit(ctx.run, impl_func, *args, **kwargs)
                 return fut.result(timeout=timeout_sec)
         except FuturesTimeoutError:
             last_error = ProviderTimeoutError(
@@ -540,7 +547,7 @@ def _invoke_with_resilience(
 # ---------------------------------------------------------------------------
 
 
-def check_provider_health(timeout_sec: float = 5.0) -> dict[str, str]:
+def check_provider_health(timeout_sec: float = 10.0) -> dict[str, str]:
     """Ping each registered vendor with a lightweight call.
 
     Uses ``get_crypto_ticker`` (a simple CCXT ``fetch_ticker``) as the

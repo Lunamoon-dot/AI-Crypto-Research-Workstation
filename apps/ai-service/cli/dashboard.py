@@ -51,7 +51,7 @@ def dashboard(
         run_table.add_row(
             run.id or "",
             run.symbol,
-            run.status.value,
+            run.completion_label(),
             run.started_at.isoformat(),
             run.thesis_id or "-",
         )

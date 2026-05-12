@@ -59,3 +59,91 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     assert thesis.invalidation == "95000"
     assert "target: 110000" in thesis.monitor_next
     assert "0.72" in thesis.confidence_rationale
+
+
+def test_graph_builds_thesis_from_structured_summary_json_first():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.5)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_1",
+        symbol="BTC/USDT",
+        workspace_id="workspace_1",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Hold\n\n**Investment Thesis**: Wait.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Sell",
+              "direction": "short",
+              "confidence": 0.81,
+              "action_summary": "Fade failed reclaim",
+              "invalidation": "Close above 105000",
+              "risks": ["Squeeze risk"]
+            }
+            """,
+        },
+    )
+
+    assert thesis.workspace_id == "workspace_1"
+    assert thesis.direction.value == "short"
+    assert thesis.confidence == 0.81
+    assert thesis.structured_summary.rating == "Sell"
+    assert thesis.structured_summary.action_summary == "Fade failed reclaim"
+    assert thesis.invalidation == "Close above 105000"
+    assert thesis.structured_summary is not None
+
+
+def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "SOL/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.24)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_2", symbol="SOL/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "final_trade_decision": (
+                "**Rating**: Hold\n\n"
+                "**Executive Summary**: Wait for confirmation.\n\n"
+                "TRADE_THESIS_JSON:\n"
+                "```json\n"
+                "{\n"
+                '  "rating": "Underweight",\n'
+                '  "direction": "short",\n'
+                '  "confidence": "24%",\n'
+                '  "action_summary": "Trim 25-50%; do not open new longs",\n'
+                '  "upside_catalyst": "Break above $100 with volume",\n'
+                '  "invalidation": "Close below $90",\n'
+                '  "key_reasons": ["Neutral signal with low confidence"],\n'
+                '  "risks": ["Missing liquidation data"],\n'
+                "}\n"
+                "```"
+            )
+        },
+    )
+
+    assert thesis.direction == "short"
+    assert thesis.thesis_text == (
+        "**Rating**: Hold\n\n**Executive Summary**: Wait for confirmation."
+    )
+    assert thesis.structured_summary is not None
+    assert thesis.structured_summary.rating == "Underweight"
+    assert thesis.structured_summary.direction == "short"
+    assert thesis.structured_summary.confidence == 0.24
+    assert thesis.structured_summary.action_summary == (
+        "Trim 25-50%; do not open new longs"
+    )
+    assert thesis.structured_summary.risks == ["Missing liquidation data"]

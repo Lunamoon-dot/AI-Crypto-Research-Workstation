@@ -92,6 +92,25 @@ def _workspace_json_payload(service: ThesisService, run_id: str) -> dict:
     return service.build_workspace_payload(run_id)
 
 
+def _run_quality_lines(run) -> list[str]:
+    lines: list[str] = []
+    if not run.has_degradation():
+        if run.status.value == "completed":
+            return ["Completion Quality: clean"]
+        return lines
+    lines.append("Completion Quality: degraded")
+    if run.degradation_reasons:
+        lines.append("Degradation Reasons:")
+        lines.extend(f"- {item}" for item in run.degradation_reasons)
+    if run.missing_core_data:
+        lines.append("Missing Core Data:")
+        lines.extend(f"- {item}" for item in run.missing_core_data)
+    if run.missing_optional_data:
+        lines.append("Missing Optional Data:")
+        lines.extend(f"- {item}" for item in run.missing_optional_data)
+    return lines
+
+
 @journal_app.command("path")
 def journal_path():
     """Show the local SQLite journal path."""
@@ -148,7 +167,7 @@ def journal_list(
         table.add_row(
             run.id or "",
             run.symbol,
-            run.status.value,
+            run.completion_label(),
             run.started_at.isoformat(),
             run.thesis_id or "",
         )
@@ -180,7 +199,7 @@ def journal_show(
         f"Symbol: {run.symbol}",
         f"Asset Class: {run.asset_class}",
         f"Timeframe: {run.timeframe or 'N/A'}",
-        f"Status: {run.status.value}",
+        f"Status: {run.completion_label()}",
         f"Started: {run.started_at.isoformat()}",
         f"Completed: {run.completed_at.isoformat() if run.completed_at else 'N/A'}",
         f"Market Snapshot: {run.market_snapshot_id or 'N/A'}",
@@ -191,6 +210,7 @@ def journal_show(
         f"User Decision: {run.user_decision_id or 'N/A'}",
         f"Outcome Review: {run.outcome_review_id or 'N/A'}",
     ]
+    lines.extend(_run_quality_lines(run))
     console.print(Panel("\n".join(lines), title="Research Run", border_style="cyan"))
 
 
@@ -290,7 +310,7 @@ def journal_workspace(
     lines = [
         f"ID: {run.id}",
         f"Symbol: {run.symbol}",
-        f"Status: {run.status.value}",
+        f"Status: {run.completion_label()}",
         f"Timeframe: {run.timeframe or 'N/A'}",
         f"Market Snapshot: {run.market_snapshot_id or 'N/A'}",
         f"Signal Snapshot: {run.signal_snapshot_id or 'N/A'}",
@@ -298,6 +318,7 @@ def journal_workspace(
         f"Debate: {run.debate_id or 'N/A'}",
         f"Thesis: {run.thesis_id or 'N/A'}",
     ]
+    lines.extend(_run_quality_lines(run))
     console.print(
         Panel("\n".join(lines), title="Research Workspace", border_style="cyan")
     )
