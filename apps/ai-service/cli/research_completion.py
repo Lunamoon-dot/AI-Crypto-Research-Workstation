@@ -185,7 +185,7 @@ def emit_research_run_complete_panel(
     if thesis_id:
         next_cmds.append(f"tradingagents thesis show {thesis_id}")
         next_cmds.append(f"tradingagents watchlist add-thesis {thesis_id}")
-    next_cmds.append("tradingagents evaluate matured")
+    next_cmds.append("tradingagents research evaluate matured")
 
     lines.extend(["", "[bold]Next[/bold]", *[f"- {c}" for c in next_cmds]])
 

@@ -19,6 +19,29 @@ from tradingagents.dataflows.utils import safe_ticker_component
 logger = logging.getLogger(__name__)
 
 
+class _JsonSafeSqliteSaver(SqliteSaver):
+    """SQLite saver that keeps LangGraph metadata JSON-serializable."""
+
+    def put(
+        self,
+        config: Any,
+        checkpoint: Any,
+        metadata: Any,
+        new_versions: Any,
+    ) -> Any:
+        # LangGraph stores the actual checkpoint and pending writes separately.
+        # The metadata copy of node writes can contain BaseMessages, Pydantic
+        # models, and other app objects that stdlib JSON cannot encode.
+        metadata_without_writes = dict(metadata)
+        metadata_without_writes.pop("writes", None)
+        return super().put(
+            config,
+            checkpoint,
+            metadata_without_writes,
+            new_versions,
+        )
+
+
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
     """Return the SQLite checkpoint DB path for a ticker."""
     # Reject ticker values that would escape the checkpoints directory.
@@ -41,7 +64,7 @@ def get_checkpointer(
     db = _db_path(data_dir, ticker)
     conn = sqlite3.connect(str(db), check_same_thread=False)
     try:
-        saver = SqliteSaver(conn)
+        saver = _JsonSafeSqliteSaver(conn)
         saver.setup()
         yield saver
     finally:

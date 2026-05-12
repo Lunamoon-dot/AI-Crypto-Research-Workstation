@@ -171,6 +171,49 @@ def test_analyze_noninteractive_uses_flags_without_prompts(tmp_path, monkeypatch
     assert "Save report?" not in result.output
 
 
+def test_analyze_clear_checkpoints_alone_exits_without_run(tmp_path, monkeypatch):
+    """--clear-checkpoints without ticker/non-interactive/plain only clears then exits."""
+    _patch_default_config(monkeypatch, tmp_path)
+    calls: list[dict] = []
+
+    def capture_run_analysis(**kwargs):
+        calls.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(main, "run_analysis", capture_run_analysis)
+    runner = CliRunner()
+
+    result = runner.invoke(main.app, ["analyze", "--clear-checkpoints"])
+
+    assert result.exit_code == 0
+    assert "Cleared" in result.output
+    assert calls == []
+
+
+def test_analyze_clear_checkpoints_with_ticker_still_runs(tmp_path, monkeypatch):
+    _patch_default_config(monkeypatch, tmp_path)
+    monkeypatch.setattr(main, "ResearchService", _FakeResearchService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main.app,
+        [
+            "analyze",
+            "--clear-checkpoints",
+            "--non-interactive",
+            "--ticker",
+            "BTC/USDT",
+            "--date",
+            "2026-05-08",
+            "--plain",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Cleared" in result.output
+    assert "Research run complete" in result.output
+
+
 def test_analyze_reports_provider_balance_error_without_traceback(
     tmp_path, monkeypatch
 ):
@@ -409,6 +452,31 @@ def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch
     )
 
 
+def test_research_workspace_alias_delegates_to_journal_workspace(
+    tmp_path, monkeypatch
+):
+    _patch_journal_default_config(monkeypatch, tmp_path)
+    config = {
+        "data_cache_dir": str(tmp_path / "cache"),
+        "journal": {
+            "enabled": True,
+            "db_path": str(tmp_path / "journal.sqlite"),
+        },
+    }
+    journal = JournalService(config)
+    run = journal.start_research_run(ResearchRun(symbol="SOL/USDT"))
+
+    runner = CliRunner()
+    text_result = runner.invoke(main.app, ["research", "workspace", run.id])
+    json_result = runner.invoke(main.app, ["research", "workspace", run.id, "--json"])
+
+    assert text_result.exit_code == 0
+    assert "Research Workspace" in text_result.output
+    assert "SOL/USDT" in text_result.output
+    assert json_result.exit_code == 0
+    assert json.loads(json_result.output)["run"]["id"] == run.id
+
+
 def test_journal_workspace_text_panel_includes_evidence_section(tmp_path, monkeypatch):
     """Default (non-JSON) workspace prints the new evidence panel."""
     _patch_journal_default_config(monkeypatch, tmp_path)
@@ -641,4 +709,6 @@ def test_research_completion_panel_prioritizes_readable_summary():
     assert "Thesis direction: short" in output
     assert "Invalidation: Close below $90" in output
     assert "Record IDs: run=run_abc, thesis=thesis_abc, signals=signal_abc" in output
+    assert "tradingagents research evaluate matured" in output
+    assert "tradingagents evaluate matured" not in output
     assert "Market Snapshot:" not in output

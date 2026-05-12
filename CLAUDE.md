@@ -42,9 +42,9 @@ python -m ruff format --check .
 ```text
 apps/
   ai-service/      Python TradingAgents service and CLI
-  landing-page/    Future Next.js marketing site
-  web-app/         Future React or Next.js dashboard
-  server/          Future NestJS API server
+  api/             NestJS product API boundary
+  web/             Future logged-in product app
+  landing/         Future Next.js marketing site
 packages/
   database/        Future shared database schema/client
   ui-shared/       Future shared UI components
@@ -52,7 +52,7 @@ packages/
   types/           Future shared API/domain types
 ```
 
-The current production code lives in `apps/ai-service`. The TypeScript apps and shared packages are placeholders until those surfaces are implemented.
+The current production code lives in `apps/ai-service`, with the product API boundary in `apps/api`. The web apps and shared packages are placeholders until those surfaces are implemented.
 
 ## AI Service Notes
 

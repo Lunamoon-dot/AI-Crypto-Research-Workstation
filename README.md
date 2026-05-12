@@ -1,6 +1,6 @@
 # LunaPerception
 
-LunaPerception is a monorepo for a crypto research product. The current working application is the Python AI research service in `apps/ai-service`; the web surfaces and TypeScript backend are scaffolded as placeholders for future development.
+LunaPerception is a monorepo for a crypto research product. The current working application is the Python AI research service in `apps/ai-service`, with the product API boundary in `apps/api`; the web surfaces are scaffolded as placeholders for future development.
 
 ## Workspace Layout
 
@@ -8,9 +8,8 @@ LunaPerception is a monorepo for a crypto research product. The current working 
 apps/
   ai-service/      Python TradingAgents service and CLI
   api/             NestJS product API boundary
-  landing-page/    Future Next.js marketing and SEO site
-  web-app/         Future React or Next.js user dashboard
-  server/          Future backend workspace placeholder
+  web/             Future logged-in product app
+  landing/         Future Next.js marketing and SEO site
 packages/
   database/        Future shared database schema/client
   ui-shared/       Future shared UI components

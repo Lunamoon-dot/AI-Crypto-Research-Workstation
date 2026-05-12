@@ -314,3 +314,59 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
             "SELECT payload_json FROM signal_snapshots WHERE id = ?", (snapshot_id,)
         )
         return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+
+    def get_signal_snapshot_for_run(
+        self, research_run_id: str
+    ) -> SignalSnapshot | None:
+        row = self.store.fetchone(
+            """
+            SELECT payload_json FROM signal_snapshots
+            WHERE research_run_id = ?
+            ORDER BY captured_at DESC, id DESC
+            LIMIT 1
+            """,
+            (research_run_id,),
+        )
+        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+
+    def get_latest_signal_snapshot(
+        self,
+        symbol: str,
+        *,
+        workspace_id: str = "local",
+    ) -> SignalSnapshot | None:
+        row = self.store.fetchone(
+            """
+            SELECT signal_snapshots.payload_json
+            FROM signal_snapshots
+            LEFT JOIN research_runs
+              ON research_runs.id = signal_snapshots.research_run_id
+            WHERE signal_snapshots.symbol = ?
+              AND COALESCE(research_runs.workspace_id, 'local') = ?
+            ORDER BY signal_snapshots.captured_at DESC, signal_snapshots.id DESC
+            LIMIT 1
+            """,
+            (symbol, workspace_id),
+        )
+        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None
+
+    def get_signal_snapshot_for_signal(
+        self,
+        signal_id: str,
+        *,
+        workspace_id: str = "local",
+    ) -> SignalSnapshot | None:
+        row = self.store.fetchone(
+            """
+            SELECT signal_snapshots.payload_json
+            FROM signal_snapshots
+            LEFT JOIN research_runs
+              ON research_runs.id = signal_snapshots.research_run_id
+            WHERE signal_snapshots.payload_json LIKE ?
+              AND COALESCE(research_runs.workspace_id, 'local') = ?
+            ORDER BY signal_snapshots.captured_at DESC, signal_snapshots.id DESC
+            LIMIT 1
+            """,
+            (f"%{signal_id}%", workspace_id),
+        )
+        return model_from_json(SignalSnapshot, row["payload_json"]) if row else None

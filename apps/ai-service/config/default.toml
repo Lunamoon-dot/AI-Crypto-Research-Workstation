@@ -1,41 +1,57 @@
-# TradingAgents — Default configuration (TOML)
-# This file is auto-loaded by ConfigLoader as the second layer
-# (after code defaults, before local.toml and env vars).
+# TradingAgents default configuration.
 #
-# All values here match tradingagents/default_config.py::DEFAULT_CONFIG.
-# Copy sections you want to change into config/local.toml.
+# This file is auto-loaded by ConfigLoader as the second layer:
+# code defaults -> config/default.toml -> config/local.toml -> profile -> env -> CLI.
+# Copy only the settings you want to change into config/local.toml.
+#
+# TOML note: all root-level keys must appear before the first [section].
 
-# ── Config validation ────────────────────────────────────────────────────────
+# LLM settings
+llm_provider = "deepseek"
+deep_think_llm = "deepseek-v4-pro"
+quick_think_llm = "deepseek-v4-flash"
+# backend_url = "https://example.com/v1"
+# google_thinking_level = "high"
+# openai_reasoning_effort = "medium"
+# anthropic_effort = "medium"
+
+# Runtime environment / asset class
+runtime_environment = "local" # "local" | "dev" | "production"
+asset_class = "crypto"
+market_type = "spot" # "spot" | "perp"
+crypto_exchange = "binance"
+crypto_benchmark = "BTC/USDT"
+
+# Output language
+output_language = "English"
+
+# Debate and discussion
+max_debate_rounds = 1
+max_risk_discuss_rounds = 1
+max_recur_limit = 100
+
+# Data vendor disable list
+disabled_data_vendors = []
+
+# Checkpoint / resume
+checkpoint_enabled = false
+
 [config_validation]
 mode = "fail_fast"
 validate_llm_keys = true
 
-# ── Config search paths ──────────────────────────────────────────────────────
 [config_search_paths]
 default_toml = "config/default.toml"
 local_toml = "config/local.toml"
 
-# ── LLM settings ─────────────────────────────────────────────────────────────
-llm_provider = "deepseek"
-deep_think_llm = "deepseek-v4-pro"
-quick_think_llm = "deepseek-v4-flash"
-# backend_url: leave unset to use each provider's default endpoint
-# google_thinking_level: "high", "minimal", etc.
-# openai_reasoning_effort: "medium", "high", "low"
-# anthropic_effort: "high", "medium", "low"
-
-# ── LLM provider fallback ────────────────────────────────────────────────────
 [llm_fallback]
 enabled = true
 fallback_providers = ["openrouter", "openai"]
 circuit_breaker_threshold = 3
 circuit_breaker_window_sec = 300
 
-# Cross-provider model mapping.  When the orchestrator switches to a
-# fallback provider it uses these model names instead of the primary
-# provider's models (which usually do not exist on the fallback).
-# Built-in defaults cover the common providers; uncomment and
-# customise if you need different models.
+# Cross-provider model mapping. When the orchestrator switches to a fallback
+# provider it can use these model names instead of the primary provider's models.
 [llm_fallback.fallback_model_map]
 # openai = { deep = "gpt-4o", quick = "gpt-4o-mini" }
 # openrouter = { deep = "openai/gpt-4o", quick = "openai/gpt-4o-mini" }
@@ -43,34 +59,10 @@ circuit_breaker_window_sec = 300
 # google = { deep = "gemini-2.5-pro", quick = "gemini-2.5-flash" }
 # deepseek = { deep = "deepseek-chat", quick = "deepseek-chat" }
 
-
-# ── Secrets ──────────────────────────────────────────────────────────────────
 [secrets]
-source = "env"         # "env" | "keyring" | "env,keyring"
+source = "env" # "env" | "keyring" | "env,keyring"
 warn_on_plaintext_env = true
 
-# ── Runtime environment / asset class ────────────────────────────────────────
-runtime_environment = "local" # "local" | "dev" | "production"
-asset_class = "crypto"
-market_type = "spot" # "spot" | "perp"
-crypto_exchange = "binance"
-crypto_benchmark = "BTC/USDT"
-
-# ── Output language ──────────────────────────────────────────────────────────
-output_language = "English"
-
-# ── Debate and discussion ────────────────────────────────────────────────────
-max_debate_rounds = 1
-max_risk_discuss_rounds = 1
-max_recur_limit = 100
-
-# ── Data vendor disable list ──────────────────────────────────────────────────
-disabled_data_vendors = []
-
-# ── Checkpoint / resume ──────────────────────────────────────────────────────
-checkpoint_enabled = false
-
-# ── Data vendors ─────────────────────────────────────────────────────────────
 [data_vendors]
 technical_indicators = "ccxt"
 news_data = "ccxt"
@@ -79,7 +71,6 @@ crypto_onchain = "ccxt,coingecko"
 
 [tool_vendors]
 
-# ── Provider runtime resilience ──────────────────────────────────────────────
 [provider_runtime]
 enabled = true
 timeout_sec = 20.0
@@ -88,7 +79,6 @@ backoff_base_sec = 0.35
 backoff_max_sec = 2.5
 rate_limit_per_sec = 8.0
 
-# ── Signal / quant weights (research-tuning knobs) ───────────────────────────
 [signal_weights]
 funding_oi = 0.20
 rsi_divergence = 0.12
@@ -104,7 +94,7 @@ buy = 0.25
 sell = -0.25
 strong_sell = -0.60
 
-# ── Fixed position sizing ────────────────────────────────────────────────────
+# Hypothetical sizing for reports only. This is not execution sizing.
 [fixed_sizing]
 buy = 0.25
 overweight = 0.15
@@ -112,12 +102,10 @@ hold = 0.0
 underweight = -0.10
 sell = -1.0
 
-# ── Stale data ───────────────────────────────────────────────────────────────
 [stale_data]
 mode = "warn"
 max_age_hours = 24.0
 
-# ── Observability ────────────────────────────────────────────────────────────
 [observability]
 persist_run_events = true
 persist_data_provider_calls = true

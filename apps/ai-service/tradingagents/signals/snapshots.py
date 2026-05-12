@@ -10,7 +10,7 @@ from tradingagents.domain import (
     SignalSnapshot,
 )
 from tradingagents.signals.base import SignalResult
-from tradingagents.signals.provenance import parse_signal_timestamp
+from tradingagents.signals.provenance import parse_signal_timestamp, signal_score_to_direction
 
 
 def build_market_snapshot(
@@ -31,7 +31,7 @@ def build_market_snapshot(
         source_timestamp=parse_signal_timestamp(result.timestamp),
         summary=result.summary,
         payload={
-            "score": result.score.value,
+            "quant_bias": signal_score_to_direction(result.score).value,
             "confidence": result.confidence,
             "factor_count": len(result.factors),
         },
@@ -46,7 +46,11 @@ def build_signal_snapshot(
 ) -> SignalSnapshot:
     """Create an immutable signal-id snapshot for a research run."""
     composite_signal_id = next(
-        (signal.id for signal in signals if signal.signal_type == "composite_quant"),
+        (
+            signal.id
+            for signal in signals
+            if signal.signal_type in ("quant_bias", "composite_quant")
+        ),
         None,
     )
     bullish = sum(
@@ -76,5 +80,15 @@ def build_signal_snapshot(
         unknown_freshness_count=unknown,
         payload={
             "signal_types": [signal.signal_type for signal in signals],
+            "spot_signal_ids": [
+                signal.id
+                for signal in signals
+                if signal.id and getattr(signal.evidence_lane, "value", "") == "spot"
+            ],
+            "perp_signal_ids": [
+                signal.id
+                for signal in signals
+                if signal.id and getattr(signal.evidence_lane, "value", "") == "perp"
+            ],
         },
     )

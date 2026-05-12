@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from .base import FactorSignal, SignalResult, SignalScore
+from .base import FactorSignal, SignalResult, SignalScore, score_to_quant_bias
 
 # Default factor weights (sum to 1.0).  Funding/regime get higher weight
 # because they're more structural; RSI/MACD get lower because they're noisy.
@@ -147,8 +147,8 @@ class CompositeScorer:
         n_breached = sum(1 for f in factors if f.threshold_breached)
 
         summary_parts = [
-            f"Composite score: {composite:+.2f} → {final_score.value} "
-            f"(confidence: {confidence:.0%})",
+            f"Quant bias: {score_to_quant_bias(final_score)} "
+            f"(composite={composite:+.2f}, confidence={confidence:.0%})",
             f"{n_bullish} bullish, {n_bearish} bearish, {n_neutral} neutral factors",
         ]
         if n_breached > 0:

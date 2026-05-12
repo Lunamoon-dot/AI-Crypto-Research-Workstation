@@ -42,11 +42,11 @@ def get_quant_signal(
     end_date: str,
     config=None,
 ) -> str:
-    """Generate a quantitative trading signal for a symbol.
+    """Generate a quantitative market-bias block for a symbol.
 
     Runs deterministic signal detectors (RSI divergence, MACD, volume profile,
     regime detection, and for crypto: funding rate + OI + liquidations) and
-    returns a structured signal the AI should use as its primary quantitative
+    returns structured evidence the AI should use as its primary quantitative
     input.  The AI's job is to add narrative context, macro overlay, and
     sentiment filtering — NOT to re-derive signals from raw data.
 

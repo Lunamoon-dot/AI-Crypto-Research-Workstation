@@ -40,7 +40,7 @@ def test_build_market_snapshot_from_signal_result():
     assert snapshot.symbol == "BTC/USDT"
     assert snapshot.current_price == 100000.0
     assert snapshot.trend_direction == "bullish"
-    assert snapshot.payload["score"] == "Buy"
+    assert snapshot.payload["quant_bias"] == "bullish"
 
 
 def test_build_signal_snapshot_counts_direction_and_freshness():

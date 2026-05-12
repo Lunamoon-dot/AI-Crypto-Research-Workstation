@@ -576,41 +576,46 @@ def _parse_scenario_plan(
         # Try alternative splitting: bullet points or numbered items
         blocks = _re.split(r"\n\s*(?:\d+\.|\•|\-)\s+", text)
 
+    blocks = _split_scenario_blocks(text)
+
     scenarios: list[Scenario] = []
     for block in blocks:
         block = block.strip()
         if not block or len(block) < 20:
             continue
 
-        condition = _extract_section(
-            block, "condition|key market|market condition|catalyst|trigger"
-        )
-        behavior = _extract_section(
-            block, "behavior|expected|outcome|price action|market move"
-        )
-        prob_raw = _extract_section(block, "probability|likelihood|odds")
-        invalidation = _extract_section(block, "invalidation|invalid|negate|counter")
-        risk_raw = _extract_section(block, "risk|risk map|risk factor")
-        action = _extract_section(block, "action|suggested|recommend|response")
+        condition = _extract_markdown_section(block, _CONDITION_SECTION_PATTERN)
+        behavior = _extract_markdown_section(block, _BEHAVIOR_SECTION_PATTERN)
+        prob_raw = _extract_markdown_section(block, _PROBABILITY_SECTION_PATTERN)
+        invalidation = _extract_markdown_section(block, _INVALIDATION_SECTION_PATTERN)
+        risk_raw = _extract_markdown_section(block, _RISK_SECTION_PATTERN)
+        action = _extract_markdown_section(block, _ACTION_SECTION_PATTERN)
+
+        if not any((condition, behavior, prob_raw, invalidation, risk_raw, action)):
+            continue
 
         # Map probability text to band
         prob_band = ScenarioProbabilityBand.UNKNOWN
         if prob_raw:
-            prob_lower = prob_raw.lower()
-            if any(
-                w in prob_lower
-                for w in ("high", "likely", "probable", "70", "80", "90")
-            ):
-                prob_band = ScenarioProbabilityBand.HIGH
-            elif any(
-                w in prob_lower
-                for w in ("medium", "moderate", "possible", "40", "50", "60")
-            ):
-                prob_band = ScenarioProbabilityBand.MEDIUM
-            elif any(
-                w in prob_lower for w in ("low", "unlikely", "remote", "10", "20", "30")
-            ):
-                prob_band = ScenarioProbabilityBand.LOW
+            pct_match = _re.search(r"(\d+(?:\.\d+)?)\s*%", prob_raw)
+            if pct_match:
+                probability = float(pct_match.group(1))
+                if probability >= 65:
+                    prob_band = ScenarioProbabilityBand.HIGH
+                elif probability >= 35:
+                    prob_band = ScenarioProbabilityBand.MEDIUM
+                else:
+                    prob_band = ScenarioProbabilityBand.LOW
+            else:
+                prob_lower = prob_raw.lower()
+                if any(w in prob_lower for w in ("high", "likely", "probable")):
+                    prob_band = ScenarioProbabilityBand.HIGH
+                elif any(
+                    w in prob_lower for w in ("medium", "moderate", "possible")
+                ):
+                    prob_band = ScenarioProbabilityBand.MEDIUM
+                elif any(w in prob_lower for w in ("low", "unlikely", "remote")):
+                    prob_band = ScenarioProbabilityBand.LOW
 
         # Split risk text into list items
         risk_items: list[str] = []
@@ -622,8 +627,8 @@ def _parse_scenario_plan(
         scenario = Scenario(
             id=str(uuid.uuid4()),
             thesis_id=thesis_id,
-            condition=condition or block[:120],
-            expected_market_behavior=behavior or block[:120] if not condition else "",
+            condition=condition or _clean_section_text(block),
+            expected_market_behavior=behavior or "",
             probability_band=prob_band,
             invalidation=invalidation or "",
             risk_map=risk_items[:8],
@@ -641,6 +646,109 @@ def _extract_section(text: str, field_pattern: str) -> str | None:
     if match:
         return match.group(1).strip()
     return None
+
+
+_DASH_PATTERN = r"[:\-\u2013\u2014]"
+_CONDITION_SECTION_PATTERN = (
+    r"condition|key\s+market\s+conditions?(?:\s*&\s*catalysts?)?|"
+    r"market\s+conditions?|catalysts?|trigger"
+)
+_BEHAVIOR_SECTION_PATTERN = (
+    r"expected\s+behavior|behavior|expected|outcome|price\s+action|"
+    r"market\s+move|impact\s+on\s+investment\s+thesis|impact"
+)
+_PROBABILITY_SECTION_PATTERN = r"probability\s+assessment|probability|likelihood|odds"
+_INVALIDATION_SECTION_PATTERN = r"invalidation|invalid|negate|counter"
+_RISK_SECTION_PATTERN = r"risk\s+factors?|risk\s+map|risk"
+_ACTION_SECTION_PATTERN = (
+    r"recommended\s+response|suggested\s+action|action|recommend|response"
+)
+_ANY_SECTION_PATTERN = "|".join(
+    (
+        _CONDITION_SECTION_PATTERN,
+        _BEHAVIOR_SECTION_PATTERN,
+        _PROBABILITY_SECTION_PATTERN,
+        _INVALIDATION_SECTION_PATTERN,
+        _RISK_SECTION_PATTERN,
+        _ACTION_SECTION_PATTERN,
+    )
+)
+_SCENARIO_HEADING_PATTERN = (
+    rf"^\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+    rf"\s*{_DASH_PATTERN}\s*.*$"
+)
+
+
+def _split_scenario_blocks(text: str) -> list[str]:
+    """Split markdown/free-text scenario plans into scenario-sized blocks."""
+
+    matches = list(
+        _re.finditer(
+            _SCENARIO_HEADING_PATTERN,
+            text,
+            _re.IGNORECASE | _re.MULTILINE,
+        )
+    )
+    if not matches:
+        matches = list(
+            _re.finditer(
+                rf"^\s*\d+[\.\)]\s+(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+                rf"\s*{_DASH_PATTERN}?\s*.*$",
+                text,
+                _re.IGNORECASE | _re.MULTILINE,
+            )
+        )
+
+    if matches:
+        return [
+            text[
+                match.start() : matches[i + 1].start()
+                if i + 1 < len(matches)
+                else len(text)
+            ].strip()
+            for i, match in enumerate(matches)
+        ]
+
+    # Last-resort fallback for older free-text outputs. Keep it conservative:
+    # only candidate blocks with recognizable scenario fields are persisted.
+    return [
+        block.strip()
+        for block in _re.split(r"\n\s*(?:\d+[\.\)]|\-)\s+", text)
+        if _re.search(_ANY_SECTION_PATTERN, block, _re.IGNORECASE)
+    ]
+
+
+def _clean_section_text(text: str) -> str:
+    """Remove markdown list/heading noise without truncating content."""
+
+    lines: list[str] = []
+    for raw_line in text.strip().splitlines():
+        line = raw_line.strip()
+        if not line or line == "---":
+            continue
+        line = _re.sub(r"^\s*(?:[-*]|\d+[\.\)])\s+", "", line)
+        line = _re.sub(r"\s{2,}", " ", line)
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _extract_markdown_section(text: str, field_pattern: str) -> str | None:
+    """Extract a named markdown subsection from scenario text."""
+
+    pattern = (
+        rf"(?:^|\n)\s*(?:#{{1,6}}\s*)?(?:[-*]\s*)?"
+        rf"(?:\*{{0,2}})?(?:{field_pattern})(?:\*{{0,2}})?"
+        rf"\s*(?:{_DASH_PATTERN})?\s*"
+        rf"(?P<body>.*?)"
+        rf"(?=\n\s*(?:#{{1,6}}\s*)?(?:[-*]\s*)?(?:\*{{0,2}})?"
+        rf"(?:{_ANY_SECTION_PATTERN})(?:\*{{0,2}})?\s*(?:{_DASH_PATTERN})?"
+        rf"|\n\s*---|\Z)"
+    )
+    match = _re.search(pattern, text, _re.IGNORECASE | _re.DOTALL)
+    if not match:
+        return None
+    body = _clean_section_text(match.group("body"))
+    return body or None
 
 
 _re = __import__("re")

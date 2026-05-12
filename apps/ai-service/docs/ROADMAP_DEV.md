@@ -721,7 +721,9 @@ tradingagents thesis decide <thesis_id>
 tradingagents thesis review <thesis_id>
 
 tradingagents signals list
-tradingagents signals show <signal_id>
+tradingagents signals latest ETH/USDT
+tradingagents signals snapshot <run_id>
+tradingagents signals explain <signal_id>
 
 tradingagents watchlist add-symbol BTC/USDT
 tradingagents watchlist add-thesis <thesis_id>
@@ -799,7 +801,8 @@ debate, and timeline as the interactive flow.
 
 ```bash
 tradingagents journal workspace <run_id>
-tradingagents signals show <signal_id>
+tradingagents signals snapshot <run_id>
+tradingagents signals explain <signal_id>
 tradingagents journal debate <debate_id>
 tradingagents journal timeline <run_id>
 ```
@@ -883,7 +886,7 @@ The retrospective view should answer:
 ### Historical Thesis Evaluation Workflow
 
 ```bash
-tradingagents evaluate run ...
+tradingagents research evaluate thesis <thesis_id>
 ```
 
 This is historical thesis evaluation, not broker-accurate backtesting. Do not

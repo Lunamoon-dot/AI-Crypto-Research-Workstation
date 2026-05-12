@@ -213,7 +213,7 @@ If the new model produces worse results:
 
 3. Validate regression:
    ```bash
-   tradingagents evaluate BTC/USDT
+   tradingagents research evaluate batch --symbol BTC/USDT --limit 20
    ```
 
 ---

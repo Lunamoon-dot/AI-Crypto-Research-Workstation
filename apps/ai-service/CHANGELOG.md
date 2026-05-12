@@ -19,6 +19,7 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Changed
 
+- `tradingagents analyze --clear-checkpoints` with no `--ticker` / `--non-interactive` / `--plain` now exits after clearing checkpoint files instead of opening the interactive wizard.
 - Formatted the repository with Ruff so the configured format gate can pass.
 - `ResearchRun` provenance fields (`deep_think_model`, `quick_think_model`, `llm_provider`, `config_hash`) are now stored in structured SQLite columns as well as in `payload_json`.
 - Journal migrations now add provenance columns to older `research_runs` tables.
@@ -35,7 +36,7 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Added
 
-- **Structured-output decision agents.** Research Manager, Trader, and Portfolio
+- **Structured-output decision agents.** Research Manager, Setup Planner, and Portfolio
   Manager now use `llm.with_structured_output(Schema)` on their primary call
   and return typed Pydantic instances. Each provider's native structured-output
   mode is used (`json_schema` for OpenAI / xAI, `response_schema` for Gemini,
@@ -60,7 +61,7 @@ Breaking changes within the 0.x line are called out explicitly.
   verify their setup with one command.
 - **5-tier rating scale** (Buy / Overweight / Hold / Underweight / Sell) used
   consistently by Research Manager, Portfolio Manager, signal processor, and
-  the memory log; Trader keeps 3-tier (Buy / Hold / Sell) since transaction
+  the memory log; Setup Planner keeps 3-tier (Buy / Hold / Sell) since setup
   direction is naturally ternary.
 - **Pytest fixtures** — lazy LLM client imports plus placeholder API keys so
   the test suite runs cleanly without credentials. (#588)

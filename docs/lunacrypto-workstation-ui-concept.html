@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LunaCrypto AI Workstation UI Concept</title>
+  <style>
+    :root {
+      --bg: #f6f7f5;
+      --surface: #ffffff;
+      --surface-2: #eef1ee;
+      --ink: #17201b;
+      --muted: #607068;
+      --border: #d9dfda;
+      --nav: #111715;
+      --teal: #127c66;
+      --green: #1b8a5a;
+      --red: #b23b45;
+      --amber: #c58626;
+      --blue: #2f6f9f;
+      --shadow: 0 10px 30px rgba(17, 23, 21, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .page {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 34px; line-height: 1.15; }
+    h2 { font-size: 22px; line-height: 1.25; margin-bottom: 14px; }
+    h3 { font-size: 14px; line-height: 1.25; }
+    p, li, td { font-size: 13px; line-height: 1.45; color: var(--muted); }
+    .subhead { margin-top: 8px; max-width: 900px; font-size: 15px; }
+
+    .section {
+      margin-top: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .chip.green { background: #ddeee6; color: #0f5e48; }
+    .chip.red { background: #f4dddd; color: #8c2831; }
+    .chip.amber { background: #f7e8d0; color: #7a4b00; }
+    .chip.blue { background: #e0ebf2; color: #1f5e79; }
+    .chip.dark { background: #1f2a25; color: #ecf2ee; }
+
+    .grid { display: grid; gap: 16px; }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .card.muted { background: #fafbfa; }
+
+    .arch-flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+    .arch-node {
+      position: relative;
+      min-height: 92px;
+      border: 1px solid var(--border);
+      background: #fafbfa;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .arch-node.engine { border-color: var(--teal); background: #eaf6f1; }
+    .arch-node:not(:last-child)::after {
+      content: ">";
+      position: absolute;
+      right: -14px;
+      top: 35px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+    .mockup {
+      width: 1440px;
+      min-height: 920px;
+      background: var(--bg);
+      border: 1px solid #cad2cc;
+      border-radius: 8px;
+      overflow: hidden;
+      transform-origin: top left;
+      box-shadow: var(--shadow);
+    }
+    .app-shell {
+      display: grid;
+      grid-template-columns: 232px 1fr 326px;
+      min-height: 920px;
+    }
+    .sidebar {
+      background: var(--nav);
+      color: white;
+      padding: 20px 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+      font-weight: 800;
+    }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--teal), #e9c46a);
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 0 10px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      color: #d7dfda;
+      font-size: 13px;
+    }
+    .nav-item.active { background: #1f2a25; color: #ffffff; }
+    .main {
+      padding: 20px;
+      min-width: 0;
+    }
+    .right-rail {
+      border-left: 1px solid var(--border);
+      background: #fbfcfb;
+      padding: 20px;
+    }
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .search {
+      height: 42px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 11px 12px;
+      font-size: 13px;
+      color: var(--ink);
+    }
+    .button {
+      height: 42px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--teal);
+      color: white;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .button.secondary {
+      background: white;
+      color: var(--ink);
+      border: 1px solid var(--border);
+    }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric .value {
+      font-size: 23px;
+      line-height: 1.2;
+      font-weight: 800;
+      color: var(--ink);
+      margin-top: 8px;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .thesis-row, .signal-row, .timeline-row, .scenario-row {
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid var(--border);
+      padding: 12px 0;
+    }
+    .thesis-row { grid-template-columns: 72px 1fr 92px; }
+    .signal-row { grid-template-columns: 120px 1fr 84px; }
+    .timeline-row { grid-template-columns: 96px 1fr 90px; }
+    .scenario-row { grid-template-columns: 96px 1fr; }
+    .small { font-size: 11px; color: var(--muted); }
+    .strong { font-weight: 800; color: var(--ink); }
+    .bar {
+      height: 8px;
+      background: #e8ece9;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .bar > span { display: block; height: 100%; background: var(--teal); }
+    .spark {
+      height: 74px;
+      display: grid;
+      grid-template-columns: repeat(20, 1fr);
+      gap: 3px;
+      align-items: end;
+      padding: 8px 0;
+    }
+    .spark i {
+      display: block;
+      background: #cbd6cf;
+      border-radius: 2px 2px 0 0;
+    }
+    .spark i.good { background: var(--green); }
+    .spark i.bad { background: var(--red); }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .pipe-step {
+      min-height: 82px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fafbfa;
+    }
+    .pipe-step.done { border-color: var(--teal); background: #eaf6f1; }
+    .pipe-step.warn { border-color: var(--amber); background: #fff7ea; }
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    .decision-box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: white;
+      margin-bottom: 12px;
+    }
+    .textarea {
+      min-height: 110px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      padding: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .screen-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 26px 0 10px;
+    }
+    .screen-label h2 { margin: 0; }
+
+    @media (max-width: 1500px) {
+      .mockup { transform: scale(0.86); margin-bottom: -120px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>LunaCrypto AI Assistant Workstation</h1>
+      <p class="subhead">Repo-derived product architecture and web UI concept for a crypto research workstation powered by the existing Python AI service and NestJS backend boundary.</p>
+      <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+        <span class="chip green">Research-first</span>
+        <span class="chip blue">Journal-backed</span>
+        <span class="chip amber">Manual decision</span>
+        <span class="chip red">No autonomous execution</span>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2>Runtime Architecture</h2>
+      <div class="arch-flow">
+        <div class="arch-node"><h3>Web UI</h3><p>Routes, workstation layout, command rail, evidence surfaces.</p></div>
+        <div class="arch-node"><h3>NestJS API</h3><p>Auth, workspace, validation, product REST contracts.</p></div>
+        <div class="arch-node"><h3>Jobs / Queue</h3><p>BullMQ, memory, and inline fallback for local/dev mode.</p></div>
+        <div class="arch-node engine"><h3>Python Engine</h3><p>LangGraph agents, SignalEngine, providers, thesis builder.</p></div>
+        <div class="arch-node"><h3>Journal DB</h3><p>Postgres for hosted mode, SQLite for local workstation mode.</p></div>
+        <div class="arch-node"><h3>Read APIs</h3><p>Normalized frontend DTOs for runs, theses, signals, briefs.</p></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Route Map</h2>
+      <table>
+        <thead>
+          <tr><th>Route</th><th>Screen responsibility</th><th>Backend source</th><th>Maturity</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/workbench</code></td><td>Daily command center</td><td>briefs + theses + signals + watchlists</td><td><span class="chip green">API-ready composite</span></td></tr>
+          <tr><td><code>/research/new</code></td><td>Launch run wizard</td><td><code>POST /research-runs</code></td><td><span class="chip green">API-ready</span></td></tr>
+          <tr><td><code>/research/runs/:id</code></td><td>Status and event timeline</td><td><code>GET run</code> + <code>GET events</code></td><td><span class="chip green">API-ready base</span></td></tr>
+          <tr><td><code>/journal/runs/:id</code></td><td>Full evidence workspace</td><td>snapshots, debate, scenarios</td><td><span class="chip amber">Needs endpoint</span></td></tr>
+          <tr><td><code>/theses</code> / <code>/theses/:id</code></td><td>Thesis inbox and detail</td><td>theses, decision, review endpoints</td><td><span class="chip green">API-ready base</span></td></tr>
+          <tr><td><code>/signals</code></td><td>Signal explorer</td><td><code>GET /signals?symbol=</code></td><td><span class="chip green">API-ready</span></td></tr>
+          <tr><td><code>/watchlists</code></td><td>Monitored symbols and theses</td><td>watchlists + add item</td><td><span class="chip green">API-ready base</span></td></tr>
+          <tr><td><code>/briefs/daily</code></td><td>Daily brief archive</td><td><code>GET /briefs/daily</code></td><td><span class="chip green">API-ready</span></td></tr>
+          <tr><td><code>/retrospective</code></td><td>Evaluation and reliability</td><td>evaluations + reliability snapshots</td><td><span class="chip amber">Needs endpoint</span></td></tr>
+          <tr><td><code>/operations</code></td><td>Provider, LLM, freshness health</td><td>provider_health, llm_calls, freshness tables</td><td><span class="chip amber">Needs endpoint</span></td></tr>
+          <tr><td><code>/settings</code></td><td>Profiles, providers, budgets</td><td>config and health commands</td><td><span class="chip amber">Needs endpoint</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div class="screen-label">
+      <h2>Screen 1: Workbench</h2>
+      <span class="chip blue">Daily operating view</span>
+    </div>
+    <section class="mockup">
+      <div class="app-shell">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item active">Workbench <span>01</span></div>
+          <div class="nav-item">Research <span>12</span></div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses <span>7</span></div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Retrospective</div>
+          <div class="nav-item">Operations</div>
+          <div class="nav-item">Settings</div>
+        </aside>
+        <section class="main">
+          <div class="topbar">
+            <div class="search">Search symbol, run, thesis, signal... BTC/USDT</div>
+            <button class="button secondary">Spot</button>
+            <button class="button secondary">2026-05-12</button>
+            <button class="button">Run research</button>
+          </div>
+          <div class="metric-row">
+            <div class="card metric"><div class="label">Active theses</div><div class="value">7</div><p>3 need review</p></div>
+            <div class="card metric"><div class="label">Fresh signals</div><div class="value">42</div><p>5 stale optional</p></div>
+            <div class="card metric"><div class="label">Queued runs</div><div class="value">2</div><p>memory backend</p></div>
+            <div class="card metric"><div class="label">Hit rate sample</div><div class="value">61%</div><p>14 evaluated theses</p></div>
+          </div>
+          <div class="content-grid">
+            <div class="grid">
+              <div class="card">
+                <div class="panel-title"><h3>Daily market brief</h3><span class="chip amber">missing onchain secondary</span></div>
+                <p>Persisted market context leans trending. BTC and ETH remain the core risk barometers. SOL thesis requires review after target approach.</p>
+                <div class="grid cols-3" style="margin-top:14px;">
+                  <div class="card muted"><h3>BTC/USDT</h3><p>Regime: trending<br>Trend: bullish<br>Volatility: normal</p></div>
+                  <div class="card muted"><h3>ETH/USDT</h3><p>Regime: ranging<br>Trend: neutral<br>Volatility: high</p></div>
+                  <div class="card muted"><h3>SOL/USDT</h3><p>Regime: volatile<br>Trend: bearish<br>Volatility: extreme</p></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Thesis inbox</h3><span class="chip blue">sorted by monitor next</span></div>
+                <div class="thesis-row"><span class="chip green">Buy</span><div><div class="strong">BTC/USDT trend pullback</div><p>Entry 100.8k-102.2k, invalidation below 98.4k.</p></div><div class="small">72% conf</div></div>
+                <div class="thesis-row"><span class="chip amber">Hold</span><div><div class="strong">ETH/USDT range reversion</div><p>Wait for reclaim; stale funding data reduces confidence.</p></div><div class="small">48% conf</div></div>
+                <div class="thesis-row"><span class="chip red">Sell</span><div><div class="strong">SOL/USDT failed reclaim</div><p>Target zone near 160 reached. Needs outcome review.</p></div><div class="small">70% conf</div></div>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="card">
+                <div class="panel-title"><h3>Composite signal board</h3><span class="chip green">fresh</span></div>
+                <div class="signal-row"><span class="strong">funding_oi</span><p>Bearish crowding, OI expansion into resistance.</p><span class="chip red">bearish</span></div>
+                <div class="signal-row"><span class="strong">regime</span><p>Trend strength improving with normal volatility.</p><span class="chip green">bullish</span></div>
+                <div class="signal-row"><span class="strong">onchain</span><p>NVT unavailable, exchange metrics partial.</p><span class="chip amber">degraded</span></div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Recent run quality</h3><span class="chip dark">config hash pinned</span></div>
+                <div class="spark">
+                  <i style="height:38%"></i><i class="good" style="height:68%"></i><i class="good" style="height:72%"></i><i style="height:45%"></i><i class="bad" style="height:22%"></i>
+                  <i class="good" style="height:64%"></i><i style="height:51%"></i><i class="good" style="height:78%"></i><i class="bad" style="height:35%"></i><i style="height:48%"></i>
+                  <i class="good" style="height:70%"></i><i class="good" style="height:82%"></i><i style="height:52%"></i><i class="bad" style="height:28%"></i><i class="good" style="height:63%"></i>
+                  <i style="height:44%"></i><i class="good" style="height:69%"></i><i style="height:58%"></i><i class="bad" style="height:31%"></i><i class="good" style="height:76%"></i>
+                </div>
+                <p>Use this as a reliability surface, not PnL marketing.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside class="right-rail">
+          <h3>AI command rail</h3>
+          <p style="margin-top:8px;">Context: workbench, default watchlist, 7 active theses.</p>
+          <div class="decision-box" style="margin-top:16px;"><span class="chip amber">Alert</span><p style="margin-top:8px;">SOL scenario activated near target zone. Review thesis before changing watch status.</p></div>
+          <div class="decision-box"><span class="chip blue">Prompt</span><p style="margin-top:8px;">Explain why BTC signal is bullish while funding/OI is bearish.</p></div>
+          <div class="textarea">Ask about this workspace...</div>
+          <button class="button" style="width:100%; margin-top:12px;">Ask with evidence</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="screen-label">
+      <h2>Screen 2: Research Run Workspace</h2>
+      <span class="chip green">Pipeline and evidence view</span>
+    </div>
+    <section class="mockup">
+      <div class="app-shell" style="grid-template-columns:232px 1fr 360px;">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item active">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Operations</div>
+        </aside>
+        <section class="main">
+          <div class="panel-title" style="margin-bottom:16px;">
+            <div><h2 style="margin:0;">BTC/USDT research run</h2><p>run_7f3a... | spot | 2026-05-12 | deepseek-v4-pro / deepseek-v4-flash</p></div>
+            <span class="chip green">completed</span>
+          </div>
+          <div class="pipeline">
+            <div class="pipe-step done"><h3>Quant</h3><p>7 factors</p></div>
+            <div class="pipe-step done"><h3>Market</h3><p>tool loop ok</p></div>
+            <div class="pipe-step warn"><h3>Social</h3><p>partial data</p></div>
+            <div class="pipe-step done"><h3>News</h3><p>fresh</p></div>
+            <div class="pipe-step warn"><h3>Onchain</h3><p>NVT missing</p></div>
+            <div class="pipe-step done"><h3>Debate</h3><p>medium conflict</p></div>
+            <div class="pipe-step done"><h3>Thesis</h3><p>saved</p></div>
+          </div>
+          <div class="content-grid" style="grid-template-columns:0.8fr 1.2fr;">
+            <div class="card">
+              <div class="panel-title"><h3>Run timeline</h3><span class="chip blue">events</span></div>
+              <div class="timeline-row"><span class="small">09:31:10</span><p>run.started for BTC/USDT</p><span class="chip green">ok</span></div>
+              <div class="timeline-row"><span class="small">09:31:38</span><p>snapshots_saved, 7 signals persisted</p><span class="chip green">ok</span></div>
+              <div class="timeline-row"><span class="small">09:33:04</span><p>risk.debate.recorded</p><span class="chip blue">audit</span></div>
+              <div class="timeline-row"><span class="small">09:34:20</span><p>trade_thesis_saved</p><span class="chip green">ok</span></div>
+              <div class="timeline-row"><span class="small">09:34:25</span><p>run.completed_degraded: missing_onchain_secondary</p><span class="chip amber">warn</span></div>
+            </div>
+            <div class="grid">
+              <div class="card">
+                <div class="panel-title"><h3>Composite signal</h3><span class="chip green">Buy 68%</span></div>
+                <p>Composite score +0.34. 4 bullish, 1 bearish, 2 neutral factors. Optional onchain data unavailable.</p>
+                <div class="bar"><span style="width:68%"></span></div>
+              </div>
+              <div class="evidence-grid">
+                <div class="card muted"><h3>Consensus</h3><p>Bullish 3, bearish 1, uncertain 1. Conflict: medium.</p></div>
+                <div class="card muted"><h3>Contradiction</h3><p>trend_vs_funding: trend constructive, funding crowding risky.</p></div>
+                <div class="card muted"><h3>Freshness</h3><p>OHLCV fresh. Funding fresh. Onchain secondary missing.</p></div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Agent evidence tabs</h3><span class="chip dark">market | social | news | onchain</span></div>
+                <div class="signal-row"><span class="strong">Market Analyst</span><p>Trend strength supports pullback entries, but range break needs confirmation.</p><span class="chip green">bullish</span></div>
+                <div class="signal-row"><span class="strong">Bear Researcher</span><p>Funding and OI concentration make late longs fragile.</p><span class="chip red">bearish</span></div>
+                <div class="signal-row"><span class="strong">Portfolio Manager</span><p>Overweight, manual review, entry below resistance only.</p><span class="chip green">final</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside class="right-rail">
+          <h3>Generated thesis</h3>
+          <div style="margin:12px 0;"><span class="chip green">Overweight</span> <span class="chip blue">spot</span> <span class="chip amber">degraded</span></div>
+          <div class="decision-box"><h3>Action summary</h3><p>Accumulate only on pullback confirmation; avoid chasing breakout until funding resets.</p></div>
+          <div class="decision-box"><h3>Entry zone</h3><p>100.8k-102.2k</p></div>
+          <div class="decision-box"><h3>Invalidation</h3><p>Daily close below 98.4k or funding spike with OI expansion.</p></div>
+          <div class="decision-box"><h3>Monitor next</h3><p>Funding reset below 0.01%, spot CVD confirmation, reclaim above local resistance.</p></div>
+          <button class="button" style="width:100%;">Open thesis detail</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="screen-label">
+      <h2>Screen 3: Thesis Detail and Review</h2>
+      <span class="chip amber">Decision loop</span>
+    </div>
+    <section class="mockup">
+      <div class="app-shell" style="grid-template-columns:232px 1fr 350px;">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item">Research</div>
+          <div class="nav-item active">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Retrospective</div>
+        </aside>
+        <section class="main">
+          <div class="panel-title" style="margin-bottom:16px;">
+            <div><h2 style="margin:0;">BTC/USDT trend pullback thesis</h2><p>thesis_91c... | from run_7f3a... | created 2026-05-12</p></div>
+            <span class="chip green">Overweight 68%</span>
+          </div>
+          <div class="metric-row">
+            <div class="card metric"><div class="label">Direction</div><div class="value">Long</div><p>spot thesis</p></div>
+            <div class="card metric"><div class="label">Entry</div><div class="value">100.8k</div><p>to 102.2k</p></div>
+            <div class="card metric"><div class="label">Invalidation</div><div class="value">98.4k</div><p>daily close</p></div>
+            <div class="card metric"><div class="label">Targets</div><div class="value">108k</div><p>then 112k</p></div>
+          </div>
+          <div class="content-grid">
+            <div class="grid">
+              <div class="card">
+                <div class="panel-title"><h3>Why this thesis</h3><span class="chip blue">evidence-backed</span></div>
+                <p>Market regime and volume profile support a controlled pullback setup. The thesis is weakened by crowded funding/OI and partial onchain data, so confirmation matters more than immediate action.</p>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Supporting evidence</h3><span class="chip green">4 signals</span></div>
+                <div class="signal-row"><span class="strong">regime</span><p>Trending, bullish, normal volatility.</p><span class="chip green">fresh</span></div>
+                <div class="signal-row"><span class="strong">volume_profile</span><p>Accumulation above prior value area.</p><span class="chip green">fresh</span></div>
+                <div class="signal-row"><span class="strong">news</span><p>Macro event risk known, no immediate negative catalyst.</p><span class="chip blue">context</span></div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Contradicting evidence</h3><span class="chip red">risk first</span></div>
+                <div class="signal-row"><span class="strong">funding_oi</span><p>Late long crowding could cause squeeze below invalidation.</p><span class="chip red">bearish</span></div>
+                <div class="signal-row"><span class="strong">onchain</span><p>NVT and exchange metrics incomplete for current run.</p><span class="chip amber">missing</span></div>
+              </div>
+            </div>
+            <div class="grid">
+              <div class="card">
+                <div class="panel-title"><h3>Scenario map</h3><span class="chip dark">3 branches</span></div>
+                <div class="scenario-row"><span class="chip green">High</span><p>Pullback holds above 100.8k with funding reset. Suggested action: review long thesis.</p></div>
+                <div class="scenario-row"><span class="chip amber">Medium</span><p>Price chops between entry and target without CVD confirmation. Suggested action: watch.</p></div>
+                <div class="scenario-row"><span class="chip red">Low</span><p>Daily close below 98.4k. Suggested action: invalidate thesis and record outcome.</p></div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Journal actions</h3><span class="chip blue">manual</span></div>
+                <button class="button secondary" style="width:32%; margin-right:1%;">Watch</button>
+                <button class="button secondary" style="width:32%; margin-right:1%;">Accept</button>
+                <button class="button secondary" style="width:32%;">Reject</button>
+                <div class="textarea" style="margin-top:12px;">Notes: Waiting for funding reset and spot CVD confirmation.</div>
+              </div>
+              <div class="card">
+                <div class="panel-title"><h3>Outcome review</h3><span class="chip amber">due later</span></div>
+                <p>Record hit target, invalidated, mixed, expired, or unknown. This feeds reliability, agent calibration, and future prompt context.</p>
+                <div class="bar"><span style="width:35%; background:var(--amber);"></span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside class="right-rail">
+          <h3>Contextual AI</h3>
+          <p style="margin-top:8px;">The assistant should answer from this thesis, not from generic market memory.</p>
+          <div class="decision-box"><h3>Suggested questions</h3><p>What would change this thesis?<br>Which signal is weakest?<br>How did similar theses perform?</p></div>
+          <div class="decision-box"><h3>Trust state</h3><p>Missing optional onchain data. Core OHLCV is fresh. Final thesis is usable but degraded.</p></div>
+          <div class="textarea">Ask about thesis_91c...</div>
+          <button class="button" style="width:100%; margin-top:12px;">Explain with citations</button>
+        </aside>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

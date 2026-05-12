@@ -25,7 +25,7 @@ from .observability import DataFreshnessCheck, LLMCallRecord, ProviderHealthReco
 from .provenance import DataFreshness, SignalProvenance
 from .research_run import ResearchRun, ResearchRunStatus
 from .scenario import Scenario, ScenarioProbabilityBand
-from .signal import Signal, SignalDirection
+from .signal import Signal, SignalDirection, SignalEvidenceLane, SignalWatchConditions
 from .snapshot import (
     FactorReliabilityEntry,
     MarketSnapshot,
@@ -80,6 +80,8 @@ __all__ = [
     "SetupTemplate",
     "Signal",
     "SignalDirection",
+    "SignalEvidenceLane",
+    "SignalWatchConditions",
     "MarketSnapshot",
     "MarketBrief",
     "SignalSnapshot",

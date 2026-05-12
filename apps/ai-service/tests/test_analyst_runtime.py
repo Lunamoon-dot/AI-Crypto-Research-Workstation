@@ -74,7 +74,7 @@ def test_analyst_runner_adds_structured_opinion_and_renders_report():
     )
     out = runner({"messages": [], "company_of_interest": "BTC/USDT"})
 
-    assert out["market_opinion"] == opinion
+    assert AgentOpinion.model_validate(out["market_opinion"]) == opinion
     assert "**Stance**: bullish" in out["market_report"]
     assert "price reclaimed support" in out["market_report"]
 
@@ -121,7 +121,7 @@ def test_build_agent_opinions_prefers_structured_analyst_state():
     opinions = build_agent_opinions(
         {
             "market_report": "free text would parse differently",
-            "market_opinion": structured,
+            "market_opinion": structured.model_dump(mode="json"),
             "sentiment_report": "",
             "news_report": "",
             "fundamentals_report": "",

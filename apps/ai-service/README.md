@@ -2,9 +2,9 @@
 
 This is the Python AI research service for the LunaPerception monorepo. It lives in `apps/ai-service` and intentionally keeps the existing Python package name `tradingagents` and CLI command `tradingagents` for compatibility.
 
-A local-first AI workstation for crypto market research, trade-thesis generation, decision journaling, signal provenance, and outcome review.
+A local-first Spot/Perp AI workstation for crypto market research, trade-thesis generation, decision journaling, signal provenance, and outcome review.
 
-This project is **not** an autonomous trading bot. It does not place live orders, auto-close positions, parse LLM prose into exchange actions, or bypass risk checks. The core product is research workflow software: collect context, generate signals, let agents debate, produce a thesis, save the decision, and review the outcome.
+The core product is research workflow software: collect context, generate signals, let agents debate, produce a thesis, save the decision, and review the outcome.
 
 ## What This Project Is
 
@@ -20,18 +20,10 @@ Market data
 -> outcome review
 ```
 
-The intended end state is closer to:
+The intended end state is:
 
 ```text
 Obsidian / Cursor for crypto research
-```
-
-not:
-
-```text
-AI hedge fund
-autonomous futures bot
-one-click trading system
 ```
 
 ## Current Capabilities
@@ -50,27 +42,17 @@ one-click trading system
 - Checkpoint resume for long research runs.
 - Multi-provider LLM support.
 
-## Safety Boundary
+## Product Boundary
 
-The following are intentionally disabled or removed from the core product:
-
-- autonomous live trading;
-- live CCXT order routing;
-- prose-based execution parsing;
-- auto bracket order handling;
-- auto-close monitoring;
-- hidden risk bypasses;
-- background execution loops.
-
-If execution is added later, it must be an optional assistant layer:
+The workstation stops at research artifacts and user-reviewed decisions:
 
 ```text
-AI research
+market context
+-> deterministic signals
 -> trade thesis
--> user approval
--> execution ticket
--> manual confirmation
--> audited exchange action
+-> user decision
+-> journal
+-> outcome review
 ```
 
 ## Architecture
@@ -228,18 +210,25 @@ tradingagents thesis review <thesis_id> mixed --lessons "Funding overheated befo
 Signal provenance commands:
 
 ```bash
-tradingagents signals list
+tradingagents signals latest ETH/USDT
+tradingagents signals snapshot <run_id>
+tradingagents signals explain <signal_id>
 tradingagents signals list BTC/USDT
-tradingagents signals show <signal_id>
 ```
+
+Signal snapshots are run-scoped. Public signal wording uses
+`bullish` / `bearish` / `neutral`, with `quant_bias` as aggregate evidence
+rather than a final user decision. Spot and perp evidence lanes are shown
+separately.
 
 Historical thesis evaluation:
 
 ```bash
-tradingagents evaluate
+tradingagents research evaluate thesis <thesis_id>
+tradingagents research evaluate analytics
 ```
 
-This is not a broker-accurate trading backtest. It is for evaluating research/thesis quality.
+This evaluates research/thesis quality, not realized PnL.
 
 ## Python Usage
 
@@ -314,7 +303,7 @@ Abbreviated direction:
 
 ```text
 Dev (1–9): foundation → journal → signal provenance → multi-agent workspace → scenarios → watchlists → terminal UX → brief → historical thesis evaluation
-Production (10–14): config/secrets → observability → service/API layer → optional assisted execution → cloud tiers
+Production (10–14): config/secrets → observability → service/API layer → workstation UI/API hardening
 ```
 
 ## Production Status
@@ -329,15 +318,9 @@ Reasonable current use:
 - signal provenance inspection;
 - paper/hypothetical planning.
 
-Not production-ready for:
-
-- autonomous live trading;
-- leveraged futures automation;
-- broker/exchange order management;
-- unattended operation;
-- multi-tenant hosted cloud;
-- regulated investment advice;
-- unattended portfolio management.
+Next production work should focus on workstation concerns: repeatable config,
+observable runs, stable APIs, clearer UI surfaces, and stronger signal
+calibration.
 
 Current blockers are tracked in [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) and [docs/GO_LIVE_READINESS.md](docs/GO_LIVE_READINESS.md).
 

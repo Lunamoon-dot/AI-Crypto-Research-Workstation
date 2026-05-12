@@ -24,7 +24,10 @@ from tradingagents.agents.schemas import (
     render_setup_proposal,
     render_trader_proposal,
 )
-from tradingagents.agents.trader.trader import create_setup_planner, create_trader
+from tradingagents.agents.planners.setup_planner import (
+    create_setup_planner,
+    create_trader,
+)
 
 
 # ---------------------------------------------------------------------------

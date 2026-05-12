@@ -2,6 +2,7 @@ from tradingagents.agents.schemas import ScenarioItem, ScenarioPlan
 from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
 from tradingagents.graph.journal_bridge import (
     JournalBridge,
+    _parse_scenario_plan,
     scenarios_from_structured_plan,
 )
 
@@ -120,3 +121,62 @@ def test_scenarios_from_structured_plan_maps_probability():
     assert len(rows) == 1
     assert rows[0].thesis_id == "thesis_x"
     assert rows[0].probability_band.value == "high"
+
+
+def test_parse_scenario_plan_handles_markdown_headings_without_truncation():
+    text = """
+Intro text that should not become a scenario.
+
+### Scenario 1: Breakout Catalyst
+
+**Setup Type**: `news_event`
+
+**Key Market Conditions & Catalysts**
+- Price breaks above $2,400 with rising volume.
+- MACD crosses bullish and ADX rises above 20.
+- Social sentiment improves from low attention to moderately positive
+  while market breadth confirms that the move is not a single-candle fakeout.
+
+**Probability Assessment**
+- **30%** - Catalyst path is possible but not the base case.
+
+**Impact on Investment Thesis**
+- HOLD becomes a BUY candidate after confirmation.
+
+**Recommended Response**
+- **Review** - Re-run quant and wait for a retest before changing sizing.
+
+---
+
+### Scenario 2: Range Reversion
+
+**Setup Type**: `range_reversion`
+
+**Key Market Conditions & Catalysts**
+- Price remains between $2,100 and $2,400 with low volume.
+- Support at $2,100 holds after a wick rejection.
+
+**Probability Assessment**
+- **45%** - Most likely while volatility stays muted.
+
+**Impact on Investment Thesis**
+- HOLD remains unchanged.
+
+**Recommended Response**
+- **Watch** - Maintain alerts at both range edges.
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_x")
+
+    assert len(rows) == 2
+    assert rows[0].thesis_id == "thesis_x"
+    assert rows[0].probability_band.value == "low"
+    assert rows[1].probability_band.value == "medium"
+    assert "Price breaks above $2,400" in rows[0].condition
+    assert "ADX rises above 20" in rows[0].condition
+    assert rows[0].expected_market_behavior == (
+        "HOLD becomes a BUY candidate after confirmation."
+    )
+    assert rows[0].suggested_user_action.startswith("**Review**")
+    assert len(rows[0].condition) > 120
+    assert rows[0].expected_market_behavior != rows[0].condition

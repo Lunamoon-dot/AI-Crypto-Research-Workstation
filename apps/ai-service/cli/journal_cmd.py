@@ -69,7 +69,7 @@ def _workspace_evidence_lines(
         con_s = thesis.contradicting_signal_ids
         lines.append(
             f"- Classified signals: {len(sup_s)} supporting, {len(con_s)} contradicting "
-            "(see `signals show <id>` for provenance)."
+            "(see `signals explain <id>` for provenance)."
         )
         evid = thesis.evidence or {}
         sup_o = evid.get("supporting_opinion_ids") or []
@@ -324,6 +324,7 @@ def journal_workspace(
     )
     next_commands = [
         f"tradingagents journal timeline {run.id}",
+        f"tradingagents signals snapshot {run.id}",
     ]
     if run.thesis_id:
         next_commands.extend(
@@ -494,7 +495,7 @@ def journal_signal_snapshot(
         f"Research Run: {snapshot.research_run_id}",
         f"Symbol: {snapshot.symbol}",
         f"Captured: {snapshot.captured_at.isoformat()}",
-        f"Composite Signal: {snapshot.composite_signal_id or 'N/A'}",
+        f"Quant Bias Signal: {snapshot.composite_signal_id or 'N/A'}",
         f"Signal Count: {len(snapshot.signal_ids)}",
         f"Bullish: {snapshot.bullish_count}",
         f"Bearish: {snapshot.bearish_count}",
@@ -980,16 +981,14 @@ def thesis_scenarios(
 
     table = Table(title=f"Thesis Scenarios: {thesis_id}")
     table.add_column("Probability")
-    table.add_column("Condition")
-    table.add_column("Expected Behavior")
-    table.add_column("Invalidation")
-    table.add_column("Action")
+    table.add_column("Condition", overflow="fold")
+    table.add_column("Expected Behavior", overflow="fold")
+    table.add_column("Action", overflow="fold")
     for scenario in scenarios:
         table.add_row(
             scenario.probability_band.value,
             scenario.condition,
             scenario.expected_market_behavior,
-            scenario.invalidation or "N/A",
             scenario.suggested_user_action,
         )
     console.print(table)

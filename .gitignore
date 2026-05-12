@@ -238,6 +238,9 @@ reports/
 futures_monitor.json
 spot_monitor.json
 
+# Local TradingAgents config overrides
+apps/ai-service/config/local.toml
+
 # Stray artifact
 =4.4.0
 

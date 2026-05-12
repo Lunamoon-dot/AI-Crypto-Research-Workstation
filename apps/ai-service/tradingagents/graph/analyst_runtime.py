@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from tradingagents.domain import render_agent_opinion
+from tradingagents.domain import AgentOpinion, render_agent_opinion
 
 
 def make_analyst_runner(
@@ -47,8 +47,13 @@ def make_analyst_runner(
         if opinion_key and opinion_builder and report:
             opinion = opinion_builder(local_state, report)
             if opinion is not None:
-                result[opinion_key] = opinion
-                result[report_key] = render_agent_opinion(opinion)
+                typed_opinion = (
+                    opinion
+                    if isinstance(opinion, AgentOpinion)
+                    else AgentOpinion.model_validate(opinion)
+                )
+                result[opinion_key] = typed_opinion.model_dump(mode="json")
+                result[report_key] = render_agent_opinion(typed_opinion)
         if last_ai_message is not None:
             result["messages"] = [last_ai_message]
         return result

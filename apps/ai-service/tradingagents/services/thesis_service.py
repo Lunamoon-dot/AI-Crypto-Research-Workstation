@@ -164,6 +164,7 @@ class ThesisService:
             "evidence_notes": _workspace_evidence_lines(thesis=thesis, debate=debate),
             "next_commands": [
                 f"tradingagents journal timeline {run.id}",
+                f"tradingagents signals snapshot {run.id}",
                 *(
                     [
                         f"tradingagents thesis show {run.thesis_id}",
@@ -193,7 +194,7 @@ def _workspace_evidence_lines(
         lines.append(
             f"- Classified signals: {len(supporting_signals)} supporting, "
             f"{len(contradicting_signals)} contradicting "
-            "(see `signals show <id>` for provenance)."
+            "(see `signals explain <id>` for provenance)."
         )
         evidence = thesis.evidence or {}
         supporting_opinions = evidence.get("supporting_opinion_ids") or []

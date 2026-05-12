@@ -4,7 +4,7 @@
 
 Hướng dẫn này mô tả cách dùng TradingAgents như một **AI Crypto Research Workstation** trên terminal. Terminal UX tập trung vào research, thesis, journal, watchlist, market brief, replay và outcome review.
 
-TradingAgents không phải autonomous trading bot. CLI không tự đặt lệnh, không mở/đóng vị thế, không biến prose của LLM thành lệnh exchange, và không chạy background execution loop.
+TradingAgents là Spot/Perp research workstation. CLI tạo research artifact, thesis, journal entry, watchlist context, market brief và outcome review để user tự ra quyết định.
 
 ## 1. Entry Point
 
@@ -244,6 +244,8 @@ tradingagents analyze --checkpoint
 tradingagents analyze --clear-checkpoints
 ```
 
+`--clear-checkpoints` đứng một mình chỉ xóa file checkpoint rồi thoát. Muốn xóa rồi chạy ngay một lần research, thêm `--ticker` và `--non-interactive` (và `--plain` nếu cần).
+
 ## 6. Research Namespace
 
 `research` là namespace cho terminal-first research workflow. Các alias quan trọng:
@@ -373,7 +375,25 @@ unknown
 
 ## 9. Signals Workflow
 
-List signals:
+Review latest signal snapshot for one symbol:
+
+```bash
+tradingagents signals latest ETH/USDT
+```
+
+Review the exact signal snapshot attached to one research run:
+
+```bash
+tradingagents signals snapshot <run_id>
+```
+
+Explain one saved signal:
+
+```bash
+tradingagents signals explain <signal_id>
+```
+
+`signals list` van ton tai nhu cross-run browser:
 
 ```bash
 tradingagents signals list
@@ -381,11 +401,12 @@ tradingagents signals list BTC/USDT
 tradingagents signals list BTC/USDT --limit 100
 ```
 
-Xem signal provenance:
-
-```bash
-tradingagents signals show <signal_id>
-```
+Signal UX dung `bullish`, `bearish`, `neutral`; composite duoc hien thi la
+`quant_bias`, khong phai final user decision. Snapshot tach evidence lane:
+`spot` (price, volume, regime, on-chain, relative strength) va `perp`
+(funding, OI, liquidations, long-short, basis). `signals explain` hien thi
+what changed, invalidation va review trigger de dung nhu monitor condition.
+Historical reliability chi nen tin sau khi outcome reviews duoc ghi deu.
 
 Signal view giúp kiểm tra source, observed time, source timestamp, freshness, confidence, evidence và historical reliability nếu có.
 
@@ -502,7 +523,7 @@ Diff dùng để review thay đổi về signals, thesis, debate stance và anal
 
 ## 13. Historical Replay
 
-`replay` chạy lại research pipeline cho ngày quá khứ với no-lookahead guardrails. Đây là replay research, không phải broker backtest.
+`replay` chạy lại research pipeline cho ngày quá khứ với no-lookahead guardrails. Đây là replay research, không phải PnL backtest.
 
 Single-date replay:
 
@@ -569,7 +590,7 @@ tradingagents research evaluate health
 tradingagents research evaluate health --json
 ```
 
-Evaluation là historical thesis quality review. Không đọc nó như PnL thật, Sharpe thật hoặc broker-accurate execution performance.
+Evaluation là historical thesis quality review. Không đọc nó như realized PnL, Sharpe thật hoặc performance đã thực hiện ngoài thị trường.
 
 ## 15. Dashboard
 
@@ -590,7 +611,9 @@ Các command inspect chính hỗ trợ output machine-readable:
 tradingagents journal list --json
 tradingagents journal workspace <run_id> --json
 tradingagents thesis show <thesis_id> --json
-tradingagents signals list BTC/USDT --json
+tradingagents signals latest BTC/USDT --json
+tradingagents signals snapshot <run_id> --json
+tradingagents signals explain <signal_id> --json
 tradingagents watchlist brief --json
 tradingagents watchlist alerts --plain
 tradingagents diff run <run_id_1> <run_id_2> --json
@@ -631,15 +654,14 @@ enabled = false
 
 Authentication errors như 401, 403 hoặc invalid API key cần sửa key. Không nên dựa vào fallback để che lỗi credential.
 
-## 19. Nguyên Tắc An Toàn
+## 19. Product Boundary
 
-- AI không tự đặt lệnh.
-- Alerts không phải lệnh buy/sell.
+- CLI dừng ở research artifact, thesis, journal, watchlist context và outcome review.
+- Alerts là điều kiện để review lại thesis/watchlist.
 - Copy trong terminal dùng ngôn ngữ `review`, `watch`, `reassess`, `stand aside`.
-- `watchlist brief` và `brief daily` là read-only với provider live.
+- `watchlist brief` không tạo alert. `brief daily` không gọi provider live, nhưng mặc định lưu market brief trừ khi dùng `--no-save`.
 - `watchlist check` là explicit command có thể tạo alert.
-- `replay` và `research evaluate` là historical research/thesis review, không phải broker backtest.
-- Nếu sau này có execution layer, nó phải đi qua user approval, execution ticket, manual confirmation và audit trail.
+- `replay` và `research evaluate` là historical research/thesis review, không phải PnL backtest.
 
 ## 20. Command Cookbook Và Kết Quả Dự Kiến
 
@@ -809,7 +831,7 @@ Dry-run complete - configuration is valid.
 Remove --dry-run to run the full research pipeline.
 ```
 
-Side effect: không chạy LLM pipeline và không tạo thesis. Dùng trước khi tốn token hoặc khi debug config.
+Side effect (chỉ `--dry-run`): không chạy LangGraph / LLM pipeline và không tạo thesis, không ghi journal như bản chạy đầy đủ. Có thể có **một probe mạng nhẹ** (ví dụ CCXT `fetch_ticker` qua `check_provider_health`) để xác nhận data path — không tốn token LLM.
 
 ```bash
 tradingagents research run BTC/USDT \
@@ -820,6 +842,8 @@ tradingagents research run BTC/USDT \
   --quick-model gpt-5.4-mini \
   --deep-model gpt-5.4
 ```
+
+Side effect (lệnh trên **không** có `--dry-run`): chạy provider/data/LLM thật, ghi journal SQLite, có thể ghi checkpoints nếu bật `--checkpoint`.
 
 Kết quả dự kiến khi thành công:
 
@@ -845,26 +869,27 @@ Wait a few minutes and try again, or switch to a different provider.
 No research report was generated.
 ```
 
-Side effect: chạy provider/data/LLM thật, ghi journal SQLite, có thể ghi checkpoints nếu bật `--checkpoint`.
-
 ```bash
 tradingagents analyze --ticker ETH/USDT --non-interactive --plain --dry-run
 ```
 
-Kết quả dự kiến: giống `research run --dry-run`. Đây là compatibility path cho script cũ.
+Kết quả dự kiến: giống `research run ... --dry-run` (cùng code path trong CLI). Đây là compatibility path cho script cũ; **không** áp dụng mô tả “chạy LLM / journal đầy đủ” của bản chạy không `--dry-run` ở trên.
 
 ```bash
 tradingagents analyze --checkpoint
 tradingagents analyze --clear-checkpoints
 ```
 
-Kết quả dự kiến:
+- Chỉ `--clear-checkpoints` (không kèm `--ticker` / `--non-interactive` / `--plain`): in dòng cleared rồi **thoát** — không mở wizard Step 0.
+- `--checkpoint` một mình: vẫn vào **interactive wizard** như `tradingagents analyze` thường, nhưng bật lưu checkpoint khi chạy pipeline.
+
+Kết quả dự kiến khi chỉ xóa checkpoint:
 
 ```text
 Cleared 3 checkpoint(s).
 ```
 
-Side effect: `--checkpoint` lưu checkpoint trong cache; `--clear-checkpoints` xóa checkpoint đã lưu.
+Side effect: `--checkpoint` bật lưu checkpoint SQLite trong cache khi chạy graph; `--clear-checkpoints` xóa toàn bộ file checkpoint DB trong thư mục checkpoints (và nếu chỉ có flag này thì không chạy thêm research).
 
 ### 20.3 Dashboard
 
@@ -1074,7 +1099,7 @@ Type                 Evidence   Message
 factor_weakness      6          Funding squeeze setups underperformed
 ```
 
-Side effect: read-only. Dùng cho review chất lượng research, không phải PnL broker.
+Side effect: read-only. Dùng cho review chất lượng research, không phải realized PnL.
 
 ### 20.5 Thesis lifecycle
 
@@ -1160,32 +1185,36 @@ Side effect: ghi outcome review. Dữ liệu này feed vào `journal retrospecti
 Dùng khi muốn biết một conclusion dựa trên signal nào, signal có tươi không, và source timestamp là gì.
 
 ```bash
-tradingagents signals list BTC/USDT --limit 20
-tradingagents signals list BTC/USDT --json
+tradingagents signals latest BTC/USDT
+tradingagents signals snapshot <run_id>
+tradingagents signals latest BTC/USDT --json
 ```
 
 Kết quả dự kiến:
 
 ```text
-Saved Signals
-ID            Symbol     Type                 Direction   Confidence   Reliability   Freshness
-<signal_id>   BTC/USDT   funding_oi_squeeze   bearish     68%          54% (n=39)    fresh
+Signal Snapshot
+Run: <run_id>
+Snapshot: <snapshot_id>
+Symbol: BTC/USDT
+Quant bias is aggregate evidence, not the final user decision.
 ```
 
-Side effect: read-only. Khi chưa có research run, output là `No signals saved yet.`
+Side effect: read-only. Khi chua co research run, output bao chua co signal snapshot.
 
 ```bash
-tradingagents signals show <signal_id>
+tradingagents signals explain <signal_id>
 ```
 
 Kết quả dự kiến:
 
 ```text
-Signal Provenance
+Signal Explain
 ID: <signal_id>
 Symbol: BTC/USDT
-Type: funding_oi_squeeze
-Direction: bearish
+Type: funding_oi
+Lane: perp
+Bias: bearish
 Confidence: 0.68
 
 Provenance:
@@ -1273,7 +1302,7 @@ Created                 Type                 Symbol     Thesis        Message
 2026-05-12T09:00:00Z    target_zone_reached  BTC/USDT   <thesis_id>   BTC/USDT reached target zone 110000
 ```
 
-Side effect: `check` có thể tạo alerts. Nó không chạy background và không gọi broker.
+Side effect: `check` có thể tạo alerts. Nó không chạy background; nó chỉ kiểm tra watchlist conditions.
 
 ```bash
 tradingagents watchlist remove <item_id>
@@ -1400,7 +1429,7 @@ Side effect: read-only. Nếu direction flip, review kỹ signals và timestamps
 
 ### 20.10 Historical replay và evaluation
 
-Dùng để replay research theo ngày quá khứ và review chất lượng thesis. Đây không phải broker backtest.
+Dùng để replay research theo ngày quá khứ và review chất lượng thesis. Đây không phải PnL backtest.
 
 ```bash
 tradingagents replay capabilities
@@ -1682,4 +1711,3 @@ tradingagents thesis review <thesis_id> mixed --lessons "Manual review note"
 tradingagents journal retrospective
 tradingagents research evaluate thesis <thesis_id> --window 14
 ```
-

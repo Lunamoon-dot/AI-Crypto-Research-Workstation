@@ -21,6 +21,17 @@ class SignalScore(str, Enum):
     STRONG_SELL = "Strong Sell"
 
 
+def score_to_quant_bias(score: SignalScore) -> str:
+    """Render an internal score as non-execution market bias wording."""
+    if score in (SignalScore.STRONG_BUY, SignalScore.BUY):
+        return "bullish"
+    if score in (SignalScore.STRONG_SELL, SignalScore.SELL):
+        return "bearish"
+    if score == SignalScore.NEUTRAL:
+        return "neutral"
+    return "unknown"
+
+
 @dataclass
 class FactorSignal:
     """Output from a single signal generator (funding, divergence, etc.)."""
@@ -70,27 +81,21 @@ class SignalResult:
         This is what the analyst agents see instead of raw OHLCV/indicator dumps.
         """
         lines = [
-            f"=== Quantitative Signal: {self.symbol} ===",
-            f"Signal: {self.score.value} (confidence: {self.confidence:.0%})",
+            f"=== Quant Bias: {self.symbol} ===",
+            f"Quant Bias: {score_to_quant_bias(self.score)} (confidence: {self.confidence:.0%})",
             f"Price: ${self.current_price:.2f}" if self.current_price else "",
             f"Trend: {self.trend_direction} (strength: {self.trend_strength:.0%})",
             f"Volatility: {self.volatility_regime}",
             f"Regime: {self.market_regime}",
             "",
-            "Factor Breakdown:",
+            "Evidence Breakdown:",
         ]
         lines = [line for line in lines if line]  # filter empty
 
         for f in self.factors:
-            icon = {
-                "Strong Buy": "🟢",
-                "Buy": "🟢",
-                "Neutral": "🟡",
-                "Sell": "🔴",
-                "Strong Sell": "🔴",
-            }.get(f.score.value, "⚪")
+            icon = "-"
             lines.append(
-                f"  {icon} {f.name:25s} {f.score.value:12s} "
+                f"  {icon} {f.name:25s} {score_to_quant_bias(f.score):8s} "
                 f"(conf={f.confidence:.0%}, value={f.value:.4f})"
             )
             if f.detail:
@@ -113,7 +118,7 @@ class SignalResult:
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp,
-            "score": self.score.value,
+            "quant_bias": score_to_quant_bias(self.score),
             "confidence": self.confidence,
             "current_price": self.current_price,
             "trend_direction": self.trend_direction,
@@ -123,7 +128,7 @@ class SignalResult:
             "factors": [
                 {
                     "name": f.name,
-                    "score": f.score.value,
+                    "quant_bias": score_to_quant_bias(f.score),
                     "confidence": f.confidence,
                     "data_quality": f.data_quality,
                     "value": f.value,

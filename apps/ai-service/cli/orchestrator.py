@@ -26,6 +26,7 @@ from cli.tui import (
     create_layout,
     update_display,
 )
+from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
 from tradingagents.observability import install_secret_redaction_filter
 from cli.preflight import check_api_keys
 
@@ -552,12 +553,16 @@ def run_analysis(
     preserves the legacy graph injection surface.
     """
     orchestrator = AnalysisOrchestrator(_research_service_class, _graph_class)
-    return orchestrator.run(
-        checkpoint=checkpoint,
-        selections=selections,
-        non_interactive=non_interactive,
-        plain=plain,
-        save_report=save_report,
-        save_path=save_path,
-        dry_run=dry_run,
-    )
+    try:
+        return orchestrator.run(
+            checkpoint=checkpoint,
+            selections=selections,
+            non_interactive=non_interactive,
+            plain=plain,
+            save_report=save_report,
+            save_path=save_path,
+            dry_run=dry_run,
+        )
+    except (LLMCredentialError, ConfigurationValidationError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None

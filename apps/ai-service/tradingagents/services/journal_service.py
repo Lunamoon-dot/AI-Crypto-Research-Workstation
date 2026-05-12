@@ -212,6 +212,9 @@ class JournalService:
     def get_signal(self, signal_id: str) -> Signal | None:
         return self.repo.get_signal(signal_id)
 
+    def get_signals_by_ids(self, signal_ids: list[str]) -> dict[str, Signal]:
+        return self.repo.get_signals_by_ids(signal_ids)
+
     def list_signals(
         self,
         *,
@@ -230,6 +233,23 @@ class JournalService:
 
     def get_signal_snapshot(self, snapshot_id: str) -> SignalSnapshot | None:
         return self.repo.get_signal_snapshot(snapshot_id)
+
+    def get_signal_snapshot_for_run(
+        self, research_run_id: str
+    ) -> SignalSnapshot | None:
+        return self.repo.get_signal_snapshot_for_run(research_run_id)
+
+    def get_latest_signal_snapshot(self, symbol: str) -> SignalSnapshot | None:
+        return self.repo.get_latest_signal_snapshot(
+            symbol,
+            workspace_id=self.workspace_id,
+        )
+
+    def get_signal_snapshot_for_signal(self, signal_id: str) -> SignalSnapshot | None:
+        return self.repo.get_signal_snapshot_for_signal(
+            signal_id,
+            workspace_id=self.workspace_id,
+        )
 
     def save_agent_opinions(self, opinions: list[AgentOpinion]) -> list[AgentOpinion]:
         return self.repo.save_agent_opinions(opinions)

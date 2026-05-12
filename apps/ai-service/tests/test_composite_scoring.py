@@ -94,7 +94,7 @@ class TestCompositeScorer:
         )
         scorer = CompositeScorer()
         result = scorer.score([hi_q_factor, lo_q_factor], symbol="BTC/USDT")
-        # High quality BUY should dominate low quality SELL
+        # High quality bullish evidence should dominate low quality bearish evidence.
         assert result.score in (SignalScore.BUY, SignalScore.STRONG_BUY)
 
     def test_agreement_bonus(self):
@@ -141,7 +141,7 @@ class TestCompositeScorer:
             _factor("funding_oi", SignalScore.BUY, confidence=0.6),
         ]
         result = scorer.score(factors, symbol="BTC/USDT")
-        # Strong buy threshold is nearly unreachable, so moderate BUY stays as BUY
+        # Strong threshold is nearly unreachable, so moderate bias stays unchanged.
         assert result.score == SignalScore.BUY
 
     def test_custom_weights(self):
@@ -161,7 +161,7 @@ class TestCompositeScorer:
             [_factor("funding_oi", SignalScore.BUY, confidence=0.8)],
             symbol="BTC/USDT",
         )
-        assert "Composite score" in result.summary
+        assert "Quant bias" in result.summary
 
     def test_to_prompt_block(self):
         result = SignalResult(
@@ -174,7 +174,8 @@ class TestCompositeScorer:
         )
         block = result.to_prompt_block()
         assert "BTC/USDT" in block
-        assert "Buy" in block
+        assert "bullish" in block
+        assert "Buy" not in block
         assert "50000" in block
 
     def test_to_dict(self):
@@ -187,9 +188,10 @@ class TestCompositeScorer:
         )
         d = result.to_dict()
         assert d["symbol"] == "BTC/USDT"
-        assert d["score"] == "Buy"
+        assert d["quant_bias"] == "bullish"
         assert len(d["factors"]) == 1
         assert d["factors"][0]["name"] == "funding_oi"
+        assert d["factors"][0]["quant_bias"] == "bullish"
 
 
 # ---------------------------------------------------------------------------

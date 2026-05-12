@@ -403,10 +403,13 @@ tradingagents thesis list
 tradingagents thesis decide <thesis_id> watched --notes "..."
 
 # Signals
-tradingagents signals list BTC/USDT
+tradingagents signals latest BTC/USDT
+tradingagents signals snapshot <run_id>
+tradingagents signals explain <signal_id>
 
 # Evaluation
-tradingagents evaluate
+tradingagents research evaluate thesis <thesis_id>
+tradingagents research evaluate analytics
 ```
 
 ---

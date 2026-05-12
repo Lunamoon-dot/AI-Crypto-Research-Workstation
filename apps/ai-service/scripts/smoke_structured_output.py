@@ -25,7 +25,7 @@ import sys
 
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.managers.research_manager import create_research_manager
-from tradingagents.agents.trader.trader import create_setup_planner
+from tradingagents.agents.planners.setup_planner import create_setup_planner
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.signal_processing import SignalProcessor
 from tradingagents.llm_clients import create_llm_client

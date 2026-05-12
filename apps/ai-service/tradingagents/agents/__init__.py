@@ -16,8 +16,7 @@ from .managers.research_manager import create_research_manager
 from .managers.portfolio_manager import create_portfolio_manager
 
 from .planners.scenario_planner import create_scenario_planner
-
-from .trader.trader import create_setup_planner, create_trader
+from .planners.setup_planner import create_setup_planner, create_trader
 
 __all__ = [
     "AgentState",

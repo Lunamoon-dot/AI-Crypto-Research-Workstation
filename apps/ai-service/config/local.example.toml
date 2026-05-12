@@ -1,9 +1,18 @@
-[config_validation]
-mode = "warn"
-validate_llm_keys = true
+# Example local overrides. Copy this file to config/local.toml and edit it.
+#
+# TOML note: root-level overrides must appear before the first [section].
+
+# Example local LLM override:
+# llm_provider = "openai"
+# quick_think_llm = "gpt-5-mini"
+# deep_think_llm = "gpt-5"
 
 runtime_environment = "local"
 disabled_data_vendors = []
+
+[config_validation]
+mode = "warn"
+validate_llm_keys = true
 
 [data_vendors]
 technical_indicators = "ccxt"
@@ -29,8 +38,3 @@ persist_llm_calls = true
 persist_data_freshness_checks = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 0.25
-
-# Example local override:
-# llm_provider = "openai"
-# quick_think_llm = "gpt-5-mini"
-# deep_think_llm = "gpt-5"

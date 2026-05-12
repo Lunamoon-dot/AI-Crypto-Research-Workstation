@@ -369,7 +369,7 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
             """
             SELECT payload_json FROM scenarios
             WHERE thesis_id = ?
-            ORDER BY id
+            ORDER BY rowid
             LIMIT ?
             """,
             (thesis_id, limit),
@@ -401,7 +401,7 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
                         payload_json,
                         ROW_NUMBER() OVER (
                             PARTITION BY thesis_id
-                            ORDER BY id
+                            ORDER BY rowid
                         ) AS row_num
                     FROM scenarios
                     WHERE thesis_id IN ({placeholders})

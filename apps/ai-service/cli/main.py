@@ -85,7 +85,10 @@ def analyze(
     clear_checkpoints: bool = typer.Option(
         False,
         "--clear-checkpoints",
-        help="Delete all saved checkpoints before running (force fresh start).",
+        help=(
+            "Delete all saved checkpoints before running (force fresh start). "
+            "If this is the only run-related flag, exit after clearing (no wizard)."
+        ),
     ),
     ticker: Optional[str] = typer.Option(
         None,
@@ -186,6 +189,8 @@ def analyze(
     if clear_checkpoints:
         n = ResearchService().clear_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
+        if not (non_interactive or plain or ticker):
+            return
     if non_interactive or plain or ticker:
         if not ticker:
             raise typer.BadParameter(
@@ -315,9 +320,13 @@ def research_run(
 @research_app.command("workspace")
 def research_workspace(
     run_id: str = typer.Argument(..., help="Research run id."),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit workspace snapshot as JSON."
+    ),
+    plain: bool = typer.Option(False, "--plain", help="Print workspace as plain text."),
 ) -> None:
     """Alias for journal workspace."""
-    journal_workspace(run_id)
+    journal_workspace(run_id, json_out=json_out, plain=plain)
 
 
 @research_app.command("brief")

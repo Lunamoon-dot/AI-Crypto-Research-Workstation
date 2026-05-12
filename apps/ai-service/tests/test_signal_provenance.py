@@ -85,15 +85,22 @@ def test_signal_result_to_domain_signals_preserves_provenance_and_evidence():
     assert len(signals) == 3
     composite = signals[0]
     funding = signals[1]
-    assert composite.signal_type == "composite_quant"
+    assert composite.signal_type == "quant_bias"
     assert composite.direction == SignalDirection.BULLISH
+    assert composite.evidence_lane.value == "quant_bias"
     assert composite.provenance.source == "signal_engine"
     assert composite.provenance.freshness == DataFreshness.FRESH
+    assert composite.evidence["quant_bias"] == "bullish"
     assert composite.evidence["trend_direction"] == "bullish"
+    assert "perp" in composite.evidence
     assert funding.signal_type == "funding_oi"
     assert funding.direction == SignalDirection.BEARISH
+    assert funding.evidence_lane.value == "perp"
+    assert funding.evidence_category == "funding_oi"
+    assert funding.evidence["quant_bias"] == "bearish"
     assert funding.evidence["threshold_breached"] is True
     assert funding.provenance.metadata["data_quality"] == 0.8
+    assert funding.watch_conditions.review_trigger
 
 
 def test_parse_signal_timestamp_returns_none_for_invalid_timestamp():
@@ -198,7 +205,7 @@ def test_reliability_map_passed_to_signal_result():
     reliability_map = {
         "funding_oi": {"historical_reliability": 0.65, "sample_size": 50},
         "regime": {"historical_reliability": 0.80, "sample_size": 30},
-        "composite_quant": {"historical_reliability": 0.72, "sample_size": 60},
+        "quant_bias": {"historical_reliability": 0.72, "sample_size": 60},
     }
 
     signals = signal_result_to_domain_signals(
@@ -218,6 +225,25 @@ def test_reliability_map_passed_to_signal_result():
     regime = signals[2]
     assert regime.provenance.historical_reliability == 0.80
     assert regime.provenance.sample_size == 30
+
+
+def test_legacy_composite_quant_reliability_key_still_maps_to_quant_bias():
+    from tradingagents.signals.provenance import signal_result_to_domain_signals
+
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = _sample_result("2026-05-08T10:00:00Z")
+
+    signals = signal_result_to_domain_signals(
+        result,
+        now=now,
+        reliability_map={
+            "composite_quant": {"historical_reliability": 0.72, "sample_size": 60}
+        },
+    )
+
+    assert signals[0].signal_type == "quant_bias"
+    assert signals[0].provenance.historical_reliability == 0.72
+    assert signals[0].provenance.sample_size == 60
 
 
 def test_reliability_map_missing_key_no_effect():

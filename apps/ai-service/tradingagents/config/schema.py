@@ -219,13 +219,35 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
                     f"llm_fallback.fallback_providers has unknown providers {unknown_fb!r}; "
                     f"known: {', '.join(KNOWN_PROVIDERS)}"
                 )
-            # Warn if primary provider is also a fallback (nonsensical)
-            primary = str(normalized.get("llm_provider", "")).lower()
-            if primary and primary in [str(p).lower() for p in fb_providers]:
-                issues.append(
-                    f"llm_fallback.fallback_providers includes the primary provider "
-                    f"{primary!r} — this is redundant"
-                )
+            else:
+                # Drop primary from fallbacks (default.toml lists alternates including
+                # openai, which clashes when CLI sets llm_provider=openai). Log only;
+                # do not fail — users should still reach credential checks.
+                primary = str(normalized.get("llm_provider", "")).lower().strip()
+                seen_fb: set[str] = set()
+                filtered_fb: list[str] = []
+                removed_primary = False
+                for p in fb_providers:
+                    pk = str(p).lower().strip()
+                    if not pk:
+                        continue
+                    if primary and pk == primary:
+                        removed_primary = True
+                        continue
+                    if pk in seen_fb:
+                        continue
+                    seen_fb.add(pk)
+                    filtered_fb.append(str(p).strip())
+                if removed_primary:
+                    logger.warning(
+                        "Config validation (%s): llm_fallback.fallback_providers "
+                        "included the primary provider %r — redundant for fallback; "
+                        "removed duplicate entries",
+                        source,
+                        primary,
+                    )
+                llm_fallback["fallback_providers"] = filtered_fb
+                fb_providers = filtered_fb
         threshold = llm_fallback.get("circuit_breaker_threshold", 3)
         if not isinstance(threshold, int) or threshold < 1:
             issues.append(

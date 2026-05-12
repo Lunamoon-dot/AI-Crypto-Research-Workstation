@@ -1,11 +1,15 @@
 """Test checkpoint resume: crash mid-analysis, re-run resumes from last node."""
 
+import json
 import tempfile
 import unittest
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
+from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 
+from tradingagents.domain import AgentOpinion, AgentStance
 from tradingagents.graph.checkpointer import (
     checkpoint_step,
     clear_checkpoint,
@@ -19,6 +23,12 @@ _should_crash = False
 
 
 class _SimpleState(TypedDict):
+    count: int
+
+
+class _RichState(TypedDict):
+    messages: Annotated[list, add_messages]
+    market_opinion: AgentOpinion | dict | None
     count: int
 
 
@@ -39,6 +49,28 @@ def _build_graph() -> StateGraph:
     builder.set_entry_point("analyst")
     builder.add_edge("analyst", "trader")
     builder.add_edge("trader", END)
+    return builder
+
+
+def _rich_node(state: _RichState) -> dict:
+    return {
+        "messages": [AIMessage(content="analysis complete")],
+        "market_opinion": AgentOpinion(
+            agent_name="Market Analyst",
+            role="market_analyst",
+            stance=AgentStance.BULLISH,
+            confidence=0.7,
+            key_evidence=["checkpoint regression evidence"],
+        ),
+        "count": state["count"] + 1,
+    }
+
+
+def _build_rich_graph() -> StateGraph:
+    builder = StateGraph(_RichState)
+    builder.add_node("analyst", _rich_node)
+    builder.set_entry_point("analyst")
+    builder.add_edge("analyst", END)
     return builder
 
 
@@ -139,6 +171,26 @@ class TestCheckpointResume(unittest.TestCase):
 
         # Original date checkpoint still exists (untouched)
         self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date))
+
+    def test_checkpoint_metadata_ignores_non_json_safe_node_writes(self):
+        """Checkpoint metadata must not JSON-encode arbitrary node writes."""
+        builder = _build_rich_graph()
+        tid = thread_id(self.ticker, self.date)
+        cfg = {"configurable": {"thread_id": tid}}
+
+        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+            graph = builder.compile(checkpointer=saver)
+            result = graph.invoke(
+                {"messages": [], "market_opinion": None, "count": 0},
+                config=cfg,
+            )
+            cp = saver.get_tuple(cfg)
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(checkpoint_step(self.tmpdir, self.ticker, self.date), 1)
+        self.assertIsNotNone(cp)
+        self.assertNotIn("writes", cp.metadata)
+        json.dumps(cp.metadata)
 
 
 if __name__ == "__main__":
