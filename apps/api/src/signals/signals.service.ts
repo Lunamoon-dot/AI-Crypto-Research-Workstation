@@ -16,12 +16,16 @@ export class SignalsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  list(symbol?: string, limit = 50, userId?: string, workspaceHeader?: string) {
+  async list(
+    symbol?: string,
+    limit = 50,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
-    return this.journal
-      .listSignals(symbol, limit, workspaceId)
-      .then((signals) => signals.map(toSignalResponse));
+    await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    const signals = await this.journal.listSignals(symbol, limit, workspaceId);
+    return signals.map(toSignalResponse);
   }
 }

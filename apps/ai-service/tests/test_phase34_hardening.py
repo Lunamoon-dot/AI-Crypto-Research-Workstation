@@ -58,6 +58,22 @@ def test_graph_modules_do_not_use_wildcard_agent_imports():
         assert "from tradingagents.agents import *" not in text
 
 
+def test_graph_run_context_mixin_preserves_legacy_state_accessors():
+    from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+    from tradingagents.graph.run_context import GraphRunContext
+
+    graph = object.__new__(ResearchAgentsGraph)
+
+    graph.ticker = "BTC/USDT"
+    graph.curr_state = {"company_of_interest": "BTC/USDT"}
+    graph._replay_thread_id = "thread-1"
+
+    assert isinstance(graph.run_context, GraphRunContext)
+    assert graph.run_context.ticker == "BTC/USDT"
+    assert graph.curr_state == {"company_of_interest": "BTC/USDT"}
+    assert graph._replay_thread_id == "thread-1"
+
+
 def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
     db_path = tmp_path / "legacy.sqlite"
     with sqlite3.connect(db_path) as conn:

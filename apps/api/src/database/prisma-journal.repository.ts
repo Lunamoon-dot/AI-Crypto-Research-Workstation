@@ -220,6 +220,7 @@ export class PrismaJournalRepository
     await this.prisma().watchlistItem.create({
       data: {
         id,
+        workspaceId,
         watchlistId,
         itemType: payload.item_type,
         symbol: payload.symbol,

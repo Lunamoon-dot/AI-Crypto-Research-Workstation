@@ -76,6 +76,7 @@ class SignalResult:
     degradation_reasons: list[str] = field(default_factory=list)
     missing_core_data: list[str] = field(default_factory=list)
     missing_optional_data: list[str] = field(default_factory=list)
+    factor_failures: list[dict[str, str]] = field(default_factory=list)
 
     def to_prompt_block(self) -> str:
         """Render the signal as prompt-safe research context."""
@@ -132,6 +133,19 @@ class SignalResult:
                     *[f"  - {item}" for item in self.missing_optional_data],
                 ]
             )
+        if self.factor_failures:
+            lines.extend(
+                [
+                    "",
+                    "Signal factors unavailable:",
+                    *[
+                        "  - "
+                        f"{item.get('factor', 'unknown')}: "
+                        f"{item.get('reason', 'failed')}"
+                        for item in self.factor_failures
+                    ],
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -173,6 +187,7 @@ class SignalResult:
             "degradation_reasons": list(self.degradation_reasons),
             "missing_core_data": list(self.missing_core_data),
             "missing_optional_data": list(self.missing_optional_data),
+            "factor_failures": [dict(item) for item in self.factor_failures],
         }
 
     def empirical_confidence_is_publishable(self) -> bool:

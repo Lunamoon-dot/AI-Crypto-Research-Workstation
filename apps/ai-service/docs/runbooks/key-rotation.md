@@ -1,14 +1,14 @@
 # Key Rotation Runbook
 
-**Last updated**: 2026-05-11
-**Audience**: Operators who manage API credentials for TradingAgents
+**Last updated**: 2026-05-13
+**Audience**: Operators who manage API credentials for LunaCrypto
 **Scope**: Rotating LLM and data provider API keys without downtime or data loss
 
 ---
 
 ## 1. Overview
 
-TradingAgents reads API keys from environment variables (default `secrets.source: "env"`) with optional keyring fallback. The current key resolution order:
+LunaCrypto reads API keys from environment variables (default `secrets.source: "env"`) with optional keyring fallback. The current key resolution order:
 
 1. Explicit `api_key` kwarg passed to `create_llm_client()` (e.g., from config)
 2. `SecretsManager` (if `secrets.source` includes `"keyring"`)
@@ -42,20 +42,21 @@ lunacrypto config show | grep -i "api_key\|provider"
 cat .env | grep -i "api_key\|token\|secret"
 ```
 
-Common keys for TradingAgents:
+Common keys for LunaCrypto:
 
 | Provider | Env Var |
 |----------|---------|
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | OpenAI | `OPENAI_API_KEY` |
 | Anthropic | `ANTHROPIC_API_KEY` |
-| Google AI | `GOOGLE_API_KEY` |
+| Google AI | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |
 | xAI | `XAI_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 | Qwen / DashScope | `DASHSCOPE_API_KEY` |
 | GLM / Zhipu | `ZHIPU_API_KEY` |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY` |
-| Alpha Vantage | `ALPHA_VANTAGE_API_KEY` |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` |
+| CoinGecko | `COINGECKO_API_KEY` |
+| CryptoPanic | `CRYPTOPANIC_API_TOKEN` |
 
 ### 3.2 Verify current keys work
 
@@ -64,7 +65,7 @@ Common keys for TradingAgents:
 python scripts/smoke_structured_output.py
 
 # Run a minimal research to verify data providers
-lunacrypto research BTC/USDT
+lunacrypto research run BTC/USDT --yes --plain
 ```
 
 If the current key is already expired, skip to Section 4.
@@ -172,7 +173,7 @@ Rotate immediately — no coordination needed.
 - **Data provider key rotation**: Data provider calls are also keyed. Same guidance — wait for the run to finish.
 - **Checkpoint recovery**: If a run fails mid-rotation, resume with the new key:
   ```bash
-  lunacrypto research BTC/USDT --checkpoint
+  lunacrypto research run BTC/USDT --checkpoint --yes --plain
   ```
 
 ### Zero-downtime rotation (advanced)
@@ -190,14 +191,15 @@ For continuous operation:
 ## 6. Post-Rotation Verification
 
 ```bash
-# 1. Smoke test all LLM providers
-python scripts/smoke_structured_output.py
+# 1. Smoke test the rotated LLM provider
+python scripts/smoke_structured_output.py deepseek
 
 # 2. Run a full research cycle
-lunacrypto research BTC/USDT
+lunacrypto research run BTC/USDT --yes --plain
 
 # 3. Check journal for no auth errors
-lunacrypto journal timeline --limit 10
+lunacrypto journal list --limit 10
+lunacrypto journal timeline <run_id>
 # Expect: research_run_started → ... → research_run_completed
 # NOT: storage_operation_failed or llm_call status=failed
 

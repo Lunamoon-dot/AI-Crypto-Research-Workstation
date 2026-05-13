@@ -192,6 +192,50 @@ class TestCheckpointResume(unittest.TestCase):
         self.assertNotIn("writes", cp.metadata)
         json.dumps(cp.metadata)
 
+    def test_replay_thread_id_isolated_from_live_thread_id(self):
+        """Replay checkpoints for the same ticker/date use a distinct thread."""
+        builder = _build_rich_graph()
+        live_tid = thread_id(self.ticker, self.date)
+        replay_tid = f"{live_tid}:replay"
+
+        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+            graph = builder.compile(checkpointer=saver)
+            graph.invoke(
+                {"messages": [], "market_opinion": None, "count": 0},
+                config={"configurable": {"thread_id": live_tid}},
+            )
+            graph.invoke(
+                {"messages": [], "market_opinion": None, "count": 0},
+                config={"configurable": {"thread_id": replay_tid}},
+            )
+
+        self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
+        self.assertIsNotNone(
+            checkpoint_step(
+                self.tmpdir,
+                self.ticker,
+                self.date,
+                thread_id_override=replay_tid,
+            )
+        )
+
+        clear_checkpoint(
+            self.tmpdir,
+            self.ticker,
+            self.date,
+            thread_id_override=replay_tid,
+        )
+
+        self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
+        self.assertIsNone(
+            checkpoint_step(
+                self.tmpdir,
+                self.ticker,
+                self.date,
+                thread_id_override=replay_tid,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

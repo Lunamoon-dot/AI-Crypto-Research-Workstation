@@ -15,8 +15,10 @@ flowchart LR
     Config --> Vendors["Data vendors: CCXT, CoinGecko, CryptoPanic"]
     Vendors --> Signals["Deterministic SignalEngine"]
     Signals --> Graph["Agent graph"]
-    Graph --> Journal["AI-service journal + local Prisma Postgres mirror"]
-    Journal --> ReadAPI["Web read APIs"]
+    Graph --> SQLite["AI-service SQLite journal"]
+    API --> ProductDB["Product Postgres via Prisma/pg"]
+    SQLite -. migration export boundary .-> ProductDB
+    ProductDB --> ReadAPI["Web read APIs"]
     ReadAPI --> UI["Research UI"]
 ```
 
@@ -101,14 +103,23 @@ recommended, what the user decided, and how the thesis performed later.
 
 ## Database Boundary
 
-Current focus is `apps/ai-service`. Its existing journal remains the working
-engine source while local Postgres becomes the Prisma target for product-schema
-work and migration checks. The canonical Prisma schema lives in
-`packages/database/prisma/schema.prisma` and defaults to
-`postgresql://postgres:postgres@localhost:5432/lunacrypto`; hosted/NestJS
-deployments can provide `DATABASE_URL` later. API repository code should prefer
-`PrismaJournalRepository` once the backend is resumed, unless
-`DATABASE_ACCESS=pg` is explicitly set for the raw `pg` fallback.
+Current focus is `apps/ai-service`. Its existing SQLite journal is still the
+working engine source. Local Postgres is the Prisma target for product-schema
+work, API repository reads/writes, and migration checks; it is not an automatic
+mirror of the SQLite journal.
+
+The canonical Prisma schema lives in
+`packages/database/prisma/schema.prisma`. Prisma CLI commands default to
+`postgresql://postgres:postgres@localhost:5432/lunacrypto` through
+`packages/database/prisma.config.ts`. The NestJS API needs `DATABASE_URL` when
+routes should read/write the product journal repository. API repository code
+uses `PrismaJournalRepository` by default and can switch to the raw `pg`
+fallback with `DATABASE_ACCESS=pg`.
+
+The worker contract exists at `lunacrypto engine run --request request.json`.
+Today that runner uses `JournalService` and therefore writes the configured
+SQLite journal unless a future worker persistence adapter exports or writes
+normalized rows into Postgres.
 
 ## Daily And Historical Flows
 

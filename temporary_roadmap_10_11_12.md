@@ -29,7 +29,7 @@
 - [x] Job orchestration boundary accepts validated NestJS requests and enqueues through BullMQ/Redis when configured, with memory and inline-worker fallbacks for local/dev.
 - [x] Python worker boundary uses the stable request/result JSON contract.
 - [x] Local Postgres is the current Prisma target while implementation focus stays on `apps/ai-service`.
-- [x] Prisma schema/client generation lives in `packages/database/prisma/schema.prisma`; hosted/NestJS `DATABASE_URL` can be added later.
+- [x] Prisma schema/client generation lives in `packages/database/prisma/schema.prisma`; NestJS repository-backed routes use `DATABASE_URL` when they need real Postgres reads/writes.
 - [x] SQLite-to-Postgres migration strategy is documented in `docs/postgres-migration-strategy.md`.
 
 Đúng, cách nghĩ đó chuẩn hơn: Python nên là công nghệ lõi/engine, không phải backend sản phẩm chính.
@@ -236,7 +236,7 @@ Database direction:
 
 Local mode: ai-service remains the focus.
 Database target now: local Postgres through Prisma.
-Hosted/NestJS DATABASE_URL can be added later.
+NestJS repository-backed routes should set `DATABASE_URL`; without it, only static membership and queue-path tests can run without database-backed journal reads.
 Python worker boundary:
 Request shape:
 

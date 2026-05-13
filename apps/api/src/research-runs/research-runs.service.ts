@@ -44,7 +44,11 @@ export class ResearchRunsService {
       dto.workspace_id,
       workspaceHeader,
     );
-    const permission = this.workspaces.assertAccess(user, workspaceId);
+    const permission = await this.workspaces.assertAccess(
+      user,
+      workspaceId,
+      'editor',
+    );
     const request: EngineRunRequest = {
       run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
       workspace_id: workspaceId,
@@ -73,13 +77,13 @@ export class ResearchRunsService {
   }
 
   async get(id: string, userId?: string, workspaceHeader?: string) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     const run = await this.getRawRunOrThrow(id, workspaceId);
     return toResearchRunResponse(run);
   }
 
   async events(id: string, userId?: string, workspaceHeader?: string) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     await this.getRawRunOrThrow(id, workspaceId);
     const events = await this.journal.listRunEvents(id, workspaceId);
     return events.map(toResearchRunEventResponse);
@@ -90,7 +94,7 @@ export class ResearchRunsService {
     userId?: string,
     workspaceHeader?: string,
   ): Promise<ResearchRunSnapshotsResponse> {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     const run = await this.getRawRunOrThrow(id, workspaceId);
     const marketSnapshotId = stringField(run.market_snapshot_id);
     const signalSnapshotId = stringField(run.signal_snapshot_id);
@@ -117,7 +121,7 @@ export class ResearchRunsService {
     userId?: string,
     workspaceHeader?: string,
   ): Promise<ResearchRunDebateResponse> {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     const run = await this.getRawRunOrThrow(id, workspaceId);
     const debateId = stringField(run.debate_id);
     if (!debateId) {
@@ -139,7 +143,7 @@ export class ResearchRunsService {
     userId?: string,
     workspaceHeader?: string,
   ): Promise<JournalRunWorkspaceResponse> {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     const run = await this.getRawRunOrThrow(id, workspaceId);
     const thesisId = stringField(run.thesis_id);
     const [events, snapshots, debate, thesis] = await Promise.all([
@@ -164,10 +168,14 @@ export class ResearchRunsService {
     };
   }
 
-  private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
+  private async resolveWorkspaceAccess(
+    userId?: string,
+    workspaceHeader?: string,
+    requiredRole: 'viewer' | 'editor' = 'viewer',
+  ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
+    await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
 

@@ -1,8 +1,8 @@
 # Data Retention And Cloud Boundary
 
-**Last updated**: 2026-05-12
+**Last updated**: 2026-05-13
 
-TradingAgents is currently a local research workstation. There is no hosted tier in this release, and the project should be operated as local-only unless a future cloud product explicitly changes this boundary.
+LunaCrypto is currently a local research workstation. There is no hosted tier in this release, and the project should be operated as local-only unless a future cloud product explicitly changes this boundary.
 
 ## Local Data
 

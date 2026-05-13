@@ -112,11 +112,16 @@ max_age_hours = 24.0
 auto_evaluate_enabled = true
 auto_evaluate_max_batch = 5
 feedback_enabled = true
+require_strict_replay = true
 window_days = 14
 degradation_threshold = 0.20
 critical_threshold = 0.40
 min_performance_sample_size = 30
 min_out_of_sample_size = 10
+
+[historical_data]
+default_lookback_days = 30
+strict_mode = true
 
 [observability]
 persist_run_events = true
@@ -127,3 +132,10 @@ persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
 opentelemetry_enabled = false
 service_name = "lunacrypto"
+
+[cli_logging]
+message_preview_chars = 512
+max_report_section_chars = 20000
+max_log_bytes = 1048576
+max_rotated_logs = 3
+persist_raw_llm_output = false

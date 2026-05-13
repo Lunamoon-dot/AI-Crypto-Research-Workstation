@@ -227,6 +227,10 @@ def _composite_signal(
                 "empirical_sample_size": result.empirical_sample_size,
                 "empirical_oos_sample_size": result.empirical_oos_sample_size,
                 "signal_weight_version": result.signal_weight_version,
+                "degradation_reasons": list(result.degradation_reasons),
+                "missing_optional_data": list(result.missing_optional_data),
+                "missing_core_data": list(result.missing_core_data),
+                "factor_failures": [dict(item) for item in result.factor_failures],
             },
         ),
         evidence={
@@ -244,6 +248,9 @@ def _composite_signal(
             "empirical_sample_size": result.empirical_sample_size,
             "empirical_oos_sample_size": result.empirical_oos_sample_size,
             "signal_weight_version": result.signal_weight_version,
+            "degradation_reasons": list(result.degradation_reasons),
+            "missing_optional_data": list(result.missing_optional_data),
+            "factor_failures": [dict(item) for item in result.factor_failures],
         },
         watch_conditions=_build_watch_conditions(
             symbol=result.symbol,

@@ -4,6 +4,33 @@
 -- Python ai-service remains the current focus; NestJS can use DATABASE_URL
 -- later when backend work resumes.
 
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE,
+    display_name TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS workspace_memberships (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin', 'owner')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_memberships_workspace_user
+ON workspace_memberships(workspace_id, user_id);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user_workspace
+ON workspace_memberships(user_id, workspace_id);
+
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',
@@ -183,6 +210,7 @@ ON watchlists(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     watchlist_id TEXT NOT NULL REFERENCES watchlists(id),
     item_type TEXT NOT NULL,
     symbol TEXT,
@@ -192,6 +220,9 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     created_at TIMESTAMPTZ NOT NULL,
     payload_json JSONB NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_items_workspace_watchlist
+ON watchlist_items(workspace_id, watchlist_id);
 
 CREATE TABLE IF NOT EXISTS alerts (
     id TEXT PRIMARY KEY,

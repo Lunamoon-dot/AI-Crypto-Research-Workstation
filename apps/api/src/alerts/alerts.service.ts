@@ -28,7 +28,7 @@ export class AlertsService {
     userId?: string,
     workspaceHeader?: string,
   ) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
     const limit = clampLimit(options.limit ?? 50);
     const alerts = await this.journal.listAlerts(
       options.symbol,
@@ -41,15 +41,23 @@ export class AlertsService {
   }
 
   async markRead(id: string, userId?: string, workspaceHeader?: string) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
     const alert = await this.journal.markAlertRead(id, workspaceId);
     return toAlertResponse(alert);
   }
 
-  private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
+  private async resolveWorkspace(
+    userId?: string,
+    workspaceHeader?: string,
+    requiredRole: 'viewer' | 'editor' = 'viewer',
+  ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
+    await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
 }

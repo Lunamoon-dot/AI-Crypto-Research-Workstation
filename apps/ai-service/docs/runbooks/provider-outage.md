@@ -1,7 +1,7 @@
 # Provider Outage Runbook
 
-**Last updated**: 2026-05-11
-**Audience**: Operators and developers running TradingAgents
+**Last updated**: 2026-05-13
+**Audience**: Operators and developers running LunaCrypto
 **Severity levels**: Degraded → Partial Outage → Full Outage
 
 ---
@@ -109,7 +109,7 @@ retries = 3           # increase from default 2
 If a run was interrupted:
 
 ```bash
-lunacrypto research BTC/USDT --checkpoint
+lunacrypto research run BTC/USDT --checkpoint --yes --plain
 ```
 
 The graph resumes from the last successful node.

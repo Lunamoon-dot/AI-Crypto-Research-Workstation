@@ -1,7 +1,7 @@
 # LLM Deprecation Runbook
 
-**Last updated**: 2026-05-11
-**Audience**: Developers and operators running TradingAgents
+**Last updated**: 2026-05-13
+**Audience**: Developers and operators running LunaCrypto
 **Scope**: Handling model deprecation, EOL, and migration
 
 ---
@@ -14,7 +14,7 @@ LLM providers periodically deprecate older models. When a model reaches EOL:
 - `LLMOrchestrator` classifies these as non-retryable errors (401/403/not-found).
 - The circuit breaker will NOT trip for non-retryable errors — the run fails immediately.
 
-TradingAgents persists model identifiers on every `ResearchRun` (fields `deep_think_model`, `quick_think_model`, `llm_provider`), enabling retrospective impact analysis.
+LunaCrypto persists model identifiers on every `ResearchRun` (fields `deep_think_model`, `quick_think_model`, `llm_provider`), enabling retrospective impact analysis.
 
 ---
 
@@ -122,7 +122,7 @@ export TRADINGAGENTS_QUICK_THINK_LLM="deepseek-v4.1-flash"
 python scripts/smoke_structured_output.py
 
 # Run a single-ticker research to verify end-to-end
-lunacrypto research BTC/USDT
+lunacrypto research run BTC/USDT --yes --plain
 ```
 
 ### Step 4: Re-run affected research (optional)
@@ -130,7 +130,7 @@ lunacrypto research BTC/USDT
 For any critical past run that used the deprecated model, re-run with the new model to compare:
 
 ```bash
-lunacrypto research BTC/USDT --date 2026-05-01
+lunacrypto research run BTC/USDT --date 2026-05-01 --yes --plain
 ```
 
 The new run will have a different `config_hash` and model fields, enabling side-by-side comparison.

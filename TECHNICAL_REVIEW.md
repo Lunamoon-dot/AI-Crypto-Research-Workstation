@@ -1,4 +1,10 @@
-# LunaPerception / TradingAgents Technical Review
+# LunaPerception / LunaCrypto Technical Review
+
+Historical snapshot: this 2026-05-12 review is superseded by
+`TECHNICAL_REVIEW_PHASE_1_11_ARCHITECT_REVIEW.md` for the current
+2026-05-13 phase 1-11 assessment. Keep this file only as background context;
+the test counts below are historical and should not be treated as current CI
+truth.
 
 Review date: 2026-05-12
 
@@ -19,7 +25,7 @@ Observed result:
 
 ```text
 TypeScript API build/lint/test: PASS, 14 contract tests
-Python tests: PASS, 573 tests
+Python tests: PASS in the historical snapshot; the recorded count is stale
 Ruff lint: PASS
 Ruff format check: PASS
 Mypy: PASS, but permissive settings leave untyped function bodies unchecked

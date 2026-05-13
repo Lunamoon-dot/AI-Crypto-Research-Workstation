@@ -4,6 +4,11 @@
 
 **Scope:** source code, tracked Markdown/docs, local CI gates, and release posture.
 
+**Snapshot note:** this evidence table records the 2026-05-12 review run. For
+current repository gate definitions, use `../../../.github/workflows/ci.yml`; for the
+newer architecture assessment, use
+`../../../TECHNICAL_REVIEW_PHASE_1_11_ARCHITECT_REVIEW.md`.
+
 **Verdict:** not ready for broad production launch yet. Ready for controlled local alpha/beta use as a research workstation.
 
 This project should remain positioned as a local-first AI crypto research workstation. It is not a live trading system, investment adviser, broker connector, or unattended automation product.

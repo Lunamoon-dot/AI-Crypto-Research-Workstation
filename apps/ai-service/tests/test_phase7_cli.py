@@ -12,6 +12,7 @@ from cli import (
     config_cmd,
     dashboard,
     journal_cmd,
+    log_policy,
     main,
     orchestrator,
     research_completion,
@@ -150,6 +151,111 @@ def test_orchestrator_supports_legacy_graph_class_injection():
     service = analysis_orchestrator._research_service_class()
 
     assert service._graph_class is _FakeResearchGraph
+
+
+def test_message_tool_log_uses_shared_redaction(tmp_path):
+    analysis_orchestrator = orchestrator.AnalysisOrchestrator(_FakeResearchService)
+    log_file = tmp_path / "message_tool.log"
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    log_file.touch()
+
+    analysis_orchestrator._wire_log_decoretors(log_file, report_dir)
+    analysis_orchestrator.message_buffer.add_message(
+        "debug",
+        "provider returned token=raw-message-secret",
+    )
+    analysis_orchestrator.message_buffer.add_tool_call(
+        "get_news",
+        {
+            "api_key": "sk-test-secret",
+            "query": "BTC token=raw-tool-secret",
+        },
+    )
+
+    text = log_file.read_text(encoding="utf-8")
+
+    assert "raw-message-secret" not in text
+    assert "sk-test-secret" not in text
+    assert "raw-tool-secret" not in text
+    assert "token=[REDACTED]" in text
+    assert "[REDACTED_UNSAFE_TOOL_ARGS]" in text
+
+
+def test_message_tool_log_applies_caps_and_rotation(tmp_path):
+    analysis_orchestrator = orchestrator.AnalysisOrchestrator(_FakeResearchService)
+    log_file = tmp_path / "message_tool.log"
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    log_file.write_text("x" * 200, encoding="utf-8")
+
+    policy = log_policy.CliPersistencePolicy(
+        message_preview_chars=48,
+        max_log_bytes=180,
+        max_rotated_logs=2,
+    )
+    analysis_orchestrator._wire_log_decoretors(log_file, report_dir, policy=policy)
+    analysis_orchestrator.message_buffer.add_message(
+        "debug",
+        "provider returned token=raw-message-secret " + ("A" * 120),
+    )
+
+    text = log_file.read_text(encoding="utf-8")
+
+    assert (tmp_path / "message_tool.log.1").exists()
+    assert "raw-message-secret" not in text
+    assert "token=[REDACTED]" in text
+    assert '"content_truncated": true' in text
+
+
+def test_report_section_persistence_requires_raw_llm_opt_in(tmp_path):
+    raw_content = "full analyst report token=raw-report-secret " + ("B" * 120)
+    log_file = tmp_path / "message_tool.log"
+    log_file.touch()
+
+    report_dir = tmp_path / "reports_disabled"
+    report_dir.mkdir()
+    analysis_orchestrator = orchestrator.AnalysisOrchestrator(_FakeResearchService)
+    analysis_orchestrator.message_buffer.init_for_analysis(["market"])
+    analysis_orchestrator._wire_log_decoretors(
+        log_file,
+        report_dir,
+        policy=log_policy.CliPersistencePolicy(persist_raw_llm_output=False),
+    )
+    analysis_orchestrator.message_buffer.update_report_section(
+        "market_report",
+        raw_content,
+    )
+
+    disabled_text = (report_dir / "market_report.md").read_text(encoding="utf-8")
+    assert "full analyst report" not in disabled_text
+    assert "raw-report-secret" not in disabled_text
+    assert '"raw_llm_output_persisted": false' in disabled_text
+    assert "content_sha256" in disabled_text
+
+    opt_in_dir = tmp_path / "reports_enabled"
+    opt_in_dir.mkdir()
+    opt_in_orchestrator = orchestrator.AnalysisOrchestrator(_FakeResearchService)
+    opt_in_orchestrator.message_buffer.init_for_analysis(["market"])
+    opt_in_orchestrator._wire_log_decoretors(
+        log_file,
+        opt_in_dir,
+        policy=log_policy.CliPersistencePolicy(
+            persist_raw_llm_output=True,
+            max_report_section_chars=64,
+        ),
+    )
+    opt_in_orchestrator.message_buffer.update_report_section(
+        "market_report",
+        raw_content,
+    )
+
+    opt_in_text = (opt_in_dir / "market_report.md").read_text(encoding="utf-8")
+    assert "full analyst report" in opt_in_text
+    assert "raw-report-secret" not in opt_in_text
+    assert "token=[REDACTED]" in opt_in_text
+    assert "[truncated]" in opt_in_text
+    assert '"raw_llm_output_persisted": true' in opt_in_text
 
 
 def _patch_default_config(monkeypatch, tmp_path):

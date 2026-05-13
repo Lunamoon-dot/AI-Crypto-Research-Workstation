@@ -247,16 +247,26 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
             )
         return model_from_json(TradeThesis, row["payload_json"]) if row else None
 
-    def get_theses_by_ids(self, thesis_ids: list[str]) -> dict[str, TradeThesis]:
+    def get_theses_by_ids(
+        self, thesis_ids: list[str], *, workspace_id: str | None = None
+    ) -> dict[str, TradeThesis]:
         """Batch-fetch theses to avoid N+1 queries in evaluation analytics."""
         if not thesis_ids:
             return {}
         result: dict[str, TradeThesis] = {}
         for chunk in _chunks(thesis_ids):
             placeholders = ",".join("?" for _ in chunk)
+            workspace_filter = ""
+            params: tuple[object, ...] = tuple(chunk)
+            if workspace_id:
+                workspace_filter = " AND workspace_id = ?"
+                params = (*params, workspace_id)
             rows = self.store.fetchall(
-                f"SELECT payload_json FROM trade_theses WHERE id IN ({placeholders})",
-                tuple(chunk),
+                f"""
+                SELECT payload_json FROM trade_theses
+                WHERE id IN ({placeholders}){workspace_filter}
+                """,
+                params,
             )
             for row in rows:
                 thesis = model_from_json(TradeThesis, row["payload_json"])
@@ -364,15 +374,32 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
         )
         return model_from_json(Scenario, row["payload_json"]) if row else None
 
-    def list_scenarios(self, *, thesis_id: str, limit: int = 20) -> list[Scenario]:
+    def list_scenarios(
+        self,
+        *,
+        thesis_id: str,
+        limit: int = 20,
+        workspace_id: str | None = None,
+    ) -> list[Scenario]:
+        workspace_join = ""
+        workspace_filter = ""
+        params: tuple[object, ...] = (thesis_id,)
+        if workspace_id:
+            workspace_join = (
+                "JOIN trade_theses ON trade_theses.id = scenarios.thesis_id"
+            )
+            workspace_filter = "AND trade_theses.workspace_id = ?"
+            params = (*params, workspace_id)
         rows = self.store.fetchall(
-            """
-            SELECT payload_json FROM scenarios
-            WHERE thesis_id = ?
-            ORDER BY rowid
+            f"""
+            SELECT scenarios.payload_json FROM scenarios
+            {workspace_join}
+            WHERE scenarios.thesis_id = ?
+            {workspace_filter}
+            ORDER BY scenarios.rowid
             LIMIT ?
             """,
-            (thesis_id, limit),
+            (*params, limit),
         )
         return [model_from_json(Scenario, row["payload_json"]) for row in rows]
 
@@ -381,6 +408,7 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
         thesis_ids: list[str],
         *,
         limit_per_thesis: int = 20,
+        workspace_id: str | None = None,
     ) -> dict[str, list[Scenario]]:
         """Batch-fetch scenarios grouped by thesis id."""
         unique_ids = list(
@@ -392,24 +420,35 @@ class ThesesRepositoryMixin(RepositoryMixinBase):
         result: dict[str, list[Scenario]] = {thesis_id: [] for thesis_id in unique_ids}
         for chunk in _chunks(unique_ids):
             placeholders = ",".join("?" for _ in chunk)
+            workspace_join = ""
+            workspace_filter = ""
+            params: tuple[object, ...] = tuple(chunk)
+            if workspace_id:
+                workspace_join = (
+                    "JOIN trade_theses ON trade_theses.id = scenarios.thesis_id"
+                )
+                workspace_filter = "AND trade_theses.workspace_id = ?"
+                params = (*params, workspace_id)
             rows = self.store.fetchall(
                 f"""
                 SELECT thesis_id, payload_json
                 FROM (
                     SELECT
-                        thesis_id,
-                        payload_json,
+                        scenarios.thesis_id AS thesis_id,
+                        scenarios.payload_json AS payload_json,
                         ROW_NUMBER() OVER (
-                            PARTITION BY thesis_id
-                            ORDER BY rowid
+                            PARTITION BY scenarios.thesis_id
+                            ORDER BY scenarios.rowid
                         ) AS row_num
                     FROM scenarios
-                    WHERE thesis_id IN ({placeholders})
+                    {workspace_join}
+                    WHERE scenarios.thesis_id IN ({placeholders})
+                    {workspace_filter}
                 )
                 WHERE row_num <= ?
                 ORDER BY thesis_id, row_num
                 """,
-                (*chunk, limit_per_thesis),
+                (*params, limit_per_thesis),
             )
             for row in rows:
                 scenario = model_from_json(Scenario, row["payload_json"])

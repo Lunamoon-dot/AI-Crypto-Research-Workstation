@@ -102,7 +102,7 @@ lunacrypto config setup
 
 ### File cấu hình
 
-TradingAgents dùng chuỗi ưu tiên cấu hình từ thấp đến cao:
+LunaCrypto dùng chuỗi ưu tiên cấu hình từ thấp đến cao:
 
 1. Code defaults trong `tradingagents/default_config.py`
 2. `config/default.toml`
@@ -136,7 +136,7 @@ CRYPTOPANIC_API_TOKEN
 COINGECKO_API_KEY
 ```
 
-Override key riêng cho TradingAgents dùng prefix `TRADINGAGENTS_`, ví dụ:
+Override key riêng cho LunaCrypto vẫn dùng prefix legacy `TRADINGAGENTS_`, ví dụ:
 
 ```bash
 export TRADINGAGENTS_OPENAI_API_KEY=...
@@ -215,9 +215,9 @@ Chỉ định provider/model:
 lunacrypto research run ETH/USDT \
   --yes \
   --plain \
-  --llm-provider openai \
-  --quick-model gpt-5.4-mini \
-  --deep-model gpt-5.4
+  --llm-provider deepseek \
+  --quick-model deepseek-v4-flash \
+  --deep-model deepseek-v4-pro
 ```
 
 Lưu report:
@@ -633,7 +633,7 @@ Output là JSON. Exit code khác 0 nếu engine result không phải `completed`
 
 ## 18. Provider Fallback Và Circuit Breaker
 
-Khi LLM provider chính gặp timeout, connection error hoặc rate limit, TradingAgents có thể thử fallback providers. Sau số lần fail liên tiếp theo cấu hình, circuit breaker sẽ tạm skip provider trước khi thử lại.
+Khi LLM provider chính gặp timeout, connection error hoặc rate limit, LunaCrypto có thể thử fallback providers. Sau số lần fail liên tiếp theo cấu hình, circuit breaker sẽ tạm skip provider trước khi thử lại.
 
 Ví dụ cấu hình trong `config/local.toml`:
 
@@ -714,9 +714,9 @@ Kết quả dự kiến khi hợp lệ:
 
 ```text
 Configuration is valid.
-  LLM Provider: openai
-  Deep thinker: gpt-5.4
-  Quick thinker: gpt-5.4-mini
+  LLM Provider: deepseek
+  Deep thinker: deepseek-v4-pro
+  Quick thinker: deepseek-v4-flash
   Asset class: crypto
   LLM fallback: enabled (openrouter -> openai)
   Secrets source: env
@@ -726,7 +726,7 @@ Kết quả dự kiến khi thiếu key hoặc config sai:
 
 ```text
 Configuration validation failed:
-Missing required API key for provider openai
+Missing required API key for provider deepseek
 ```
 
 Side effect: read-only. Dùng `--warn` khi muốn gom cảnh báo thay vì fail ngay ở lỗi đầu tiên.
@@ -765,12 +765,12 @@ lunacrypto config effective --profile scalping
 Kết quả dự kiến:
 
 ```yaml
-llm_provider: openai
-deep_think_llm: gpt-5.4
-quick_think_llm: gpt-5.4-mini
+llm_provider: deepseek
+deep_think_llm: deepseek-v4-pro
+quick_think_llm: deepseek-v4-flash
 secrets:
   source: env
-openai_api_key: sk-...abcd
+deepseek_api_key: sk-...abcd
 ```
 
 Side effect: read-only, secrets được redact. Hữu ích khi debug vì sao CLI chọn provider/model khác kỳ vọng.
@@ -819,9 +819,9 @@ Asset Class: crypto
 Exchange: default
 Analysts: market, social, news, onchain
 Research Depth: 1
-LLM Provider: openai
-Quick Model: gpt-5.4-mini
-Deep Model: gpt-5.4
+LLM Provider: deepseek
+Quick Model: deepseek-v4-flash
+Deep Model: deepseek-v4-pro
 
 Data provider health check:
   OK ccxt: healthy
@@ -838,9 +838,9 @@ lunacrypto research run BTC/USDT \
   --yes \
   --plain \
   --date 2026-05-08 \
-  --llm-provider openai \
-  --quick-model gpt-5.4-mini \
-  --deep-model gpt-5.4
+  --llm-provider deepseek \
+  --quick-model deepseek-v4-flash \
+  --deep-model deepseek-v4-pro
 ```
 
 Side effect (lệnh trên **không** có `--dry-run`): chạy provider/data/LLM thật, ghi journal SQLite, có thể ghi checkpoints nếu bật `--checkpoint`.

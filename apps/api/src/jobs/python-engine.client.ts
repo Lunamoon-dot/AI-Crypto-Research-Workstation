@@ -8,11 +8,11 @@ import { EngineRunRequest, JsonRecord } from '../database/journal.types';
 @Injectable()
 export class PythonEngineClient {
   async runInline(request: EngineRunRequest): Promise<JsonRecord> {
-    const dir = await mkdtemp(join(tmpdir(), 'tradingagents-engine-'));
+    const dir = await mkdtemp(join(tmpdir(), 'lunacrypto-engine-'));
     const requestPath = join(dir, `${request.run_id}.json`);
     await writeFile(requestPath, JSON.stringify(request), 'utf8');
 
-    const command = process.env.PYTHON_ENGINE_COMMAND ?? 'tradingagents';
+    const command = process.env.PYTHON_ENGINE_COMMAND ?? 'lunacrypto';
     const args = (process.env.PYTHON_ENGINE_ARGS ?? 'engine run --request')
       .split(' ')
       .filter(Boolean);

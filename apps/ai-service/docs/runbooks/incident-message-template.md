@@ -4,7 +4,7 @@
 **Audience**: Users or operators affected by a local data, provider, or credential incident.
 
 ```text
-Subject: TradingAgents incident notice - <short title>
+Subject: LunaCrypto incident notice - <short title>
 
 Status: Investigating / Mitigated / Resolved
 Start time: <YYYY-MM-DD HH:MM UTC>
@@ -41,4 +41,4 @@ Contact:
 - Never include API keys, bearer tokens, journal payloads, or private report text.
 - Use absolute dates and times with timezone.
 - Separate confirmed facts from investigation hypotheses.
-- For research-output issues, remind users that TradingAgents is research assistance, not autonomous trading execution.
+- For research-output issues, remind users that LunaCrypto is research assistance, not autonomous trading execution.

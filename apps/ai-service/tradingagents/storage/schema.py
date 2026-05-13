@@ -303,6 +303,7 @@ ON watchlists(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS watchlist_items (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     watchlist_id TEXT NOT NULL,
     item_type TEXT NOT NULL,
     symbol TEXT,
@@ -316,16 +317,17 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_watchlist
-ON watchlist_items(watchlist_id, enabled, created_at DESC);
+ON watchlist_items(workspace_id, watchlist_id, enabled, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_symbol
-ON watchlist_items(symbol, enabled);
+ON watchlist_items(workspace_id, symbol, enabled);
 
 CREATE INDEX IF NOT EXISTS idx_watchlist_items_thesis
-ON watchlist_items(thesis_id, enabled);
+ON watchlist_items(workspace_id, thesis_id, enabled);
 
 CREATE TABLE IF NOT EXISTS alerts (
     id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
     alert_type TEXT NOT NULL,
     symbol TEXT NOT NULL,
     thesis_id TEXT,
@@ -340,19 +342,19 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alerts_created_at
-ON alerts(created_at DESC);
+ON alerts(workspace_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_symbol
-ON alerts(symbol, created_at DESC);
+ON alerts(workspace_id, symbol, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_thesis
-ON alerts(thesis_id, created_at DESC);
+ON alerts(workspace_id, thesis_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_watchlist_item
-ON alerts(watchlist_item_id, created_at DESC);
+ON alerts(workspace_id, watchlist_item_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_trigger_key
-ON alerts(alert_type, trigger_key, thesis_id, watchlist_item_id);
+ON alerts(workspace_id, alert_type, trigger_key, thesis_id, watchlist_item_id);
 
 CREATE TABLE IF NOT EXISTS market_briefs (
     id TEXT PRIMARY KEY,

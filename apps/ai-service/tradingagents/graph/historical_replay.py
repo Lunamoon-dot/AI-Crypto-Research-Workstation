@@ -98,7 +98,12 @@ class HistoricalReplay:
     """
 
     def __init__(self, config: dict | None = None):
-        self.config = config or DEFAULT_CONFIG
+        self.config = deepcopy(DEFAULT_CONFIG)
+        if config:
+            self.config.update(config)
+        historical_cfg = self.config.setdefault("historical_data", {})
+        historical_cfg.setdefault("default_lookback_days", 30)
+        historical_cfg.setdefault("strict_mode", True)
         self._data_call_log: list[dict] = []
 
     # ------------------------------------------------------------------

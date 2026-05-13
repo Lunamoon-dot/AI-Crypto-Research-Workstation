@@ -60,11 +60,16 @@ AI-service capabilities beyond the first API boundary:
 
 Database boundary:
 
-- Current implementation focus stays on `apps/ai-service`.
-- Local Postgres is the temporary Prisma target for product-schema/migration
-  work. The schema/client source is `packages/database/prisma/schema.prisma`.
-- The NestJS repository can use Prisma later when `DATABASE_URL` is added; raw
-  `pg` access remains an explicit fallback.
+- Current implementation focus stays on `apps/ai-service`, whose journal is
+  still SQLite-backed.
+- Local Postgres is the Prisma target for product-schema/migration work and
+  NestJS API repository reads/writes. The schema/client source is
+  `packages/database/prisma/schema.prisma`.
+- Set `DATABASE_URL` when running API routes that need repository-backed data.
+  `DATABASE_ACCESS=pg` selects the raw `pg` fallback; otherwise the API uses
+  Prisma by default.
+- There is no automatic live SQLite-to-Postgres mirror yet. Treat that as an
+  export/migration/worker-persistence boundary.
 
 ## Route Architecture
 

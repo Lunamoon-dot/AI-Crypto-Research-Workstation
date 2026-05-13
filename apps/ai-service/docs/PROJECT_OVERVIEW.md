@@ -1,446 +1,261 @@
-# AI Crypto Research Workstation — Tổng Quan Dự Án
+# LunaCrypto AI Research Workstation - Tong Quan Du An
 
-> **Living document** — cập nhật khi kiến trúc thay đổi.
-> Lần sửa cuối: 2026-05-12 | Phiên bản dự án: 0.3.0
+> Living document. Cap nhat khi kien truc, CLI, schema, hoac ranh gioi san pham thay doi.
+> Lan sua cuoi: 2026-05-13. Phien ban du an: 0.3.0.
 
----
+## 1. San Pham Nay La Gi
 
-## 1. SẢN PHẨM NÀY LÀ GÌ
+LunaCrypto la research workstation cho thi truong crypto. No khong phai bot giao dich tu dong, broker connector, live order router, hay he thong dau tu uy thac.
 
-**Research Workstation** cho thị trường crypto — không phải bot giao dịch tự động.
+Core loop:
 
-```
-Dữ liệu thị trường → Tín hiệu định lượng → Nghiên cứu đa tác nhân AI
-→ Luận điểm giao dịch (AI tạo) → Người dùng quyết định
-→ Nhật ký quyết định → Đánh giá kết quả
-```
-
-Định vị: **Obsidian/Cursor cho crypto research**, không phải AI hedge fund.
-
-### Không phải
-
-- Autonomous trading bot
-- Live order router
-- Broker/dealer system
-- Regulated investment advisor
-
-### Là
-
-- Local-first research workstation
-- Multi-agent AI research pipeline
-- Structured decision journal
-- Signal provenance tracker
-- Thesis evaluation & outcome review
-
----
-
-## 2. ĐỘ PHỨC TẠP
-
-**Trung cấp-Cao** — phù hợp developer có:
-
-| Kỹ năng | Mức cần |
-|---------|---------|
-| Python | Thành thạo |
-| LangChain / LangGraph | Cơ bản |
-| LLM / Generative AI | Trung cấp |
-| SQL & kiến trúc phần mềm | Cơ bản |
-| Crypto/blockchain | Hữu ích, không bắt buộc |
-
----
-
-## 3. KIẾN TRÚC TỔNG THỂ
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    CLI Layer (cli/)                           │
-│  analyze, research *, journal, thesis, signals, evaluate,      │
-│  replay, watchlist, brief, dashboard, config                   │
-├──────────────────────────────────────────────────────────────┤
-│               Orchestration (tradingagents/graph/)            │
-│  LangGraph — analysts song song → debate → PM → Scenario Planner │
-├──────────────────────────────────────────────────────────────┤
-│  Agents           │  Signals          │  Domain Models        │
-│  (agents/)        │  (signals/)       │  (domain/)            │
-│                   │                   │                       │
-│  Market Analyst   │  Funding/OI       │  ResearchRun          │
-│  Social Analyst   │  RSI Divergence   │  Signal               │
-│  News Analyst     │  MACD             │  TradeThesis          │
-│  Onchain Analyst  │  Volume Profile   │  ResearchDebate       │
-│  Bull/Bear        │  Liquidations     │  AgentOpinion         │
-│  Research Mgr     │  Regime           │  Scenario             │
-│  Setup Planner    │  Onchain          │  UserDecision         │
-│  Risk Analysts    │  Composite        │  OutcomeReview        │
-│  Portfolio Mgr    │  Scoring          │  ...                  │
-├──────────────────────────────────────────────────────────────┤
-│  Data Layer (dataflows/)     │  Storage Layer (storage/)      │
-│                              │                               │
-│  CCXT (OHLCV/funding/OI)     │  SQLite (14 tables)           │
-│  CoinGecko (NVT/supply)      │  Journal Repository           │
-│  CryptoPanic (news)          │  Serialization                │
-│  Fallback chain              │                               │
-├──────────────────────────────────────────────────────────────┤
-│               LLM Clients (llm_clients/)                     │
-│  OpenAI | DeepSeek | Google | Anthropic | xAI | Azure | ...  │
-└──────────────────────────────────────────────────────────────┘
+```text
+Market data
+-> deterministic signals
+-> multi-agent research
+-> structured trade thesis
+-> user decision
+-> journal
+-> outcome review
+-> replay / reliability learning
 ```
 
----
+Gia tri chinh la workflow va paper trail: run IDs, signal provenance, market snapshots, agent opinions, debate records, thesis fields, scenarios, decisions, alerts, briefs, evaluations, provider health, LLM calls, va data freshness checks.
 
-## 4. CÂY THƯ MỤC
+## 2. Monorepo Context
 
-```
-AI-Crypto-Research-Workstation/
-│
-├── README.md
-├── CLAUDE.md                       # Hướng dẫn cho Claude Code
-├── CHANGELOG.md
-├── ROADMAP.md                    # Hub → docs/ROADMAP_DEV.md + docs/ROADMAP_PRODUCTION.md
-├── pyproject.toml
-├── main.py
-│
-├── config/                         # File cấu hình
-│   ├── default.toml                # TOML config (Layer 2)
-│   └── local.example.toml
-│
-├── cli/                            # Giao diện dòng lệnh
-│   ├── main.py                     # Entry point (Typer)
-│   ├── orchestrator.py             # Điều phối phân tích
-│   ├── tui.py                      # Rich Terminal UI
-│   ├── selections.py               # Wizard → config mapping
-│   ├── stream_events.py            # Live streaming display
-│   ├── journal_cmd.py              # journal / thesis / bundle export
-│   ├── signals_cmd.py              # signal provenance commands
-│   ├── evaluate_cmd.py             # historical thesis evaluation (Phase 9)
-│   ├── replay_cmd.py               # historical research replay (no-lookahead)
-│   ├── watch_cmd.py                # watchlist management
-│   ├── brief_cmd.py                # market brief
-│   ├── json_emit.py                # shared JSON stdout helper
-│   ├── config_cmd.py               # config management
-│   ├── dashboard.py                # dashboard display
-│   ├── preflight.py                # pre-flight checks
-│   ├── stats_handler.py            # LLM/tool usage tracking
-│   └── ...
-│
-├── tradingagents/                  # Thư viện lõi
-│   │
-│   ├── default_config.py           # DEFAULT_CONFIG — nguồn sự thật
-│   ├── config_manager.py           # Profile management
-│   ├── config/                     # Configuration subsystem (v0.3+)
-│   │   ├── loader.py               # ConfigLoader: 6-layer priority
-│   │   ├── schema.py               # Validation & normalization
-│   │   ├── secrets.py              # SecretsManager: API key resolution
-│   │   └── providers.py            # PROVIDER_REGISTRY metadata
-│   │
-│   ├── graph/                      # TRÁI TIM HỆ THỐNG
-│   │   ├── research_agents_graph.py # ResearchAgentsGraph (orchestrator)
-│   │   ├── setup.py                # GraphSetup: build LangGraph
-│   │   ├── conditional_logic.py    # Debate/risk routing
-│   │   ├── quant_signals.py        # Pre-compute SignalEngine
-│   │   ├── journal_bridge.py       # Graph ↔ SQLite bridge
-│   │   ├── planning.py             # Thesis & trade plan helpers
-│   │   ├── propagation.py          # Initial state factory
-│   │   ├── historical_replay.py      # Point-in-time replay orchestrator
-│   │   ├── signal_processing.py    # Rating extraction (deterministic)
-│   │   ├── tooling.py              # Tool node factory
-│   │   ├── opinions.py             # AgentOpinion & Debate builders
-│   │   ├── scenarios.py            # Scenario generation
-│   │   ├── checkpointer.py         # SQLite checkpoint/resume
-│   │   └── analyst_runtime.py      # Internal tool-loop wrapper
-│   │
-│   ├── agents/                     # Agent implementations
-│   │   ├── schemas.py              # Pydantic schemas (structured output)
-│   │   ├── analysts/               # 4 analyst agents (quick llm)
-│   │   ├── researchers/            # 2 debate agents
-│   │   ├── managers/               # 2 decision agents (deep llm)
-│   │   ├── risk_mgmt/              # 3 risk debate agents
-│   │   ├── trader/                 # Setup Planner agent (legacy module path)
-│   │   ├── aggregation/            # Confidence/consensus/contradiction
-│   │   └── utils/                  # Shared: state, memory, tools, structured
-│   │
-│   ├── signals/                    # Deterministic quant layer
-│   │   ├── engine.py               # SignalEngine orchestrator
-│   │   ├── base.py                 # SignalResult, FactorSignal
-│   │   ├── composite.py            # CompositeScorer (weighted)
-│   │   ├── funding_oi_signals.py
-│   │   ├── divergence_signals.py
-│   │   ├── volume_signals.py
-│   │   ├── regime_signals.py
-│   │   ├── onchain_signals.py
-│   │   ├── provenance.py           # Signal → domain conversion
-│   │   └── snapshots.py            # Market/Signal snapshot builders
-│   │
-│   ├── dataflows/                  # Data vendor routing
-│   │   ├── interface.py            # route_to_vendor() entry point
-│   │   ├── ccxt_provider.py
-│   │   ├── onchain_provider.py
-│   │   ├── crypto_news_provider.py
-│   │   ├── stockstats_utils.py
-│   │   ├── config.py               # ContextVar config isolation
-│   │   └── utils.py                # safe_ticker_component, etc.
-│   │
-│   ├── domain/                     # Domain models (28+)
-│   ├── storage/                    # SQLite persistence
-│   ├── services/                   # Application services
-│   ├── llm_clients/                # LLM provider abstraction
-│   ├── templates/                  # Scenario planning templates (7 types)
-│   ├── risk/                       # Quantitative risk (VaR, CVaR, stress)
-│   ├── portfolio/                  # Portfolio sizing & optimization
-│   ├── exchange/                   # Exchange abstraction (paper only)
-│   ├── reporting/                  # Markdown report generation
-│   ├── observability/              # Structured logging
-│   └── ...
-│
-├── docs/                           # Tài liệu dự án
-│   ├── ROADMAP_DEV.md              # Lộ trình kỹ thuật / contributor
-│   ├── ROADMAP_PRODUCTION.md       # Lộ trình production / cloud / reliability
-│   ├── PRODUCTION_READINESS_REVIEW.md # Đánh giá go/no-go hiện tại
-│   └── PROJECT_OVERVIEW.md         # File này
-│
-├── tests/                          # Test suite (~30 files)
-├── scripts/                        # Utility scripts
-└── reports/                        # Generated reports (gitignored)
+Tu repo root:
+
+```text
+apps/
+  ai-service/   Python service, Typer CLI, LangGraph research engine
+  api/          NestJS product API boundary
+  web/          placeholder README only
+packages/
+  database/     Prisma schema/client for product Postgres model
+docs/
+  backend/frontend architecture and UX docs
 ```
 
----
+Python package name van la `tradingagents` de giu compatibility. Public CLI command la `lunacrypto`.
 
-## 5. PIPELINE — 1 LẦN CHẠY ĐẦY ĐỦ
+## 3. Ranh Gioi Du Lieu Hien Tai
 
-```
-propagate("BTC/USDT", "2026-05-08")
-│
-├─ PRE-FLIGHT
-│   ├─ Resolve pending memory log entries
-│   ├─ Validate symbol on exchange
-│   └─ Create ResearchRun (status=RUNNING)
-│
-├─ BƯỚC 1: QUANT SIGNAL (trước graph)
-│   └─ SignalEngine.generate()
-│       ├─ Fetch OHLCV (90d) + funding + OI + liq + L/S + NVT + reserves
-│       ├─ 7 generators: regime, RSI, MACD, volume, funding/OI, liq, onchain
-│       └─ CompositeScorer: weighted avg + agreement bonus + vol discount
-│           → SignalResult { score, confidence, factors }
-│
-├─ BƯỚC 2: ANALYST CHAIN (chạy song song, mỗi agent có tool-loop riêng)
-│   ├─ Market Analyst    → market_report
-│   ├─ Social Analyst    → sentiment_report
-│   ├─ News Analyst      → news_report
-│   └─ Onchain Analyst   → fundamentals_report
-│
-├─ BƯỚC 3: BULL/BEAR DEBATE (conditional: max N rounds)
-│   ├─ Bull Researcher ⇄ Bear Researcher
-│   └─ Research Manager  → investment_plan (structured: ResearchPlan)
-│
-├─ BƯỚC 4: TRADER
-│   └─ Setup Planner → trader_investment_plan (structured: SetupProposal)
-│
-├─ BƯỚC 5: RISK DEBATE (conditional: max M rounds)
-│   ├─ Aggressive ⇄ Conservative ⇄ Neutral
-│   └─ Portfolio Manager → final_trade_decision (structured: PortfolioDecision)
-│
-├─ BƯỚC 6: SCENARIO PLANNER
-│   └─ ScenarioPlan (structured) → scenario_plan + scenario_plan_json
-│
-├─ BƯỚC 7: POST-PROCESSING
-│   ├─ Process signal (deterministic parse)
-│   ├─ Build TradeThesis artifact
-│   ├─ Build Trade Plan (if planning.enabled)
-│   ├─ Generate markdown report
-│   ├─ Save to SQLite journal (runs, snapshots, scenarios)
-│   └─ Clear checkpoint
-│
-└─ Return: (final_state, rating)
+Current source of truth for the Python engine:
+
+```text
+~/.tradingagents/cache/research_journal.sqlite
 ```
 
-### State transitions
+`TRADINGAGENTS_JOURNAL_DB` co the override path nay.
 
-```
-START
-  ├─ company_of_interest, trade_date [init]
-  ├─ quant_signal [pre-computed]
+Product API / Postgres boundary:
 
-After Analysts:
-  ├─ market_report ✓
-  ├─ sentiment_report ✓
-  ├─ news_report ✓
-  └─ fundamentals_report ✓
+- `packages/database/prisma/schema.prisma` la Prisma schema cho product Postgres.
+- `apps/api` doc/DTO/repository layer doc du lieu cho UI tu Postgres khi `DATABASE_URL` duoc set.
+- `DATABASE_ACCESS=pg` chon raw `pg` repository fallback; mac dinh la Prisma repository.
+- Chua co live mirror tu SQLite sang Postgres. Can export/sync hoac worker persistence adapter neu muon API doc artifact vua tao boi Python engine.
 
-After Bull/Bear Debate:
-  └─ investment_debate_state ✓
+## 4. Architecture Snapshot
 
-After Research Manager:
-  └─ investment_plan ✓
-
-After Setup Planner:
-  └─ trader_investment_plan ✓
-
-After Risk Debate:
-  └─ risk_debate_state ✓
-
-After Portfolio Manager:
-  └─ final_trade_decision ✓
-
-After Scenario Planner:
-  └─ scenario_plan ✓ → END
+```text
+CLI / Engine Contract
+  -> ConfigLoader + SecretsManager
+  -> ResearchService / EngineRunner
+  -> ResearchAgentsGraph / ResearchRunOrchestrator
+  -> deterministic SignalEngine
+  -> LangGraph analyst/debate/risk/scenario flow
+  -> ThesisBuilder / JournalCoordinator
+  -> SQLite JournalService
 ```
 
----
+API boundary:
 
-## 6. CÁC KHÁI NIỆM CỐT LÕI
-
-### 6.1 Structured Output + Fallback
-
-Research Manager, Setup Planner, Portfolio Manager, Scenario Planner dùng Pydantic schemas để LLM trả JSON (khi provider hỗ trợ).
-Nếu provider không hỗ trợ → fallback về free-text. Sau đó render → markdown.
-
-```python
-# Pattern chuẩn:
-structured_llm = bind_structured(llm, PortfolioDecision, "PM")
-result = invoke_structured_or_freetext(structured_llm, llm, prompt, render_fn, name)
+```text
+Frontend (future)
+  -> NestJS API
+  -> workspace/auth checks
+  -> JobsService: inline | memory | BullMQ
+  -> PythonEngineClient: lunacrypto engine run --request
+  -> Postgres journal repository reads/writes when DATABASE_URL is configured
 ```
 
-### 6.2 Signal Engine (Deterministic)
+## 5. Thu Muc Quan Trong Trong `apps/ai-service`
 
-| Factor | Weight | Mô tả |
-|--------|--------|-------|
-| funding_oi | 20% | Funding rate + Open Interest delta |
-| rsi_divergence | 12% | RSI phân kỳ |
-| macd | 8% | MACD crossover |
-| volume_profile | 12% | Volume profile |
-| liquidations | 12% | Liquidation imbalance |
-| regime | 16% | Market regime detection |
-| onchain | 20% | NVT, L/S ratio, reserves |
+```text
+cli/
+  main.py                 Typer entrypoint
+  orchestrator.py         CLI research run orchestration
+  journal_cmd.py          journal/thesis lifecycle commands
+  signals_cmd.py          signal snapshot/provenance commands
+  watch_cmd.py            watchlist and alert commands
+  brief_cmd.py            daily market brief commands
+  replay_cmd.py           historical replay commands
+  diff_cmd.py             thesis/run diff commands
 
-Confidence = directional_strength × 0.6 + avg_factor_confidence × 0.4
-+ agreement_bonus × volatility_discount
+tradingagents/
+  agents/                 analyst, researcher, manager, risk, planner agents
+  config/                 config loader/schema/secrets/provider registry
+  dataflows/              provider routing, CCXT/onchain/news, historical contract
+  domain/                 product/domain models
+  engine/                 worker JSON request/result contract
+  graph/                  LangGraph assembly, run lifecycle, journal bridge
+  llm_clients/            LLM provider adapters
+  observability/          logging, tracing, budget tracking, redaction
+  reporting/              markdown report generation
+  services/               application services
+  signals/                deterministic signal engine and factors
+  storage/                SQLite schema, migrations, repositories
+  templates/              scenario template registry
 
-### 6.3 Data Vendor Routing
-
-```python
-route_to_vendor(method, *args)
-  → resolve config (category-level → tool-level override)
-  → build fallback chain (primary → remaining available)
-  → try each with timeout + retry + backoff + rate limit
-  → return first success
+tests/                    Python test suite
+scripts/                  smoke and utility scripts
+migrations/               Alembic scaffold for staged DB work
 ```
 
-### 6.4 Journal là bộ nhớ chính
+## 6. CLI Surface
 
-- Markdown memory log legacy đã loại khỏi core; trạng thái nghiên cứu nằm trong SQLite journal (`JournalService`).
-- Outcome review và timeline phục vụ học từ quyết định, không phụ thuộc file markdown ngoài DB.
-
-### 6.5 Journal (SQLite — 14 tables)
-
-`research_runs` → `market_snapshots` → `signals` → `signal_snapshots`
-→ `debates` → `agent_opinions` → `trade_theses` → `scenarios`
-→ `user_decisions` → `outcome_reviews`
-+ `watchlists`, `alerts`, `market_briefs`, `thesis_evaluations`, `run_events`
-
-### 6.6 LLM Fallback + Circuit Breaker
-
-```
-Primary provider
-  ├─ Fail 3 lần liên tiếp → Circuit OPEN (5 min)
-  └─ Auto-switch → Fallback 1 → Fallback 2
-      └─ Skip if circuit also OPEN
-Retry policy: network/timeout/5xx → retry; 401/403 → raise immediately
-```
-
-### 6.7 Safety Boundary
-
-Cố ý **vô hiệu hóa**:
-- Autonomous live trading
-- Live CCXT order routing
-- Auto bracket / auto-close
-- Background execution loops
-
-`planning.enabled = true` → assisted trade plan, yêu cầu user approval thủ công.
-
----
-
-## 7. CODE PATTERNS QUAN TRỌNG
-
-| Pattern | Dùng ở đâu |
-|---------|-----------|
-| **Factory** | Agent creation: `create_*_analyst(llm, config) → callable` |
-| **Strategy** | LLM clients: mỗi provider có client riêng |
-| **Circuit Breaker** | `ResearchAgentsGraph._run_with_fallback()` |
-| **Fallback Chain** | `route_to_vendor()` — vendor routing |
-| **Observer / Streaming** | `graph.stream()` + `node_callback` cho CLI live display |
-| **Context Manager** | `config_context()`, `observability_context()` |
-| **Lazy Import** | `llm_clients/factory.py` — không import SDK khi chưa cần |
-| **Best-effort Persistence** | Journal bridge: fail không crash pipeline |
-| **Template Method** | `TemplateRegistry.detect()` — 7 setup templates |
-
----
-
-## 8. CÁCH CHẠY
+Check the live command tree with:
 
 ```bash
-# Cài đặt
-pip install -e .
-
-# CLI tương tác
-tradingagents
-
-# Code
-from tradingagents.graph import ResearchAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
-
-config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "deepseek"
-config["deep_think_llm"] = "deepseek-v4-pro"
-config["quick_think_llm"] = "deepseek-v4-flash"
-
-graph = ResearchAgentsGraph(debug=True, config=config)
-final_state, rating = graph.propagate("BTC/USDT", "2026-05-08")
-
-# Journal
-lunacrypto journal list
-lunacrypto journal show <run_id>
-
-# Thesis
-lunacrypto thesis list
-lunacrypto thesis decide <thesis_id> watched --notes "..."
-
-# Signals
-lunacrypto signals latest BTC/USDT
-lunacrypto signals snapshot <run_id>
-lunacrypto signals explain <signal_id>
-
-# Evaluation
-lunacrypto research evaluate thesis <thesis_id>
-lunacrypto research evaluate analytics
+python -m cli.main --help
 ```
 
----
+Current top-level groups:
 
-## 9. CON SỐ NHANH
+```text
+analyze
+watchlist
+dashboard
+config
+journal
+thesis
+signals
+brief
+diff
+research
+replay
+engine
+```
 
-| Khía cạnh | Giá trị |
-|-----------|---------|
-| Agent AI | 12 (4 analysts + 2 debaters + 2 managers + 3 risk + 1 setup planner) |
-| Signal generators | 7 (deterministic) |
-| Domain models | 28+ |
-| SQLite tables | 14 |
-| LLM providers | 10 (OpenAI, DeepSeek, Google, Anthropic, xAI, Qwen, GLM, Ollama, OpenRouter, Azure) |
-| Data vendors | 2 (CCXT, CoinGecko) + CryptoPanic |
-| Setup templates | 7 (breakout, range, squeeze, news, macro, pullback, sweep) |
-| Test files | 46 |
+Common commands:
+
+```bash
+lunacrypto
+lunacrypto research run BTC/USDT --date 2026-05-08 --yes --plain
+lunacrypto journal workspace <run_id>
+lunacrypto signals snapshot <run_id>
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
+lunacrypto watchlist brief
+lunacrypto brief daily
+lunacrypto replay single BTC/USDT 2026-05-08
+lunacrypto engine run --request request.json
+```
+
+## 7. Pipeline
+
+```text
+ResearchRun start
+-> quant signal precompute
+-> analysts: market, social, news, onchain
+-> bull/bear debate
+-> research manager
+-> setup planner
+-> risk debate: aggressive, conservative, neutral
+-> portfolio manager
+-> scenario planner
+-> thesis/scenario/report persistence
+-> completion quality gate
+```
+
+Critical artifacts:
+
+- `ResearchRun`
+- `MarketSnapshot`
+- `SignalSnapshot`
+- `Signal`
+- `ResearchDebate`
+- `AgentOpinion`
+- `TradeThesis`
+- `Scenario`
+- `UserDecision`
+- `OutcomeReview`
+- `RunEvent`
+- `ProviderHealth`
+- `LlmCall`
+- `DataFreshnessCheck`
+- `Watchlist`, `WatchlistItem`, `Alert`
+- `MarketBrief`
+- `ThesisEvaluation`
+- `ReliabilitySnapshot`
+
+## 8. Signals
+
+Signal weights are configured in `config/default.toml`:
+
+| Factor | Weight |
+| --- | ---: |
+| funding_oi | 0.20 |
+| rsi_divergence | 0.12 |
+| macd | 0.08 |
+| volume_profile | 0.12 |
+| liquidations | 0.12 |
+| regime | 0.16 |
+| onchain | 0.20 |
+
+Public signal wording uses `bullish`, `bearish`, and `neutral`. `quant_bias` is aggregate evidence, not a user decision or order instruction. Spot and perp evidence lanes are represented separately.
+
+## 9. Providers And Config
+
+LLM providers in the provider registry:
+
+```text
+openai, google, anthropic, xai, deepseek, qwen, glm, openrouter, azure, ollama
+```
+
+Data provider credential env vars currently tracked by config:
+
+```text
+CRYPTOPANIC_API_TOKEN
+COINGECKO_API_KEY
+```
+
+Provider/model keys are resolved by `SecretsManager` from prefixed env vars such as `TRADINGAGENTS_DEEPSEEK_API_KEY`, then provider-specific env vars such as `DEEPSEEK_API_KEY`, plus optional keyring support.
+
+## 10. Quick Numbers
+
+These are approximate codebase shape markers, not release evidence:
+
+| Area | Current shape |
+| --- | --- |
+| AI agent roles | 12 main roles across analysts, researchers, managers, risk, setup planner |
+| Deterministic signal factors | 7 configured factors |
+| SQLite journal tables | 20 `CREATE TABLE` entries |
+| Prisma product models | 21 models |
+| LLM providers | 10 providers in registry |
+| Scenario templates | 7 setup templates |
+| Python test files | 55 files |
 | Python version | 3.10+ |
 
----
+For actual pass/fail evidence, use CI and `docs/release-evidence/*`; do not treat this overview as a test report.
 
-## 10. GHI CHÚ THAY ĐỔI
+## 11. Safety Boundary
 
-> **Cập nhật file này khi:**
-> - Thêm/xóa agent hoặc signal generator
-> - Thay đổi kiến trúc pipeline
-> - Đổi tên/thêm/xóa thư mục chính
-> - Thêm vendor/provider mới
-> - Nâng cấp phiên bản lớn
->
-> **Không cần cập nhật khi:**
-> - Sửa bug nhỏ
-> - Refactor nội bộ một file
-> - Thay đổi config default
-> - Thêm test
+Non-negotiable product rules:
+
+- no autonomous live trading;
+- no hidden order placement;
+- no LLM prose parsed into executable orders;
+- no broker-accurate PnL/backtest claims without a real simulator;
+- all user-facing outputs must keep research/not-advice positioning.
+
+Assisted execution, if ever added, belongs outside the core research engine and must require explicit manual confirmation plus immutable audit records.
+
+## 12. Where To Read Next
+
+- `../README.md` for service setup.
+- `ROADMAP_DEV.md` for implementation phases and contributor direction.
+- `ROADMAP_PRODUCTION.md` for reliability, API/cloud, and monetization direction.
+- `PRODUCTION_READINESS_REVIEW.md` and `GO_LIVE_READINESS.md` for release posture.
+- `../../../docs/backend-system-design.md` for API and product backend architecture.

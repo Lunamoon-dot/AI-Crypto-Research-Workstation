@@ -18,7 +18,7 @@ from tradingagents.signals.rules import (
     normalize_signal_snapshot_payload,
 )
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 HARDENING_SQL: tuple[str, ...] = (
@@ -27,9 +27,9 @@ HARDENING_SQL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_run_events_event_type "
     "ON run_events(event_type, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_alerts_watchlist_item "
-    "ON alerts(watchlist_item_id, created_at DESC)",
+    "ON alerts(workspace_id, watchlist_item_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_alerts_trigger_key "
-    "ON alerts(alert_type, trigger_key, thesis_id, watchlist_item_id)",
+    "ON alerts(workspace_id, alert_type, trigger_key, thesis_id, watchlist_item_id)",
     "CREATE INDEX IF NOT EXISTS idx_market_briefs_previous "
     "ON market_briefs(previous_brief_id)",
     "CREATE INDEX IF NOT EXISTS idx_provider_health_provider_checked "
@@ -56,6 +56,18 @@ TENANCY_SQL: tuple[str, ...] = (
     "ON signals(workspace_id, observed_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created "
     "ON watchlists(workspace_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_watchlist_items_workspace_watchlist "
+    "ON watchlist_items(workspace_id, watchlist_id, enabled, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_watchlist_items_workspace_symbol "
+    "ON watchlist_items(workspace_id, symbol, enabled)",
+    "CREATE INDEX IF NOT EXISTS idx_watchlist_items_workspace_thesis "
+    "ON watchlist_items(workspace_id, thesis_id, enabled)",
+    "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_created "
+    "ON alerts(workspace_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_symbol "
+    "ON alerts(workspace_id, symbol, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_thesis "
+    "ON alerts(workspace_id, thesis_id, created_at DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name "
     "ON watchlists(workspace_id, name)",
     "CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created "
@@ -104,6 +116,7 @@ def migrate_sqlite(conn: sqlite3.Connection) -> None:
         conn.execute(sql)
     for sql in TENANCY_SQL:
         conn.execute(sql)
+    backfill_watchlist_tenancy(conn)
     backfill_alert_trigger_keys(conn)
     backfill_legacy_signal_payloads(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -115,6 +128,8 @@ def _ensure_workspace_columns(conn: sqlite3.Connection) -> None:
         "trade_theses",
         "signals",
         "watchlists",
+        "watchlist_items",
+        "alerts",
         "market_briefs",
         "run_events",
     ):
@@ -163,7 +178,12 @@ def _preensure_legacy_columns(conn: sqlite3.Connection) -> None:
     for table in ("trade_theses", "signals", "watchlists", "market_briefs"):
         if _table_exists(conn, table):
             ensure_column(conn, table, "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
+    if _table_exists(conn, "watchlist_items"):
+        ensure_column(
+            conn, "watchlist_items", "workspace_id", "TEXT NOT NULL DEFAULT 'local'"
+        )
     if _table_exists(conn, "alerts"):
+        ensure_column(conn, "alerts", "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
         ensure_column(conn, "alerts", "trigger_key", "TEXT")
 
 
@@ -243,6 +263,47 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
         (table,),
     ).fetchone()
     return row is not None
+
+
+def backfill_watchlist_tenancy(conn: sqlite3.Connection) -> None:
+    if _table_exists(conn, "watchlist_items") and _table_exists(conn, "watchlists"):
+        conn.execute(
+            """
+            UPDATE watchlist_items
+            SET workspace_id = COALESCE(
+                NULLIF((
+                    SELECT watchlists.workspace_id
+                    FROM watchlists
+                    WHERE watchlists.id = watchlist_items.watchlist_id
+                ), ''),
+                workspace_id,
+                'local'
+            )
+            WHERE workspace_id IS NULL OR workspace_id = '' OR workspace_id = 'local'
+            """
+        )
+    if not _table_exists(conn, "alerts"):
+        return
+    conn.execute(
+        """
+        UPDATE alerts
+        SET workspace_id = COALESCE(
+            NULLIF((
+                SELECT watchlist_items.workspace_id
+                FROM watchlist_items
+                WHERE watchlist_items.id = alerts.watchlist_item_id
+            ), ''),
+            NULLIF((
+                SELECT trade_theses.workspace_id
+                FROM trade_theses
+                WHERE trade_theses.id = alerts.thesis_id
+            ), ''),
+            workspace_id,
+            'local'
+        )
+        WHERE workspace_id IS NULL OR workspace_id = '' OR workspace_id = 'local'
+        """
+    )
 
 
 def backfill_alert_trigger_keys(conn: sqlite3.Connection) -> None:

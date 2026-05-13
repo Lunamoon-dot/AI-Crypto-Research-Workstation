@@ -43,16 +43,14 @@ python -m ruff format --check .
 apps/
   ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
-  web/             Future logged-in product app
-  landing/         Future Next.js marketing site
+  web/             Placeholder for the future logged-in product app
 packages/
-  database/        Future shared database schema/client
-  ui-shared/       Future shared UI components
-  config/          Future shared TypeScript config
-  types/           Future shared API/domain types
+  database/        Prisma schema/client for the product Postgres model
+docs/
+  backend/frontend architecture notes and UX references
 ```
 
-The current production code lives in `apps/ai-service`, with the product API boundary in `apps/api`. The web apps and shared packages are placeholders until those surfaces are implemented.
+The current production code lives in `apps/ai-service`, with the product API boundary in `apps/api`. `apps/web` is only a placeholder, and no shared UI/config/types packages exist yet.
 
 ## AI Service Notes
 
@@ -60,4 +58,5 @@ The current production code lives in `apps/ai-service`, with the product API bou
 - Service-specific docs are in `apps/ai-service/README.md`.
 - Docker Compose is still run from the repo root, but builds from `apps/ai-service`.
 - Local runtime state is still under `~/.tradingagents/`.
+- The Python journal is SQLite-backed. `packages/database` and `apps/api` model the product Postgres boundary; set `DATABASE_URL` when API routes need repository-backed reads/writes.
 - The graph does not place live orders; execution remains outside the AI research boundary.

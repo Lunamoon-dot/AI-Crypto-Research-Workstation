@@ -21,14 +21,18 @@ export class ThesesService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  list(limit = 50, userId?: string, workspaceHeader?: string) {
-    return this.journal
-      .listTheses(limit, this.resolveWorkspace(userId, workspaceHeader))
-      .then((theses) => theses.map(toThesisResponse));
+  async list(limit = 50, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const theses = await this.journal.listTheses(limit, workspaceId);
+    return theses.map(toThesisResponse);
   }
 
   async get(id: string, userId?: string, workspaceHeader?: string) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
     const thesis = await this.journal.getThesis(id, workspaceId);
     if (!thesis) {
       throw new NotFoundException(`Thesis ${id} not found`);
@@ -37,7 +41,7 @@ export class ThesesService {
   }
 
   async scenarios(id: string, userId?: string, workspaceHeader?: string) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
     await this.get(id, userId, workspaceId);
     const scenarios = await this.journal.listScenarios(id, workspaceId);
     return scenarios.map(toScenarioResponse);
@@ -50,7 +54,11 @@ export class ThesesService {
     userId?: string,
     workspaceHeader?: string,
   ) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
     await this.get(id, userId, workspaceId);
     const decision = await this.journal.recordThesisDecision(
       id,
@@ -68,7 +76,11 @@ export class ThesesService {
     userId?: string,
     workspaceHeader?: string,
   ) {
-    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
     await this.get(id, userId, workspaceId);
     const review = await this.journal.recordThesisReview(
       id,
@@ -79,10 +91,14 @@ export class ThesesService {
     return toThesisReviewResponse(review);
   }
 
-  private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
+  private async resolveWorkspace(
+    userId?: string,
+    workspaceHeader?: string,
+    requiredRole: 'viewer' | 'editor' = 'viewer',
+  ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
+    await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
 }

@@ -1,4 +1,4 @@
-# TradingAgents — roadmap hub
+# LunaCrypto AI Service — roadmap hub
 
 This file is the **entry point**. Detailed planning is split so engineers and production/release concerns do not share one overloaded document.
 
@@ -15,7 +15,7 @@ This file is the **entry point**. Detailed planning is split so engineers and pr
 
 ## Product north star
 
-TradingAgents should become a **world-class AI Crypto Research Workstation** — a local-first (and optionally cloud-synced) **Trading Copilot** that serious retail and semi-pro crypto traders trust for **repeatable, auditable research**, not for “set and forget” automation.
+LunaCrypto should become a **world-class AI Crypto Research Workstation** — a local-first (and optionally cloud-synced) research copilot that serious retail and semi-pro crypto traders trust for **repeatable, auditable research**, not for “set and forget” automation.
 
 The **realistic final product** is:
 

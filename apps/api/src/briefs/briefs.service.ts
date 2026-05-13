@@ -16,12 +16,16 @@ export class BriefsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  daily(date?: string, limit = 20, userId?: string, workspaceHeader?: string) {
+  async daily(
+    date?: string,
+    limit = 20,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
-    return this.journal
-      .listDailyBriefs(date, limit, workspaceId)
-      .then((briefs) => briefs.map(toBriefResponse));
+    await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    const briefs = await this.journal.listDailyBriefs(date, limit, workspaceId);
+    return briefs.map(toBriefResponse);
   }
 }

@@ -1,9 +1,14 @@
 # Go-Live Readiness Checklist
 
-Practical checklist for moving TradingAgents from local research workstation to a supportable production release.
+Practical checklist for moving LunaCrypto from a local research workstation to a supportable production release.
 
 **Current decision:** not production-ready as of 2026-05-12.
 **Current acceptable use:** controlled local alpha/beta for research workflows only.
+
+Snapshot note: the evidence links below belong to the 0.3.0 release-readiness
+snapshot from 2026-05-12. The current CI gate definitions live in
+`../../../.github/workflows/ci.yml`, and the newer phase 1-11 architecture review is
+`../../../TECHNICAL_REVIEW_PHASE_1_11_ARCHITECT_REVIEW.md`.
 
 See also: [Production readiness review](PRODUCTION_READINESS_REVIEW.md).
 

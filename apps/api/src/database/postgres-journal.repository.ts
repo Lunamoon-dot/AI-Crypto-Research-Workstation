@@ -310,10 +310,11 @@ export class PostgresJournalRepository implements JournalRepository {
     };
     await this.exec(
       `INSERT INTO watchlist_items
-       (id, watchlist_id, item_type, symbol, thesis_id, setup_type, enabled, created_at, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+       (id, workspace_id, watchlist_id, item_type, symbol, thesis_id, setup_type, enabled, created_at, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
       [
         id,
+        workspaceId,
         watchlistId,
         payload.item_type,
         payload.symbol,

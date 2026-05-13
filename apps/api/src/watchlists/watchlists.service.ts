@@ -20,27 +20,39 @@ export class WatchlistsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
-  list(limit = 50, userId?: string, workspaceHeader?: string) {
-    return this.journal
-      .listWatchlists(limit, this.resolveWorkspace(userId, workspaceHeader))
-      .then((watchlists) => watchlists.map(toWatchlistResponse));
+  async list(limit = 50, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const watchlists = await this.journal.listWatchlists(limit, workspaceId);
+    return watchlists.map(toWatchlistResponse);
   }
 
-  addItem(
+  async addItem(
     id: string,
     dto: AddWatchlistItemDto,
     userId?: string,
     workspaceHeader?: string,
   ) {
-    return this.journal
-      .addWatchlistItem(id, { ...dto }, this.resolveWorkspace(userId, workspaceHeader))
-      .then(toWatchlistItemResponse);
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const item = await this.journal.addWatchlistItem(id, { ...dto }, workspaceId);
+    return toWatchlistItemResponse(item);
   }
 
-  private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
+  private async resolveWorkspace(
+    userId?: string,
+    workspaceHeader?: string,
+    requiredRole: 'viewer' | 'editor' = 'viewer',
+  ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    this.workspaces.assertAccess(user, workspaceId);
+    await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
 }

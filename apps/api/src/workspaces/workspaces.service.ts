@@ -1,9 +1,46 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
+
+export type WorkspaceRole = 'viewer' | 'editor' | 'admin' | 'owner';
+
+export type WorkspaceMembership = {
+  user_id: string;
+  workspace_id: string;
+  role: WorkspaceRole;
+};
+
+const ROLE_RANK: Record<WorkspaceRole, number> = {
+  viewer: 1,
+  editor: 2,
+  admin: 3,
+  owner: 4,
+};
 
 @Injectable()
-export class WorkspacesService {
+export class WorkspacesService implements OnModuleDestroy {
+  private readonly client?: PrismaClient;
+  private staticMemberships: WorkspaceMembership[] | undefined;
+
+  constructor() {
+    if (process.env.DATABASE_URL) {
+      this.client = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+      });
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.client?.$disconnect();
+  }
+
   resolveWorkspace(workspaceId?: string): string {
-    const workspace = (workspaceId ?? process.env.LOCAL_WORKSPACE_ID ?? 'local').trim();
+    const workspace = (workspaceId ?? '').trim();
     if (!workspace) {
       throw new ForbiddenException('Workspace is required.');
     }
@@ -23,12 +60,116 @@ export class WorkspacesService {
     return bodyWorkspace;
   }
 
-  assertAccess(userId: string, workspaceId: string) {
+  async assertAccess(
+    userId: string,
+    workspaceId: string,
+    requiredRole: WorkspaceRole = 'viewer',
+  ): Promise<WorkspaceMembership> {
     const workspace = this.resolveWorkspace(workspaceId);
-    return {
-      user_id: userId,
-      workspace_id: workspace,
-      role: 'owner',
-    };
+    const user = userId.trim();
+    if (!user) {
+      throw new ForbiddenException('User identity is required.');
+    }
+    const membership = await this.findMembership(user, workspace);
+    if (!membership) {
+      throw new ForbiddenException(
+        `User ${user} is not a member of workspace ${workspace}.`,
+      );
+    }
+    if (ROLE_RANK[membership.role] < ROLE_RANK[requiredRole]) {
+      throw new ForbiddenException(
+        `Workspace role ${membership.role} cannot perform ${requiredRole} actions.`,
+      );
+    }
+    return membership;
   }
+
+  setMembershipsForTest(memberships: WorkspaceMembership[]): void {
+    this.staticMemberships = memberships.map((membership) => ({
+      user_id: membership.user_id.trim(),
+      workspace_id: membership.workspace_id.trim(),
+      role: normalizeRole(membership.role),
+    }));
+  }
+
+  private async findMembership(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceMembership | null> {
+    const staticMembership = this.findStaticMembership(userId, workspaceId);
+    if (staticMembership) {
+      return staticMembership;
+    }
+    if (this.client) {
+      const rows = await this.client.$queryRaw`
+        SELECT user_id, workspace_id, role
+        FROM workspace_memberships
+        WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
+        LIMIT 1
+      `;
+      const row = Array.isArray(rows) ? rows[0] : undefined;
+      return row ? membershipFromRow(row) : null;
+    }
+    return null;
+  }
+
+  private findStaticMembership(
+    userId: string,
+    workspaceId: string,
+  ): WorkspaceMembership | null {
+    const memberships = this.staticMemberships ?? envMemberships();
+    return (
+      memberships.find(
+        (membership) =>
+          membership.user_id === userId &&
+          membership.workspace_id === workspaceId,
+      ) ?? null
+    );
+  }
+}
+
+function envMemberships(): WorkspaceMembership[] {
+  const raw = process.env.WORKSPACE_MEMBERSHIPS;
+  if (!raw?.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.map((entry) => membershipFromRow(entry));
+    }
+  } catch {
+    return raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [workspaceId, userId, role = 'viewer'] = entry.split(':');
+        return {
+          workspace_id: (workspaceId ?? '').trim(),
+          user_id: (userId ?? '').trim(),
+          role: normalizeRole(role),
+        };
+      });
+  }
+  return [];
+}
+
+function membershipFromRow(row: unknown): WorkspaceMembership {
+  const record = row as Record<string, unknown>;
+  return {
+    user_id: String(record.user_id ?? record.userId ?? '').trim(),
+    workspace_id: String(record.workspace_id ?? record.workspaceId ?? '').trim(),
+    role: normalizeRole(record.role),
+  };
+}
+
+function normalizeRole(role: unknown): WorkspaceRole {
+  const normalized = String(role ?? 'viewer')
+    .trim()
+    .toLowerCase();
+  if (normalized in ROLE_RANK) {
+    return normalized as WorkspaceRole;
+  }
+  return 'viewer';
 }

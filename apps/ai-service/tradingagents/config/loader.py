@@ -25,7 +25,11 @@ except ModuleNotFoundError:  # Python < 3.11
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.config.schema import validate_and_normalize_config
-from tradingagents.config.secrets import SecretsManager, get_default_secrets
+from tradingagents.config.secrets import (
+    SecretsManager,
+    build_secrets_manager_from_config,
+    get_default_secrets,
+)
 from tradingagents.exceptions import ConfigurationError
 from tradingagents.utils.collections import deep_merge
 
@@ -160,6 +164,7 @@ class ConfigLoader:
 
     def __init__(self, secrets: SecretsManager | None = None):
         self._secrets = secrets or get_default_secrets()
+        self._secrets_override = secrets is not None
         self._cache: dict[str, dict] = {}
 
     # ── Main entry point ──────────────────────────────────────────────────
@@ -191,7 +196,14 @@ class ConfigLoader:
             if config_path
             else (f"profile:{profile}" if profile else "cli")
         )
-        validated = validate_and_normalize_config(config, source=source)
+        if not self._secrets_override:
+            self._secrets = build_secrets_manager_from_config(config)
+
+        validated = validate_and_normalize_config(
+            config,
+            source=source,
+            secrets_manager=self._secrets,
+        )
 
         if fail_fast:
             self._enforce_credentials(validated)

@@ -136,6 +136,7 @@ class WatchlistService:
             raise RuntimeError("Watchlist is missing an id after get_or_create")
         return self.repo.save_watchlist_item(
             WatchlistItem(
+                workspace_id=self.workspace_id,
                 watchlist_id=watchlist.id,
                 item_type=WatchlistItemType.SYMBOL,
                 symbol=symbol,
@@ -153,6 +154,7 @@ class WatchlistService:
             raise RuntimeError("Watchlist is missing an id after get_or_create")
         return self.repo.save_watchlist_item(
             WatchlistItem(
+                workspace_id=self.workspace_id,
                 watchlist_id=watchlist.id,
                 item_type=WatchlistItemType.THESIS,
                 symbol=thesis.symbol,
@@ -181,10 +183,14 @@ class WatchlistService:
             watchlist_id=watchlist_id,
             enabled_only=enabled_only,
             limit=limit,
+            workspace_id=self.workspace_id,
         )
 
     def remove_item(self, item_id: str) -> WatchlistItem | None:
-        return self.repo.disable_watchlist_item(item_id)
+        return self.repo.disable_watchlist_item(
+            item_id,
+            workspace_id=self.workspace_id,
+        )
 
     def list_alerts(
         self,
@@ -199,10 +205,11 @@ class WatchlistService:
             thesis_id=thesis_id,
             unread_only=unread_only,
             limit=limit,
+            workspace_id=self.workspace_id,
         )
 
     def mark_alert_read(self, alert_id: str) -> Alert | None:
-        return self.repo.mark_alert_read(alert_id)
+        return self.repo.mark_alert_read(alert_id, workspace_id=self.workspace_id)
 
     def build_brief(
         self,
@@ -233,12 +240,18 @@ class WatchlistService:
         item_ids = {item.id for item in items if item.id}
         thesis_ids = [item.thesis_id for item in thesis_items if item.thesis_id]
         thesis_id_set = set(thesis_ids)
-        thesis_map = self.repo.get_theses_by_ids(thesis_ids)
+        thesis_map = self.repo.get_theses_by_ids(
+            thesis_ids,
+            workspace_id=self.workspace_id,
+        )
         snapshot_map = self.repo.get_latest_market_snapshots_by_symbols(
             [thesis.symbol for thesis in thesis_map.values()],
             workspace_id=self.workspace_id,
         )
-        scenario_map = self.repo.list_scenarios_by_thesis_ids(thesis_ids)
+        scenario_map = self.repo.list_scenarios_by_thesis_ids(
+            thesis_ids,
+            workspace_id=self.workspace_id,
+        )
         scoped_alerts = self._scoped_alerts(
             item_ids=item_ids,
             thesis_ids=thesis_id_set,
@@ -317,15 +330,22 @@ class WatchlistService:
             if item.item_type == WatchlistItemType.THESIS and item.thesis_id
         ]
         thesis_ids = [item.thesis_id for item in thesis_items if item.thesis_id]
-        thesis_map = self.repo.get_theses_by_ids(thesis_ids)
+        thesis_map = self.repo.get_theses_by_ids(
+            thesis_ids,
+            workspace_id=self.workspace_id,
+        )
         snapshot_map = self.repo.get_latest_market_snapshots_by_symbols(
             [
                 thesis.symbol
                 for thesis in thesis_map.values()
                 if thesis.symbol not in current_prices
-            ]
+            ],
+            workspace_id=self.workspace_id,
         )
-        scenario_map = self.repo.list_scenarios_by_thesis_ids(thesis_ids)
+        scenario_map = self.repo.list_scenarios_by_thesis_ids(
+            thesis_ids,
+            workspace_id=self.workspace_id,
+        )
 
         for item in items:
             if item.item_type != WatchlistItemType.THESIS or not item.thesis_id:
@@ -374,6 +394,7 @@ class WatchlistService:
             thesis_ids=list(thesis_ids),
             unread_only=unread_only,
             limit=limit,
+            workspace_id=self.workspace_id,
         )
 
     def _brief_scenarios_for_thesis(
@@ -391,7 +412,11 @@ class WatchlistService:
         scenario_rows = (
             scenarios
             if scenarios is not None
-            else self.repo.list_scenarios(thesis_id=thesis.id, limit=20)
+            else self.repo.list_scenarios(
+                thesis_id=thesis.id,
+                limit=20,
+                workspace_id=self.workspace_id,
+            )
         )
         for scenario in scenario_rows:
             snapshot_active = False
@@ -478,7 +503,11 @@ class WatchlistService:
         scenario_rows = (
             scenarios
             if scenarios is not None
-            else self.repo.list_scenarios(thesis_id=thesis.id, limit=20)
+            else self.repo.list_scenarios(
+                thesis_id=thesis.id,
+                limit=20,
+                workspace_id=self.workspace_id,
+            )
         )
         for scenario in scenario_rows:
             activation = _scenario_activation(scenario, thesis, current_price)
@@ -523,6 +552,7 @@ class WatchlistService:
             thesis_id=thesis.id,
             watchlist_item_id=item.id,
             trigger_key=trigger_key,
+            workspace_id=self.workspace_id,
         ):
             return None
 
@@ -539,6 +569,7 @@ class WatchlistService:
 
         alert = self.repo.save_alert(
             Alert(
+                workspace_id=self.workspace_id,
                 alert_type=alert_type,
                 symbol=thesis.symbol,
                 thesis_id=thesis.id,

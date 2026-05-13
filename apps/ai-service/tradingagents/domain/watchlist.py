@@ -66,6 +66,7 @@ class WatchlistItem(BaseModel):
     """One monitored object inside a watchlist."""
 
     id: str | None = None
+    workspace_id: str = "local"
     watchlist_id: str
     item_type: WatchlistItemType = WatchlistItemType.SYMBOL
     symbol: str | None = None
@@ -75,11 +76,17 @@ class WatchlistItem(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)
+
 
 class Alert(BaseModel):
     """A persisted research alert, never an instruction to trade."""
 
     id: str | None = None
+    workspace_id: str = "local"
     alert_type: AlertType
     symbol: str
     message: str
@@ -89,3 +96,8 @@ class Alert(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     read_at: datetime | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("workspace_id", mode="before")
+    @classmethod
+    def _normalize_workspace_id(cls, value: str | None) -> str:
+        return normalize_workspace_id(value)

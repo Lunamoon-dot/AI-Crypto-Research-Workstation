@@ -20,6 +20,16 @@ from .onchain_signals import compute_onchain_signal
 
 logger = logging.getLogger(__name__)
 
+_FACTOR_FAILURE_REASONS = {
+    "regime": "signal_factor_regime_failed",
+    "rsi_divergence": "signal_factor_rsi_divergence_failed",
+    "macd": "signal_factor_macd_failed",
+    "volume_profile": "signal_factor_volume_profile_failed",
+    "funding_oi": "signal_factor_funding_oi_failed",
+    "liquidations": "signal_factor_liquidations_failed",
+    "onchain": "signal_factor_onchain_failed",
+}
+
 
 class SignalEngine:
     """Deterministic quantitative signal layer.
@@ -85,6 +95,21 @@ class SignalEngine:
         SignalResult ready for prompt injection or programmatic use.
         """
         factors: list[FactorSignal] = []
+        factor_failures: list[dict[str, str]] = []
+
+        def record_factor_failure(factor_name: str, exc: Exception) -> None:
+            reason = _FACTOR_FAILURE_REASONS.get(
+                factor_name,
+                f"signal_factor_{factor_name}_failed",
+            )
+            factor_failures.append(
+                {
+                    "factor": factor_name,
+                    "reason": reason,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc)[:300],
+                }
+            )
 
         # -- Regime detection (always run — needs OHLCV) ---------------------
         try:
@@ -93,6 +118,7 @@ class SignalEngine:
                 factors.append(regime["signal"])
         except Exception as e:
             logger.warning("Regime detection failed: %s", e)
+            record_factor_failure("regime", e)
             regime = {}
 
         # -- RSI divergence --------------------------------------------------
@@ -100,18 +126,21 @@ class SignalEngine:
             factors.append(compute_rsi_divergence(ohlcv_csv))
         except Exception as e:
             logger.warning("RSI divergence detection failed: %s", e)
+            record_factor_failure("rsi_divergence", e)
 
         # -- MACD ------------------------------------------------------------
         try:
             factors.append(compute_macd_signal(ohlcv_csv))
         except Exception as e:
             logger.warning("MACD signal computation failed: %s", e)
+            record_factor_failure("macd", e)
 
         # -- Volume profile --------------------------------------------------
         try:
             factors.append(compute_volume_signal(ohlcv_csv))
         except Exception as e:
             logger.warning("Volume signal detection failed: %s", e)
+            record_factor_failure("volume_profile", e)
 
         # -- Funding + OI (crypto only, but run if data provided) ------------
         if funding_csv or oi_csv:
@@ -126,6 +155,7 @@ class SignalEngine:
                 )
             except Exception as e:
                 logger.warning("Funding/OI signal detection failed: %s", e)
+                record_factor_failure("funding_oi", e)
 
         # -- Liquidations (crypto only) --------------------------------------
         if liq_csv:
@@ -133,6 +163,7 @@ class SignalEngine:
                 factors.append(compute_liquidation_signal(liq_csv))
             except Exception as e:
                 logger.warning("Liquidation signal detection failed: %s", e)
+                record_factor_failure("liquidations", e)
 
         # -- On-chain (long/short ratio, NVT, exchange reserves) -------------
         if long_short_ratio_csv or nvt_csv or exchange_metrics_csv:
@@ -147,6 +178,7 @@ class SignalEngine:
                 )
             except Exception as e:
                 logger.warning("On-chain signal detection failed: %s", e)
+                record_factor_failure("onchain", e)
 
         # Extract current price
         current_price = _extract_last_price(ohlcv_csv)
@@ -161,6 +193,15 @@ class SignalEngine:
             current_price=current_price,
             symbol=symbol,
         )
+        if factor_failures:
+            reason_codes = [item["reason"] for item in factor_failures]
+            result.factor_failures = [dict(item) for item in factor_failures]
+            result.missing_optional_data = _dedupe(
+                [*result.missing_optional_data, *reason_codes]
+            )
+            result.degradation_reasons = _dedupe(
+                [*result.degradation_reasons, *reason_codes]
+            )
 
         return result
 
@@ -185,3 +226,7 @@ def _extract_last_price(ohlcv_csv: str) -> Optional[float]:
     except Exception as e:
         logger.warning("Failed to extract last price from OHLCV data: %s", e)
     return None
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    return list(dict.fromkeys(item for item in items if item))

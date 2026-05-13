@@ -304,7 +304,7 @@ jobs:
           AZURE_OPENAI_API_KEY: placeholder
           ALPHA_VANTAGE_API_KEY: placeholder
         run: |
-          python -m pytest --cov=tradingagents --cov=cli --cov-report=term-missing --cov-fail-under=35
+          python -m pytest --cov=tradingagents --cov=cli --cov-report=term-missing --cov-fail-under=55
 
   sqlite-smoke:
     name: SQLite Migration Backup Restore Smoke

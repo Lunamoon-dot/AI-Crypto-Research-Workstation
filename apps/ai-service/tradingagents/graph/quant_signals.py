@@ -99,12 +99,20 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
         nvt_csv=nvt_csv,
         exchange_metrics_csv=exchange_metrics_csv,
     )
-    result.missing_optional_data = list(dict.fromkeys(missing_optional_data))
-    if missing_optional_data:
-        result.degradation_reasons = list(result.missing_optional_data)
+    result.missing_optional_data = _dedupe(
+        [*result.missing_optional_data, *missing_optional_data]
+    )
+    if result.missing_optional_data:
+        result.degradation_reasons = _dedupe(
+            [*result.degradation_reasons, *result.missing_optional_data]
+        )
     return result.to_prompt_block(), result
 
 
 def _looks_unavailable(text: str | None) -> bool:
     lowered = (text or "").lower()
     return "not available" in lowered or "does not support" in lowered
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    return list(dict.fromkeys(item for item in items if item))

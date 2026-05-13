@@ -3,6 +3,7 @@
 import pytest
 
 from tradingagents.config import secrets as secrets_module
+from tradingagents.config.loader import ConfigLoader
 from tradingagents.config.secrets import SecretsManager
 from tradingagents.exceptions import LLMCredentialError
 
@@ -27,6 +28,24 @@ class TestSecretsManagerResolve:
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-from-env")
         secrets = SecretsManager(api_keys={"deepseek": "sk-explicit"})
         assert secrets.resolve("deepseek") == "sk-explicit"
+
+    def test_keyring_source_ignores_env_when_first(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+        monkeypatch.setattr(
+            SecretsManager,
+            "_try_keyring",
+            lambda self, provider: "sk-from-keyring" if provider == "openai" else None,
+        )
+        secrets = SecretsManager(source_order="keyring,env")
+
+        assert secrets.resolve("openai") == "sk-from-keyring"
+
+    def test_keyring_only_source_does_not_fall_back_to_env(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+        monkeypatch.setattr(SecretsManager, "_try_keyring", lambda self, provider: None)
+        secrets = SecretsManager(source_order="keyring")
+
+        assert secrets.resolve("openai") is None
 
     def test_resolve_unknown_provider_returns_none(self):
         secrets = SecretsManager()
@@ -115,3 +134,35 @@ class TestSecretsManagerDataProvider:
     def test_resolve_unknown_data_provider_none(self):
         secrets = SecretsManager()
         assert secrets.resolve_data_provider("nonexistent") is None
+
+
+def test_config_loader_wires_keyring_source_for_validation(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("TRADINGAGENTS_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("TRADINGAGENTS_RESULTS_DIR", str(tmp_path / "results"))
+    monkeypatch.setenv("TRADINGAGENTS_JOURNAL_DB", str(tmp_path / "journal.sqlite"))
+    monkeypatch.setattr(
+        SecretsManager,
+        "_try_keyring",
+        lambda self, provider: "sk-from-keyring" if provider == "openai" else None,
+    )
+
+    config = ConfigLoader().load(
+        cli_overrides={
+            "llm_provider": "openai",
+            "backend_url": None,
+            "config_validation": {
+                "mode": "fail_fast",
+                "validate_llm_keys": True,
+            },
+            "secrets": {"source": "keyring"},
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": [],
+                "circuit_breaker_threshold": 3,
+                "circuit_breaker_window_sec": 300,
+            },
+        }
+    )
+
+    assert config["secrets"]["source"] == "keyring"

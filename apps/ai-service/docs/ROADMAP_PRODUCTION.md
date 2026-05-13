@@ -8,7 +8,7 @@ Reliability, observability, boundaries for assisted execution, cloud/monetizatio
 · [Go-live checklist](GO_LIVE_READINESS.md)
 · [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
 
-**Current production verdict (2026-05-12):** not ready for broad production launch. The codebase is suitable for controlled local alpha/beta research use after the current quality gates pass, but production still requires clean-environment verification, runbook drills, migration/backup evidence, security audit, and release sign-off.
+**Current production verdict (2026-05-13):** credible for controlled local beta research use with clear research-only disclaimers. Not ready for broad hosted SaaS, regulated financial-decision positioning, or autonomous execution.
 
 ---
 
@@ -145,10 +145,21 @@ Environment variables:
 
 ```text
 OPENAI_API_KEY
-FINNHUB_API_KEY
-REDDIT_CLIENT_ID
-COINGLASS_API_KEY
+GOOGLE_API_KEY / GEMINI_API_KEY
+ANTHROPIC_API_KEY
+XAI_API_KEY
+DEEPSEEK_API_KEY
+DASHSCOPE_API_KEY
+ZHIPU_API_KEY
+OPENROUTER_API_KEY
+AZURE_OPENAI_API_KEY
+AZURE_OPENAI_ENDPOINT
+COINGECKO_API_KEY
+CRYPTOPANIC_API_TOKEN
+TRADINGAGENTS_JOURNAL_DB
 DATABASE_URL
+REDIS_URL
+WORKSPACE_MEMBERSHIPS
 ```
 
 ## Config Rules
@@ -283,15 +294,16 @@ apps/web
   -> apps/api (NestJS)
   -> BullMQ/Redis or compatible job boundary
   -> tradingagents Python engine
-  -> local Prisma + Postgres target first / hosted DATABASE_URL later
+  -> Python SQLite journal today / normalized Postgres persistence target
 ```
 
 Python owns LangGraph agents, LLM orchestration, provider adapters, signal
 generation, thesis generation, and the worker contract. NestJS owns auth,
 users, workspaces, request validation, product API endpoints, job orchestration,
 permissions, Prisma-backed product persistence, and future billing/progress
-forwarding. Short-term implementation focus remains the Python AI service;
-backend database URLs can be supplied later when API work resumes.
+forwarding. Short-term implementation focus remains the Python AI service, but
+the API repository already expects `DATABASE_URL` for real Postgres-backed
+reads/writes.
 
 ## Implemented Boundary
 
@@ -336,13 +348,17 @@ POST /alerts/:id/read
 
 Database rule:
 
-- Local Postgres is the temporary Prisma target while `apps/ai-service` remains
-  the active implementation focus.
+- Local Postgres is the Prisma/API persistence target while `apps/ai-service`
+  remains the active implementation focus.
 - `packages/database/prisma/schema.prisma` is the canonical schema/client
   source.
-- Hosted/NestJS deployment URLs can be added later through `DATABASE_URL`.
+- NestJS repository-backed routes require `DATABASE_URL` in real local/hosted
+  runs.
 - `DATABASE_ACCESS=pg` keeps a raw Postgres repository fallback for migration
   checks and compatibility work.
+- The Python engine contract currently writes through SQLite-backed
+  `JournalService`; a hosted worker still needs an explicit Postgres persistence
+  adapter or export/sync step.
 
 ## Python Worker Contract
 
@@ -390,8 +406,8 @@ Result:
 - NestJS validates product requests and enqueues research work.
 - Python exposes a stable JSON engine/worker contract.
 - Progress events are persisted and can be forwarded by NestJS.
-- Local Postgres migration target is available through Prisma; hosted
-  `DATABASE_URL` can be added later.
+- Local Postgres migration target is available through Prisma; API
+  repository-backed routes use `DATABASE_URL`.
 - API shape reflects research workflow and product entities.
 
 ---

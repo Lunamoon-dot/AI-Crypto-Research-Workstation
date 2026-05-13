@@ -83,10 +83,15 @@ class SecretsManager:
         self,
         *,
         api_keys: dict[str, str] | None = None,
-        keyring_enabled: bool = False,
+        keyring_enabled: bool | None = None,
+        source_order: str | list[str] | tuple[str, ...] | None = None,
     ):
         self._explicit = api_keys or {}
-        self._keyring_enabled = keyring_enabled
+        self._source_order = _normalize_source_order(
+            source_order,
+            keyring_enabled=keyring_enabled,
+        )
+        self._keyring_enabled = "keyring" in self._source_order
         self._dotenv_loaded = False
         self._cache: dict[str, str | None] = {}
 
@@ -122,12 +127,46 @@ class SecretsManager:
         if cache_key in self._cache:
             return self._cache[cache_key]
         env_vars = get_data_provider_env_vars(name)
-        for var in env_vars:
-            key = self._read_env_var(var)
-            if key:
-                self._cache[cache_key] = key
-                return key
+        for source in self._source_order:
+            if source == "env":
+                for var in env_vars:
+                    key = self._read_env_var(var)
+                    if key:
+                        self._cache[cache_key] = key
+                        return key
+            elif source == "keyring" and self._keyring_enabled:
+                key = self._try_keyring(name)
+                if key:
+                    self._cache[cache_key] = key
+                    return key
         self._cache[cache_key] = None
+        return None
+
+    @property
+    def source_order(self) -> tuple[str, ...]:
+        return self._source_order
+
+    def resolve_key_for_env_vars(
+        self,
+        provider: str,
+        env_vars: list[str],
+    ) -> str | None:
+        provider = provider.lower()
+        for source in self._source_order:
+            if source == "env":
+                if env_vars:
+                    tradingagents_var = f"{_ENV_PREFIX}{env_vars[0]}"
+                    val = self._read_env_var(tradingagents_var)
+                    if val:
+                        return val
+                for var in env_vars:
+                    val = self._read_env_var(var)
+                    if val:
+                        return val
+            elif source == "keyring" and self._keyring_enabled:
+                key = self._try_keyring(provider)
+                if key:
+                    return key
         return None
 
     def resolve_llm_key_for_config(self, config: dict) -> dict[str, str]:
@@ -190,25 +229,7 @@ class SecretsManager:
             # Provider doesn't need a key (e.g. Ollama)
             return None
 
-        # 2. TRADINGAGENTS_ prefix override (per-provider)
-        tradingagents_var = f"{_ENV_PREFIX}{env_vars[0]}"
-        val = self._read_env_var(tradingagents_var)
-        if val:
-            return val
-
-        # 3. Provider-specific env vars
-        for var in env_vars:
-            val = self._read_env_var(var)
-            if val:
-                return val
-
-        # 4. Keyring (optional)
-        if self._keyring_enabled:
-            val = self._try_keyring(provider)
-            if val:
-                return val
-
-        return None
+        return self.resolve_key_for_env_vars(provider, env_vars)
 
     def _read_env_var(self, name: str) -> str | None:
         """Read an env var, falling back to .env if not already in os.environ."""
@@ -263,3 +284,38 @@ def get_default_secrets() -> SecretsManager:
     if _default_secrets is None:
         _default_secrets = SecretsManager()
     return _default_secrets
+
+
+def build_secrets_manager_from_config(
+    config: dict,
+    *,
+    api_keys: dict[str, str] | None = None,
+) -> SecretsManager:
+    secrets_cfg = config.get("secrets", {})
+    source = "env"
+    if isinstance(secrets_cfg, dict):
+        source = str(secrets_cfg.get("source", "env"))
+    return SecretsManager(api_keys=api_keys, source_order=source)
+
+
+def _normalize_source_order(
+    source_order: str | list[str] | tuple[str, ...] | None,
+    *,
+    keyring_enabled: bool | None,
+) -> tuple[str, ...]:
+    if source_order is None:
+        if keyring_enabled:
+            return ("env", "keyring")
+        return ("env",)
+    if isinstance(source_order, str):
+        parts = source_order.split(",")
+    else:
+        parts = list(source_order)
+    normalized: list[str] = []
+    for part in parts:
+        source = str(part).strip().lower()
+        if source not in {"env", "keyring"}:
+            continue
+        if source not in normalized:
+            normalized.append(source)
+    return tuple(normalized or ["env"])

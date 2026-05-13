@@ -1,981 +1,933 @@
-# LunaCrypto / LunaPerception Technical Review - Phase 1-11
+# LunaCrypto / LunaPerception Technical Review - Phase 1-11 Re-Assessment
 
 Date: 2026-05-13  
 Reviewer stance: senior software architect / staff engineer  
-Scope: phases 1-11 only, focused on the local Python AI research workstation under `apps/ai-service`.
+Scope: phases 1-11 only. Phase 12+ API/Product work is considered only as context, not as the scored target.
 
 ## 0. Scope And Verification
 
-This review intentionally excludes Phase 12+ as a scored target. The NestJS API and Prisma package are useful context, but the verdict below is about the product promised by phases 1-11: a local-first crypto research workstation with multi-agent research, deterministic signals, journaling, replay/evaluation, reliability policy, and observability.
+This review is a re-assessment of the current repository state after the remediation work. The assessed product is the local Python AI research workstation under `apps/ai-service`: deterministic market signals, multi-agent research, journal persistence, historical replay/evaluation, watchlists, briefs, reliability policy, and observability.
 
-Commands verified during review:
+The NestJS API and Prisma schema are useful context, but they are not scored as the main deliverable because the request is explicitly limited to phases 1-11.
+
+Verified locally:
 
 | Gate | Result |
 |---|---:|
 | `python -m ruff check .` in `apps/ai-service` | Pass |
-| `python -m ruff format --check .` in `apps/ai-service` | Pass |
-| `python -m mypy tradingagents cli` in `apps/ai-service` | Pass, but with relaxed mypy policy |
-| `python -m pytest -q` in `apps/ai-service` | `573 passed, 42 subtests passed` |
+| `python -m ruff format --check .` in `apps/ai-service` | Pass, 264 files formatted |
+| `python -m mypy tradingagents cli` in `apps/ai-service` | Pass, 200 source files |
+| `python -m pytest -q` in `apps/ai-service` | Pass, `596 passed, 42 subtests passed` |
+| `python -m pytest tests/test_sqlite_migration_backup_restore.py -q` | Pass, 1 test |
+| `python -m pytest --cov=tradingagents --cov=cli --cov-report=term-missing --cov-fail-under=55` | Pass, total coverage `62.88%` |
+| `pnpm lint` | Pass, 3 packages |
 | `pnpm build:api` | Pass |
 | `pnpm --filter @lunaperception/api test` | Pass, 14 tests |
-| `pnpm lint` | Pass |
 
-Approximate code size inspected:
+Not verified locally:
 
-| Area | Files | Lines |
-|---|---:|---:|
-| Python AI service: `tradingagents`, `cli`, tests | 249 | 39,739 |
-| API/database context: `apps/api`, `packages/database/prisma` | 43 | 4,021 |
+| Gate | Local result |
+|---|---|
+| Docker build | CI declares it; I did not run a local Docker build. |
+| Gitleaks / dependency audits | CI declares them; I did not run them locally. |
+
+Current rough repository size inspected:
+
+| Area | Files |
+|---|---:|
+| Python AI service: `tradingagents`, `cli`, tests | 255 |
+| API/database context: `apps/api`, `packages/database/prisma` | 43 |
 
 ## 1. Overall Project Purpose
 
-The project is not a trading bot, and that is one of its better architectural decisions. The real product is a local-first crypto research workstation:
+The product is still best understood as a local-first crypto research workstation, not as an execution bot. The core loop is:
 
-1. collect market data from configured providers;
+1. fetch market/provider data;
 2. compute deterministic signal snapshots;
-3. run a multi-agent research graph;
-4. produce a trade thesis, scenarios, risk debate, and portfolio decision;
-5. persist the decision process into a local SQLite journal;
-6. later review outcomes and reliability.
+3. feed those snapshots into a multi-agent research graph;
+4. produce a thesis, scenarios, risk debate, and portfolio-style decision;
+5. persist the decision process into a local journal;
+6. evaluate outcomes and reliability over time.
 
-The implied product is closer to "Obsidian/Cursor for crypto research" than to an exchange execution system. That distinction matters. It lowers regulatory blast radius, makes the journal the core asset, and makes explainability more important than automated execution.
+This is the right product boundary. The value is not "AI predicts the market." The value is structured research memory, evidence provenance, repeatable reasoning, and later calibration.
 
-The codebase mostly understands this. The domain model has `ResearchRun`, `Signal`, `TradeThesis`, `Scenario`, `UserDecision`, `OutcomeReview`, provider health, LLM call logs, freshness checks, watchlists, alerts, briefs, and reliability snapshots. This is a real product shape, not a weekend wrapper around an LLM.
+The developer intent is now even clearer than in the previous review: the system is being hardened around trust boundaries instead of only adding features. The recent changes directly addressed several high-risk areas: replay integrity, journal criticality, stale-data policy, provider worker exhaustion, CI security gates, and confidence calibration language.
 
 ## 2. Executive Verdict
 
-This is a strong local alpha/beta research engine with better-than-average engineering discipline for an LLM-heavy project. It has meaningful domain boundaries, deterministic signal layers, persistent journals, config policy, tests, and observability. It is not yet production-grade as a trust-sensitive financial research product.
+This repo has moved from "strong local alpha/beta with serious trust debt" to "credible local beta with several staff-level hardening moves." The most important improvement is that the project no longer merely documents trust. It now enforces more of it in code.
 
-The biggest issue is not that tests are missing. The biggest issue is that some of the most important trust claims, especially historical replay/no-lookahead and journal completeness, are not enforced as hard invariants. A research product can survive a weaker UI. It cannot survive users believing a replay or confidence score that quietly used contaminated data or lost artifacts.
+Overall Phase 1-11 score: **8.1 / 10**
 
-Overall Phase 1-11 score: **7.3 / 10**
+Why the score increased:
 
-Interpretation:
+- strict replay can reject `HYBRID` endpoints instead of treating them as safe;
+- replay now records provider calls and checks requested/response timestamps;
+- replay audit events now require a real `research_run_id` instead of writing blank IDs;
+- critical journal writes now raise `StorageError`;
+- freshness policy is wired through `max_age_hours`;
+- provider execution uses a shared bounded executor instead of one executor per call;
+- error taxonomy is stronger and unknown exceptions no longer look retryable by default;
+- CI now declares secret scanning, dependency audit, Docker build, coverage, and SQLite smoke gates;
+- confidence handling now separates heuristic and empirical confidence.
 
-- Good enough for serious local internal use.
-- Good enough for a controlled beta with clear disclaimers.
-- Not good enough for hosted SaaS, regulated workflows, or claims of statistically valid backtesting.
-- Not ready for autonomous execution, and the codebase is correct not to go there yet.
+What still prevents a higher score:
+
+- hosted/cloud production architecture is still not the Phase 1-11 architecture;
+- async remains mostly a thread wrapper around sync calls;
+- mypy is still globally loose;
+- coverage threshold is low;
+- some workspace/tenant modeling is still partial in SQLite;
+- CLI tool-call file logging can still bypass the strongest redaction path;
+- signal weights and empirical reliability are improved, but not yet a statistically mature calibration system;
+- the graph is cleaner, but still large and difficult to reason about.
+
+Verdict in one sentence: **Phase 1-11 is now a serious local research product foundation, but still not a cloud-grade or regulated financial-decision platform.**
 
 ## 3. Major Strengths
 
-### 3.1 Clear Product Boundary
+### 3.1 Product Boundary Is Mature
 
-The project consistently frames itself as research support, not execution. That is visible in the docs, journal-first workflow, and lack of broker/order APIs in the active Phase 1-11 product surface.
+The repo consistently avoids the worst mistake in this domain: pretending an LLM research system is an autonomous trading engine. The active product is research support, journaling, and review.
 
-Why it is good:
+Why this is strong:
 
-- It avoids premature coupling to exchanges, custody, order routing, and compliance-heavy execution paths.
-- It keeps the core value in explainability, memory, and repeatable research.
-- It makes local-first deployment credible.
+- It reduces regulatory and operational blast radius.
+- It keeps user agency in the decision loop.
+- It makes the local-first architecture coherent.
+- It makes the journal and trust layer the product moat.
 
 Senior-level signal:
 
-- The product does not chase the most dangerous feature first. It builds decision support before execution.
+- The project optimizes for traceable thesis formation instead of chasing broker integration too early.
 
-### 3.2 Domain Model Is Real
+### 3.2 Domain Model Is Real, Not Prompt-Wrapper Architecture
 
-The model is not just `prompt -> response`. The system captures runs, signals, thesis, scenarios, debates, user decisions, outcomes, provider health, LLM calls, freshness checks, briefs, alerts, and reliability.
+The domain model includes research runs, market snapshots, signal snapshots, signals, debates, agent opinions, trade theses, scenarios, user decisions, outcome reviews, run events, provider health, LLM calls, data freshness checks, watchlists, alerts, market briefs, thesis evaluations, and reliability snapshots.
+
+Why this matters:
+
+- The system can accumulate durable research memory.
+- User decisions and outcomes can be reviewed later.
+- Provider/data/model behavior can be audited.
+- The product can become more valuable over time.
 
 Good examples:
 
-- `apps/ai-service/tradingagents/services/journal_service.py`
 - `apps/ai-service/tradingagents/storage/schema.py`
-- `apps/ai-service/tradingagents/graph/run_orchestrator.py`
-- `apps/ai-service/tradingagents/signals/composite.py`
-- `apps/ai-service/tradingagents/signals/provenance.py`
+- `apps/ai-service/tradingagents/services/journal_service.py`
+- `apps/ai-service/tradingagents/graph/journal_bridge.py`
+- `apps/ai-service/tradingagents/services/evaluation_service.py`
+- `apps/ai-service/tradingagents/services/performance_tracker.py`
 
-Why it matters:
+### 3.3 Deterministic Signals Before LLM Synthesis
 
-- The journal is the product moat. If this becomes commercially useful, it will be because it accumulates structured research memory, not because it can call an LLM.
-- The schema anticipates auditability and retrospective learning.
+The architecture correctly separates deterministic signal generation from LLM narrative reasoning.
 
-### 3.3 Deterministic Signals Before LLM Reasoning
+Why this is good:
 
-The system computes deterministic signals and then feeds those into agent reasoning. This is the correct direction. LLMs are used to synthesize and debate, while numeric market inputs have a separate provenance and confidence layer.
+- numeric market evidence is not left to the LLM;
+- signal provenance can be persisted and audited;
+- LLMs can focus on synthesis, debate, and thesis framing;
+- future calibration becomes possible.
 
-Why it is good:
+This is one of the best architectural choices in the project.
 
-- It reduces hallucination risk.
-- It allows future calibration of signal quality.
-- It keeps market evidence inspectable.
+### 3.4 Historical Replay Has Been Significantly Hardened
 
-This is one of the strongest engineering choices in the repo.
+This was previously the biggest trust weakness. It is now materially better.
 
-### 3.4 LangGraph Orchestration Has A Coherent Shape
+Evidence:
 
-The multi-agent graph has a recognizable product flow: analysts, bull/bear debate, research manager, setup planner, risk debate, portfolio decision, scenario planning. The architecture is ambitious but not random.
+- `apps/ai-service/tradingagents/dataflows/historical_contract.py:200` validates provider contracts.
+- `apps/ai-service/tradingagents/dataflows/historical_contract.py:224` rejects `HYBRID` endpoints in strict replay when `allow_hybrid_as_of=False`.
+- `apps/ai-service/tradingagents/dataflows/interface.py:464` passes `allow_hybrid_as_of=not strict_mode`.
+- `apps/ai-service/tradingagents/dataflows/interface.py:686` prepares historical calls and injects temporal parameters.
+- `apps/ai-service/tradingagents/dataflows/interface.py:781` records historical provider calls.
+- `apps/ai-service/tradingagents/graph/historical_replay.py:234` rejects replay runs with timestamp issues.
+- `apps/ai-service/tradingagents/graph/historical_replay.py:458` includes timestamp issues in the replay audit.
+- `apps/ai-service/tests/test_replay_smoke.py:140` tests strict replay rejection of hybrid endpoints.
+- `apps/ai-service/tests/test_replay_smoke.py:201` tests rejection of provider calls after the anchor.
 
-Good signs:
+Why this is strong:
 
-- Analyst definitions are centralized rather than scattered.
-- Graph fan-out uses explicit analyst definitions.
-- There are structured output parsers and fallback paths.
-- The run orchestrator persists timeline and quality information.
+- The replay layer now has runtime enforcement, not only documentation.
+- It audits requested and response timestamps.
+- It no longer writes replay audit events with blank run IDs.
 
-### 3.5 Configuration, Secrets, And Production Policy Are Better Than Prototype Grade
+Remaining caveat:
 
-The config layer has TOML/env/profile layering, production policy, secret loading, and provider reliability settings.
+- Strict mode still matters. If non-strict replay is used, `HYBRID` endpoints can still pass by policy. That is acceptable only if the UI/CLI labels the run as non-strict and not backtest-grade.
 
-Good examples:
+### 3.5 Journal Criticality Is Now Treated As A Hard Trust Boundary
 
-- `apps/ai-service/tradingagents/config/loader.py`
-- `apps/ai-service/tradingagents/config/schema.py`
-- `apps/ai-service/tradingagents/config/secrets.py`
+Previously, journal persistence was too best-effort for a product whose value depends on auditability. That has improved.
 
-This is a meaningful maturity marker. Many LLM projects stay at `.env` plus globals. This repo is past that.
+Evidence:
 
-### 3.6 Prompt Injection Awareness Exists
+- `apps/ai-service/tradingagents/graph/journal_bridge.py:110` starts runs.
+- `apps/ai-service/tradingagents/graph/journal_bridge.py:128` raises `StorageError` when `start_run` fails.
+- `apps/ai-service/tradingagents/graph/journal_bridge.py:245` raises `StorageError` when quant signal persistence fails.
+- `apps/ai-service/tradingagents/graph/journal_bridge.py:325` raises `StorageError` when completion persistence fails.
+- `apps/ai-service/tests/test_journal_criticality.py:51` tests `start_run` criticality.
+- `apps/ai-service/tests/test_journal_criticality.py:59` tests `save_quant_signals` criticality.
+- `apps/ai-service/tests/test_journal_criticality.py:72` tests `complete_run` criticality.
 
-The repo has explicit utilities for untrusted context and ticker sanitization. That matters because market data, news, social text, and tool outputs are all possible prompt injection carriers.
+Why this is strong:
 
-Good example:
+- A completed run can no longer silently lose its most important artifacts.
+- Persistence failure now participates in the operational error taxonomy.
+- The journal is treated as product state, not just logging.
 
-- `apps/ai-service/tradingagents/agents/utils/agent_utils.py`
+### 3.6 Config And Freshness Policy Are More Honest
 
-This does not make the system secure by itself, but it shows the developer is thinking about the right class of failure.
+Freshness policy is now actually passed into signal conversion.
 
-### 3.7 Test Volume And CI Are Strong For Phase 1-11
+Evidence:
 
-`573` Python tests passing is meaningful. The CI also runs ruff, format checks, mypy, compile checks, and separate Python test classes.
+- `apps/ai-service/tradingagents/signals/provenance.py:73` accepts `max_age_hours`.
+- `apps/ai-service/tradingagents/signals/provenance.py:86` uses `_freshness_window(max_age_hours)`.
+- `apps/ai-service/tradingagents/signals/provenance.py:124` passes `max_age_hours` into domain signal conversion.
+- `apps/ai-service/tests/test_signal_provenance.py:85` tests configurable freshness policy.
+- `apps/ai-service/tests/test_signal_provenance.py:104` tests signal conversion with max-age override.
 
-Good example:
+Why this is strong:
 
-- `.github/workflows/ci.yml`
+- The config surface no longer lies about stale-data behavior.
+- This is small code, but high trust ROI.
 
-This is much better than most early LLM app repos.
+### 3.7 CI/CD Is Now Much Closer To Release-Grade
+
+The CI workflow has moved beyond lint/test.
+
+Evidence:
+
+- `.github/workflows/ci.yml:35` runs Gitleaks.
+- `.github/workflows/ci.yml:74` runs `pnpm audit --audit-level high`.
+- `.github/workflows/ci.yml:80` runs `python -m pip_audit`.
+- `.github/workflows/ci.yml:83` starts a Docker build job.
+- `.github/workflows/ci.yml` runs coverage with `--cov-fail-under=55`.
+- `.github/workflows/ci.yml:310` defines SQLite migration/backup/restore smoke testing.
+
+Why this is strong:
+
+- The repo now checks more of the things that actually break releases.
+- Secret scanning and dependency audit are particularly important because this project touches provider/API credentials.
+
+Remaining caveat:
+
+- The coverage threshold is now 55 percent. That is better than the earlier 35 percent gate, but it is still not a high-assurance threshold for core trust code.
+
+### 3.8 Error Taxonomy Is Much Better
+
+The system now has clearer operational error classes.
+
+Evidence:
+
+- `apps/ai-service/tradingagents/exceptions.py` defines `ErrorCategory`, `ErrorIntent`, and structured classification.
+- `StorageError`, `PolicyViolationError`, `LLMOutputError`, `ProviderTimeoutError`, and provider error categories are modeled explicitly.
+- `is_retryable_error()` no longer treats arbitrary unknown errors as retryable by default; it needs typed errors or transient markers.
+
+Why this is good:
+
+- App bugs are less likely to be masked as provider retries.
+- Retry/fallback behavior becomes more defensible.
+- Engine/API output can eventually expose stable failure categories.
 
 ## 4. Major Weaknesses
 
-### 4.1 Historical Replay Is Not Trustworthy Enough Yet
+### 4.1 Historical Replay Is Improved, But Strictness Is Still A Product Policy Risk
 
-This is the most important hidden risk.
+Problem:
+
+Strict replay now rejects `HYBRID` endpoints, but non-strict replay still allows them. That is a reasonable engineering option, but a product risk if the output is presented as backtest-grade.
+
+Why it is problematic:
+
+Most users will not understand the difference between "historical replay with hybrid data" and "point-in-time replay." If the UI/CLI simply says "replay passed," they may over-trust it.
+
+Future consequence:
+
+- Users can treat non-strict replay as stronger evidence than it is.
+- Reliability reports can mix strict and non-strict evidence unless segmented.
+- Commercial claims around historical evaluation become fragile.
+
+Better approach:
+
+- Make strict replay the default for any command or API path that sounds like evaluation/backtesting.
+- Persist `strict_mode` and `replay_integrity_status` as first-class fields, not only event payload.
+- Exclude non-strict replay runs from empirical calibration unless explicitly requested.
+- Display non-strict results as "research simulation" rather than "point-in-time replay."
+
+### 4.2 Provider Concurrency Is Safer, But Still Not True Async I/O
+
+Problem:
+
+The provider runtime now uses a shared bounded executor, which is a real improvement. However, provider calls are still synchronous calls wrapped in threads.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/dataflows/historical_contract.py:23` defines `TimestampSemantics`.
-- `apps/ai-service/tradingagents/dataflows/historical_contract.py:41` defines `HYBRID`.
-- `apps/ai-service/tradingagents/dataflows/historical_contract.py:216` rejects `LATEST` when `AS_OF` is required, but `HYBRID` can pass.
-- `apps/ai-service/tradingagents/graph/historical_replay.py:344` uses `AS_OF` in strict mode and `HYBRID` otherwise.
-- `apps/ai-service/tradingagents/dataflows/interface.py:372` routes historical vendor calls.
-- `apps/ai-service/tradingagents/dataflows/ccxt_provider.py:371` defines funding-rate history.
-- `apps/ai-service/tradingagents/dataflows/ccxt_provider.py:388` computes funding history from `datetime.now(timezone.utc) - timedelta(days=days)`.
-- `apps/ai-service/tradingagents/dataflows/ccxt_provider.py:464` defines open-interest history.
-- `apps/ai-service/tradingagents/dataflows/ccxt_provider.py:480` also anchors open interest to `datetime.now(timezone.utc)`.
-- `apps/ai-service/tradingagents/graph/historical_replay.py:96` initializes `_data_call_log`, but the reviewed routing path does not populate enough audit detail to prove no-lookahead.
-- `apps/ai-service/tradingagents/graph/historical_replay.py:377` writes replay audit event with `research_run_id=""`, while `apps/ai-service/tradingagents/storage/schema.py:201` defines `run_events.research_run_id TEXT NOT NULL`.
+- `apps/ai-service/tradingagents/dataflows/interface.py:593` submits provider calls into a shared executor.
+- `apps/ai-service/tradingagents/dataflows/interface.py:621` applies resilience around blocking provider work.
+- `apps/ai-service/tradingagents/dataflows/interface.py:389` still implements async vendor routing through `asyncio.to_thread`.
 
-Why this is problematic:
+Why it is problematic:
 
-Replay is a trust feature. If a historical thesis can accidentally use today's funding or open-interest window, the evaluation result becomes contaminated. The user may believe the system would have known something at the historical decision time that it could not actually know.
+Thread timeouts do not guarantee that the underlying blocking network operation is cancelled. The semaphore bounds damage, but does not provide true cancellation.
 
 Future consequence:
 
-- Reliability scores become misleading.
-- Product claims around replay, evaluation, or "would this thesis have worked" become unsafe.
-- If commercialized, this is the kind of issue that destroys trust quickly because users will make decisions based on an apparently scientific artifact.
+- Under provider outage, workers can remain occupied until the underlying SDK/network call returns.
+- Large watchlists or scheduled briefs can saturate the bounded pool.
+- Latency will be less predictable than with native async clients and explicit network timeouts.
 
 Better approach:
 
-- In strict replay, require every provider method to be `AS_OF`, not `HYBRID`.
-- Add explicit `as_of` / `end_time` parameters to funding, open-interest, indicators, and all replay-relevant provider methods.
-- Reject provider methods that derive ranges from `now()` when a replay contract is active.
-- Persist replay audit events against a real run ID or a dedicated replay session table.
-- Make `ReplayResult.data_call_log` a mandatory evidence artifact, populated by the data routing layer.
-- Add tests that assert every provider call during replay requests data with `timestamp <= replay_date`.
+- Use provider-native timeouts wherever possible.
+- Prefer `httpx.AsyncClient` or provider-native async SDKs for network-bound paths.
+- Keep the bounded executor only for libraries that cannot be made async.
+- Add metrics for queue wait time, executor saturation, and timeout cancellation.
 
-### 4.2 Journal Persistence Is Too Best-Effort For A Trust Layer
+### 4.3 The Graph Is Cleaner, But Still Too Large
+
+Problem:
+
+The unreachable thesis-building code has been removed, and execution is delegated to `ResearchRunOrchestrator`. That is good. But `ResearchAgentsGraph` still owns too much object wiring and compatibility behavior.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:62` tracks `_persist_failures`.
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:85` increments failures.
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:102` emits `journal_persistence_degraded`.
-- `apps/ai-service/tradingagents/services/journal_service.py:742` applies completion quality.
+- `apps/ai-service/tradingagents/graph/research_agents_graph.py:493` now delegates thesis building cleanly.
+- `apps/ai-service/tradingagents/graph/research_agents_graph.py:531`, `:552`, and `:573` delegate propagation/run behavior through `ResearchRunOrchestrator`.
+- `apps/ai-service/tradingagents/graph/run_orchestrator.py:168` owns `run_graph`.
 
-Why this is problematic:
+Why it is problematic:
 
-The journal is the product's memory and audit trail. If persistence failures are mostly logged and tolerated, the system can produce a research result while losing the artifacts that make the result trustworthy.
+Large graph host objects become "god objects" in agent systems. Even if each helper module is clean, the host still becomes the place where config, state, persistence, logging, callbacks, checkpointing, and graph invocation meet.
 
 Future consequence:
 
-- Users will see completed research while the local journal is incomplete.
-- Outcome review and reliability calculations become biased because failed writes quietly remove bad or partial runs.
-- Debugging provider/model behavior becomes harder because the audit trail has gaps.
+- New contributors will be afraid to change orchestration behavior.
+- Regression risk will remain high around graph state.
+- API and CLI paths can accidentally diverge if more behavior is hung off the graph host.
 
 Better approach:
 
-- Classify persistence writes by criticality.
-- Run creation, thesis persistence, signal snapshots, and terminal run status should be critical.
-- If critical writes fail, mark the run `FAILED` or `COMPLETED_DEGRADED` and surface this to CLI/API output.
-- Add an explicit "journal integrity" result field that is not hidden in logs.
+- Continue reducing `ResearchAgentsGraph` to dependency assembly only.
+- Move state mutation into typed lifecycle objects.
+- Make graph node input/output contracts typed.
+- Keep `ResearchRunOrchestrator` as the only execution lifecycle owner.
 
-### 4.3 The Graph Has Legacy Dead Code And Duplicate Paths
+### 4.4 Mypy Still Does Not Mean "Strongly Typed"
+
+Problem:
+
+Mypy passes, but global config remains relaxed.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:504` defines `_build_trade_thesis`.
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:509` returns `ThesisBuilder(self).build(final_state)`.
-- Code after that return is unreachable legacy logic.
-- `apps/ai-service/tradingagents/graph/run_orchestrator.py:174` has the newer `run_graph`.
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:940` still has old run completion logic.
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:962` calls `_complete_journal_run()` in the older path.
+- `apps/ai-service/pyproject.toml:75` sets `ignore_missing_imports = true`.
+- `apps/ai-service/pyproject.toml:79` sets `disallow_untyped_defs = false`.
+- `apps/ai-service/pyproject.toml:80` sets `check_untyped_defs = false`.
+- `apps/ai-service/pyproject.toml:96` ignores errors in selected dynamic LLM client modules.
+- There are targeted stricter overrides at `apps/ai-service/pyproject.toml:107`, which is good but incomplete.
 
-Why this is problematic:
+Why it is problematic:
 
-Dead code in orchestration logic is dangerous because maintainers cannot easily tell which path is authoritative. In a graph-based LLM system, behavior is already difficult to reason about. Duplicate orchestration paths multiply that complexity.
+Graph state, provider payloads, structured LLM outputs, and journal persistence are exactly the places where gradual typing can hide runtime breakage.
 
 Future consequence:
 
-- Bug fixes get applied to the wrong implementation.
-- Tests may cover one path while CLI/API uses another.
-- Staff-level architectural intent gets buried under compatibility residue.
+- Large refactors can break untyped function bodies without mypy catching them.
+- State dictionary key mismatches remain possible.
+- API/engine contract drift can slip through until runtime tests.
 
 Better approach:
 
-- Delete unreachable code.
-- Keep `ResearchAgentsGraph` as a composition shell.
-- Move orchestration, thesis building, journal bridging, and data loading into clearly owned modules.
-- Add tests that assert the public graph entrypoint uses only the intended orchestrator path.
+- Expand `check_untyped_defs = true` slice by slice.
+- Define typed graph state models or protocols.
+- Make provider result types explicit.
+- Type the engine JSON contract as a first-class object shared by CLI/API tests.
 
-### 4.4 Freshness Policy Is Not Fully Config-Driven
+### 4.5 Coverage Gate Exists, But The Threshold Is Too Low
+
+Problem:
+
+The CI coverage gate is a good addition, but `--cov-fail-under=55` is still modest for trust-critical code.
+
+Why it is problematic:
+
+A project can pass 55 percent coverage while still leaving critical orchestration, replay edge cases, or persistence failures uncovered.
+
+Future consequence:
+
+- Coverage becomes a symbolic gate instead of a quality bar.
+- Refactors can degrade important areas while still passing globally.
+
+Better approach:
+
+- Keep the global threshold initially, but add per-package thresholds for `dataflows`, `graph`, `journal`, `signals`, and `engine`.
+- Track branch coverage for replay and persistence failure paths.
+- Add mutation-style tests for replay timestamp contamination and journal failure handling.
+
+### 4.6 CLI Tool-Call Logs Still Need Safer Redaction Integration
+
+Problem:
+
+The observability layer has strong redaction helpers, including unsafe tool-arg redaction, but the CLI still writes `message_tool.log` directly from recorded tool calls.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/signals/provenance.py:32` defines `FRESHNESS_WINDOW = timedelta(hours=24)`.
-- `apps/ai-service/tradingagents/signals/provenance.py:85` uses that constant for freshness.
-- `apps/ai-service/tradingagents/signals/provenance.py:100` logs threshold using the hard-coded 24h window.
-- `apps/ai-service/tradingagents/signals/provenance.py:135` emits the hard-coded threshold.
-
-Why this is problematic:
-
-The config layer exposes stale-data policy, but a key freshness path still uses a constant. This makes configuration partly performative.
-
-Future consequence:
-
-- A user or deployment may believe it has tightened stale-data policy while the signal provenance path still uses 24 hours.
-- Market regimes with different data freshness needs cannot be configured reliably.
-
-Better approach:
-
-- Pass freshness policy through the signal conversion pipeline.
-- Make `FRESHNESS_WINDOW` a default, not the effective policy.
-- Add a test that changes config `max_age_hours` and verifies the emitted freshness threshold changes.
-
-### 4.5 Mypy Passing Overstates Type Safety
-
-Evidence:
-
-- `apps/ai-service/pyproject.toml:74` sets `ignore_missing_imports = true`.
-- `apps/ai-service/pyproject.toml:78` sets `disallow_untyped_defs = false`.
-- `apps/ai-service/pyproject.toml:79` sets `check_untyped_defs = false`.
-- `apps/ai-service/pyproject.toml:95` ignores errors in selected modules.
-
-Why this is problematic:
-
-The project can say "mypy passes", but large amounts of runtime-heavy logic may not actually be checked deeply. This matters in agent orchestration because state dictionaries, structured outputs, optional fields, and persistence payloads are easy to break during refactors.
-
-Future consequence:
-
-- Regressions appear only at runtime.
-- Type contracts between graph nodes, journal service, and API boundary remain weaker than they look.
-- New contributors may assume mypy gives more safety than it does.
-
-Better approach:
-
-- Turn on `check_untyped_defs` for core modules first.
-- Add strict typing slices around graph state, journal service, data provider contracts, and engine JSON contract.
-- Use typed protocols for providers and graph nodes instead of passing broad dictionaries everywhere.
-
-### 4.6 Provider Timeout Strategy Can Leak Work Under Outage
-
-Evidence:
-
-- `apps/ai-service/tradingagents/dataflows/interface.py:6` imports `ThreadPoolExecutor`.
-- `apps/ai-service/tradingagents/dataflows/interface.py:498` defines `_invoke_with_resilience`.
-- `apps/ai-service/tradingagents/dataflows/interface.py:524` creates `ThreadPoolExecutor(max_workers=1)` per provider call.
-- `apps/ai-service/tradingagents/dataflows/interface.py:484` applies vendor rate limiting with a global lock and `time.sleep`.
-- `apps/ai-service/tradingagents/dataflows/interface.py:369` async routing is implemented with `asyncio.to_thread`.
-
-Why this is problematic:
-
-Cancelling a future does not necessarily stop a blocking network call already running in a thread. Creating a new executor per call can leave background work around during provider outages. The async API is also not true async I/O; it is sync work moved to threads.
-
-Future consequence:
-
-- Under provider degradation, the system may accumulate stuck threads.
-- Concurrent watchlists or scheduled briefs will serialize or block more than expected.
-- Latency and resource usage become unpredictable.
-
-Better approach:
-
-- Use native timeout support in HTTP clients and provider SDKs.
-- Prefer `httpx.AsyncClient` or provider-native async clients for network-bound paths.
-- Use bounded shared executors if sync provider calls must remain.
-- Make cancellation and timeout behavior observable with per-provider metrics.
-
-### 4.7 Retry And Fallback Policy Can Mask Programming Errors
-
-The LLM orchestration layer has provider fallback and retry behavior, which is useful. The risk is that unknown failures can be treated as retryable and entire graph execution can be rerun.
-
-Why this is problematic:
-
-Retries are correct for transient provider failures. They are not correct for schema bugs, parser regressions, state corruption, or persistence side effects.
-
-Future consequence:
-
-- Real bugs get hidden behind provider fallback.
-- LLM cost can spike under deterministic failures.
-- Re-running larger graph sections can duplicate side effects unless every write is idempotent.
-
-Better approach:
-
-- Define an explicit error taxonomy: provider transient, provider permanent, parser contract failure, application bug, persistence failure, policy violation.
-- Retry only known transient failures.
-- Prefer node-level/stage-level retry over whole-graph retry.
-- Attach idempotency keys to persistence events.
-
-### 4.8 Confidence And Reliability Are Still Heuristic
-
-The deterministic signal layer is clean, but confidence and scoring are still mostly heuristic.
-
-Why this is problematic:
-
-A numeric score looks authoritative. If it is not empirically calibrated, users will over-trust it.
-
-Future consequence:
-
-- The UI/API may eventually present confidence as if it were probability.
-- Reliability snapshots may reinforce false precision.
-- Commercial users will ask, correctly, whether scores are predictive.
-
-Better approach:
-
-- Separate `heuristic_confidence` from `empirical_confidence`.
-- Require sample size and out-of-sample evaluation before displaying reliability as performance.
-- Version signal weights and persist the version used for every thesis.
-- Build calibration reports per symbol/regime/timeframe.
-
-### 4.9 SQLite Schema Is Good For Local Use, Painful For Multi-Tenant Product Use
-
-The SQLite schema is rich and appropriate for local-first usage. The risk is future product migration.
-
-Why this is problematic:
-
-Some SQLite tables are local-run oriented and do not consistently carry workspace boundaries. The Phase 12 Prisma schema moves toward workspace-aware product architecture, but that means there are two schema worlds that need reconciliation.
-
-Future consequence:
-
-- Hosted migration will be more than "swap SQLite for Postgres".
-- Analytics queries and access control will require backfilling tenant/workspace identity.
-- Local-to-cloud sync will need conflict and identity semantics that are not yet clearly modeled in Phase 1-11.
-
-Better approach:
-
-- Keep SQLite as the local source of truth, but define a canonical sync contract.
-- Add stable IDs, workspace/user identity, schema versions, and migration fixtures.
-- Decide whether local journal and cloud database are equivalent schemas or intentionally different projections.
-
-### 4.10 CI Is Good, But Release Gates Are Incomplete
-
-Evidence:
-
-- `.github/workflows/ci.yml:90` runs ruff.
-- `.github/workflows/ci.yml:93` runs format check.
-- `.github/workflows/ci.yml:117` runs mypy.
-- `.github/workflows/ci.yml:172` and `:188` run pytest classes.
-- No evidence in the CI workflow of Docker image build, dependency audit, secret scan, migration smoke test, or coverage threshold.
-
-Why this is problematic:
-
-Passing unit/integration tests does not mean the artifact is releasable. This is especially true for a project with external providers, secrets, local database migrations, Docker, and scheduled research flows.
-
-Future consequence:
-
-- A broken Dockerfile can ship unnoticed.
-- Vulnerable dependencies can remain invisible.
-- Coverage may regress while test count remains high.
-- Secret leaks may only be caught manually.
-
-Better approach:
-
-- Add Docker build as a CI gate.
-- Add `pip-audit`/`uv audit` and `pnpm audit` or equivalent policy.
-- Add `gitleaks` or `detect-secrets`.
-- Add coverage thresholds for core modules.
-- Add SQLite migration and backup/restore smoke tests.
-
-### 4.11 CLI File Logging Can Bypass Central Redaction Assumptions
-
-Evidence:
-
-- `apps/ai-service/tradingagents/observability/logging.py:67` defines `redact_secrets`.
-- `apps/ai-service/tradingagents/observability/logging.py:83` defines `SecretRedactionFilter`.
+- `apps/ai-service/tradingagents/observability/logging.py:113` defines `redact_tool_call_args`.
+- `apps/ai-service/tradingagents/observability/logging.py:357` sanitizes `tool_args` passed through `log_event`.
 - `apps/ai-service/cli/orchestrator.py:149` writes `message_tool.log`.
-- `apps/ai-service/cli/orchestrator.py:303` wires log decorators.
+- `apps/ai-service/cli/orchestrator.py:323` writes tool-call arguments from `obj.tool_calls[-1]`.
 
-Why this is problematic:
+Why it is problematic:
 
-Central logging redaction exists, but custom file logs and monkey-patched message/tool logging may not consistently pass through it. Right now this may be low-risk if tool args are clean. It becomes high-risk the first time headers, URLs, provider payloads, or raw exceptions include tokens.
+The central redaction path is good, but custom file logging can bypass it. Tool calls may eventually include URLs, headers, provider payload fragments, or user-provided text with credentials.
 
 Future consequence:
 
-- Local logs can leak API keys or provider credentials.
-- Users may attach logs to issues and accidentally disclose secrets.
+- Local debug logs can leak secrets.
+- Users may attach logs to issues and disclose provider/API keys.
 
 Better approach:
 
-- Route all file logs through the same redaction function.
-- Redact by key and by value shape where possible.
-- Avoid logging raw tool arguments unless explicitly marked safe.
+- Use `redact_tool_call_args()` in CLI file logging.
+- Prefer `log_event(..., tool_args=..., tool_args_safe=False)` instead of custom string formatting.
+- Add a test that a fake API key in tool args never appears in `message_tool.log`.
 
-### 4.12 Dependency And Naming Debt Create Product Confusion
+### 4.7 SQLite Workspace Modeling Is Better, But Still Partial
+
+Problem:
+
+Workspace identity exists in important tables, but not uniformly across all local journal tables.
 
 Evidence:
 
-- `apps/ai-service/pyproject.toml:13` includes `backtrader`.
-- `apps/ai-service/pyproject.toml:26` includes `redis`.
-- `apps/ai-service/pyproject.toml:34` includes `yfinance`.
-- The Python package still uses `tradingagents` naming.
+- `apps/ai-service/tradingagents/storage/schema.py:6` adds `workspace_id` to `research_runs`.
+- `apps/ai-service/tradingagents/storage/schema.py:62` adds it to `signals`.
+- `apps/ai-service/tradingagents/storage/schema.py:140` adds it to `trade_theses`.
+- `apps/ai-service/tradingagents/storage/schema.py:200` adds it to `run_events`.
+- But `market_snapshots`, `signal_snapshots`, `debates`, `agent_opinions`, `scenarios`, `user_decisions`, `outcome_reviews`, `thesis_evaluations`, and `reliability_snapshots` are still largely linked indirectly.
 
-Why this is problematic:
+Why it is problematic:
 
-The product says "research workstation, not execution/backtesting", but some names and dependencies still smell like an older trading-bot/backtest identity. Some dependencies may be legitimate, but the boundary is not as clean as the docs.
+Indirect workspace scoping through joins is acceptable for local mode, but awkward for hosted querying, sync, export, and access control.
 
 Future consequence:
 
-- Users may misunderstand the product as an execution/backtesting system.
-- Unused dependencies increase attack surface and maintenance burden.
-- New contributors may extend the wrong mental model.
+- Hosted migration will need careful backfills.
+- Query performance and access-control correctness can depend on joins everywhere.
+- Local-to-cloud sync will need stronger identity and conflict semantics.
 
 Better approach:
 
-- Remove or isolate unused execution/backtesting dependencies.
-- Keep compatibility names only at the boundary; move new code toward research/journal terminology.
-- Make "no autonomous trading" an architectural invariant, not just documentation.
+- Either explicitly document SQLite as a local-only projection or make workspace identity uniform.
+- Add schema-versioned sync contracts.
+- Decide whether Prisma/Postgres is the canonical cloud schema or merely an API projection.
 
-## 5. Phase-By-Phase Assessment
+### 4.8 Dependency Identity Risk Has Improved, But Not Disappeared
+
+Problem:
+
+The old `backtrader` dependency appears to be gone, which is good. But `redis` and `yfinance` remain in the core dependency list, and the package name is still `tradingagents`.
+
+Evidence:
+
+- `apps/ai-service/pyproject.toml:25` still includes `redis`.
+- `apps/ai-service/pyproject.toml:33` still includes `yfinance`.
+- `apps/ai-service/pyproject.toml:5` still names the Python project `tradingagents`.
+
+Why it is problematic:
+
+Some dependencies may be needed for provider compatibility or future API work, but the product identity still partially suggests trading automation and legacy stock-data roots.
+
+Future consequence:
+
+- Users and contributors may infer the wrong product boundary.
+- Extra dependencies increase audit and maintenance surface.
+- Package naming will become harder to change later.
+
+Better approach:
+
+- Move optional provider dependencies behind extras where possible.
+- Keep compatibility import paths if needed, but make new public naming research/journal-oriented.
+- Make no-execution/no-autotrading an explicit invariant in package docs and API contracts.
+
+### 4.9 Confidence Calibration Is Better, But Still Early
+
+Problem:
+
+The system now separates heuristic confidence from empirical confidence and uses sample-size gates. That is a major improvement. But the empirical layer is only as strong as the evaluation sample and replay integrity behind it.
+
+Evidence:
+
+- `apps/ai-service/tradingagents/signals/base.py` models `heuristic_confidence`, `empirical_confidence`, sample size, and out-of-sample sample size.
+- `apps/ai-service/tradingagents/signals/composite.py` versions signal weights with `SIGNAL_WEIGHT_VERSION`.
+- `apps/ai-service/tradingagents/services/evaluation_service.py` builds confidence calibration curves.
+- `apps/ai-service/tradingagents/services/performance_tracker.py` marks insufficient calibration data.
+
+Why it is problematic:
+
+Even with better labeling, users can still over-read numeric confidence. Crypto regimes shift quickly, and sample sizes can be misleading.
+
+Future consequence:
+
+- Confidence may look more scientific than it is.
+- A few good historical evaluations can create false product confidence.
+- Users may treat reliability snapshots as prediction accuracy.
+
+Better approach:
+
+- Keep heuristic and empirical confidence visually distinct in every UI/API output.
+- Segment calibration by symbol, timeframe, market regime, and strict/non-strict replay.
+- Require materially larger out-of-sample counts before presenting empirical confidence as actionable.
+
+## 5. Critical Technical Debt
+
+The top technical debts after remediation are:
+
+1. **Graph host complexity**: `ResearchAgentsGraph` is no longer carrying obvious unreachable code, but it remains a large integration object.
+2. **Thread-based provider runtime**: bounded executor is safer, but native async/network timeout semantics are still missing.
+3. **Loose global typing**: mypy passes, but the most dynamic parts need stricter typed contracts.
+4. **Partial tenant/workspace modeling in SQLite**: fine locally, risky for hosted sync.
+5. **Modest coverage threshold**: coverage gate exists, but 55 percent is not a serious ceiling for critical paths.
+6. **CLI custom file logging**: redaction helpers exist, but direct tool-call log formatting remains a leak path.
+7. **Non-strict replay policy**: acceptable as a mode, dangerous if users confuse it with point-in-time replay.
+
+## 6. Phase-By-Phase Assessment
 
 | Phase | Assessment | Score |
 |---|---|---:|
-| Phase 1 - Foundation cleanup | Mostly successful. The product direction moved away from trading-bot behavior, but legacy names like `tradingagents`, graph class naming, and some dependencies still carry old intent. | 7.0 |
-| Phase 2 - Decision journal | Strong. The journal is real and useful. Weak point is best-effort persistence instead of hard trust guarantees. | 8.0 |
-| Phase 3 - Signal provenance | Strong structure and source/freshness metadata. Weak point is hard-coded freshness threshold and incomplete provider timestamp guarantees. | 7.5 |
-| Phase 4 - Multi-agent workspace | Coherent graph design with debate and analyst roles. Still prompt-heavy and difficult to reason about under failure. | 7.0 |
-| Phase 5 - Scenario engine | Useful and product-relevant. Needs clearer guarantees around degraded scenarios and fallback outputs. | 7.0 |
-| Phase 6 - Watchlists and monitoring | Good local feature set. Not yet a production scheduler/notification system. | 7.0 |
-| Phase 7 - Terminal UX | Broad and useful CLI. Still has orchestration complexity and some legacy naming/aliasing. | 7.5 |
-| Phase 8 - Market brief | Good memory-oriented feature. Quality depends heavily on provider reliability and summarization discipline. | 7.0 |
-| Phase 9 - Historical evaluation/replay | Valuable idea, weakest trust implementation. No-lookahead must be made much stricter. | 5.5 |
-| Phase 10 - Config/secrets/reliability | One of the stronger phases. Config layering, secrets, and production policy show maturity. | 8.0 |
-| Phase 11 - Observability/trust | Strong surfaces, but trust is not always enforced as a blocking invariant. | 7.0 |
+| Phase 1 - Foundation cleanup | Much cleaner product boundary. Legacy package naming remains, but execution/backtest identity is reduced. | 7.8 |
+| Phase 2 - Decision journal | Strong. Critical writes now raise `StorageError`; journal is closer to a real trust layer. | 8.7 |
+| Phase 3 - Signal provenance | Strong. Freshness policy is now config-driven; provenance carries more confidence metadata. | 8.4 |
+| Phase 4 - Multi-agent workspace | Coherent graph and debate model. Still complex and prompt-heavy, but better modularized. | 7.7 |
+| Phase 5 - Scenario engine | Useful and product-relevant. Needs continued work on structured degradation visibility. | 7.5 |
+| Phase 6 - Watchlists and monitoring | Good local feature set. Still not a production-grade scheduler/notification platform. | 7.4 |
+| Phase 7 - Terminal UX | Broad and useful. CLI logging redaction remains the main concern. | 7.7 |
+| Phase 8 - Market brief | Good memory-oriented feature. Quality still depends on provider/data reliability. | 7.5 |
+| Phase 9 - Historical evaluation/replay | Major improvement. Strict replay and timestamp audits now exist; non-strict policy still needs careful labeling. | 7.6 |
+| Phase 10 - Config/secrets/reliability | Strong. Config, secrets, error taxonomy, provider runtime, and CI audits are materially better. | 8.6 |
+| Phase 11 - Observability/trust | Stronger than before. Trust signals are more enforceable; cloud-grade tracing/metrics still missing. | 8.1 |
 
-## 6. Architecture Quality
+## 7. Architecture Quality
 
-The architecture is above average. It has real boundaries:
+Architecture score: **8.1 / 10**
 
-- `dataflows`: provider routing, rate limiting, resilience, historical contracts.
-- `signals`: deterministic signal calculation and provenance.
-- `graph`: multi-agent orchestration.
-- `services` and `storage`: journal persistence and domain services.
-- `config`: environment/profile/policy.
-- `observability`: logging, run events, provider health, LLM calls.
-- `cli`: terminal UX and orchestration.
+What is designed well:
 
-The problem is that some of these boundaries are still leaky:
+- local-first research workstation boundary;
+- deterministic signals before LLM synthesis;
+- journal-first persistence model;
+- clear services/storage/config/observability/dataflows separation;
+- replay audit and provider timestamp checks;
+- structured error taxonomy;
+- dedicated run orchestrator;
+- engine/API boundary emerging through tests.
 
-- Graph orchestration still contains old and new paths.
-- Provider contracts describe timestamp semantics but do not always enforce point-in-time behavior at the method parameter level.
-- Journal persistence can fail without becoming a first-class result state.
-- Async APIs wrap sync calls rather than modeling real asynchronous I/O.
+What still needs work:
 
-Architectural grade: **7.5 / 10**
+- `ResearchAgentsGraph` remains too central;
+- graph state is still dictionary-heavy;
+- async is not truly async;
+- local SQLite and future Prisma/Postgres need a clearer canonical sync story.
 
-## 7. Code Structure And Module Organization
+## 8. Code Structure And Module Organization
 
-The codebase is modular enough to be maintainable by a small team. The split into config, dataflows, graph, services, storage, signals, and observability is sensible.
+Code structure score: **7.7 / 10**
 
-Good structure:
+The repo is now healthier than the previous review. The old dead-code smell in thesis building is gone, the run lifecycle is delegated, and journal criticality is clearer.
 
-- `signals` is separated from LLM reasoning.
-- `journal_service` centralizes persistence behavior.
-- `run_orchestrator` has started extracting execution from the large graph class.
-- Config and secrets are not sprinkled randomly through business code.
+Remaining structure risks:
 
-Bad structure:
-
-- `research_agents_graph.py` still has too much historical baggage.
-- There are duplicate orchestration concepts.
-- Some state is passed as broad dictionaries, making contracts hard to verify.
-- CLI orchestration monkey-patches logging behavior rather than using a clean event stream.
-
-Maintainability grade: **6.8 / 10**
-
-## 8. Developer Intent
-
-The developer intent is clear:
-
-- Build a research copilot, not a trading bot.
-- Preserve reasoning artifacts.
-- Use deterministic data before LLM synthesis.
-- Make local-first operation work before cloud.
-- Add trust infrastructure early.
-
-That is a good product and engineering instinct.
-
-Where intent is inconsistent:
-
-- Some package names, dependencies, and classes still reflect the old "trading agents" framing.
-- Replay/evaluation sounds like backtesting, but the implementation is not yet strict enough to support that trust claim.
-- Observability is present, but not every critical failure changes user-visible state.
+- orchestration code still requires deep context to safely change;
+- dynamic graph state contracts are hard to inspect;
+- CLI, engine, and graph layers need stricter boundary contracts;
+- compatibility naming still leaks old project identity.
 
 ## 9. Scalability Assessment
 
-### Local Scale
+### Local Scalability
 
-For one user, local research runs, CLI usage, and SQLite journaling are plausible. The current architecture can handle this.
+Local scalability score: **7.8 / 10**
 
-Local scalability score: **7.0 / 10**
+The current architecture is appropriate for one user running local research, watchlists, replays, and journal review. SQLite is acceptable. The bounded provider executor improves resilience under provider slowness.
 
 Main local bottlenecks:
 
-- Provider calls can block threads.
-- Rate limiting uses coarse locks/sleeps.
-- Graph execution can be expensive and difficult to resume at fine granularity.
-- SQLite is fine locally but needs careful transaction and backup behavior.
+- multi-agent LLM cost and latency;
+- provider pool saturation under large watchlists;
+- blocking SDK calls hidden behind threads;
+- graph reruns/fallback can still be expensive.
 
-### Team / Cloud Scale
+### Hosted / Cloud Scalability
 
-The Phase 1-11 architecture is not cloud-ready by itself.
+Cloud scalability score: **5.5 / 10**
 
-Cloud scalability score: **4.5 / 10**
+The code has moved toward cloud readiness, but Phase 1-11 is still not a hosted architecture.
 
-Reasons:
+Missing for hosted scale:
 
-- SQLite schema and local paths are central.
-- Multi-tenant identity is not a first-class Phase 1-11 invariant.
-- Provider credentials, per-user rate limits, and workspace isolation need stronger boundaries.
-- Long-running graph jobs need a queue/workflow runtime, not a request/CLI-style process.
-- Observability needs metrics/traces, not only local structured events.
-
-Better approach for cloud:
-
-- Treat Phase 1-11 as the local engine.
-- Put a job queue around engine execution.
-- Define an engine JSON contract with idempotent run IDs.
-- Move provider credentials into per-workspace secret storage.
-- Use Postgres as an event/journal projection, not as an accidental port of SQLite.
+- durable job queue and worker runtime;
+- per-workspace credential isolation;
+- full tenant scoping across every persisted artifact;
+- cloud observability with metrics/tracing;
+- explicit local-to-cloud sync model;
+- stronger cancellation and concurrency primitives.
 
 ## 10. Production-Readiness Assessment
 
 | Target | Verdict |
 |---|---|
 | Local internal use | Ready |
-| Controlled local beta | Mostly ready, with clear disclaimers |
-| Hosted SaaS | Not ready |
-| Financial-advice product | Not ready |
-| Autonomous trading/execution | Not applicable and should remain out of scope |
+| Controlled local beta | Ready, with clear research-only disclaimers |
+| Paid local/pro desktop product | Plausible after UX/docs hardening |
+| Hosted SaaS | Not ready yet |
+| Regulated financial-advice product | Not ready |
+| Autonomous trading/execution | Out of scope and should remain out of scope |
 
-Production-readiness score for local beta: **7.0 / 10**  
-Production-readiness score for broad production: **4.5 / 10**
+Local beta production-readiness score: **8.0 / 10**
+Broad hosted production-readiness score: **5.3 / 10**
 
-The main missing production qualities are:
-
-- hard trust invariants;
-- strict replay/no-lookahead enforcement;
-- stronger secret/log redaction guarantees;
-- release artifact gates;
-- vulnerability scanning;
-- coverage policy;
-- clean migration/sync story;
-- cloud job execution model.
+The local product is now credible. The hosted product still needs a real job system, tenant isolation, cloud observability, release artifact hardening, and stronger operational playbooks.
 
 ## 11. Security Assessment
 
-Security is better than a typical prototype but not yet production-grade.
+Security score: **7.8 / 10**
 
 Strengths:
 
-- `.env` is gitignored.
-- No obvious real secret was found in tracked files during spot checks.
-- Config/secrets are centralized.
-- Production policy rejects fake/sample providers.
-- Prompt injection utilities exist for untrusted context.
-- Logging redaction exists.
+- secrets are centralized;
+- `.env` handling is sane;
+- Gitleaks is in CI;
+- dependency audit is in CI;
+- production policy rejects unsafe fake/sample vendor behavior;
+- prompt injection hardening utilities exist;
+- logging redaction is substantially better.
 
-Risks:
+Remaining concerns:
 
-- Custom CLI logs may bypass central redaction.
-- Redaction appears stronger for key names than for arbitrary secret-shaped values.
-- CI does not visibly run secret scanning.
-- Dependency audit is not a visible CI gate.
-- Prompt-injection defense exists but should be applied consistently to every external text source.
+- CLI tool-call file logging should call the same redaction path as structured observability.
+- `redis` and provider dependencies increase audit surface.
+- CI has audits, but local verification was not run in this review.
+- Hosted deployment would require stronger per-user secret isolation.
 
-Security score: **7.0 / 10** for local use, lower for hosted deployment.
+Highest ROI security fix:
 
-Highest-impact security fixes:
-
-1. Add secret scanning to CI.
-2. Add dependency vulnerability scanning.
-3. Route all logs through one redaction pipeline.
-4. Add tests for prompt-injection wrapping on every untrusted context path.
-5. Separate user-controlled text from system/developer instructions at every LLM boundary.
+- Make `message_tool.log` use `redact_tool_call_args()` and add a regression test with fake credentials.
 
 ## 12. Performance Assessment
 
-The system is probably acceptable for local interactive research, but not optimized for high-throughput workloads.
+Performance score: **7.0 / 10**
 
-Performance strengths:
+What improved:
 
-- Provider rate limiting and retries exist.
-- Expensive LLM work is bounded by graph structure and local tool-loop limits.
-- SQLite is appropriate for local usage.
+- shared bounded provider executor reduces runaway thread creation;
+- provider runtime has `max_workers`;
+- retry/fallback taxonomy is more careful;
+- data freshness and provider calls are observable.
 
-Performance risks:
+Remaining risks:
 
-- Provider timeout implementation can leave blocked worker threads.
-- Async wrappers are thread-based, not true async I/O.
-- Coarse vendor rate-limit sleeps can serialize unrelated work.
-- Multi-agent graph cost grows quickly with analyst count, debate rounds, and fallback retries.
-- Whole-graph retries can repeat expensive work.
-
-Performance score: **6.5 / 10**
+- blocking SDK calls still occupy workers after timeout until the underlying call returns;
+- async boundaries use `to_thread`;
+- LLM graph cost can grow quickly with analyst count/debate rounds/fallback;
+- rate limiting still sleeps workers rather than using a fully async scheduler.
 
 Better approach:
 
-- Use native async HTTP/provider clients.
-- Add per-stage timing metrics.
-- Cache immutable historical market data by symbol/timeframe/as-of.
-- Retry at node/tool level, not whole graph level.
-- Make graph cost visible before a run starts.
+- move high-volume provider paths to native async I/O;
+- add provider queue wait metrics;
+- add graph stage timing and cost budgets;
+- cache immutable historical data by symbol/timeframe/as-of.
 
 ## 13. Testing Quality
 
-The test suite is a strength. The number of tests and passing gates show real discipline.
+Testing score: **8.4 / 10**
 
-Testing score: **8.0 / 10**
+The suite is strong and got stronger.
 
-What is good:
+Good:
 
-- Unit and non-unit test split exists.
-- CLI/API gates pass.
-- Mypy/ruff/format gates exist.
-- The suite is large enough to catch many regressions.
+- 596 Python tests pass locally.
+- coverage gate passes locally at 62.88 percent total coverage against the current 55 percent threshold.
+- replay strictness and timestamp contamination have tests;
+- journal criticality has tests;
+- signal freshness config has tests;
+- SQLite migration/backup/restore smoke test passes locally;
+- API boundary tests pass.
 
-What is missing:
+Weak:
 
-- Strict replay no-lookahead tests.
-- Journal critical-write failure tests that assert user-visible degraded/failed status.
-- Config freshness policy override tests.
-- Provider timeout/leaked-thread tests.
-- Coverage thresholds.
-- Security tests for redaction and prompt-injection boundaries.
-- Migration/backup/restore tests.
+- coverage threshold is low;
+- hosted/cloud workflow tests are still limited;
+- provider outage/concurrency tests should go deeper.
 
 ## 14. Deployment And CI/CD Quality
 
-CI is healthy for an engineering repo, not complete for a releasable product.
+CI/CD score: **8.0 / 10**
 
-CI/CD score: **7.0 / 10**
+This area improved materially. CI now includes:
 
-Good:
+- lint/format;
+- mypy;
+- Python test matrix;
+- API build/test/lint;
+- secret scanning;
+- Node and Python dependency audits;
+- Docker build declaration;
+- coverage gate;
+- SQLite smoke test.
 
-- Lint, format, type check, compile, Python tests, and API build/test/lint are present.
-- Python matrix support is a good signal.
+Remaining issues:
 
-Weak:
-
-- Docker build is not visibly gated.
-- Dependency scanning is not visibly gated.
-- Secret scanning is not visibly gated.
-- Coverage thresholds are not visibly enforced.
-- Release versioning and artifact provenance are not clear.
-
-Deployment quality:
-
-- Local deployment is plausible.
-- Dockerfile exists, but reproducibility is limited if installs are not lockfile/hash based.
-- `docker-compose.yml` is development-grade, not production-grade.
+- coverage threshold should rise over time;
+- Docker build was not locally verified in this review;
+- release artifact signing/provenance is not visible;
+- deployment playbooks are still local/dev-oriented.
 
 ## 15. Observability And Logging
 
-Observability is one of the better parts of the system. The project captures provider health, LLM calls, data freshness, run events, and structured logs.
+Observability score: **8.0 / 10**
 
-Observability score: **7.5 / 10**
+Strengths:
 
-Strong:
+- run events;
+- provider calls;
+- LLM calls;
+- data freshness checks;
+- snapshot health;
+- replay audit;
+- structured error categories;
+- redaction filters.
 
-- Run event persistence exists.
-- LLM call observability exists.
-- Provider health and freshness checks exist.
-- Logging redaction exists.
+Weaknesses:
 
-Weak:
-
-- Observability does not always become enforcement. A degraded journal or data issue may be logged but not necessarily made impossible to miss.
-- No clear metrics/tracing backend for cloud deployment.
-- Replay audit event persistence has a likely schema mismatch when using blank `research_run_id`.
-
-Better approach:
-
-- Make every critical trust degradation part of the run result.
-- Add explicit `trust_status`, `journal_status`, `data_freshness_status`, and `replay_integrity_status`.
-- For cloud, emit OpenTelemetry-style traces/metrics around graph nodes, provider calls, and LLM calls.
+- observability is still mostly local/event-log oriented;
+- no full cloud metrics/tracing story yet;
+- CLI custom file logging should be pulled into the same redaction pipeline.
 
 ## 16. Error Handling And Async/Concurrency
 
-Error handling is present but uneven.
+Error handling score: **8.0 / 10**
+
+The error taxonomy is now a real architectural asset. `StorageError`, `PolicyViolationError`, provider errors, parser errors, and retry classification are much more mature than before.
+
+Remaining issue:
+
+- The LLM fallback path still executes a callable that may represent a large graph stage. It is safer now because unknown errors are not broadly retryable, but the ideal architecture retries smaller idempotent stages.
+
+Async/concurrency score: **6.7 / 10**
+
+The bounded executor is a good pragmatic fix, but not the final architecture.
+
+## 17. Configuration Management
+
+Configuration score: **8.6 / 10**
+
+Strengths:
+
+- TOML/env/profile layering;
+- production policy;
+- secret loading;
+- provider runtime config;
+- stale-data config now actually affects signal freshness;
+- typed config models.
+
+Remaining issue:
+
+- more behavior should move from implicit graph flags into typed runtime config objects.
+
+## 18. API Design Quality
+
+Phase 1-11 engine/API boundary score: **7.5 / 10**
 
 Good:
 
-- Provider resilience exists.
-- Fallback paths exist.
-- Journal completion quality exists.
-- Optional market data degradation is handled.
+- engine request/response boundary is tested through the Phase 12 API context;
+- workspace mismatch handling exists in API tests;
+- engine errors can be classified;
+- frontend responses are normalized in tests.
 
 Weak:
 
-- Some core data errors use generic exceptions instead of domain taxonomy.
-- Unknown LLM errors can be retried/fallbacked too broadly.
-- Provider cancellation is not strong for blocking calls.
-- Journal failures are too tolerant for critical artifacts.
+- graph state is still not a clean typed API;
+- run trust status should be first-class in every output;
+- replay strictness and integrity should be impossible to miss in API results.
 
-Concurrency risk:
+## 19. Database Design Quality
 
-The system exposes async wrappers, but much of the work remains synchronous under the hood. That is fine if documented as local convenience. It is not fine if later treated as scalable async architecture.
+Local database score: **7.7 / 10**
+Hosted database readiness score: **6.0 / 10**
 
-## 17. API Design Quality
+Good:
 
-For Phase 1-11, the most important API is the engine/CLI contract, not the NestJS API.
+- rich journal schema;
+- run events and observability tables;
+- workspace fields on core tables;
+- indexes for common query paths;
+- SQLite smoke test exists.
 
-Strengths:
+Weak:
 
-- There is an engine-style boundary for running research requests.
-- The CLI is rich and product-oriented.
-- Domain objects are persisted in structured form rather than only text.
+- workspace identity is still partial in some tables;
+- local SQLite and Prisma/Postgres canonical boundaries need clearer documentation;
+- JSON payload versioning should be explicit for long-lived journals.
 
-Weaknesses:
+## 20. Extensibility Potential
 
-- Some graph state remains dictionary-shaped.
-- Public result status needs stronger trust/degradation fields.
-- Error taxonomy should be part of the API contract, not just logs.
+Extensibility score: **8.0 / 10**
 
-API score for Phase 1-11 engine boundary: **7.0 / 10**
+The system can be extended in sensible directions:
 
-## 18. Database Design Quality
-
-SQLite design is surprisingly rich for local-first use.
-
-Strengths:
-
-- Many important research artifacts are persisted.
-- Indexes exist for run and time-based lookups.
-- Journal schema supports future review and reliability work.
-
-Weaknesses:
-
-- Local schema and future Prisma/Postgres schema are not obviously the same canonical model.
-- Workspace/user identity is not consistently a Phase 1-11 invariant.
-- JSON payload duplication can be pragmatic, but needs versioning discipline.
-- Replay audit persistence appears weak.
-
-Database score for local journal: **7.0 / 10**
-
-Database score for future hosted product: **5.0 / 10**
-
-## 19. Extensibility Potential
-
-Extensibility is good in the places that matter:
-
-- new providers;
-- new signal types;
+- new data providers;
+- new signal factors;
 - new analyst roles;
 - new scenario templates;
 - new journal views;
-- new reliability reports.
+- new reliability reports;
+- hosted API/job workers later.
 
-Extensibility risk:
+The main extensibility limit is still graph host complexity. If that is reduced, the project becomes much easier to evolve.
 
-- If the graph class remains large and legacy-heavy, every extension will eventually touch orchestration internals.
-- If provider timestamp semantics are not made strict, adding providers increases replay risk.
-- If schema versioning is not formalized, journal evolution will become painful.
+## 21. What Shows Senior-Level Thinking
 
-Extensibility score: **7.5 / 10**
+Senior-level parts:
 
-## 20. What Shows Senior-Level Thinking
+- research-only product boundary;
+- deterministic signal layer before LLM reasoning;
+- journal as the core product state;
+- replay timestamp integrity work;
+- critical journal write failures;
+- config-driven freshness policy;
+- provider bounded executor;
+- explicit error taxonomy;
+- CI security/audit/Docker/coverage gates;
+- heuristic vs empirical confidence split;
+- prompt injection awareness;
+- outcome review and calibration instead of one-shot recommendations.
 
-These are the parts that feel senior:
+## 22. What Still Looks Immature
 
-- Clear research-only product boundary.
-- Deterministic signals separated from LLM synthesis.
-- Journal-first product architecture.
-- Provenance and freshness tracking.
-- Config profiles and production policy.
-- Secrets centralization.
-- Observability as part of the product, not an afterthought.
-- Prompt injection hardening utilities.
-- Scenario planning and outcome review instead of one-shot recommendations.
-- Strong test discipline for an early product.
+Immature or not-yet-production-grade parts:
 
-## 21. What Looks Junior Or Immature
+- global mypy config is still loose;
+- graph host remains large;
+- async is still thread-wrapped sync;
+- coverage threshold is low;
+- CLI direct file logging is not fully aligned with central redaction;
+- hosted deployment model is not complete;
+- empirical confidence is still early and should not be over-marketed.
 
-These are the parts that do not yet meet the bar implied by the strongest architecture:
+## 23. What Will Become Painful At Scale
 
-- Dead code after returns in core orchestration.
-- Duplicate old/new graph execution paths.
-- "Mypy passes" while important untyped bodies are unchecked.
-- Trust-critical failures logged instead of always reflected in result state.
-- Replay contracts that describe safety more strongly than they enforce it.
-- Thread-based timeout wrappers treated as resilience.
-- Static heuristic confidence presented close to product-level reliability.
-- Legacy trading/backtesting naming and dependencies still leaking into product identity.
+1. Graph host complexity.
+2. Thread-based provider execution.
+3. Partial tenant/workspace fields in local schema.
+4. Large LLM graph retry/fallback costs.
+5. Local-to-cloud journal sync.
+6. Confidence calibration across regimes and symbols.
+7. CLI/API behavior parity.
+8. Debug log and support bundle sanitization.
 
-## 22. Parts That Will Become Painful At Scale
+## 24. Highest-ROI Refactor Priorities
 
-1. `ResearchAgentsGraph` and adjacent orchestration code.
-2. Historical replay provider contracts.
-3. Journal persistence semantics.
-4. Sync provider calls hidden behind async wrappers.
-5. Local SQLite to cloud/Postgres sync.
-6. Static signal confidence and reliability scoring.
-7. CLI-specific behavior if the API later needs identical behavior.
-8. Logs and local artifacts if users start sharing debug bundles.
+### Priority 1 - Make Strict Replay The Default For Evaluation
 
-## 23. What Should Be Rewritten First
+The replay implementation is much better. The product policy should now catch up. Anything named "evaluation", "calibration", or "performance" should default to strict replay or clearly exclude non-strict runs.
 
-Do not rewrite the whole system. The highest ROI is targeted removal of trust and maintenance risks.
+### Priority 2 - Finish Graph Host Decomposition
 
-### Priority 1 - Historical Replay Integrity
+Keep extracting lifecycle/state/persistence from `ResearchAgentsGraph`. The current state is acceptable, but this will become the main development bottleneck.
 
-Rewrite the replay/provider contract so strict replay cannot call any `now()`-anchored provider path.
+### Priority 3 - Route CLI Tool Logs Through Redaction
 
-Expected ROI:
+Small change, high security ROI. This is the easiest remaining trust/security fix.
 
-- Highest trust improvement.
-- Prevents false reliability claims.
-- Makes future evaluation commercially defensible.
+### Priority 4 - Raise Type Strictness In Core Slices
 
-### Priority 2 - Journal Criticality Contract
+Start with `graph`, `dataflows`, `journal`, `signals`, and `engine`. Do not flip strict mode globally in one step.
 
-Rewrite journal persistence behavior so critical write failure changes run outcome.
+### Priority 5 - Move Provider I/O Toward Native Async
 
-Expected ROI:
+The bounded executor is the right interim fix. Native async and explicit network timeout control is the long-term fix.
 
-- Makes the journal reliable enough to be the product memory.
-- Prevents invisible data loss.
+### Priority 6 - Increase Coverage Threshold By Critical Module
 
-### Priority 3 - Graph Orchestration Cleanup
+Do not only raise the global threshold. Add targeted thresholds for trust-critical modules.
 
-Delete dead code and collapse duplicate execution paths.
+### Priority 7 - Clarify SQLite-To-Cloud Data Model
 
-Expected ROI:
+Decide if SQLite is the canonical local model or a projection. Write down the sync/identity/versioning contract before building more cloud features.
 
-- Faster future development.
-- Lower regression risk.
-- Clearer ownership for graph behavior.
+## 25. Business And Open-Source Potential
 
-### Priority 4 - Config-Driven Freshness Policy
+Commercial/open-source potential score: **8.3 / 10**
 
-Wire stale-data config into signal provenance instead of using a hard-coded 24h threshold.
-
-Expected ROI:
-
-- Small change, high correctness improvement.
-- Prevents policy mismatch.
-
-### Priority 5 - Provider Timeout And Retry Model
-
-Replace per-call executor timeout with real network timeouts and bounded async/concurrency.
-
-Expected ROI:
-
-- Better reliability under outages.
-- Less resource leakage.
-- More predictable latency.
-
-### Priority 6 - CI Release Gates
-
-Add Docker build, dependency audit, secret scanning, coverage threshold, and migration smoke tests.
-
-Expected ROI:
-
-- Turns a good dev repo into a releasable repo.
-
-## 24. Hidden Technical Risks Most Developers Would Miss
-
-1. `HYBRID` timestamp semantics passing strict replay validation is not obviously wrong at a glance, but it weakens the core no-lookahead guarantee.
-2. Funding/open-interest histories anchored to `datetime.now()` can contaminate historical evaluations even if OHLCV is point-in-time.
-3. Replay audit events using blank `research_run_id` may silently fail or become unjoinable because `run_events.research_run_id` is `NOT NULL`.
-4. Hard-coded freshness threshold makes config policy partly fake.
-5. Per-call `ThreadPoolExecutor` timeout can leave blocked provider calls alive after timeout.
-6. Broad LLM fallback can turn deterministic app bugs into expensive retries.
-7. Best-effort journal persistence can bias reliability by losing failed/partial runs.
-8. Static confidence scores may become product claims before they are calibrated.
-9. Central redaction can be bypassed by custom local log files.
-10. The future API/database product model is not automatically equivalent to the local SQLite journal.
-
-## 25. Business Potential
-
-Commercial/open-source potential: **8.0 / 10**
-
-The business idea is strong if positioned correctly:
+The product has a strong niche if positioned as:
 
 - local crypto research workstation;
-- evidence-backed thesis generation;
-- decision journal;
-- outcome review;
-- scheduled briefs;
-- watchlists and alerts;
-- provider-integrated but not execution-focused;
-- later optional cloud sync/team workspace.
+- evidence-backed thesis journal;
+- replay/evaluation with strict trust labeling;
+- watchlists and scheduled briefs;
+- provider-extensible research OS;
+- optional cloud sync/team workspace later.
 
 Best commercial angle:
 
-- Sell trust, memory, and workflow.
-- Do not sell "AI predicts the market".
-- Do not claim backtesting validity until replay is fixed.
+- Sell workflow, memory, auditability, and calibration.
+- Do not sell "AI market prediction."
+- Do not imply backtesting validity unless strict replay is enforced.
 
 Open-source potential:
 
-- Strong among technical traders/researchers if local-first and provider-extensible.
-- The journal schema and signal provenance can become the differentiator.
-- The repo needs clearer extension docs and stricter contracts before broad contributors can work safely.
+- Strong if provider extension points and local-first privacy are emphasized.
+- The test suite and architecture are good enough to attract serious contributors.
+- Contributor onboarding will require graph architecture docs and extension contracts.
 
-Business risks:
+Biggest business risks:
 
-- Users may over-trust LLM-generated theses.
-- Replay/evaluation trust bugs can damage credibility.
-- Data-provider terms, rate limits, and quality will shape user experience.
-- Legal positioning must stay away from personalized financial advice unless proper controls exist.
+- users over-trusting numeric confidence;
+- weak distinction between strict and non-strict replay;
+- legal positioning around financial advice;
+- provider rate limits and data quality;
+- cloud migration complexity.
 
 ## 26. Final Scores
 
 | Area | Score |
 |---|---:|
-| Overall Phase 1-11 | 7.3 / 10 |
-| Architecture quality | 7.5 / 10 |
-| Code structure | 7.0 / 10 |
-| Maintainability | 6.8 / 10 |
-| Local scalability | 7.0 / 10 |
-| Cloud scalability readiness | 4.5 / 10 |
-| Local production/beta readiness | 7.0 / 10 |
-| Broad production readiness | 4.5 / 10 |
-| Security | 7.0 / 10 |
-| Performance | 6.5 / 10 |
-| Testing | 8.0 / 10 |
-| CI/CD | 7.0 / 10 |
-| Observability | 7.5 / 10 |
-| Database design, local | 7.0 / 10 |
-| Database design, hosted future | 5.0 / 10 |
-| Extensibility | 7.5 / 10 |
-| Commercial/open-source potential | 8.0 / 10 |
-| Engineering maturity | 7.0 / 10 |
+| Overall Phase 1-11 | 8.1 / 10 |
+| Architecture quality | 8.1 / 10 |
+| Code structure | 7.7 / 10 |
+| Maintainability | 7.5 / 10 |
+| Local scalability | 7.8 / 10 |
+| Cloud scalability readiness | 5.5 / 10 |
+| Local beta production readiness | 8.0 / 10 |
+| Broad hosted production readiness | 5.3 / 10 |
+| Security | 7.8 / 10 |
+| Performance | 7.0 / 10 |
+| Testing | 8.4 / 10 |
+| CI/CD | 8.0 / 10 |
+| Observability | 8.0 / 10 |
+| Error handling | 8.0 / 10 |
+| Async/concurrency | 6.7 / 10 |
+| Configuration management | 8.6 / 10 |
+| API design, Phase 1-11 boundary | 7.5 / 10 |
+| Database design, local | 7.7 / 10 |
+| Database design, hosted future | 6.0 / 10 |
+| Extensibility | 8.0 / 10 |
+| Engineering maturity | 8.0 / 10 |
+| Commercial/open-source potential | 8.3 / 10 |
 
 ## 27. Final Verdict
 
-LunaCrypto/LunaPerception Phase 1-11 is not a toy. It is a credible local AI research workstation with a real domain model, useful journal architecture, deterministic signal layer, multi-agent workflow, and unusually strong testing for this stage.
+The current Phase 1-11 codebase is materially stronger than the previous review. The most important change is philosophical: the repo is now enforcing trust boundaries that were previously mostly documented. Replay integrity, journal criticality, freshness policy, provider worker bounds, CI security gates, and confidence labeling all moved in the right direction.
 
-The brutally honest part: the codebase is ahead of most LLM app prototypes, but behind the trust bar required by its own ambitions. The riskiest issues are not UI polish or model choice. They are replay integrity, journal criticality, dead orchestration paths, config-policy mismatch, and over-broad retry/fallback behavior.
+The project is now credible as a local beta research workstation. It is not merely a prototype. It has a real product model, a meaningful journal, deterministic signal infrastructure, replay audits, observability, and a serious test suite.
 
-If the next engineering cycle fixes historical replay, makes journal persistence a hard trust contract, deletes graph dead code, and adds missing release/security gates, this can become a genuinely strong research product. If those are ignored and the team builds UI/cloud features on top, the project will look mature from the outside while carrying trust debt in exactly the places users will rely on most.
+The hard truth is that this is still not hosted-production-grade. The remaining bottlenecks are graph host complexity, thread-based provider I/O, loose typing, low coverage threshold, partial tenant modeling, and the need to keep strict replay separate from looser research simulation. These are solvable problems, but they should be addressed before pushing the product into cloud/team/SaaS territory.
 
+If the next cycle focuses on strict replay defaults, graph decomposition, redacted CLI tool logging, typed contracts, provider async I/O, and stronger coverage gates, the project can move from "strong local research product" to "commercially defensible research platform."

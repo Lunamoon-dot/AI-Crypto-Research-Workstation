@@ -41,6 +41,7 @@ Obsidian / Cursor for crypto research
 - Assisted trade-plan artifact for manual review only.
 - Checkpoint resume for long research runs.
 - Multi-provider LLM support.
+- Watchlists, alerts, market briefs, replay, diff, and worker-style engine contract commands.
 
 ## Product Boundary
 
@@ -152,24 +153,28 @@ python -m pip install -e ".[dev]"
 
 ## Environment Variables
 
-Set at least one LLM provider key:
+Set the key for the configured LLM provider. The default config currently uses
+DeepSeek:
 
 ```bash
-export OPENAI_API_KEY=...
+export DEEPSEEK_API_KEY=...
 ```
 
 Optional provider keys:
 
 ```bash
+export OPENAI_API_KEY=...
 export GOOGLE_API_KEY=...
+export GEMINI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export XAI_API_KEY=...
-export DEEPSEEK_API_KEY=...
 export DASHSCOPE_API_KEY=...
 export ZHIPU_API_KEY=...
 export OPENROUTER_API_KEY=...
 export AZURE_OPENAI_API_KEY=...
-export ALPHA_VANTAGE_API_KEY=...
+export AZURE_OPENAI_ENDPOINT=...
+export COINGECKO_API_KEY=...
+export CRYPTOPANIC_API_TOKEN=...
 ```
 
 You can also create a local `.env` file.
@@ -179,7 +184,13 @@ You can also create a local `.env` file.
 Launch the interactive research workflow:
 
 ```bash
-tradingagents
+lunacrypto
+```
+
+Run non-interactively:
+
+```bash
+lunacrypto research run BTC/USDT --date 2026-05-08 --yes --plain
 ```
 
 Or run from source:
@@ -194,6 +205,9 @@ Useful journal commands:
 lunacrypto journal path
 lunacrypto journal list
 lunacrypto journal show <run_id>
+lunacrypto journal workspace <run_id>
+lunacrypto journal timeline <run_id>
+lunacrypto journal bundle <run_id>
 lunacrypto journal market-snapshot <snapshot_id>
 lunacrypto journal signal-snapshot <snapshot_id>
 ```
@@ -230,6 +244,23 @@ lunacrypto research evaluate analytics
 
 This evaluates research/thesis quality, not realized PnL.
 
+Replay and worker contract:
+
+```bash
+lunacrypto replay single BTC/USDT 2026-05-08
+lunacrypto engine run --request request.json
+```
+
+Watchlists and briefs:
+
+```bash
+lunacrypto watchlist add-symbol BTC/USDT
+lunacrypto watchlist add-thesis <thesis_id>
+lunacrypto watchlist brief
+lunacrypto watchlist check
+lunacrypto brief daily
+```
+
 ## Python Usage
 
 Use the research-oriented graph entrypoint:
@@ -239,9 +270,9 @@ from tradingagents.graph import ResearchAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"
-config["deep_think_llm"] = "gpt-5.4"
-config["quick_think_llm"] = "gpt-5.4-mini"
+config["llm_provider"] = "deepseek"
+config["deep_think_llm"] = "deepseek-v4-pro"
+config["quick_think_llm"] = "deepseek-v4-flash"
 
 graph = ResearchAgentsGraph(debug=True, config=config)
 final_state, rating = graph.propagate("BTC/USDT", "2026-05-08")
@@ -308,7 +339,7 @@ Production (10–14): config/secrets → observability → service/API layer →
 
 ## Production Status
 
-This project is not production-ready yet. As of the 2026-05-12 readiness review, it is suitable for controlled local alpha/beta research use, but not for a broad production launch or hosted paid product.
+This project is not hosted-production-ready yet. As of the 2026-05-13 technical review, it is credible for controlled local beta research use with clear research-only disclaimers, but not for a broad hosted SaaS launch or regulated financial-decision platform.
 
 Reasonable current use:
 

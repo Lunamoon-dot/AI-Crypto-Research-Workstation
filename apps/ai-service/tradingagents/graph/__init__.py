@@ -7,6 +7,7 @@ from .graph_factory import GraphFactory
 from .journal_coordinator import JournalCoordinator
 from .propagation import Propagator
 from .report_writer import ReportWriter
+from .run_context import GraphRunContext, GraphRunContextMixin
 from .run_orchestrator import ResearchRunOrchestrator
 from .signal_processing import SignalProcessor
 from .thesis_builder import ThesisBuilder
@@ -18,6 +19,8 @@ __all__ = [
     "ConditionalLogic",
     "GraphFactory",
     "GraphSetup",
+    "GraphRunContext",
+    "GraphRunContextMixin",
     "JournalCoordinator",
     "Propagator",
     "ReportWriter",

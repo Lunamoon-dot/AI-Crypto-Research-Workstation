@@ -52,11 +52,11 @@ def replay_single(
         "English", "--language", help="Output language for reports."
     ),
     strict: bool = typer.Option(
-        False,
-        "--strict",
-        help="Fail fast when a data endpoint only supports LATEST semantics "
-        "(no point-in-time data).  Without this flag, LATEST endpoints only "
-        "produce warnings.",
+        True,
+        "--strict/--research-simulation",
+        help="Require strict point-in-time replay by default. Use "
+        "--research-simulation only for exploratory runs that may accept "
+        "HYBRID provider semantics.",
     ),
 ) -> None:
     """Replay research for a single ticker on a single historical date.
@@ -78,24 +78,23 @@ def replay_single(
 
     selected = [a.strip() for a in analysts.split(",") if a.strip()]
 
-    strict_label = " [red]STRICT MODE[/red]" if strict else ""
+    strict_label = (
+        " [red]STRICT MODE[/red]" if strict else " [yellow]RESEARCH SIMULATION[/yellow]"
+    )
     console.print(
         Panel(
             f"Replaying [bold]{ticker}[/bold] as of [cyan]{anchor_date}[/cyan]\n"
             f"Lookback: {lookback_days}d | Analysts: {', '.join(selected)}{strict_label}",
             title="Historical Replay",
-            border_style="red" if strict else "cyan",
+            border_style="red" if strict else "yellow",
         )
     )
 
     replay = HistoricalReplay()
     # Override lookback
-    replay.config.setdefault("historical_data", {})["default_lookback_days"] = (
-        lookback_days
-    )
-
-    if strict:
-        replay.config.setdefault("historical_data", {})["strict_mode"] = True
+    historical_cfg = replay.config.setdefault("historical_data", {})
+    historical_cfg["default_lookback_days"] = lookback_days
+    historical_cfg["strict_mode"] = strict
 
     result = replay.run(
         ticker=ticker,
@@ -150,9 +149,11 @@ def replay_batch(
         1, "--debate-rounds", min=1, max=5, help="Max debate rounds."
     ),
     strict: bool = typer.Option(
-        False,
-        "--strict",
-        help="Fail fast when a data endpoint only supports LATEST semantics.",
+        True,
+        "--strict/--research-simulation",
+        help="Require strict point-in-time replay by default. Use "
+        "--research-simulation only for exploratory runs that may accept "
+        "HYBRID provider semantics.",
     ),
 ) -> None:
     """Replay research for a ticker across a range of historical dates.
@@ -184,22 +185,25 @@ def replay_batch(
         current += timedelta(days=step_days)
 
     selected = [a.strip() for a in analysts.split(",") if a.strip()]
+    strict_label = (
+        " [red]STRICT MODE[/red]" if strict else " [yellow]RESEARCH SIMULATION[/yellow]"
+    )
 
     console.print(
         Panel(
             f"Batch replay: [bold]{ticker}[/bold]\n"
             f"Range: {start_date} → {end_date} (step {step_days}d)\n"
             f"Total dates: {len(dates)} | Lookback: {lookback_days}d\n"
-            f"Analysts: {', '.join(selected)}",
+            f"Analysts: {', '.join(selected)}{strict_label}",
             title="Historical Batch Replay",
-            border_style="cyan",
+            border_style="red" if strict else "yellow",
         )
     )
 
     replay = HistoricalReplay()
-    replay.config.setdefault("historical_data", {})["default_lookback_days"] = (
-        lookback_days
-    )
+    historical_cfg = replay.config.setdefault("historical_data", {})
+    historical_cfg["default_lookback_days"] = lookback_days
+    historical_cfg["strict_mode"] = strict
 
     results = replay.run_batch(
         ticker=ticker,

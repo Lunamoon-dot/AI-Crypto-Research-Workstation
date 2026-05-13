@@ -820,8 +820,18 @@ class JournalService:
     def get_scenario(self, scenario_id: str) -> Scenario | None:
         return self.repo.get_scenario(scenario_id)
 
-    def list_scenarios(self, *, thesis_id: str, limit: int = 20) -> list[Scenario]:
-        return self.repo.list_scenarios(thesis_id=thesis_id, limit=limit)
+    def list_scenarios(
+        self,
+        *,
+        thesis_id: str,
+        limit: int = 20,
+        workspace_id: str | None = None,
+    ) -> list[Scenario]:
+        return self.repo.list_scenarios(
+            thesis_id=thesis_id,
+            limit=limit,
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+        )
 
     # --- Phase 4 (tail): Reliability snapshots ---
 

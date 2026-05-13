@@ -24,6 +24,12 @@ def _config(tmp_path):
     }
 
 
+def _workspace_config(tmp_path, workspace_id):
+    config = _config(tmp_path)
+    config["_engine"] = {"workspace_id": workspace_id}
+    return config
+
+
 def test_watchlist_service_adds_lists_and_removes_items(tmp_path):
     service = WatchlistService(_config(tmp_path))
 
@@ -135,6 +141,48 @@ def test_watchlist_check_creates_scenario_activation_alert_once(tmp_path):
     assert alerts[0].alert_type == AlertType.SCENARIO_ACTIVATED
     assert alerts[0].payload["scenario_id"] == saved_scenarios[0].id
     assert any(event.event_type == "scenario_activated" for event in timeline)
+
+
+def test_watchlist_items_and_alerts_are_workspace_scoped(tmp_path):
+    config_a = _workspace_config(tmp_path, "workspace_a")
+    config_b = _workspace_config(tmp_path, "workspace_b")
+    journal_a = JournalService(config_a)
+    journal_b = JournalService(config_b)
+    watchlists_a = WatchlistService(config_a)
+    watchlists_b = WatchlistService(config_b)
+
+    run_a = journal_a.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis_a = journal_a.save_thesis(
+        TradeThesis(
+            research_run_id=run_a.id,
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            thesis_text="Workspace A thesis.",
+            invalidation_level="Lose 100",
+        )
+    )
+    run_b = journal_b.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis_b = journal_b.save_thesis(
+        TradeThesis(
+            research_run_id=run_b.id,
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            thesis_text="Workspace B thesis.",
+            invalidation_level="Lose 100",
+        )
+    )
+    watchlists_a.add_thesis(thesis_a.id)
+    watchlists_b.add_thesis(thesis_b.id)
+
+    watchlists_a.check_once(current_prices={"BTC/USDT": 90.0})
+
+    assert [item.workspace_id for item in watchlists_a.list_items()] == ["workspace_a"]
+    assert [item.workspace_id for item in watchlists_b.list_items()] == ["workspace_b"]
+    assert [alert.workspace_id for alert in watchlists_a.list_alerts()] == [
+        "workspace_a"
+    ]
+    assert watchlists_b.list_alerts() == []
+    assert watchlists_b.mark_alert_read(watchlists_a.list_alerts()[0].id) is None
 
 
 def test_watchlist_brief_scopes_theses_scenarios_and_alerts(tmp_path):

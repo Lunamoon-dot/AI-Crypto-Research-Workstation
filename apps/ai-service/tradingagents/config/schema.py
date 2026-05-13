@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from copy import deepcopy
 from typing import Any
 
@@ -40,7 +39,12 @@ def _parse_vendor_chain(value: Any) -> list[str]:
     return []
 
 
-def validate_and_normalize_config(config: dict, *, source: str = "config") -> dict:
+def validate_and_normalize_config(
+    config: dict,
+    *,
+    source: str = "config",
+    secrets_manager: Any | None = None,
+) -> dict:
     """Validate config shape and normalize key routing fields."""
     from tradingagents.dataflows.interface import (
         TOOLS_CATEGORIES,
@@ -332,12 +336,13 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     secrets_cfg = normalized.get("secrets", {})
     if isinstance(secrets_cfg, dict):
         valid_sources = {"env", "keyring", "env,keyring", "keyring,env"}
-        source = str(secrets_cfg.get("source", "env")).lower().replace(" ", "")
-        if source not in valid_sources:
+        secrets_source = str(secrets_cfg.get("source", "env")).lower().replace(" ", "")
+        if secrets_source not in valid_sources:
             issues.append(
                 f"secrets.source={secrets_cfg.get('source')!r} is invalid; "
                 f"allowed: env, keyring, env,keyring"
             )
+        secrets_cfg["source"] = secrets_source
 
     sections = RuntimeConfigSections.from_config(normalized)
     normalized["journal"] = sections.journal.model_dump()
@@ -348,7 +353,12 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     normalized["llm_fallback"] = sections.llm_fallback.model_dump()
 
     if not issues:
-        _validate_llm_credentials(normalized, source=source, mode=mode)
+        _validate_llm_credentials(
+            normalized,
+            source=source,
+            mode=mode,
+            secrets_manager=secrets_manager,
+        )
         return normalized
 
     if runtime_environment == "production":
@@ -360,7 +370,12 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     if mode == "warn":
         for issue in issues:
             logger.warning("Config validation warning (%s): %s", source, issue)
-        _validate_llm_credentials(normalized, source=source, mode=mode)
+        _validate_llm_credentials(
+            normalized,
+            source=source,
+            mode=mode,
+            secrets_manager=secrets_manager,
+        )
         return normalized
 
     details = "\n".join(f"- {issue}" for issue in issues)
@@ -368,11 +383,22 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
         raise ConfigurationValidationError(
             f"Config validation failed ({source}):\n{details}"
         )
-    _validate_llm_credentials(normalized, source=source, mode=mode)
+    _validate_llm_credentials(
+        normalized,
+        source=source,
+        mode=mode,
+        secrets_manager=secrets_manager,
+    )
     return normalized
 
 
-def _validate_llm_credentials(config: dict, *, source: str, mode: str) -> None:
+def _validate_llm_credentials(
+    config: dict,
+    *,
+    source: str,
+    mode: str,
+    secrets_manager: Any | None = None,
+) -> None:
     """Validate LLM credential env vars for the selected provider.
 
     Uses the centralized provider registry so a single source of truth
@@ -393,9 +419,15 @@ def _validate_llm_credentials(config: dict, *, source: str, mode: str) -> None:
     if not needed:
         return
 
-    missing = [key for key in needed if not os.environ.get(key)]
-    if not missing:
+    if secrets_manager is None:
+        from tradingagents.config.secrets import build_secrets_manager_from_config
+
+        secrets_manager = build_secrets_manager_from_config(config)
+
+    if secrets_manager.resolve(provider):
         return
+
+    missing = needed
 
     from tradingagents.config.providers import PROVIDER_REGISTRY
 

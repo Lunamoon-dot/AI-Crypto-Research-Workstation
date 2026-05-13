@@ -1,6 +1,6 @@
 # LunaPerception
 
-LunaPerception is a monorepo for a crypto research product. The current working application is the Python AI research service in `apps/ai-service`, with the product API boundary in `apps/api`; the web surfaces are scaffolded as placeholders for future development.
+LunaPerception is a monorepo for a crypto research product. The current working application is the Python AI research service in `apps/ai-service`, with a NestJS product API boundary in `apps/api`. The web app directory is currently only a placeholder.
 
 ## Workspace Layout
 
@@ -8,13 +8,11 @@ LunaPerception is a monorepo for a crypto research product. The current working 
 apps/
   ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
-  web/             Future logged-in product app
-  landing/         Future Next.js marketing and SEO site
+  web/             Placeholder for the future logged-in product app
 packages/
-  database/        Prisma schema/client for local Postgres now, hosted later
-  ui-shared/       Future shared UI components
-  config/          Future shared TypeScript config
-  types/           Future shared API/domain types
+  database/        Prisma schema/client for the product Postgres model
+docs/
+  backend/frontend architecture notes and UX references
 ```
 
 The Python import namespace intentionally remains `tradingagents` for compatibility; the public CLI command is `lunacrypto`.
@@ -35,8 +33,9 @@ pnpm ai:install
 pnpm ai:test
 ```
 
-For now, database work targets local Postgres through Prisma while development
-focus stays on `apps/ai-service`. Start a local DB with:
+For now, the Python service remains local-SQLite first. Product-schema work
+targets local Postgres through Prisma, and the NestJS API can read/write the
+Postgres journal when `DATABASE_URL` is configured. Start a local DB with:
 
 ```bash
 docker compose --profile db up -d postgres
@@ -44,9 +43,12 @@ pnpm db:generate
 pnpm db:push
 ```
 
-The default local Prisma URL is
-`postgresql://postgres:postgres@localhost:5432/lunacrypto`. Hosted/NestJS
-deployments can provide `DATABASE_URL` later. The raw Postgres SQL file in
+The Prisma config defaults to
+`postgresql://postgres:postgres@localhost:5432/lunacrypto` for CLI schema work.
+When running `apps/api`, set `DATABASE_URL` explicitly if API routes need real
+journal reads/writes. Without `DATABASE_URL`, API tests can still exercise
+static membership and queue behavior, but repository-backed reads will return a
+service-unavailable error. The raw Postgres SQL file in
 `apps/api/src/database/postgres-schema.sql` is kept as compatibility/reference
 material for the Python journal migration boundary.
 
@@ -90,8 +92,30 @@ python -m pip install -e ".[dev]"
 Run the CLI:
 
 ```bash
-tradingagents
+lunacrypto
 python -m cli.main
+```
+
+Run the worker-style engine contract:
+
+```bash
+lunacrypto engine run --request request.json
+```
+
+## API Boundary
+
+The NestJS API exposes research, journal, thesis, signal, watchlist, brief, and
+alert routes for the future product UI. Local API requests currently require
+`x-user-id` and `x-workspace-id` headers, and workspace access must come from
+Postgres memberships or the `WORKSPACE_MEMBERSHIPS` environment variable.
+
+Queue behavior is controlled by:
+
+```text
+JOBS_EXECUTION_MODE=inline
+REDIS_URL=redis://...
+PYTHON_ENGINE_COMMAND=lunacrypto
+PYTHON_ENGINE_ARGS="engine run --request"
 ```
 
 ## Docker

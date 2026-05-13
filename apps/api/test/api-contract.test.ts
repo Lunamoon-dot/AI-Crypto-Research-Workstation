@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
+  UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
 import type { ArgumentMetadata } from '@nestjs/common';
@@ -240,6 +242,45 @@ test('POST /research-runs rejects x-workspace-id mismatches', async () => {
       ),
     isException(BadRequestException),
   );
+});
+
+test('AuthService requires an explicit authenticated user', () => {
+  const auth = new AuthService();
+
+  assert.throws(
+    () => auth.resolveUser(undefined),
+    isException(UnauthorizedException),
+  );
+  assert.throws(() => auth.resolveUser('   '), isException(UnauthorizedException));
+});
+
+test('WorkspacesService enforces membership roles', async () => {
+  const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'viewer_1', workspace_id: 'workspace_a', role: 'viewer' },
+    { user_id: 'editor_1', workspace_id: 'workspace_a', role: 'editor' },
+  ]);
+
+  const viewer = await workspaces.assertAccess(
+    'viewer_1',
+    'workspace_a',
+    'viewer',
+  );
+  assert.equal(viewer.role, 'viewer');
+  await assert.rejects(
+    () => workspaces.assertAccess('viewer_1', 'workspace_a', 'editor'),
+    isException(ForbiddenException),
+  );
+  await assert.rejects(
+    () => workspaces.assertAccess('viewer_1', 'workspace_b', 'viewer'),
+    isException(ForbiddenException),
+  );
+  const editor = await workspaces.assertAccess(
+    'editor_1',
+    'workspace_a',
+    'editor',
+  );
+  assert.equal(editor.role, 'editor');
 });
 
 test('POST /research-runs enqueues the exact engine request contract', async () => {
@@ -830,6 +871,10 @@ function buildHarness() {
   const journal = new FakeJournalRepository();
   const auth = new AuthService();
   const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'workspace_a', role: 'owner' },
+    { user_id: 'user_1', workspace_id: 'workspace_b', role: 'owner' },
+  ]);
   const jobs = new JobsService({
     runInline: async (request: EngineRunRequest) => ({
       status: 'completed',

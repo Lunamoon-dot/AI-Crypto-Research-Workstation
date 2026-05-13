@@ -125,11 +125,19 @@ class TestHistoricalReplay:
     def test_default_config(self):
         replay = HistoricalReplay()
         assert replay.config is not None
+        assert replay.config["historical_data"]["strict_mode"] is True
 
     def test_custom_config(self):
         custom = {"max_debate_rounds": 3}
         replay = HistoricalReplay(config=custom)
         assert replay.config["max_debate_rounds"] == 3
+        assert replay.config["historical_data"]["strict_mode"] is True
+
+    def test_custom_config_can_opt_out_of_strict_replay(self):
+        replay = HistoricalReplay(config={"historical_data": {"strict_mode": False}})
+
+        assert replay.config["historical_data"]["strict_mode"] is False
+        assert replay.config["historical_data"]["default_lookback_days"] == 30
 
     def test_run_batch_returns_results_in_order(self):
         """run_batch returns one ReplayResult per date, in same order."""
@@ -364,6 +372,18 @@ class TestReplayCapabilitiesCli:
 
 @pytest.mark.unit
 class TestStrictMode:
+    @staticmethod
+    def _option_names(command_name: str) -> set[str]:
+        command = cli_main.typer.main.get_command(cli_main.app)
+        command_map = getattr(command, "commands", {})
+        replay_group = command_map["replay"]
+        replay_command = getattr(replay_group, "commands", {})[command_name]
+        names: set[str] = set()
+        for param in replay_command.params:
+            names.update(getattr(param, "opts", []))
+            names.update(getattr(param, "secondary_opts", []))
+        return names
+
     def test_single_accepts_strict_flag(self):
         runner = CliRunner()
         result = runner.invoke(
@@ -372,6 +392,7 @@ class TestStrictMode:
         )
         assert result.exit_code == 0
         assert "--strict" in _plain_cli_stdout(result.stdout)
+        assert "--research-simulation" in self._option_names("single")
 
     def test_batch_accepts_strict_flag(self):
         runner = CliRunner()
@@ -389,6 +410,7 @@ class TestStrictMode:
         )
         assert result.exit_code == 0
         assert "--strict" in _plain_cli_stdout(result.stdout)
+        assert "--research-simulation" in self._option_names("batch")
 
 
 @pytest.mark.unit

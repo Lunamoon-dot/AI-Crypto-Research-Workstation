@@ -56,10 +56,17 @@ class ResearchRunOrchestrator:
             )
             saver = host._checkpointer_ctx.__enter__()
             host.graph = host.graph_factory.compile(host.workflow, checkpointer=saver)
+            checkpoint_thread_id = getattr(
+                host, "_replay_thread_id", None
+            ) or thread_id(
+                company_name,
+                str(trade_date),
+            )
             step = checkpoint_step(
                 host.config["data_cache_dir"],
                 company_name,
                 str(trade_date),
+                thread_id_override=checkpoint_thread_id,
             )
             if step is not None:
                 logger.info(
@@ -238,7 +245,10 @@ class ResearchRunOrchestrator:
         args = host.propagator.get_graph_args(callbacks=run_callbacks or None)
 
         if host.config.get("checkpoint_enabled"):
-            tid = thread_id(company_name, str(trade_date))
+            tid = getattr(host, "_replay_thread_id", None) or thread_id(
+                company_name,
+                str(trade_date),
+            )
             args.setdefault("config", {}).setdefault("configurable", {})[
                 "thread_id"
             ] = tid
@@ -267,10 +277,15 @@ class ResearchRunOrchestrator:
         host._save_journal_agent_research(final_state)
 
         if host.config.get("checkpoint_enabled"):
+            tid = getattr(host, "_replay_thread_id", None) or thread_id(
+                company_name,
+                str(trade_date),
+            )
             clear_checkpoint(
                 host.config["data_cache_dir"],
                 company_name,
                 str(trade_date),
+                thread_id_override=tid,
             )
 
         if host.current_research_run:

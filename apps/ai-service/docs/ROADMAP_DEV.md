@@ -11,17 +11,17 @@ Technical implementation phases (1–9), refactor priorities, and engineering ti
 
 ## Current codebase snapshot
 
-**Last reviewed:** 2026-05-12.
+**Last reviewed:** 2026-05-13.
 
 This section replaces the old branch-specific narrative. Update it when architecture changes materially.
 
 - **Product:** AI crypto **research workstation** only — no autonomous order placement; CCXT and vendors are used for **market data**, not execution adapters.
-- **Graph:** `ResearchAgentsGraph` → analysts → debate → setup planner → risk debate → portfolio manager → scenario planner → end; artifacts persisted via `JournalBridge` (runs, snapshots, signals, opinions, debates).
+- **Graph:** `ResearchAgentsGraph` delegates run lifecycle through `ResearchRunOrchestrator`; the flow is analysts -> debate -> setup planner -> risk debate -> portfolio manager -> scenario planner -> completion; artifacts are persisted through `JournalBridge` / `JournalService`.
 - **Removed / out of core:** execution stack for orders, CLI `risk` / `backtest` groups, markdown memory log + post-trade reflection loop, assisted trade-plan builder (`graph/planning` style).
 - **Config:** `signal_weights`, `signal_thresholds`, and `fixed_sizing` are **research / display knobs**, not live sizing engines.
 - **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts — parsed from graph state after each run.
-- **CLI:** Run `python -m cli.main --help` for truth; expect `analyze`, `research`, `journal`, `thesis`, `signals`, `watchlist`, `dashboard`, `config`, `brief`, `evaluate`.
-- **Tests:** `python -m pytest` currently passes locally with 573 tests. `ruff`, `ruff format --check`, and `mypy tradingagents cli` are required gates.
+- **CLI:** Run `python -m cli.main --help` for truth; current top-level groups are `analyze`, `watchlist`, `dashboard`, `config`, `journal`, `thesis`, `signals`, `brief`, `diff`, `research`, `replay`, and `engine`.
+- **Tests:** the service currently has 55 Python test files. Use CI or a fresh local run for pass counts; required gates are Ruff lint, Ruff format check, mypy, compile, pytest, coverage, dependency audit, secret scan, Docker build, and SQLite smoke.
 
 Phase sections below state **intent**; partial implementations should track acceptance criteria as backlog.
 
@@ -281,7 +281,7 @@ run_events
 Add or evolve commands toward:
 
 ```bash
-python -m cli.main research BTC
+python -m cli.main research run BTC/USDT
 python -m cli.main journal list
 python -m cli.main journal show <run_id>
 python -m cli.main thesis list
@@ -699,7 +699,7 @@ quality over time.
 The current command tree should be documented and improved before adding a new UI:
 
 ```bash
-tradingagents
+lunacrypto
 lunacrypto research run
 
 lunacrypto journal path

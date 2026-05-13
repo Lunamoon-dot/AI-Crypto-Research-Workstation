@@ -1,6 +1,9 @@
 from typing import Any
 
-from tradingagents.engine import EngineRunRequest, EngineRunner
+from typer.testing import CliRunner
+
+from cli import main as cli_main
+from tradingagents.engine import EngineRunRequest, EngineRunResult, EngineRunner
 from tradingagents.services import JournalService
 
 
@@ -66,6 +69,29 @@ def test_engine_request_accepts_perp_market_type():
     )
 
     assert request.market_type == "perp"
+
+
+def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "tradingagents.engine.run_engine_request_file",
+        lambda _path: EngineRunResult(
+            run_id="run_degraded",
+            workspace_id="workspace_1",
+            status="completed_degraded",
+            summary="Completed with optional data gaps.",
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_main.app,
+        ["engine", "run", "--request", str(request_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "completed_degraded" in result.output
 
 
 def test_engine_runner_failed_research_persists_failed_status_and_event(tmp_path):

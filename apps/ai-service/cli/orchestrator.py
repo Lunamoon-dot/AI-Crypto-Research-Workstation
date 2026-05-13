@@ -17,6 +17,14 @@ from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 
+from cli.log_policy import (
+    CliPersistencePolicy,
+    format_message_log_record,
+    format_tool_call_log_record,
+    render_report_section_for_disk,
+    report_section_filename,
+    write_log_line,
+)
 from cli.message_buffer import MessageBuffer
 from cli.reporting import display_complete_report, save_report_to_disk
 from cli.selections import build_run_config, get_user_selections
@@ -148,9 +156,10 @@ class AnalysisOrchestrator:
         report_dir.mkdir(parents=True, exist_ok=True)
         log_file = results_dir / "message_tool.log"
         log_file.touch(exist_ok=True)
+        log_policy = CliPersistencePolicy.from_config(config)
 
         # Wire up message-buffer decorators for log persistence
-        self._wire_log_decoretors(log_file, report_dir)
+        self._wire_log_decoretors(log_file, report_dir, policy=log_policy)
 
         try:
             if plain:
@@ -300,8 +309,15 @@ class AnalysisOrchestrator:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _wire_log_decoretors(self, log_file: Path, report_dir: Path):
+    def _wire_log_decoretors(
+        self,
+        log_file: Path,
+        report_dir: Path,
+        *,
+        policy: CliPersistencePolicy | None = None,
+    ):
         """Monkey-patch message_buffer methods to also persist to disk."""
+        policy = policy or CliPersistencePolicy.from_config()
 
         def save_message_decorator(obj, func_name):
             func = getattr(obj, func_name)
@@ -310,9 +326,13 @@ class AnalysisOrchestrator:
             def wrapper(*args, **kwargs):
                 func(*args, **kwargs)
                 timestamp, message_type, content = obj.messages[-1]
-                content = content.replace("\n", " ")  # Replace newlines with spaces
-                with open(log_file, "a", encoding="utf-8") as f:
-                    f.write(f"{timestamp} [{message_type}] {content}\n")
+                record = format_message_log_record(
+                    timestamp,
+                    message_type,
+                    content,
+                    policy=policy,
+                )
+                write_log_line(log_file, record, policy=policy)
 
             return wrapper
 
@@ -323,9 +343,8 @@ class AnalysisOrchestrator:
             def wrapper(*args, **kwargs):
                 func(*args, **kwargs)
                 timestamp, tool_name, call_args = obj.tool_calls[-1]
-                args_str = ", ".join(f"{k}={v}" for k, v in call_args.items())
-                with open(log_file, "a", encoding="utf-8") as f:
-                    f.write(f"{timestamp} [Tool Call] {tool_name}({args_str})\n")
+                record = format_tool_call_log_record(timestamp, tool_name, call_args)
+                write_log_line(log_file, record, policy=policy)
 
             return wrapper
 
@@ -341,11 +360,11 @@ class AnalysisOrchestrator:
                 ):
                     save_content = obj.report_sections[section_name]
                     if save_content:
-                        file_name = f"{section_name}.md"
-                        text = (
-                            "\n".join(str(item) for item in save_content)
-                            if isinstance(save_content, list)
-                            else save_content
+                        file_name = report_section_filename(section_name)
+                        text = render_report_section_for_disk(
+                            section_name,
+                            save_content,
+                            policy=policy,
                         )
                         with open(report_dir / file_name, "w", encoding="utf-8") as f:
                             f.write(text)

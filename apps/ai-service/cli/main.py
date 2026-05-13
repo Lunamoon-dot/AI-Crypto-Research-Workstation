@@ -393,7 +393,7 @@ def engine_run(
 
     result = run_engine_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
-    if result.status != "completed":
+    if result.status not in {"completed", "completed_degraded"}:
         raise typer.Exit(1)
 
 

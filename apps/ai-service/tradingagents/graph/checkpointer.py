@@ -78,12 +78,18 @@ def has_checkpoint(data_dir: str | Path, ticker: str, date: str) -> bool:
     return checkpoint_step(data_dir, ticker, date) is not None
 
 
-def checkpoint_step(data_dir: str | Path, ticker: str, date: str) -> int | None:
+def checkpoint_step(
+    data_dir: str | Path,
+    ticker: str,
+    date: str,
+    *,
+    thread_id_override: str | None = None,
+) -> int | None:
     """Return the step number of the latest checkpoint, or None if none exists."""
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return None
-    tid = thread_id(ticker, date)
+    tid = thread_id_override or thread_id(ticker, date)
     with get_checkpointer(data_dir, ticker) as saver:
         config = {"configurable": {"thread_id": tid}}
         cp = saver.get_tuple(cast(Any, config))
@@ -103,12 +109,18 @@ def clear_all_checkpoints(data_dir: str | Path) -> int:
     return len(dbs)
 
 
-def clear_checkpoint(data_dir: str | Path, ticker: str, date: str) -> None:
+def clear_checkpoint(
+    data_dir: str | Path,
+    ticker: str,
+    date: str,
+    *,
+    thread_id_override: str | None = None,
+) -> None:
     """Remove checkpoint for a specific ticker+date by deleting the thread's rows."""
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return
-    tid = thread_id(ticker, date)
+    tid = thread_id_override or thread_id(ticker, date)
     conn = sqlite3.connect(str(db))
     try:
         for table in ("writes", "checkpoints"):

@@ -101,11 +101,12 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         self.store.execute(
             """
             INSERT INTO watchlist_items (
-                id, watchlist_id, item_type, symbol, thesis_id, setup_type,
+                id, workspace_id, watchlist_id, item_type, symbol, thesis_id, setup_type,
                 enabled, created_at, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                workspace_id=excluded.workspace_id,
                 item_type=excluded.item_type,
                 symbol=excluded.symbol,
                 thesis_id=excluded.thesis_id,
@@ -115,6 +116,7 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
             """,
             (
                 item.id,
+                item.workspace_id,
                 item.watchlist_id,
                 item.item_type.value,
                 item.symbol,
@@ -127,10 +129,21 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         )
         return item
 
-    def get_watchlist_item(self, item_id: str) -> WatchlistItem | None:
-        row = self.store.fetchone(
-            "SELECT payload_json FROM watchlist_items WHERE id = ?", (item_id,)
-        )
+    def get_watchlist_item(
+        self, item_id: str, *, workspace_id: str | None = None
+    ) -> WatchlistItem | None:
+        if workspace_id:
+            row = self.store.fetchone(
+                """
+                SELECT payload_json FROM watchlist_items
+                WHERE id = ? AND workspace_id = ?
+                """,
+                (item_id, workspace_id),
+            )
+        else:
+            row = self.store.fetchone(
+                "SELECT payload_json FROM watchlist_items WHERE id = ?", (item_id,)
+            )
         return model_from_json(WatchlistItem, row["payload_json"]) if row else None
 
     def list_watchlist_items(
@@ -139,9 +152,10 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         watchlist_id: str | None = None,
         enabled_only: bool = False,
         limit: int = 100,
+        workspace_id: str = "local",
     ) -> list[WatchlistItem]:
-        conditions = []
-        params: list[object] = []
+        conditions = ["workspace_id = ?"]
+        params: list[object] = [workspace_id]
         if watchlist_id:
             conditions.append("watchlist_id = ?")
             params.append(watchlist_id)
@@ -159,8 +173,10 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         )
         return [model_from_json(WatchlistItem, row["payload_json"]) for row in rows]
 
-    def disable_watchlist_item(self, item_id: str) -> WatchlistItem | None:
-        item = self.get_watchlist_item(item_id)
+    def disable_watchlist_item(
+        self, item_id: str, *, workspace_id: str = "local"
+    ) -> WatchlistItem | None:
+        item = self.get_watchlist_item(item_id, workspace_id=workspace_id)
         if not item:
             return None
         item.enabled = False
@@ -176,11 +192,12 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         self.store.execute(
             """
             INSERT INTO alerts (
-                id, alert_type, symbol, thesis_id, watchlist_item_id, trigger_key,
+                id, workspace_id, alert_type, symbol, thesis_id, watchlist_item_id, trigger_key,
                 created_at, read_at, message, payload_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                workspace_id=excluded.workspace_id,
                 trigger_key=excluded.trigger_key,
                 read_at=excluded.read_at,
                 message=excluded.message,
@@ -188,6 +205,7 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
             """,
             (
                 alert.id,
+                alert.workspace_id,
                 alert.alert_type.value,
                 alert.symbol,
                 alert.thesis_id,
@@ -208,9 +226,10 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         thesis_id: str | None = None,
         unread_only: bool = False,
         limit: int = 100,
+        workspace_id: str = "local",
     ) -> list[Alert]:
-        conditions = []
-        params: list[object] = []
+        conditions = ["workspace_id = ?"]
+        params: list[object] = [workspace_id]
         if symbol:
             conditions.append("symbol = ?")
             params.append(symbol)
@@ -222,7 +241,7 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self.store.fetchall(
             f"""
-            SELECT trigger_key, payload_json FROM alerts
+            SELECT workspace_id, trigger_key, payload_json FROM alerts
             {where_clause}
             ORDER BY created_at DESC
             LIMIT ?
@@ -238,6 +257,7 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         thesis_ids: list[str] | None = None,
         unread_only: bool = False,
         limit: int = 100,
+        workspace_id: str = "local",
     ) -> list[Alert]:
         scoped_conditions = []
         params: list[object] = []
@@ -254,13 +274,14 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         if not scoped_conditions:
             return []
 
-        conditions = [f"({' OR '.join(scoped_conditions)})"]
+        conditions = ["workspace_id = ?", f"({' OR '.join(scoped_conditions)})"]
+        params.insert(0, workspace_id)
         if unread_only:
             conditions.append("read_at IS NULL")
         where_clause = " AND ".join(conditions)
         rows = self.store.fetchall(
             f"""
-            SELECT trigger_key, payload_json FROM alerts
+            SELECT workspace_id, trigger_key, payload_json FROM alerts
             WHERE {where_clause}
             ORDER BY created_at DESC
             LIMIT ?
@@ -276,25 +297,35 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
         thesis_id: str | None,
         watchlist_item_id: str | None,
         trigger_key: str,
+        workspace_id: str = "local",
     ) -> bool:
         row = self.store.fetchone(
             """
             SELECT 1 FROM alerts
-            WHERE alert_type = ?
+            WHERE workspace_id = ?
+              AND alert_type = ?
               AND trigger_key = ?
               AND COALESCE(thesis_id, '') = COALESCE(?, '')
               AND COALESCE(watchlist_item_id, '') = COALESCE(?, '')
             LIMIT 1
             """,
-            (alert_type, trigger_key, thesis_id, watchlist_item_id),
+            (workspace_id, alert_type, trigger_key, thesis_id, watchlist_item_id),
         )
         return row is not None
 
     def mark_alert_read(
-        self, alert_id: str, read_at: datetime | None = None
+        self,
+        alert_id: str,
+        read_at: datetime | None = None,
+        *,
+        workspace_id: str = "local",
     ) -> Alert | None:
         row = self.store.fetchone(
-            "SELECT trigger_key, payload_json FROM alerts WHERE id = ?", (alert_id,)
+            """
+            SELECT workspace_id, trigger_key, payload_json FROM alerts
+            WHERE id = ? AND workspace_id = ?
+            """,
+            (alert_id, workspace_id),
         )
         if not row:
             return None
@@ -309,4 +340,6 @@ class WatchlistsRepositoryMixin(RepositoryMixinBase):
             trigger_key = row["trigger_key"] if "trigger_key" in row.keys() else None
             if trigger_key:
                 alert.trigger_key = trigger_key
+        if "workspace_id" in row.keys():
+            alert.workspace_id = row["workspace_id"]
         return alert
