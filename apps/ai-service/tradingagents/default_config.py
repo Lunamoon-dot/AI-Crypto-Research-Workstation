@@ -27,6 +27,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "window_days": 14,
         "degradation_threshold": 0.20,
         "critical_threshold": 0.40,
+        "min_performance_sample_size": 30,
+        "min_out_of_sample_size": 10,
     },
     # Config file search paths (relative to project root)
     "config_search_paths": {
@@ -76,7 +78,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "persist_snapshot_health": True,
         "data_provider_call_sample_rate": 1.0,
         "opentelemetry_enabled": False,
-        "service_name": "tradingagents",
+        "service_name": "lunacrypto",
     },
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
@@ -124,9 +126,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "backoff_base_sec": 0.35,
         "backoff_max_sec": 2.5,
         "rate_limit_per_sec": 8.0,
+        "max_workers": 8,
     },
     # Signal / quant layer configuration (research-tuning knobs, not execution)
     "signal_weights": {
+        "version": "signal_weights:v1:2026-05-13",
         "funding_oi": 0.20,
         "rsi_divergence": 0.12,
         "macd": 0.08,

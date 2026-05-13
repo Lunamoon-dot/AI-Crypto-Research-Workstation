@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class EngineRunRequest(BaseModel):
-    """Stable JSON request accepted by ``tradingagents engine run``."""
+    """Stable JSON request accepted by ``lunacrypto engine run``."""
 
     run_id: str | None = None
     workspace_id: str
@@ -48,6 +49,15 @@ class EngineRunRequest(BaseModel):
         if not cleaned:
             raise ValueError("at least one analyst is required")
         return cleaned
+
+    @field_validator("metadata")
+    @classmethod
+    def _metadata_json_serializable(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            json.dumps(value)
+        except TypeError as exc:
+            raise ValueError("metadata must be JSON-serializable") from exc
+        return value
 
 
 class EngineRunResult(BaseModel):

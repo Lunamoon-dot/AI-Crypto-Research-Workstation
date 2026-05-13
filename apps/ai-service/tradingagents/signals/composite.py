@@ -12,6 +12,7 @@ from .base import FactorSignal, SignalResult, SignalScore, score_to_quant_bias
 
 # Default factor weights (sum to 1.0).  Funding/regime get higher weight
 # because they're more structural; RSI/MACD get lower because they're noisy.
+SIGNAL_WEIGHT_VERSION = "signal_weights:v1:2026-05-13"
 DEFAULT_WEIGHTS: dict[str, float] = {
     "funding_oi": 0.20,
     "rsi_divergence": 0.12,
@@ -29,12 +30,14 @@ class CompositeScorer:
     def __init__(
         self,
         weights: Optional[dict[str, float]] = None,
+        weight_version: str = SIGNAL_WEIGHT_VERSION,
         strong_buy_threshold: float = 0.60,
         buy_threshold: float = 0.25,
         sell_threshold: float = -0.25,
         strong_sell_threshold: float = -0.60,
     ):
         self.weights = weights or DEFAULT_WEIGHTS
+        self.weight_version = weight_version
         self.strong_buy_threshold = strong_buy_threshold
         self.buy_threshold = buy_threshold
         self.sell_threshold = sell_threshold
@@ -148,7 +151,7 @@ class CompositeScorer:
 
         summary_parts = [
             f"Quant bias: {score_to_quant_bias(final_score)} "
-            f"(composite={composite:+.2f}, confidence={confidence:.0%})",
+            f"(composite={composite:+.2f}, heuristic_confidence={confidence:.0%})",
             f"{n_bullish} bullish, {n_bearish} bearish, {n_neutral} neutral factors",
         ]
         if n_breached > 0:
@@ -165,6 +168,8 @@ class CompositeScorer:
             timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             score=final_score,
             confidence=round(confidence, 2),
+            heuristic_confidence=round(confidence, 2),
+            signal_weight_version=self.weight_version,
             factors=factors,
             current_price=current_price,
             trend_direction=trend_direction,

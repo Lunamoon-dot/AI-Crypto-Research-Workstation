@@ -29,7 +29,7 @@ Run Python commands directly from `apps/ai-service`:
 ```bash
 cd apps/ai-service
 python -m pip install -e ".[dev]"
-tradingagents
+lunacrypto
 python -m cli.main
 python -m pytest
 python -m mypy tradingagents cli
@@ -41,7 +41,7 @@ python -m ruff format --check .
 
 ```text
 apps/
-  ai-service/      Python TradingAgents service and CLI
+  ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
   web/             Future logged-in product app
   landing/         Future Next.js marketing site
@@ -56,7 +56,7 @@ The current production code lives in `apps/ai-service`, with the product API bou
 
 ## AI Service Notes
 
-- Keep the Python import namespace `tradingagents` and CLI command `tradingagents` stable.
+- Keep the Python import namespace `tradingagents` stable, but expose the public CLI as `lunacrypto`.
 - Service-specific docs are in `apps/ai-service/README.md`.
 - Docker Compose is still run from the repo root, but builds from `apps/ai-service`.
 - Local runtime state is still under `~/.tradingagents/`.

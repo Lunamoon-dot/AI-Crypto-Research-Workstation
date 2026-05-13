@@ -347,7 +347,7 @@ Database rule:
 ## Python Worker Contract
 
 ```bash
-tradingagents engine run --request request.json
+lunacrypto engine run --request request.json
 ```
 
 Request:

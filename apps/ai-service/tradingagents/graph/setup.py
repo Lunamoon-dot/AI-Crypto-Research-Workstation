@@ -120,6 +120,7 @@ class GraphSetup:
         conditional_logic: ConditionalLogic,
         config: Dict[str, Any] | None = None,
         budget_tracker: Any | None = None,
+        llm_orchestrator: Any | None = None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
@@ -128,6 +129,7 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
         self.config: Dict[str, Any] = config or {}
         self.budget_tracker = budget_tracker
+        self.llm_orchestrator = llm_orchestrator
 
     def setup_graph(self, selected_analysts: Sequence[str] | None = None):
         """Set up and compile the agent workflow graph.
@@ -351,11 +353,20 @@ class GraphSetup:
 
     def _budgeted_node(self, node_fn: Callable[[dict], dict], stage: str, **ctx):
         tracker = self.budget_tracker
-        if tracker is None:
-            return node_fn
 
         def _run(state: dict) -> dict:
+            def _execute() -> dict:
+                llm_orchestrator = getattr(self, "llm_orchestrator", None)
+                if llm_orchestrator is None:
+                    return node_fn(state)
+                return llm_orchestrator.execute_with_fallback(
+                    lambda: node_fn(state),
+                    stage=stage,
+                )
+
+            if tracker is None:
+                return _execute()
             with tracker.stage(stage, **ctx):
-                return node_fn(state)
+                return _execute()
 
         return _run

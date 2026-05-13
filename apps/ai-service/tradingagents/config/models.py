@@ -19,6 +19,12 @@ class ProviderRuntimeConfig(BaseModel):
     backoff_base_sec: float = 0.35
     backoff_max_sec: float = 2.5
     rate_limit_per_sec: float = 8.0
+    max_workers: int = 8
+
+
+class StaleDataConfig(BaseModel):
+    mode: str = "warn"
+    max_age_hours: float = 24.0
 
 
 class ObservabilityConfig(BaseModel):
@@ -29,7 +35,7 @@ class ObservabilityConfig(BaseModel):
     persist_snapshot_health: bool = True
     data_provider_call_sample_rate: float = 1.0
     opentelemetry_enabled: bool = False
-    service_name: str = "tradingagents"
+    service_name: str = "lunacrypto"
 
 
 class ConfigValidationConfig(BaseModel):
@@ -50,6 +56,7 @@ class RuntimeConfigSections(BaseModel):
     provider_runtime: ProviderRuntimeConfig = Field(
         default_factory=ProviderRuntimeConfig
     )
+    stale_data: StaleDataConfig = Field(default_factory=StaleDataConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     config_validation: ConfigValidationConfig = Field(
         default_factory=ConfigValidationConfig
@@ -62,6 +69,9 @@ class RuntimeConfigSections(BaseModel):
             journal=JournalConfig.model_validate(config.get("journal", {}) or {}),
             provider_runtime=ProviderRuntimeConfig.model_validate(
                 config.get("provider_runtime", {}) or {}
+            ),
+            stale_data=StaleDataConfig.model_validate(
+                config.get("stale_data", {}) or {}
             ),
             observability=ObservabilityConfig.model_validate(
                 config.get("observability", {}) or {}

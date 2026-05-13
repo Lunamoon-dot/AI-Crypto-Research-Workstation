@@ -395,21 +395,21 @@ graph = ResearchAgentsGraph(debug=True, config=config)
 final_state, rating = graph.propagate("BTC/USDT", "2026-05-08")
 
 # Journal
-tradingagents journal list
-tradingagents journal show <run_id>
+lunacrypto journal list
+lunacrypto journal show <run_id>
 
 # Thesis
-tradingagents thesis list
-tradingagents thesis decide <thesis_id> watched --notes "..."
+lunacrypto thesis list
+lunacrypto thesis decide <thesis_id> watched --notes "..."
 
 # Signals
-tradingagents signals latest BTC/USDT
-tradingagents signals snapshot <run_id>
-tradingagents signals explain <signal_id>
+lunacrypto signals latest BTC/USDT
+lunacrypto signals snapshot <run_id>
+lunacrypto signals explain <signal_id>
 
 # Evaluation
-tradingagents research evaluate thesis <thesis_id>
-tradingagents research evaluate analytics
+lunacrypto research evaluate thesis <thesis_id>
+lunacrypto research evaluate analytics
 ```
 
 ---

@@ -10,12 +10,48 @@ import threading
 import time
 from typing import Any, Callable
 
+from tradingagents.exceptions import is_retryable_error as is_retryable_taxonomy_error
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.llm_clients.factory import create_llm_client_with_keys
 from tradingagents.llm_clients.model_catalog import get_default_fallback_model_map
 from tradingagents.observability import log_event
 
 logger = logging.getLogger(__name__)
+
+
+class SwitchableLLM:
+    """Small proxy whose target LLM can be swapped without rebuilding nodes."""
+
+    def __init__(self, target: Any):
+        self._target = target
+        self._lock = threading.RLock()
+
+    def set_target(self, target: Any) -> None:
+        with self._lock:
+            self._target = target
+
+    @property
+    def target(self) -> Any:
+        with self._lock:
+            return self._target
+
+    def invoke(self, *args, **kwargs):
+        return self.target.invoke(*args, **kwargs)
+
+    async def ainvoke(self, *args, **kwargs):
+        return await self.target.ainvoke(*args, **kwargs)
+
+    def stream(self, *args, **kwargs):
+        return self.target.stream(*args, **kwargs)
+
+    def bind_tools(self, *args, **kwargs):
+        return self.target.bind_tools(*args, **kwargs)
+
+    def with_structured_output(self, *args, **kwargs):
+        return self.target.with_structured_output(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.target, name)
 
 
 class LLMOrchestrator:
@@ -192,49 +228,7 @@ class LLMOrchestrator:
     @staticmethod
     def is_retryable_error(exc: Exception) -> bool:
         """Return True if *exc* looks like a provider-level failure worth retrying."""
-        msg = str(exc).lower()
-        if any(
-            kw in msg
-            for kw in (
-                "connection",
-                "timeout",
-                "timed out",
-                "refused",
-                "reset",
-                "network",
-                "dns",
-                "name resolution",
-            )
-        ):
-            return True
-        if any(
-            kw in msg
-            for kw in (
-                "429",
-                "500",
-                "502",
-                "503",
-                "504",
-                "rate limit",
-                "server error",
-                "internal error",
-                "unavailable",
-            )
-        ):
-            return True
-        if any(
-            kw in msg
-            for kw in (
-                "401",
-                "403",
-                "unauthorized",
-                "forbidden",
-                "invalid api key",
-                "authentication",
-            )
-        ):
-            return False
-        return True
+        return is_retryable_taxonomy_error(exc)
 
     # -- LLM creation ----------------------------------------------------------
 
@@ -343,7 +337,12 @@ class LLMOrchestrator:
 
     # -- Main execution loop ---------------------------------------------------
 
-    def execute_with_fallback(self, fn: Callable[[], Any]) -> Any:
+    def execute_with_fallback(
+        self,
+        fn: Callable[[], Any],
+        *,
+        stage: str | None = None,
+    ) -> Any:
         """Execute *fn* with provider fallback on retryable errors.
 
         *fn* is a zero-argument callable that runs the main graph execution.
@@ -385,5 +384,13 @@ class LLMOrchestrator:
                 self.record_result(provider, False)
                 if not self.is_retryable_error(exc):
                     raise
+                log_event(
+                    logger,
+                    "stage_retryable_failure",
+                    provider=provider,
+                    stage=stage,
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:500],
+                )
 
         raise last_error  # type: ignore[misc]

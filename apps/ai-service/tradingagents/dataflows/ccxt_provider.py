@@ -371,6 +371,9 @@ def get_crypto_open_interest(symbol: str) -> str:
 def get_crypto_funding_rate_history(
     symbol: str,
     days: int = 30,
+    *,
+    as_of: str | None = None,
+    end_time: str | None = None,
 ) -> str:
     """Fetch historical funding rates as a structured CSV timeseries.
 
@@ -385,7 +388,8 @@ def get_crypto_funding_rate_history(
     exchange = _get_configured_exchange()
     symbol = _normalize_symbol(symbol, exchange)
 
-    since_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    anchor_dt = _parse_history_anchor(as_of=as_of, end_time=end_time)
+    since_dt = anchor_dt - timedelta(days=days)
     since_ms = exchange.parse8601(since_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
     limit = min(days * 3, 1000)  # funding settles every 8h → ~3 events/day
 
@@ -404,6 +408,11 @@ def get_crypto_funding_rate_history(
     if df.empty:
         raise ValueError(
             f"Funding rate history empty after normalisation for {symbol}."
+        )
+    df = df[df["timestamp"] <= anchor_dt]
+    if df.empty:
+        raise ValueError(
+            f"No funding rate history on or before {anchor_dt.date()} for {symbol}."
         )
 
     return df.to_csv(index=False)
@@ -464,6 +473,9 @@ def _funding_history_to_df(raw: list) -> "pd.DataFrame":
 def get_crypto_open_interest_history(
     symbol: str,
     days: int = 30,
+    *,
+    as_of: str | None = None,
+    end_time: str | None = None,
 ) -> str:
     """Fetch historical open interest as a structured CSV timeseries.
 
@@ -477,7 +489,8 @@ def get_crypto_open_interest_history(
     exchange = _get_configured_exchange()
     symbol = _normalize_symbol(symbol, exchange)
 
-    since_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    anchor_dt = _parse_history_anchor(as_of=as_of, end_time=end_time)
+    since_dt = anchor_dt - timedelta(days=days)
     since_ms = exchange.parse8601(since_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
     limit = min(days * 2, 1000)  # daily resolution → ~1-2 events/day
 
@@ -496,8 +509,32 @@ def get_crypto_open_interest_history(
         raise ValueError(
             f"Open interest history empty after normalisation for {symbol}."
         )
+    df = df[df["timestamp"] <= anchor_dt]
+    if df.empty:
+        raise ValueError(
+            f"No open interest history on or before {anchor_dt.date()} for {symbol}."
+        )
 
     return df.to_csv(index=False)
+
+
+def _parse_history_anchor(
+    *,
+    as_of: str | None = None,
+    end_time: str | None = None,
+) -> datetime:
+    raw = end_time or as_of
+    if not raw:
+        return datetime.now(timezone.utc)
+    parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).replace(
+        hour=23,
+        minute=59,
+        second=59,
+        microsecond=999999,
+    )
 
 
 def _fetch_oi_history_inner(

@@ -1,7 +1,11 @@
 """Tests for signals/composite.py — CompositeScorer weighted multi-factor scoring."""
 
 from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
-from tradingagents.signals.composite import DEFAULT_WEIGHTS, CompositeScorer
+from tradingagents.signals.composite import (
+    DEFAULT_WEIGHTS,
+    SIGNAL_WEIGHT_VERSION,
+    CompositeScorer,
+)
 
 
 def _factor(
@@ -162,6 +166,8 @@ class TestCompositeScorer:
             symbol="BTC/USDT",
         )
         assert "Quant bias" in result.summary
+        assert "heuristic_confidence" in result.summary
+        assert result.signal_weight_version == SIGNAL_WEIGHT_VERSION
 
     def test_to_prompt_block(self):
         result = SignalResult(
@@ -169,6 +175,11 @@ class TestCompositeScorer:
             timestamp="2026-01-01T00:00:00Z",
             score=SignalScore.BUY,
             confidence=0.75,
+            heuristic_confidence=0.75,
+            empirical_confidence=0.7,
+            empirical_sample_size=5,
+            empirical_oos_sample_size=2,
+            signal_weight_version=SIGNAL_WEIGHT_VERSION,
             factors=[_factor("funding_oi", SignalScore.BUY, confidence=0.8)],
             current_price=50000.0,
         )
@@ -177,6 +188,8 @@ class TestCompositeScorer:
         assert "bullish" in block
         assert "Buy" not in block
         assert "50000" in block
+        assert "Heuristic confidence: 75%" in block
+        assert "insufficient validated sample" in block
 
     def test_to_dict(self):
         result = SignalResult(
@@ -189,9 +202,24 @@ class TestCompositeScorer:
         d = result.to_dict()
         assert d["symbol"] == "BTC/USDT"
         assert d["quant_bias"] == "bullish"
+        assert d["heuristic_confidence"] == 0.75
+        assert d["empirical_confidence_publishable"] is False
         assert len(d["factors"]) == 1
         assert d["factors"][0]["name"] == "funding_oi"
         assert d["factors"][0]["quant_bias"] == "bullish"
+
+    def test_empirical_confidence_requires_sample_size_and_oos(self):
+        result = SignalResult(
+            symbol="BTC/USDT",
+            timestamp="2026-01-01T00:00:00Z",
+            score=SignalScore.BUY,
+            confidence=0.75,
+            empirical_confidence=0.64,
+            empirical_sample_size=30,
+            empirical_oos_sample_size=10,
+        )
+        assert result.empirical_confidence_is_publishable() is True
+        assert "Empirical confidence: 64%" in result.to_prompt_block()
 
 
 # ---------------------------------------------------------------------------

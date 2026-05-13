@@ -1,6 +1,6 @@
-# TradingAgents AI Service
+# LunaCrypto AI Service
 
-This is the Python AI research service for the LunaPerception monorepo. It lives in `apps/ai-service` and intentionally keeps the existing Python package name `tradingagents` and CLI command `tradingagents` for compatibility.
+This is the Python AI research service for the LunaPerception monorepo. It lives in `apps/ai-service`, keeps the existing Python package name `tradingagents` for import compatibility, and exposes the public CLI command as `lunacrypto`.
 
 A local-first Spot/Perp AI workstation for crypto market research, trade-thesis generation, decision journaling, signal provenance, and outcome review.
 
@@ -191,29 +191,29 @@ python -m cli.main
 Useful journal commands:
 
 ```bash
-tradingagents journal path
-tradingagents journal list
-tradingagents journal show <run_id>
-tradingagents journal market-snapshot <snapshot_id>
-tradingagents journal signal-snapshot <snapshot_id>
+lunacrypto journal path
+lunacrypto journal list
+lunacrypto journal show <run_id>
+lunacrypto journal market-snapshot <snapshot_id>
+lunacrypto journal signal-snapshot <snapshot_id>
 ```
 
 Thesis commands:
 
 ```bash
-tradingagents thesis list
-tradingagents thesis show <thesis_id>
-tradingagents thesis decide <thesis_id> watched --notes "Waiting for confirmation"
-tradingagents thesis review <thesis_id> mixed --lessons "Funding overheated before confirmation"
+lunacrypto thesis list
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
+lunacrypto thesis review <thesis_id> mixed --lessons "Funding overheated before confirmation"
 ```
 
 Signal provenance commands:
 
 ```bash
-tradingagents signals latest ETH/USDT
-tradingagents signals snapshot <run_id>
-tradingagents signals explain <signal_id>
-tradingagents signals list BTC/USDT
+lunacrypto signals latest ETH/USDT
+lunacrypto signals snapshot <run_id>
+lunacrypto signals explain <signal_id>
+lunacrypto signals list BTC/USDT
 ```
 
 Signal snapshots are run-scoped. Public signal wording uses
@@ -224,8 +224,8 @@ separately.
 Historical thesis evaluation:
 
 ```bash
-tradingagents research evaluate thesis <thesis_id>
-tradingagents research evaluate analytics
+lunacrypto research evaluate thesis <thesis_id>
+lunacrypto research evaluate analytics
 ```
 
 This evaluates research/thesis quality, not realized PnL.

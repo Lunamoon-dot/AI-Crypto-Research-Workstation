@@ -19,7 +19,7 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Changed
 
-- `tradingagents analyze --clear-checkpoints` with no `--ticker` / `--non-interactive` / `--plain` now exits after clearing checkpoint files instead of opening the interactive wizard.
+- `lunacrypto analyze --clear-checkpoints` with no `--ticker` / `--non-interactive` / `--plain` now exits after clearing checkpoint files instead of opening the interactive wizard.
 - Formatted the repository with Ruff so the configured format gate can pass.
 - `ResearchRun` provenance fields (`deep_think_model`, `quick_think_model`, `llm_provider`, `config_hash`) are now stored in structured SQLite columns as well as in `payload_json`.
 - Journal migrations now add provenance columns to older `research_runs` tables.

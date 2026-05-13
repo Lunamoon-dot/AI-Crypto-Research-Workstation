@@ -70,6 +70,7 @@ def freshness_from_timestamp(
     mode: str | None = None,
     symbol: str = "",
     source: str = "",
+    max_age_hours: float | None = None,
 ) -> tuple[DataFreshness, int | None]:
     """Return freshness state and data age in seconds.
 
@@ -82,7 +83,8 @@ def freshness_from_timestamp(
     observed_at = now or datetime.now(timezone.utc)
     age = observed_at - source_timestamp
     age_seconds = max(int(age.total_seconds()), 0)
-    if age <= FRESHNESS_WINDOW:
+    freshness_window = _freshness_window(max_age_hours)
+    if age <= freshness_window:
         return DataFreshness.FRESH, age_seconds
 
     age_hours = round(age_seconds / 3600.0, 2)
@@ -97,9 +99,21 @@ def freshness_from_timestamp(
     if mode == "fail_fast":
         raise StaleDataError(
             f"Data from {source or 'unknown'} is stale "
-            f"({age_hours}h old, threshold={FRESHNESS_WINDOW.total_seconds() / 3600:.0f}h)"
+            f"({age_hours}h old, threshold={freshness_window.total_seconds() / 3600:.0f}h)"
         )
     return DataFreshness.STALE, age_seconds
+
+
+def _freshness_window(max_age_hours: float | None = None) -> timedelta:
+    if max_age_hours is None:
+        return FRESHNESS_WINDOW
+    try:
+        hours = float(max_age_hours)
+    except (TypeError, ValueError):
+        return FRESHNESS_WINDOW
+    if hours < 0:
+        return FRESHNESS_WINDOW
+    return timedelta(hours=hours)
 
 
 def signal_result_to_domain_signals(
@@ -107,6 +121,7 @@ def signal_result_to_domain_signals(
     *,
     now: datetime | None = None,
     stale_mode: str | None = None,
+    max_age_hours: float | None = None,
     reliability_map: dict[str, dict[str, float | int]] | None = None,
 ) -> list[Signal]:
     """Convert a SignalResult plus factors into domain Signal records.
@@ -123,7 +138,9 @@ def signal_result_to_domain_signals(
         mode=stale_mode,
         symbol=result.symbol,
         source="signal_engine",
+        max_age_hours=max_age_hours,
     )
+    threshold_seconds = int(_freshness_window(max_age_hours).total_seconds())
     log_event(
         logger,
         "data_freshness_check",
@@ -132,7 +149,7 @@ def signal_result_to_domain_signals(
         source_timestamp=source_timestamp,
         observed_timestamp=observed_at,
         age_seconds=freshness_seconds,
-        threshold_seconds=int(FRESHNESS_WINDOW.total_seconds()),
+        threshold_seconds=threshold_seconds,
         freshness=freshness.value,
         status=freshness.value,
     )
@@ -188,6 +205,11 @@ def _composite_signal(
         evidence_category="aggregate",
         strength=result.confidence,
         confidence=result.confidence,
+        heuristic_confidence=result.heuristic_confidence or result.confidence,
+        empirical_confidence=result.empirical_confidence,
+        empirical_confidence_sample_size=result.empirical_sample_size,
+        empirical_confidence_oos_sample_size=result.empirical_oos_sample_size,
+        confidence_version=result.signal_weight_version or "heuristic:v1",
         observed_at=observed_at,
         provenance=SignalProvenance(
             source="signal_engine",
@@ -199,6 +221,12 @@ def _composite_signal(
             metadata={
                 "quant_bias": direction.value,
                 "factor_count": len(result.factors),
+                "heuristic_confidence": result.heuristic_confidence
+                or result.confidence,
+                "empirical_confidence": result.empirical_confidence,
+                "empirical_sample_size": result.empirical_sample_size,
+                "empirical_oos_sample_size": result.empirical_oos_sample_size,
+                "signal_weight_version": result.signal_weight_version,
             },
         ),
         evidence={
@@ -211,6 +239,11 @@ def _composite_signal(
             "spot": lane_evidence["spot"],
             "perp": lane_evidence["perp"],
             "unknown_lane": lane_evidence["unknown"],
+            "heuristic_confidence": result.heuristic_confidence or result.confidence,
+            "empirical_confidence": result.empirical_confidence,
+            "empirical_sample_size": result.empirical_sample_size,
+            "empirical_oos_sample_size": result.empirical_oos_sample_size,
+            "signal_weight_version": result.signal_weight_version,
         },
         watch_conditions=_build_watch_conditions(
             symbol=result.symbol,

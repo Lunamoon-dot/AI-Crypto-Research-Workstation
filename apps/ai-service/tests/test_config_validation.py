@@ -37,6 +37,18 @@ def test_validate_config_warn_mode_logs_and_continues(caplog):
     assert "unknown vendor" in caplog.text
 
 
+def test_validate_config_preserves_stale_data_max_age_override():
+    cfg = {
+        **DEFAULT_CONFIG,
+        "stale_data": {"mode": "warn", "max_age_hours": 6.5},
+    }
+
+    resolved = validate_and_normalize_config(cfg, source="unit-test")
+
+    assert resolved["stale_data"]["mode"] == "warn"
+    assert resolved["stale_data"]["max_age_hours"] == 6.5
+
+
 def test_route_to_vendor_skips_disabled_provider(monkeypatch):
     from tradingagents.dataflows import interface
 

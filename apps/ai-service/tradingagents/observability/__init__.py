@@ -8,6 +8,8 @@ from .logging import (
     observability_run_event_persistence,
     log_event,
     redact_secrets,
+    redact_tool_call_args,
+    safe_for_logging,
 )
 from .tracing import configure_opentelemetry, start_span
 
@@ -20,5 +22,7 @@ __all__ = [
     "observability_context",
     "observability_run_event_persistence",
     "redact_secrets",
+    "redact_tool_call_args",
+    "safe_for_logging",
     "start_span",
 ]

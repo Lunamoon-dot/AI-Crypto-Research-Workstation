@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from tradingagents.domain import ResearchRun, ResearchRunStatus
+from tradingagents.exceptions import StorageError
 from tradingagents.graph.journal_bridge import JournalBridge
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,10 @@ class JournalCoordinator:
                     thesis_id=saved.thesis_id,
                 )
         except Exception as persist_exc:
-            logger.debug(
-                "Could not mark failed research run in journal: %s", persist_exc
+            logger.error(
+                "Critical journal write failed while marking research run failed: %s",
+                persist_exc,
             )
+            raise StorageError(
+                f"Critical journal write failed: mark_failed: {persist_exc}"
+            ) from persist_exc

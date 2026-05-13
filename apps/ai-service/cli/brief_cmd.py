@@ -108,10 +108,10 @@ def render_brief(brief: MarketBrief) -> None:
     _print_list("Memory", brief.memory_notes, "magenta")
     console.print(
         Panel(
-            "- tradingagents brief daily\n"
-            "- tradingagents watchlist brief\n"
-            "- tradingagents watchlist check\n"
-            "- tradingagents thesis list",
+            "- lunacrypto brief daily\n"
+            "- lunacrypto watchlist brief\n"
+            "- lunacrypto watchlist check\n"
+            "- lunacrypto thesis list",
             title="Next Useful Commands",
             border_style="blue",
         )

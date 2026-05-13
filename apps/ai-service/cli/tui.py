@@ -71,7 +71,7 @@ def update_display(
     # Header with welcome message
     layout["header"].update(
         Panel(
-            "[bold green]Welcome to TradingAgents CLI[/bold green]\n"
+            "[bold green]Welcome to LunaCrypto CLI[/bold green]\n"
             "[dim]© [Tauric Research](https://github.com/TauricResearch)[/dim]",
             title="Research Workstation",
             border_style="green",

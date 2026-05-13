@@ -310,10 +310,10 @@ class TestBuildFeedbackContext:
     def test_returns_markdown_when_sufficient(self):
         tracker = _make_tracker()
         tracker._eval_svc.build_analytics.return_value = EvaluationAnalytics(
-            total_sample_size=20,
+            total_sample_size=30,
             overall=EvaluationMetricsRow(
                 key="overall",
-                sample_size=20,
+                sample_size=30,
                 hit_rate=0.55,
                 invalidation_rate=0.30,
                 average_mfe=0.12,
@@ -330,7 +330,8 @@ class TestBuildFeedbackContext:
         )
 
         ctx = tracker.build_feedback_context()
-        assert "Past Performance Context" in ctx
+        assert "Empirical Calibration Context" in ctx
+        assert "not live trading performance" in ctx
         assert "55%" in ctx
         assert "well_calibrated" in ctx
         assert "rsi_divergence" in ctx

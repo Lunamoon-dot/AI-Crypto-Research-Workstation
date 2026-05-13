@@ -269,14 +269,6 @@ wheels = [
 ]
 
 [[package]]
-name = "backtrader"
-version = "1.9.78.123"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/ef/328c6ec332435f63b3e18febd263686b8ba07e990676a862cc8522ba38f5/backtrader-1.9.78.123-py2.py3-none-any.whl", hash = "sha256:9a07a516b0de9155539a35c56e9404d8711dd7020b3d37b30495e83e1b9d5dfd", size = 419517, upload-time = "2023-04-19T14:13:18.842Z" },
-]
-
-[[package]]
 name = "beautifulsoup4"
 version = "4.13.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2997,7 +2989,6 @@ name = "tradingagents"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
-    { name = "backtrader" },
     { name = "ccxt" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
@@ -3040,7 +3031,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.13.0" },
-    { name = "backtrader", specifier = ">=1.9.78.123" },
     { name = "ccxt", specifier = ">=4.4.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100.0" },
     { name = "langchain-anthropic", specifier = ">=0.3.15" },

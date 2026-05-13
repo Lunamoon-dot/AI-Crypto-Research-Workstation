@@ -92,9 +92,7 @@ def config_list():
         table.add_row(name, str(path) if path else "(missing)")
 
     console.print(table)
-    console.print(
-        "\n[dim]Use 'tradingagents config show <name>' to view details.[/dim]"
-    )
+    console.print("\n[dim]Use 'lunacrypto config show <name>' to view details.[/dim]")
 
 
 @config_app.command("show")
@@ -296,7 +294,7 @@ def _check_llm_health(config: dict | None) -> None:
     if not api_key:
         console.print("\n[yellow]LLM health check skipped: no API key found.[/yellow]")
         console.print(
-            "[dim]Set your API key and run 'tradingagents config health' again.[/dim]"
+            "[dim]Set your API key and run 'lunacrypto config health' again.[/dim]"
         )
         return
 
@@ -360,15 +358,15 @@ def config_setup() -> None:
     console.print(
         Panel(
             "\n".join(summary_lines),
-            title="TradingAgents Setup Summary",
+            title="LunaCrypto Setup Summary",
             border_style="cyan",
         )
     )
     console.print(
         Panel(
-            "- tradingagents research run\n"
-            "- tradingagents dashboard\n"
-            "- tradingagents config health",
+            "- lunacrypto research run\n"
+            "- lunacrypto dashboard\n"
+            "- lunacrypto config health",
             title="Next Useful Commands",
             border_style="blue",
         )
@@ -498,9 +496,7 @@ def config_init():
     _write_toml_section(content_lines, overrides, 0)
     local_path.write_text("\n".join(content_lines) + "\n", encoding="utf-8")
     console.print(f"\n[green]Config written to[/green] {local_path}")
-    console.print(
-        "[dim]Run 'tradingagents config validate' to check your settings.[/dim]"
-    )
+    console.print("[dim]Run 'lunacrypto config validate' to check your settings.[/dim]")
 
 
 def _write_toml_section(

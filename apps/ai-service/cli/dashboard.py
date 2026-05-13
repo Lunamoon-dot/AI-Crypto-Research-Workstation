@@ -81,10 +81,10 @@ def dashboard(
     )
     console.print(
         Panel(
-            "- tradingagents research run\n"
-            "- tradingagents journal workspace <run_id>\n"
-            "- tradingagents watchlist brief\n"
-            "- tradingagents watchlist check",
+            "- lunacrypto research run\n"
+            "- lunacrypto journal workspace <run_id>\n"
+            "- lunacrypto watchlist brief\n"
+            "- lunacrypto watchlist check",
             title="Next Useful Commands",
             border_style="blue",
         )

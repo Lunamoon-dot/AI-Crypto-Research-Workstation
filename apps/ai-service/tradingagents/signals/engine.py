@@ -40,6 +40,7 @@ class SignalEngine:
     def __init__(
         self,
         weights: Optional[dict[str, float]] = None,
+        weight_version: str | None = None,
         strong_buy_threshold: float = 0.60,
         buy_threshold: float = 0.25,
         sell_threshold: float = -0.25,
@@ -47,6 +48,7 @@ class SignalEngine:
     ):
         self.scorer = CompositeScorer(
             weights=weights,
+            weight_version=weight_version or "signal_weights:v1:2026-05-13",
             strong_buy_threshold=strong_buy_threshold,
             buy_threshold=buy_threshold,
             sell_threshold=sell_threshold,

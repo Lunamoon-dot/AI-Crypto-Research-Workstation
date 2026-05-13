@@ -18,7 +18,9 @@ from cli import main as cli_main
 from tradingagents.graph.historical_replay import (
     HistoricalReplay,
     ReplayResult,
+    _save_replay_audit_event,
 )
+from tradingagents.dataflows.historical_contract import DataWindow
 
 # Rich/Typer colorize option names so "--strict" is not a contiguous substring in stdout.
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;:]*m")
@@ -387,3 +389,50 @@ class TestStrictMode:
         )
         assert result.exit_code == 0
         assert "--strict" in _plain_cli_stdout(result.stdout)
+
+
+@pytest.mark.unit
+class TestReplayAuditPersistence:
+    def test_replay_audit_uses_real_research_run_id(self, monkeypatch):
+        captured = {}
+
+        class FakeJournalService:
+            def __init__(self, _config):
+                pass
+
+            def add_run_event(self, research_run_id, event_type, message, payload):
+                captured["research_run_id"] = research_run_id
+                captured["event_type"] = event_type
+                captured["message"] = message
+                captured["payload"] = payload
+
+        monkeypatch.setattr(
+            "tradingagents.services.journal_service.JournalService",
+            FakeJournalService,
+        )
+
+        _save_replay_audit_event(
+            ticker="BTC/USDT",
+            anchor_date=date(2025, 1, 15),
+            window=DataWindow(anchor_date=date(2025, 1, 15), lookback_days=30),
+            strict_mode=False,
+            config={},
+            research_run_id="run_real_1",
+            data_call_log=[
+                {
+                    "vendor": "ccxt",
+                    "method": "get_crypto_ohlcv",
+                    "as_of": "2025-01-15",
+                    "end_time": "2025-01-15",
+                    "requested_end_time": "2025-01-15",
+                    "response_max_timestamp": "2025-01-15T00:00:00+00:00",
+                    "status": "success",
+                }
+            ],
+            success=True,
+        )
+
+        assert captured["research_run_id"] == "run_real_1"
+        assert captured["event_type"] == "replay_audit"
+        assert captured["payload"]["provider_calls"][0]["method"] == "get_crypto_ohlcv"
+        assert captured["payload"]["timestamp_issues"] == []

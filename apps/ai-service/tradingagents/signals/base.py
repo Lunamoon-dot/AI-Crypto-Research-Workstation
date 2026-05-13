@@ -1,8 +1,4 @@
-"""Base types for the signal (quant) layer.
-
-All signal generators produce ``SignalResult`` — a structured, deterministic
-output the AI agents consume instead of raw indicator data.
-"""
+"""Base types for the deterministic signal layer."""
 
 from __future__ import annotations
 
@@ -11,8 +7,12 @@ from enum import Enum
 from typing import Optional
 
 
+MIN_EMPIRICAL_CONFIDENCE_SAMPLE_SIZE = 30
+MIN_EMPIRICAL_CONFIDENCE_OOS_SIZE = 10
+
+
 class SignalScore(str, Enum):
-    """5-tier quantitative signal — same scale as AI rating for consistency."""
+    """Five-tier quantitative signal scale."""
 
     STRONG_BUY = "Strong Buy"
     BUY = "Buy"
@@ -22,7 +22,7 @@ class SignalScore(str, Enum):
 
 
 def score_to_quant_bias(score: SignalScore) -> str:
-    """Render an internal score as non-execution market bias wording."""
+    """Render an internal score as non-execution market-bias wording."""
     if score in (SignalScore.STRONG_BUY, SignalScore.BUY):
         return "bullish"
     if score in (SignalScore.STRONG_SELL, SignalScore.SELL):
@@ -34,72 +34,93 @@ def score_to_quant_bias(score: SignalScore) -> str:
 
 @dataclass
 class FactorSignal:
-    """Output from a single signal generator (funding, divergence, etc.)."""
+    """Output from one signal generator."""
 
-    name: str  # e.g. "funding_oi", "rsi_divergence"
-    score: SignalScore  # the computed signal
-    confidence: float  # 0..1 — how strong the evidence is
-    value: float  # raw factor value (e.g. funding rate %)
-    threshold_breached: bool  # did it cross a defined threshold?
-    data_quality: float = (
-        0.5  # 0..1 — data sufficiency (sample size, history vs snapshot)
-    )
-    detail: str = ""  # human-readable breakdown
+    name: str
+    score: SignalScore
+    confidence: float
+    value: float
+    threshold_breached: bool
+    data_quality: float = 0.5
+    detail: str = ""
     metadata: dict = field(default_factory=dict)
 
 
 @dataclass
 class SignalResult:
-    """Unified signal output consumed by AI agents.
+    """Unified signal output consumed by agents.
 
-    Replaces raw indicator dumps (RSI=45, MACD=cross, etc.) with a
-    structured quantitative assessment the AI can reason about.
+    ``confidence`` remains as a compatibility alias for heuristic confidence.
+    Empirical confidence is only publishable when enough validated,
+    out-of-sample evidence exists.
     """
 
     symbol: str
     timestamp: str
-    score: SignalScore  # overall composite score
-    confidence: float  # 0..1 — overall conviction
+    score: SignalScore
+    confidence: float
     factors: list[FactorSignal] = field(default_factory=list)
+    heuristic_confidence: float | None = None
+    empirical_confidence: float | None = None
+    empirical_sample_size: int = 0
+    empirical_oos_sample_size: int = 0
+    signal_weight_version: str = ""
 
-    # Key metrics extracted for AI context
     current_price: Optional[float] = None
-    trend_direction: str = "neutral"  # bullish / bearish / sideways
-    trend_strength: float = 0.0  # 0..1
-    volatility_regime: str = "normal"  # low / normal / high / extreme
-    market_regime: str = "unknown"  # trending / ranging / volatile
+    trend_direction: str = "neutral"
+    trend_strength: float = 0.0
+    volatility_regime: str = "normal"
+    market_regime: str = "unknown"
 
-    # Summary that the AI prompt can inject directly
     summary: str = ""
     degradation_reasons: list[str] = field(default_factory=list)
     missing_core_data: list[str] = field(default_factory=list)
     missing_optional_data: list[str] = field(default_factory=list)
 
     def to_prompt_block(self) -> str:
-        """Render as a prompt block for injection into AI agent context.
-
-        This is what the analyst agents see instead of raw OHLCV/indicator dumps.
-        """
+        """Render the signal as prompt-safe research context."""
+        heuristic = (
+            self.heuristic_confidence
+            if self.heuristic_confidence is not None
+            else self.confidence
+        )
         lines = [
             f"=== Quant Bias: {self.symbol} ===",
-            f"Quant Bias: {score_to_quant_bias(self.score)} (confidence: {self.confidence:.0%})",
+            f"Quant Bias: {score_to_quant_bias(self.score)}",
+            f"Heuristic confidence: {heuristic:.0%}",
             f"Price: ${self.current_price:.2f}" if self.current_price else "",
             f"Trend: {self.trend_direction} (strength: {self.trend_strength:.0%})",
             f"Volatility: {self.volatility_regime}",
             f"Regime: {self.market_regime}",
+            f"Signal weight version: {self.signal_weight_version}"
+            if self.signal_weight_version
+            else "",
             "",
             "Evidence Breakdown:",
         ]
-        lines = [line for line in lines if line]  # filter empty
+        lines = [line for line in lines if line]
 
-        for f in self.factors:
-            icon = "-"
+        if self.empirical_confidence_is_publishable():
             lines.append(
-                f"  {icon} {f.name:25s} {score_to_quant_bias(f.score):8s} "
-                f"(conf={f.confidence:.0%}, value={f.value:.4f})"
+                "Empirical confidence: "
+                f"{self.empirical_confidence:.0%} "
+                f"(n={self.empirical_sample_size}, "
+                f"oos={self.empirical_oos_sample_size})"
             )
-            if f.detail:
-                lines.append(f"     {f.detail}")
+        elif self.empirical_confidence is not None:
+            lines.append(
+                "Empirical confidence: insufficient validated sample "
+                f"(n={self.empirical_sample_size}, "
+                f"oos={self.empirical_oos_sample_size})"
+            )
+
+        for factor in self.factors:
+            lines.append(
+                f"  - {factor.name:25s} {score_to_quant_bias(factor.score):8s} "
+                f"(conf={factor.confidence:.0%}, value={factor.value:.4f})"
+            )
+            if factor.detail:
+                lines.append(f"     {factor.detail}")
 
         if self.summary:
             lines.extend(["", self.summary])
@@ -115,11 +136,22 @@ class SignalResult:
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
+        heuristic = (
+            self.heuristic_confidence
+            if self.heuristic_confidence is not None
+            else self.confidence
+        )
         return {
             "symbol": self.symbol,
             "timestamp": self.timestamp,
             "quant_bias": score_to_quant_bias(self.score),
             "confidence": self.confidence,
+            "heuristic_confidence": heuristic,
+            "empirical_confidence": self.empirical_confidence,
+            "empirical_sample_size": self.empirical_sample_size,
+            "empirical_oos_sample_size": self.empirical_oos_sample_size,
+            "empirical_confidence_publishable": self.empirical_confidence_is_publishable(),
+            "signal_weight_version": self.signal_weight_version,
             "current_price": self.current_price,
             "trend_direction": self.trend_direction,
             "trend_strength": self.trend_strength,
@@ -127,18 +159,25 @@ class SignalResult:
             "market_regime": self.market_regime,
             "factors": [
                 {
-                    "name": f.name,
-                    "quant_bias": score_to_quant_bias(f.score),
-                    "confidence": f.confidence,
-                    "data_quality": f.data_quality,
-                    "value": f.value,
-                    "threshold_breached": f.threshold_breached,
-                    "detail": f.detail,
+                    "name": factor.name,
+                    "quant_bias": score_to_quant_bias(factor.score),
+                    "confidence": factor.confidence,
+                    "data_quality": factor.data_quality,
+                    "value": factor.value,
+                    "threshold_breached": factor.threshold_breached,
+                    "detail": factor.detail,
                 }
-                for f in self.factors
+                for factor in self.factors
             ],
             "summary": self.summary,
             "degradation_reasons": list(self.degradation_reasons),
             "missing_core_data": list(self.missing_core_data),
             "missing_optional_data": list(self.missing_optional_data),
         }
+
+    def empirical_confidence_is_publishable(self) -> bool:
+        return (
+            self.empirical_confidence is not None
+            and self.empirical_sample_size >= MIN_EMPIRICAL_CONFIDENCE_SAMPLE_SIZE
+            and self.empirical_oos_sample_size >= MIN_EMPIRICAL_CONFIDENCE_OOS_SIZE
+        )

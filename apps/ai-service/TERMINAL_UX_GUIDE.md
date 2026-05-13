@@ -1,17 +1,17 @@
-# TradingAgents Terminal UX Guide
+# LunaCrypto Terminal UX Guide
 
 > Cập nhật: 2026-05-12. Áp dụng cho `apps/ai-service` version `0.3.0`.
 
-Hướng dẫn này mô tả cách dùng TradingAgents như một **AI Crypto Research Workstation** trên terminal. Terminal UX tập trung vào research, thesis, journal, watchlist, market brief, replay và outcome review.
+Hướng dẫn này mô tả cách dùng LunaCrypto như một **AI Crypto Research Workstation** trên terminal. Terminal UX tập trung vào research, thesis, journal, watchlist, market brief, replay và outcome review.
 
-TradingAgents là Spot/Perp research workstation. CLI tạo research artifact, thesis, journal entry, watchlist context, market brief và outcome review để user tự ra quyết định.
+LunaCrypto là Spot/Perp research workstation. CLI tạo research artifact, thesis, journal entry, watchlist context, market brief và outcome review để user tự ra quyết định.
 
 ## 1. Entry Point
 
 Chạy từ package đã cài:
 
 ```bash
-tradingagents
+lunacrypto
 ```
 
 Chạy trực tiếp từ source trong `apps/ai-service`:
@@ -34,34 +34,34 @@ Không truyền subcommand sẽ mở interactive research wizard.
 Top-level commands đang được mount:
 
 ```bash
-tradingagents analyze
-tradingagents watchlist ...
-tradingagents dashboard
-tradingagents config ...
-tradingagents journal ...
-tradingagents thesis ...
-tradingagents signals ...
-tradingagents brief ...
-tradingagents diff ...
-tradingagents research ...
-tradingagents replay ...
-tradingagents engine ...
+lunacrypto analyze
+lunacrypto watchlist ...
+lunacrypto dashboard
+lunacrypto config ...
+lunacrypto journal ...
+lunacrypto thesis ...
+lunacrypto signals ...
+lunacrypto brief ...
+lunacrypto diff ...
+lunacrypto research ...
+lunacrypto replay ...
+lunacrypto engine ...
 ```
 
 Namespace `research` gom các workflow research-first và alias:
 
 ```bash
-tradingagents research run
-tradingagents research workspace
-tradingagents research brief
-tradingagents research journal ...
-tradingagents research thesis ...
-tradingagents research signals ...
-tradingagents research watchlist ...
-tradingagents research briefs ...
-tradingagents research evaluate ...
-tradingagents research replay ...
-tradingagents research diff ...
+lunacrypto research run
+lunacrypto research workspace
+lunacrypto research brief
+lunacrypto research journal ...
+lunacrypto research thesis ...
+lunacrypto research signals ...
+lunacrypto research watchlist ...
+lunacrypto research briefs ...
+lunacrypto research evaluate ...
+lunacrypto research replay ...
+lunacrypto research diff ...
 ```
 
 Lưu ý: `evaluate` hiện được mount dưới `research evaluate`, chưa phải top-level command. Không có top-level `risk` command trong CLI hiện tại.
@@ -82,12 +82,12 @@ Setup/config
 Các màn hình dùng nhiều nhất:
 
 ```bash
-tradingagents dashboard
-tradingagents journal workspace <run_id>
-tradingagents thesis show <thesis_id>
-tradingagents watchlist brief
-tradingagents brief daily
-tradingagents journal retrospective
+lunacrypto dashboard
+lunacrypto journal workspace <run_id>
+lunacrypto thesis show <thesis_id>
+lunacrypto watchlist brief
+lunacrypto brief daily
+lunacrypto journal retrospective
 ```
 
 ## 4. Setup Và Cấu Hình
@@ -97,7 +97,7 @@ tradingagents journal retrospective
 Lệnh read-only để xem journal path, provider routing và next commands:
 
 ```bash
-tradingagents config setup
+lunacrypto config setup
 ```
 
 ### File cấu hình
@@ -147,42 +147,42 @@ export TRADINGAGENTS_OPENAI_API_KEY=...
 Kiểm tra cấu hình effective:
 
 ```bash
-tradingagents config validate
-tradingagents config validate --warn
-tradingagents config validate --profile <profile_name>
+lunacrypto config validate
+lunacrypto config validate --warn
+lunacrypto config validate --profile <profile_name>
 ```
 
 Xem config đã merge và đã redact secrets:
 
 ```bash
-tradingagents config effective
-tradingagents config effective --profile <profile_name>
-tradingagents config show <profile_name> --effective
+lunacrypto config effective
+lunacrypto config effective --profile <profile_name>
+lunacrypto config show <profile_name> --effective
 ```
 
 Tạo `config/local.toml` bằng wizard:
 
 ```bash
-tradingagents config init
+lunacrypto config init
 ```
 
 Health check provider:
 
 ```bash
-tradingagents config health
-tradingagents config health --no-live
-tradingagents config health --no-llm
-tradingagents config health --json
+lunacrypto config health
+lunacrypto config health --no-live
+lunacrypto config health --no-llm
+lunacrypto config health --json
 ```
 
 Profile management:
 
 ```bash
-tradingagents config list
-tradingagents config save <profile_name>
-tradingagents config show <profile_name>
-tradingagents config show <profile_name> --full
-tradingagents config delete <profile_name>
+lunacrypto config list
+lunacrypto config save <profile_name>
+lunacrypto config show <profile_name>
+lunacrypto config show <profile_name> --full
+lunacrypto config delete <profile_name>
 ```
 
 ## 5. Chạy Research
@@ -190,8 +190,8 @@ tradingagents config delete <profile_name>
 ### Interactive mode
 
 ```bash
-tradingagents
-tradingagents research run
+lunacrypto
+lunacrypto research run
 ```
 
 Wizard hỏi symbol, date, analysts, provider/model, research depth và thesis planning.
@@ -201,7 +201,7 @@ Wizard hỏi symbol, date, analysts, provider/model, research depth và thesis p
 Dùng cho script, CI hoặc terminal nhanh:
 
 ```bash
-tradingagents research run BTC/USDT \
+lunacrypto research run BTC/USDT \
   --yes \
   --plain \
   --date 2026-05-08 \
@@ -212,7 +212,7 @@ tradingagents research run BTC/USDT \
 Chỉ định provider/model:
 
 ```bash
-tradingagents research run ETH/USDT \
+lunacrypto research run ETH/USDT \
   --yes \
   --plain \
   --llm-provider openai \
@@ -223,7 +223,7 @@ tradingagents research run ETH/USDT \
 Lưu report:
 
 ```bash
-tradingagents research run BTC/USDT \
+lunacrypto research run BTC/USDT \
   --yes \
   --plain \
   --save-report \
@@ -233,15 +233,15 @@ tradingagents research run BTC/USDT \
 Dry run để validate config/data access mà không chạy LLM pipeline:
 
 ```bash
-tradingagents research run BTC/USDT --yes --dry-run
-tradingagents analyze --ticker BTC/USDT --non-interactive --dry-run
+lunacrypto research run BTC/USDT --yes --dry-run
+lunacrypto analyze --ticker BTC/USDT --non-interactive --dry-run
 ```
 
 Checkpoint resume:
 
 ```bash
-tradingagents analyze --checkpoint
-tradingagents analyze --clear-checkpoints
+lunacrypto analyze --checkpoint
+lunacrypto analyze --clear-checkpoints
 ```
 
 `--clear-checkpoints` đứng một mình chỉ xóa file checkpoint rồi thoát. Muốn xóa rồi chạy ngay một lần research, thêm `--ticker` và `--non-interactive` (và `--plain` nếu cần).
@@ -251,23 +251,23 @@ tradingagents analyze --clear-checkpoints
 `research` là namespace cho terminal-first research workflow. Các alias quan trọng:
 
 ```bash
-tradingagents research run BTC/USDT --date 2026-05-08
-tradingagents research workspace <run_id>
-tradingagents research brief
-tradingagents research brief --watchlist default --no-save
+lunacrypto research run BTC/USDT --date 2026-05-08
+lunacrypto research workspace <run_id>
+lunacrypto research brief
+lunacrypto research brief --watchlist default --no-save
 ```
 
 Các group con:
 
 ```bash
-tradingagents research journal ...
-tradingagents research thesis ...
-tradingagents research signals ...
-tradingagents research watchlist ...
-tradingagents research briefs ...
-tradingagents research evaluate ...
-tradingagents research replay ...
-tradingagents research diff ...
+lunacrypto research journal ...
+lunacrypto research thesis ...
+lunacrypto research signals ...
+lunacrypto research watchlist ...
+lunacrypto research briefs ...
+lunacrypto research evaluate ...
+lunacrypto research replay ...
+lunacrypto research diff ...
 ```
 
 ## 7. Journal Workflow
@@ -275,27 +275,27 @@ tradingagents research diff ...
 Xem journal SQLite path:
 
 ```bash
-tradingagents journal path
+lunacrypto journal path
 ```
 
 Apply idempotent migrations:
 
 ```bash
-tradingagents journal migrate
+lunacrypto journal migrate
 ```
 
 List và inspect runs:
 
 ```bash
-tradingagents journal list
-tradingagents journal list --limit 50
-tradingagents journal show <run_id>
+lunacrypto journal list
+lunacrypto journal list --limit 50
+lunacrypto journal show <run_id>
 ```
 
 Màn hình chính sau research:
 
 ```bash
-tradingagents journal workspace <run_id>
+lunacrypto journal workspace <run_id>
 ```
 
 Workspace hiển thị run, market snapshot, signal snapshot, debate, thesis, scenarios, timeline và next useful commands.
@@ -303,26 +303,26 @@ Workspace hiển thị run, market snapshot, signal snapshot, debate, thesis, sc
 Xem timeline, snapshots và debate:
 
 ```bash
-tradingagents journal timeline <run_id>
-tradingagents journal market-snapshot <snapshot_id>
-tradingagents journal signal-snapshot <snapshot_id>
-tradingagents journal debate <debate_id>
+lunacrypto journal timeline <run_id>
+lunacrypto journal market-snapshot <snapshot_id>
+lunacrypto journal signal-snapshot <snapshot_id>
+lunacrypto journal debate <debate_id>
 ```
 
 Export portable evidence bundle:
 
 ```bash
-tradingagents journal bundle <run_id>
-tradingagents journal bundle <run_id> --out reports/run_bundle.json
+lunacrypto journal bundle <run_id>
+lunacrypto journal bundle <run_id> --out reports/run_bundle.json
 ```
 
 Outcome analytics:
 
 ```bash
-tradingagents journal outcomes
-tradingagents journal outcomes --symbol BTC/USDT
-tradingagents journal retrospective
-tradingagents journal retrospective --symbol BTC/USDT
+lunacrypto journal outcomes
+lunacrypto journal outcomes --symbol BTC/USDT
+lunacrypto journal retrospective
+lunacrypto journal retrospective --symbol BTC/USDT
 ```
 
 Nhiều journal commands hỗ trợ `--json` và `--plain` cho automation.
@@ -332,16 +332,16 @@ Nhiều journal commands hỗ trợ `--json` và `--plain` cho automation.
 List và inspect thesis:
 
 ```bash
-tradingagents thesis list
-tradingagents thesis show <thesis_id>
-tradingagents thesis scenarios <thesis_id>
-tradingagents thesis timeline <thesis_id>
+lunacrypto thesis list
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis scenarios <thesis_id>
+lunacrypto thesis timeline <thesis_id>
 ```
 
 Ghi decision thủ công:
 
 ```bash
-tradingagents thesis decide <thesis_id> watched --notes "Waiting for confirmation"
+lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
 ```
 
 Actions hợp lệ:
@@ -357,7 +357,7 @@ needs_more_research
 Review outcome sau khi thị trường đã diễn biến:
 
 ```bash
-tradingagents thesis review <thesis_id> mixed \
+lunacrypto thesis review <thesis_id> mixed \
   --lessons "Funding overheated before confirmation" \
   --mfe 0.08 \
   --mae -0.03
@@ -378,27 +378,27 @@ unknown
 Review latest signal snapshot for one symbol:
 
 ```bash
-tradingagents signals latest ETH/USDT
+lunacrypto signals latest ETH/USDT
 ```
 
 Review the exact signal snapshot attached to one research run:
 
 ```bash
-tradingagents signals snapshot <run_id>
+lunacrypto signals snapshot <run_id>
 ```
 
 Explain one saved signal:
 
 ```bash
-tradingagents signals explain <signal_id>
+lunacrypto signals explain <signal_id>
 ```
 
 `signals list` van ton tai nhu cross-run browser:
 
 ```bash
-tradingagents signals list
-tradingagents signals list BTC/USDT
-tradingagents signals list BTC/USDT --limit 100
+lunacrypto signals list
+lunacrypto signals list BTC/USDT
+lunacrypto signals list BTC/USDT --limit 100
 ```
 
 Signal UX dung `bullish`, `bearish`, `neutral`; composite duoc hien thi la
@@ -415,29 +415,29 @@ Signal view giúp kiểm tra source, observed time, source timestamp, freshness,
 Thêm symbol watch-only:
 
 ```bash
-tradingagents watchlist add-symbol SOL/USDT
+lunacrypto watchlist add-symbol SOL/USDT
 ```
 
 Thêm thesis vào watchlist:
 
 ```bash
-tradingagents watchlist add-thesis <thesis_id>
+lunacrypto watchlist add-thesis <thesis_id>
 ```
 
 Xem watchlist:
 
 ```bash
-tradingagents watchlist list
-tradingagents watchlist list --all
-tradingagents watchlist list --watchlist default --json
+lunacrypto watchlist list
+lunacrypto watchlist list --all
+lunacrypto watchlist list --watchlist default --json
 ```
 
 Daily watchlist brief:
 
 ```bash
-tradingagents watchlist brief
-tradingagents watchlist brief --unread
-tradingagents watchlist brief --evaluate-snapshots
+lunacrypto watchlist brief
+lunacrypto watchlist brief --unread
+lunacrypto watchlist brief --evaluate-snapshots
 ```
 
 `watchlist brief` là read-only. Nó không tạo alert mới.
@@ -445,13 +445,13 @@ tradingagents watchlist brief --evaluate-snapshots
 Chạy one-shot monitoring check:
 
 ```bash
-tradingagents watchlist check
+lunacrypto watchlist check
 ```
 
 Override giá hiện tại thủ công:
 
 ```bash
-tradingagents watchlist check --price BTC/USDT=110100
+lunacrypto watchlist check --price BTC/USDT=110100
 ```
 
 `check` có thể tạo alerts như:
@@ -463,16 +463,16 @@ tradingagents watchlist check --price BTC/USDT=110100
 Xem alerts:
 
 ```bash
-tradingagents watchlist alerts
-tradingagents watchlist alerts --unread
-tradingagents watchlist alerts --symbol BTC/USDT
-tradingagents watchlist alerts --thesis-id <thesis_id>
+lunacrypto watchlist alerts
+lunacrypto watchlist alerts --unread
+lunacrypto watchlist alerts --symbol BTC/USDT
+lunacrypto watchlist alerts --thesis-id <thesis_id>
 ```
 
 Disable watchlist item:
 
 ```bash
-tradingagents watchlist remove <item_id>
+lunacrypto watchlist remove <item_id>
 ```
 
 ## 11. Market Brief
@@ -482,25 +482,25 @@ tradingagents watchlist remove <item_id>
 Tạo brief:
 
 ```bash
-tradingagents brief daily
-tradingagents brief daily --watchlist default --date 2026-05-12
-tradingagents brief daily --no-evaluate-snapshots
-tradingagents brief daily --no-save
+lunacrypto brief daily
+lunacrypto brief daily --watchlist default --date 2026-05-12
+lunacrypto brief daily --no-evaluate-snapshots
+lunacrypto brief daily --no-save
 ```
 
 List và show brief đã lưu:
 
 ```bash
-tradingagents brief list
-tradingagents brief list --watchlist default
-tradingagents brief show <brief_id>
+lunacrypto brief list
+lunacrypto brief list --watchlist default
+lunacrypto brief show <brief_id>
 ```
 
 Alias trong research namespace:
 
 ```bash
-tradingagents research brief
-tradingagents research briefs list
+lunacrypto research brief
+lunacrypto research briefs list
 ```
 
 ## 12. Diff Workflow
@@ -508,15 +508,15 @@ tradingagents research briefs list
 So sánh hai thesis:
 
 ```bash
-tradingagents diff thesis <thesis_id_1> <thesis_id_2>
-tradingagents diff thesis <thesis_id_1> <thesis_id_2> --json
+lunacrypto diff thesis <thesis_id_1> <thesis_id_2>
+lunacrypto diff thesis <thesis_id_1> <thesis_id_2> --json
 ```
 
 So sánh hai research runs:
 
 ```bash
-tradingagents diff run <run_id_1> <run_id_2>
-tradingagents diff run <run_id_1> <run_id_2> --json
+lunacrypto diff run <run_id_1> <run_id_2>
+lunacrypto diff run <run_id_1> <run_id_2> --json
 ```
 
 Diff dùng để review thay đổi về signals, thesis, debate stance và analyst opinions giữa hai lần research.
@@ -528,29 +528,29 @@ Diff dùng để review thay đổi về signals, thesis, debate stance và anal
 Single-date replay:
 
 ```bash
-tradingagents replay single BTC/USDT 2025-01-15 --lookback 60
-tradingagents replay single BTC/USDT 2025-01-15 --strict
+lunacrypto replay single BTC/USDT 2025-01-15 --lookback 60
+lunacrypto replay single BTC/USDT 2025-01-15 --strict
 ```
 
 Batch replay:
 
 ```bash
-tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
-tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7 --strict
+lunacrypto replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
+lunacrypto replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7 --strict
 ```
 
 Xem capability contract của data providers:
 
 ```bash
-tradingagents replay capabilities
-tradingagents replay capabilities --vendor ccxt
-tradingagents replay capabilities --vendor ccxt --json
+lunacrypto replay capabilities
+lunacrypto replay capabilities --vendor ccxt
+lunacrypto replay capabilities --vendor ccxt --json
 ```
 
 Alias:
 
 ```bash
-tradingagents research replay single BTC/USDT 2025-01-15
+lunacrypto research replay single BTC/USDT 2025-01-15
 ```
 
 ## 14. Historical Thesis Evaluation
@@ -558,36 +558,36 @@ tradingagents research replay single BTC/USDT 2025-01-15
 Evaluation hiện nằm dưới `research evaluate`:
 
 ```bash
-tradingagents research evaluate thesis <thesis_id>
-tradingagents research evaluate thesis <thesis_id> --window 30
-tradingagents research evaluate thesis <thesis_id> --record-review
+lunacrypto research evaluate thesis <thesis_id>
+lunacrypto research evaluate thesis <thesis_id> --window 30
+lunacrypto research evaluate thesis <thesis_id> --record-review
 ```
 
 Batch và saved evaluations:
 
 ```bash
-tradingagents research evaluate batch --symbol BTC/USDT --limit 20
-tradingagents research evaluate list
-tradingagents research evaluate analytics
-tradingagents research evaluate analytics --json
+lunacrypto research evaluate batch --symbol BTC/USDT --limit 20
+lunacrypto research evaluate list
+lunacrypto research evaluate analytics
+lunacrypto research evaluate analytics --json
 ```
 
 Reliability và calibration:
 
 ```bash
-tradingagents research evaluate factors
-tradingagents research evaluate agents
-tradingagents research evaluate confidence
-tradingagents research evaluate contradictions
+lunacrypto research evaluate factors
+lunacrypto research evaluate agents
+lunacrypto research evaluate confidence
+lunacrypto research evaluate contradictions
 ```
 
 Auto-evaluation và health:
 
 ```bash
-tradingagents research evaluate matured
-tradingagents research evaluate trend
-tradingagents research evaluate health
-tradingagents research evaluate health --json
+lunacrypto research evaluate matured
+lunacrypto research evaluate trend
+lunacrypto research evaluate health
+lunacrypto research evaluate health --json
 ```
 
 Evaluation là historical thesis quality review. Không đọc nó như realized PnL, Sharpe thật hoặc performance đã thực hiện ngoài thị trường.
@@ -597,8 +597,8 @@ Evaluation là historical thesis quality review. Không đọc nó như realized
 Mở terminal home screen:
 
 ```bash
-tradingagents dashboard
-tradingagents dashboard --watchlist default --limit 10
+lunacrypto dashboard
+lunacrypto dashboard --watchlist default --limit 10
 ```
 
 Dashboard dùng dữ liệu local đã persist: recent research runs, watched theses và recent alerts. Nó không gọi provider live.
@@ -608,15 +608,15 @@ Dashboard dùng dữ liệu local đã persist: recent research runs, watched th
 Các command inspect chính hỗ trợ output machine-readable:
 
 ```bash
-tradingagents journal list --json
-tradingagents journal workspace <run_id> --json
-tradingagents thesis show <thesis_id> --json
-tradingagents signals latest BTC/USDT --json
-tradingagents signals snapshot <run_id> --json
-tradingagents signals explain <signal_id> --json
-tradingagents watchlist brief --json
-tradingagents watchlist alerts --plain
-tradingagents diff run <run_id_1> <run_id_2> --json
+lunacrypto journal list --json
+lunacrypto journal workspace <run_id> --json
+lunacrypto thesis show <thesis_id> --json
+lunacrypto signals latest BTC/USDT --json
+lunacrypto signals snapshot <run_id> --json
+lunacrypto signals explain <signal_id> --json
+lunacrypto watchlist brief --json
+lunacrypto watchlist alerts --plain
+lunacrypto diff run <run_id_1> <run_id_2> --json
 ```
 
 Không dùng `--json` và `--plain` cùng lúc. CLI sẽ reject để tránh output mơ hồ.
@@ -626,7 +626,7 @@ Không dùng `--json` và `--plain` cùng lúc. CLI sẽ reject để tránh out
 `engine` là contract cho worker hoặc service khác gọi Python research engine bằng JSON request file:
 
 ```bash
-tradingagents engine run --request request.json
+lunacrypto engine run --request request.json
 ```
 
 Output là JSON. Exit code khác 0 nếu engine result không phải `completed`.
@@ -682,13 +682,13 @@ Quy ước placeholder:
 Dùng khi mới clone repo, đổi máy, đổi API key, hoặc cần xác nhận CLI đang đọc đúng config.
 
 ```text
-tradingagents config setup
+lunacrypto config setup
 ```
 
 Kết quả dự kiến:
 
 ```text
-TradingAgents Setup Summary
+LunaCrypto Setup Summary
 Journal path: ~/.tradingagents/cache/research_journal.sqlite
 Journal enabled: yes
 Disabled data vendors: none
@@ -699,15 +699,15 @@ Active provider routing:
 - onchain: coingecko
 
 Next Useful Commands
-- tradingagents research run
-- tradingagents dashboard
-- tradingagents config health
+- lunacrypto research run
+- lunacrypto dashboard
+- lunacrypto config health
 ```
 
 Side effect: read-only, không tạo file, không gọi provider live.
 
 ```bash
-tradingagents config validate --warn
+lunacrypto config validate --warn
 ```
 
 Kết quả dự kiến khi hợp lệ:
@@ -732,8 +732,8 @@ Missing required API key for provider openai
 Side effect: read-only. Dùng `--warn` khi muốn gom cảnh báo thay vì fail ngay ở lỗi đầu tiên.
 
 ```bash
-tradingagents config health --no-live --no-llm
-tradingagents config health --json
+lunacrypto config health --no-live --no-llm
+lunacrypto config health --json
 ```
 
 Kết quả dự kiến:
@@ -758,8 +758,8 @@ news_provider     warning   disabled vendor=cryptopanic
 Side effect: `--no-live --no-llm` là local-only. Không truyền các flag này thì command có thể probe provider và LLM.
 
 ```bash
-tradingagents config effective
-tradingagents config effective --profile scalping
+lunacrypto config effective
+lunacrypto config effective --profile scalping
 ```
 
 Kết quả dự kiến:
@@ -776,10 +776,10 @@ openai_api_key: sk-...abcd
 Side effect: read-only, secrets được redact. Hữu ích khi debug vì sao CLI chọn provider/model khác kỳ vọng.
 
 ```bash
-tradingagents config save scalping
-tradingagents config list
-tradingagents config show scalping --effective
-tradingagents config delete scalping
+lunacrypto config save scalping
+lunacrypto config list
+lunacrypto config show scalping --effective
+lunacrypto config delete scalping
 ```
 
 Kết quả dự kiến:
@@ -800,7 +800,7 @@ Side effect: `save` và `delete` ghi/xóa file profile trong `~/.tradingagents/p
 Dùng khi muốn tạo một research workspace đầy đủ: market snapshot, signal snapshot, debate, thesis, timeline và next commands.
 
 ```bash
-tradingagents research run BTC/USDT \
+lunacrypto research run BTC/USDT \
   --yes \
   --plain \
   --date 2026-05-08 \
@@ -834,7 +834,7 @@ Remove --dry-run to run the full research pipeline.
 Side effect (chỉ `--dry-run`): không chạy LangGraph / LLM pipeline và không tạo thesis, không ghi journal như bản chạy đầy đủ. Có thể có **một probe mạng nhẹ** (ví dụ CCXT `fetch_ticker` qua `check_provider_health`) để xác nhận data path — không tốn token LLM.
 
 ```bash
-tradingagents research run BTC/USDT \
+lunacrypto research run BTC/USDT \
   --yes \
   --plain \
   --date 2026-05-08 \
@@ -856,9 +856,9 @@ Thesis: <thesis_id>
 Signal Snapshot: <snapshot_id>
 
 Next Useful Commands:
-- tradingagents journal workspace <run_id>
-- tradingagents thesis show <thesis_id>
-- tradingagents watchlist add-thesis <thesis_id>
+- lunacrypto journal workspace <run_id>
+- lunacrypto thesis show <thesis_id>
+- lunacrypto watchlist add-thesis <thesis_id>
 ```
 
 Kết quả dự kiến khi provider lỗi:
@@ -870,18 +870,18 @@ No research report was generated.
 ```
 
 ```bash
-tradingagents analyze --ticker ETH/USDT --non-interactive --plain --dry-run
+lunacrypto analyze --ticker ETH/USDT --non-interactive --plain --dry-run
 ```
 
 Kết quả dự kiến: giống `research run ... --dry-run` (cùng code path trong CLI). Đây là compatibility path cho script cũ; **không** áp dụng mô tả “chạy LLM / journal đầy đủ” của bản chạy không `--dry-run` ở trên.
 
 ```bash
-tradingagents analyze --checkpoint
-tradingagents analyze --clear-checkpoints
+lunacrypto analyze --checkpoint
+lunacrypto analyze --clear-checkpoints
 ```
 
 - Chỉ `--clear-checkpoints` (không kèm `--ticker` / `--non-interactive` / `--plain`): in dòng cleared rồi **thoát** — không mở wizard Step 0.
-- `--checkpoint` một mình: vẫn vào **interactive wizard** như `tradingagents analyze` thường, nhưng bật lưu checkpoint khi chạy pipeline.
+- `--checkpoint` một mình: vẫn vào **interactive wizard** như `lunacrypto analyze` thường, nhưng bật lưu checkpoint khi chạy pipeline.
 
 Kết quả dự kiến khi chỉ xóa checkpoint:
 
@@ -896,7 +896,7 @@ Side effect: `--checkpoint` bật lưu checkpoint SQLite trong cache khi chạy 
 Dùng làm màn hình home mỗi sáng hoặc sau nhiều lần research.
 
 ```bash
-tradingagents dashboard --watchlist default --limit 10
+lunacrypto dashboard --watchlist default --limit 10
 ```
 
 Kết quả dự kiến:
@@ -925,8 +925,8 @@ Side effect: read-only. Dashboard chỉ đọc local data đã persist, không g
 Dùng để xem lại toàn bộ một run, audit evidence, hoặc export bundle cho review.
 
 ```bash
-tradingagents journal path
-tradingagents journal migrate
+lunacrypto journal path
+lunacrypto journal migrate
 ```
 
 Kết quả dự kiến:
@@ -939,9 +939,9 @@ Journal migrated: ~/.tradingagents/cache/research_journal.sqlite
 Side effect: `path` read-only. `migrate` apply migration idempotent vào SQLite.
 
 ```bash
-tradingagents journal list --limit 5
-tradingagents journal list --limit 5 --plain
-tradingagents journal list --limit 5 --json
+lunacrypto journal list --limit 5
+lunacrypto journal list --limit 5 --plain
+lunacrypto journal list --limit 5 --json
 ```
 
 Kết quả dự kiến:
@@ -961,7 +961,7 @@ No research runs saved yet.
 Side effect: read-only. Dùng `--json` cho automation và parsing.
 
 ```bash
-tradingagents journal show <run_id>
+lunacrypto journal show <run_id>
 ```
 
 Kết quả dự kiến:
@@ -984,8 +984,8 @@ Completion Quality: clean
 Side effect: read-only. Nếu run không tồn tại, exit code 1 với `Research run not found`.
 
 ```bash
-tradingagents journal workspace <run_id>
-tradingagents research workspace <run_id>
+lunacrypto journal workspace <run_id>
+lunacrypto research workspace <run_id>
 ```
 
 Kết quả dự kiến:
@@ -1014,16 +1014,16 @@ Setup: trend_pullback
 Confidence: 62%
 
 Next Useful Commands
-- tradingagents journal timeline <run_id>
-- tradingagents thesis show <thesis_id>
-- tradingagents watchlist add-thesis <thesis_id>
+- lunacrypto journal timeline <run_id>
+- lunacrypto thesis show <thesis_id>
+- lunacrypto watchlist add-thesis <thesis_id>
 ```
 
 Side effect: read-only. Đây là màn hình chính sau khi research xong.
 
 ```bash
-tradingagents journal timeline <run_id>
-tradingagents thesis timeline <thesis_id>
+lunacrypto journal timeline <run_id>
+lunacrypto thesis timeline <thesis_id>
 ```
 
 Kết quả dự kiến:
@@ -1038,9 +1038,9 @@ Time                    Event             Message
 Side effect: read-only. Dùng để debug lifecycle hoặc audit thay đổi.
 
 ```bash
-tradingagents journal market-snapshot <snapshot_id>
-tradingagents journal signal-snapshot <snapshot_id>
-tradingagents journal debate <debate_id>
+lunacrypto journal market-snapshot <snapshot_id>
+lunacrypto journal signal-snapshot <snapshot_id>
+lunacrypto journal debate <debate_id>
 ```
 
 Kết quả dự kiến:
@@ -1068,7 +1068,7 @@ Opinions: 4
 Side effect: read-only. Các command này giúp đi từ summary xuống evidence chi tiết.
 
 ```bash
-tradingagents journal bundle <run_id> --out reports/run_bundle.json
+lunacrypto journal bundle <run_id> --out reports/run_bundle.json
 ```
 
 Kết quả dự kiến:
@@ -1080,8 +1080,8 @@ Wrote bundle to reports/run_bundle.json
 Side effect: ghi một JSON evidence bundle gồm run, snapshots, thesis, scenarios và hashes.
 
 ```bash
-tradingagents journal outcomes --symbol BTC/USDT
-tradingagents journal retrospective --symbol BTC/USDT
+lunacrypto journal outcomes --symbol BTC/USDT
+lunacrypto journal retrospective --symbol BTC/USDT
 ```
 
 Kết quả dự kiến:
@@ -1106,8 +1106,8 @@ Side effect: read-only. Dùng cho review chất lượng research, không phải
 Dùng để xem thesis, đưa vào watchlist, ghi quyết định thủ công và review outcome sau này.
 
 ```bash
-tradingagents thesis list --limit 10
-tradingagents thesis show <thesis_id>
+lunacrypto thesis list --limit 10
+lunacrypto thesis show <thesis_id>
 ```
 
 Kết quả dự kiến:
@@ -1139,7 +1139,7 @@ Quick Check:
 Side effect: read-only. `show` là nơi tốt nhất để review thesis trước khi quyết định.
 
 ```bash
-tradingagents thesis scenarios <thesis_id>
+lunacrypto thesis scenarios <thesis_id>
 ```
 
 Kết quả dự kiến:
@@ -1154,7 +1154,7 @@ bear          Breaks invalidation 104500      Thesis invalidated      stand asid
 Side effect: read-only. Dùng để biết `watchlist check` sẽ dựa vào điều kiện nào.
 
 ```bash
-tradingagents thesis decide <thesis_id> watched --notes "Waiting for confirmation"
+lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
 ```
 
 Kết quả dự kiến:
@@ -1166,7 +1166,7 @@ Decision saved: <decision_id>
 Side effect: ghi user decision vào journal. Không đặt lệnh giao dịch.
 
 ```bash
-tradingagents thesis review <thesis_id> mixed \
+lunacrypto thesis review <thesis_id> mixed \
   --lessons "Funding overheated before confirmation" \
   --mfe 0.08 \
   --mae -0.03
@@ -1185,9 +1185,9 @@ Side effect: ghi outcome review. Dữ liệu này feed vào `journal retrospecti
 Dùng khi muốn biết một conclusion dựa trên signal nào, signal có tươi không, và source timestamp là gì.
 
 ```bash
-tradingagents signals latest BTC/USDT
-tradingagents signals snapshot <run_id>
-tradingagents signals latest BTC/USDT --json
+lunacrypto signals latest BTC/USDT
+lunacrypto signals snapshot <run_id>
+lunacrypto signals latest BTC/USDT --json
 ```
 
 Kết quả dự kiến:
@@ -1203,7 +1203,7 @@ Quant bias is aggregate evidence, not the final user decision.
 Side effect: read-only. Khi chua co research run, output bao chua co signal snapshot.
 
 ```bash
-tradingagents signals explain <signal_id>
+lunacrypto signals explain <signal_id>
 ```
 
 Kết quả dự kiến:
@@ -1236,8 +1236,8 @@ Side effect: read-only. Dùng để audit freshness và source trước khi tin 
 Dùng khi muốn theo dõi symbol hoặc thesis theo kiểu explicit one-shot check.
 
 ```bash
-tradingagents watchlist add-symbol SOL/USDT
-tradingagents watchlist list
+lunacrypto watchlist add-symbol SOL/USDT
+lunacrypto watchlist list
 ```
 
 Kết quả dự kiến:
@@ -1255,8 +1255,8 @@ Item ID      Type      Symbol     Thesis   Enabled
 Side effect: ghi watchlist item. Symbol-only watch không có thesis rule.
 
 ```bash
-tradingagents watchlist add-thesis <thesis_id>
-tradingagents watchlist brief --evaluate-snapshots
+lunacrypto watchlist add-thesis <thesis_id>
+lunacrypto watchlist brief --evaluate-snapshots
 ```
 
 Kết quả dự kiến:
@@ -1283,8 +1283,8 @@ Scenario      Symbol     Band   Activated   Snapshot Status
 Side effect: `add-thesis` ghi watchlist item. `brief` read-only và không tạo alert.
 
 ```bash
-tradingagents watchlist check --price BTC/USDT=110100
-tradingagents watchlist alerts --unread
+lunacrypto watchlist check --price BTC/USDT=110100
+lunacrypto watchlist alerts --unread
 ```
 
 Kết quả dự kiến:
@@ -1305,7 +1305,7 @@ Created                 Type                 Symbol     Thesis        Message
 Side effect: `check` có thể tạo alerts. Nó không chạy background; nó chỉ kiểm tra watchlist conditions.
 
 ```bash
-tradingagents watchlist remove <item_id>
+lunacrypto watchlist remove <item_id>
 ```
 
 Kết quả dự kiến:
@@ -1321,7 +1321,7 @@ Side effect: disable item, không xóa hard-delete. Dùng `watchlist list --all`
 Dùng để tạo daily brief từ journal/watchlist đã persist.
 
 ```bash
-tradingagents brief daily --watchlist default --date 2026-05-12
+lunacrypto brief daily --watchlist default --date 2026-05-12
 ```
 
 Kết quả dự kiến:
@@ -1348,8 +1348,8 @@ Top Risks
 Side effect: mặc định ghi brief vào journal. Dùng `--no-save` nếu chỉ muốn preview.
 
 ```bash
-tradingagents brief list --watchlist default
-tradingagents brief show <brief_id>
+lunacrypto brief list --watchlist default
+lunacrypto brief show <brief_id>
 ```
 
 Kết quả dự kiến:
@@ -1367,8 +1367,8 @@ Side effect: read-only.
 Dùng để so sánh hai lần research trước/sau sự kiện, hoặc so sánh thesis khi đổi model/provider.
 
 ```bash
-tradingagents diff thesis <thesis_id_1> <thesis_id_2>
-tradingagents diff thesis <thesis_id_1> <thesis_id_2> --json
+lunacrypto diff thesis <thesis_id_1> <thesis_id_2>
+lunacrypto diff thesis <thesis_id_1> <thesis_id_2> --json
 ```
 
 Kết quả dự kiến:
@@ -1404,7 +1404,7 @@ Kết quả JSON dự kiến:
 Side effect: read-only.
 
 ```bash
-tradingagents diff run <run_id_1> <run_id_2>
+lunacrypto diff run <run_id_1> <run_id_2>
 ```
 
 Kết quả dự kiến:
@@ -1432,8 +1432,8 @@ Side effect: read-only. Nếu direction flip, review kỹ signals và timestamps
 Dùng để replay research theo ngày quá khứ và review chất lượng thesis. Đây không phải PnL backtest.
 
 ```bash
-tradingagents replay capabilities
-tradingagents replay capabilities --vendor ccxt --json
+lunacrypto replay capabilities
+lunacrypto replay capabilities --vendor ccxt --json
 ```
 
 Kết quả dự kiến:
@@ -1451,7 +1451,7 @@ Known gaps:
 Side effect: read-only. Dùng trước khi tin replay historical.
 
 ```bash
-tradingagents replay single BTC/USDT 2025-01-15 --lookback 60 --strict
+lunacrypto replay single BTC/USDT 2025-01-15 --lookback 60 --strict
 ```
 
 Kết quả dự kiến:
@@ -1474,7 +1474,7 @@ The market structure as of 2025-01-15 suggests...
 Side effect: chạy replay pipeline. `--strict` fail fast nếu endpoint chỉ có latest semantics.
 
 ```bash
-tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
+lunacrypto replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
 ```
 
 Kết quả dự kiến:
@@ -1495,7 +1495,7 @@ Completed: 12/13 successful
 Side effect: chạy nhiều replay, có thể tốn thời gian/token tùy config.
 
 ```bash
-tradingagents research evaluate thesis <thesis_id> --window 30 --record-review
+lunacrypto research evaluate thesis <thesis_id> --window 30 --record-review
 ```
 
 Kết quả dự kiến:
@@ -1514,12 +1514,12 @@ Invalidated  False
 Side effect: `--record-review` ghi outcome review. Không có flag này thì chỉ tính và hiển thị.
 
 ```bash
-tradingagents research evaluate analytics --symbol BTC/USDT
-tradingagents research evaluate factors --symbol BTC/USDT
-tradingagents research evaluate agents --symbol BTC/USDT
-tradingagents research evaluate confidence
-tradingagents research evaluate contradictions
-tradingagents research evaluate health --json
+lunacrypto research evaluate analytics --symbol BTC/USDT
+lunacrypto research evaluate factors --symbol BTC/USDT
+lunacrypto research evaluate agents --symbol BTC/USDT
+lunacrypto research evaluate confidence
+lunacrypto research evaluate contradictions
+lunacrypto research evaluate health --json
 ```
 
 Kết quả dự kiến:
@@ -1547,7 +1547,7 @@ Baseline (60d): 24 theses - hit rate: 46%
 Side effect: analytics commands read-only. `matured` có thể tạo saved evaluations cho theses đủ tuổi:
 
 ```bash
-tradingagents research evaluate matured --window 14 --max 10
+lunacrypto research evaluate matured --window 14 --max 10
 ```
 
 Kết quả dự kiến:
@@ -1578,7 +1578,7 @@ Ví dụ `request.json`:
 Chạy:
 
 ```bash
-tradingagents engine run --request request.json
+lunacrypto engine run --request request.json
 ```
 
 Kết quả dự kiến khi dry-run:
@@ -1615,10 +1615,10 @@ Side effect: ghi run lifecycle events vào journal. Exit code khác 0 nếu `sta
 Onboard máy mới:
 
 ```bash
-tradingagents config setup
-tradingagents config validate --warn
-tradingagents config health --no-live --no-llm
-tradingagents research run BTC/USDT --yes --plain --dry-run
+lunacrypto config setup
+lunacrypto config validate --warn
+lunacrypto config health --no-live --no-llm
+lunacrypto research run BTC/USDT --yes --plain --dry-run
 ```
 
 Kết quả kỳ vọng: biết journal nằm ở đâu, provider nào đang enabled, profile có hợp lệ không, và research input có thể chạy trước khi tốn token.
@@ -1626,12 +1626,12 @@ Kết quả kỳ vọng: biết journal nằm ở đâu, provider nào đang ena
 Research một symbol rồi đưa vào watchlist:
 
 ```bash
-tradingagents research run BTC/USDT --yes --plain --date 2026-05-12
-tradingagents journal workspace <run_id>
-tradingagents thesis show <thesis_id>
-tradingagents thesis decide <thesis_id> watched --notes "Monitor base scenario"
-tradingagents watchlist add-thesis <thesis_id>
-tradingagents watchlist brief --evaluate-snapshots
+lunacrypto research run BTC/USDT --yes --plain --date 2026-05-12
+lunacrypto journal workspace <run_id>
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis decide <thesis_id> watched --notes "Monitor base scenario"
+lunacrypto watchlist add-thesis <thesis_id>
+lunacrypto watchlist brief --evaluate-snapshots
 ```
 
 Kết quả kỳ vọng: có workspace để review, thesis được ghi decision, watchlist brief hiển thị thesis/scenarios và next commands.
@@ -1639,9 +1639,9 @@ Kết quả kỳ vọng: có workspace để review, thesis được ghi decisio
 Check khi giá chạm vùng quan trọng:
 
 ```bash
-tradingagents watchlist check --price BTC/USDT=110100
-tradingagents watchlist alerts --unread
-tradingagents journal timeline <run_id>
+lunacrypto watchlist check --price BTC/USDT=110100
+lunacrypto watchlist alerts --unread
+lunacrypto journal timeline <run_id>
 ```
 
 Kết quả kỳ vọng: nếu điều kiện scenario/invalidation/target match, CLI tạo alert và timeline cho thấy lifecycle liên quan.
@@ -1649,10 +1649,10 @@ Kết quả kỳ vọng: nếu điều kiện scenario/invalidation/target match
 So sánh research trước và sau tin tức:
 
 ```bash
-tradingagents research run BTC/USDT --yes --plain --date 2026-05-11
-tradingagents research run BTC/USDT --yes --plain --date 2026-05-12
-tradingagents diff run <run_id_1> <run_id_2>
-tradingagents diff thesis <thesis_id_1> <thesis_id_2>
+lunacrypto research run BTC/USDT --yes --plain --date 2026-05-11
+lunacrypto research run BTC/USDT --yes --plain --date 2026-05-12
+lunacrypto diff run <run_id_1> <run_id_2>
+lunacrypto diff thesis <thesis_id_1> <thesis_id_2>
 ```
 
 Kết quả kỳ vọng: thấy direction có flip không, confidence đổi bao nhiêu, signal set nào mới xuất hiện, invalidation/targets có thay đổi không.
@@ -1660,11 +1660,11 @@ Kết quả kỳ vọng: thấy direction có flip không, confidence đổi bao
 Retrospective cuối tuần:
 
 ```bash
-tradingagents research evaluate matured --window 14 --max 20
-tradingagents research evaluate analytics
-tradingagents research evaluate factors
-tradingagents research evaluate agents
-tradingagents journal retrospective
+lunacrypto research evaluate matured --window 14 --max 20
+lunacrypto research evaluate analytics
+lunacrypto research evaluate factors
+lunacrypto research evaluate agents
+lunacrypto journal retrospective
 ```
 
 Kết quả kỳ vọng: biết setup nào underperform, factor nào đáng tin hơn, agent nào bias, và lesson nào nên feed vào research process tuần sau.
@@ -1672,10 +1672,10 @@ Kết quả kỳ vọng: biết setup nào underperform, factor nào đáng tin 
 Ops/provider debug:
 
 ```bash
-tradingagents config effective
-tradingagents config health --json
-tradingagents replay capabilities
-tradingagents research run ETH/USDT --yes --plain --dry-run
+lunacrypto config effective
+lunacrypto config health --json
+lunacrypto replay capabilities
+lunacrypto research run ETH/USDT --yes --plain --dry-run
 ```
 
 Kết quả kỳ vọng: phân biệt lỗi config, lỗi credential, provider disabled, provider latest-only, hoặc data access timeout.
@@ -1683,9 +1683,9 @@ Kết quả kỳ vọng: phân biệt lỗi config, lỗi credential, provider d
 Worker/API integration smoke test:
 
 ```bash
-tradingagents engine run --request request.json
-tradingagents journal show manual-btc-2026-05-12
-tradingagents journal timeline manual-btc-2026-05-12
+lunacrypto engine run --request request.json
+lunacrypto journal show manual-btc-2026-05-12
+lunacrypto journal timeline manual-btc-2026-05-12
 ```
 
 Kết quả kỳ vọng: engine contract trả JSON, journal có `run.started` và `run.completed` hoặc `run.failed`, backend có thể map status sang job lifecycle.
@@ -1695,19 +1695,19 @@ Kết quả kỳ vọng: engine contract trả JSON, journal có `run.started` v
 Một flow ngắn để test sản phẩm:
 
 ```bash
-tradingagents config setup
-tradingagents config validate --warn
-tradingagents research run BTC/USDT --yes --plain --date 2026-05-08
-tradingagents journal list
-tradingagents journal workspace <run_id>
-tradingagents thesis list
-tradingagents thesis show <thesis_id>
-tradingagents watchlist add-thesis <thesis_id>
-tradingagents watchlist brief --evaluate-snapshots
-tradingagents brief daily
-tradingagents watchlist check --price BTC/USDT=110100
-tradingagents watchlist alerts
-tradingagents thesis review <thesis_id> mixed --lessons "Manual review note"
-tradingagents journal retrospective
-tradingagents research evaluate thesis <thesis_id> --window 14
+lunacrypto config setup
+lunacrypto config validate --warn
+lunacrypto research run BTC/USDT --yes --plain --date 2026-05-08
+lunacrypto journal list
+lunacrypto journal workspace <run_id>
+lunacrypto thesis list
+lunacrypto thesis show <thesis_id>
+lunacrypto watchlist add-thesis <thesis_id>
+lunacrypto watchlist brief --evaluate-snapshots
+lunacrypto brief daily
+lunacrypto watchlist check --price BTC/USDT=110100
+lunacrypto watchlist alerts
+lunacrypto thesis review <thesis_id> mixed --lessons "Manual review note"
+lunacrypto journal retrospective
+lunacrypto research evaluate thesis <thesis_id> --window 14
 ```

@@ -14,7 +14,12 @@ import pytest
 
 from tradingagents.dataflows.config import config_context
 from tradingagents.dataflows.historical_contract import DataWindow, TimestampSemantics
-from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.interface import VENDOR_METHODS, route_to_vendor
+from tradingagents.dataflows.replay_audit import (
+    replay_audit_context,
+    replay_timestamp_issues,
+)
+from tradingagents.exceptions import PolicyViolationError
 
 
 @pytest.mark.unit
@@ -131,6 +136,87 @@ class TestRouteToVendorReplaySmoke:
         assert issues == [], (
             f"HYBRID endpoint should pass AS_OF validation, got: {issues}"
         )
+
+    def test_strict_replay_rejects_hybrid_endpoint(self):
+        """Strict replay requires explicit AS_OF and rejects HYBRID endpoints."""
+        cfg = self._replay_config()
+        cfg["_replay"]["strict"] = True
+
+        with config_context(cfg), replay_audit_context(self.ANCHOR) as audit:
+            with pytest.raises(PolicyViolationError, match="HYBRID"):
+                route_to_vendor(
+                    "get_crypto_ohlcv",
+                    "BTC/USDT",
+                    "2025-01-01",
+                    "2025-01-15",
+                )
+
+        assert audit.calls[0]["status"] == "rejected"
+        assert audit.calls[0]["strict_mode"] is True
+
+    def test_replay_audits_provider_call_timestamps(self, monkeypatch):
+        """Every replay provider call records timestamps bounded by replay date."""
+
+        def fake_ohlcv(symbol: str, start_date: str, end_date: str) -> str:
+            assert symbol == "BTC/USDT"
+            assert end_date == "2025-01-15"
+            return "Date,Open,High,Low,Close,Volume\n2025-01-15,1,2,1,2,10\n"
+
+        monkeypatch.setitem(
+            VENDOR_METHODS,
+            "get_crypto_ohlcv",
+            {"ccxt": fake_ohlcv},
+        )
+
+        cfg = self._replay_config(
+            data_vendors={"crypto_ohlcv": "ccxt"},
+            provider_runtime={
+                "enabled": True,
+                "timeout_sec": 1.0,
+                "retries": 0,
+                "backoff_base_sec": 0.0,
+                "backoff_max_sec": 0.0,
+                "rate_limit_per_sec": 0.0,
+                "max_workers": 2,
+            },
+        )
+        with config_context(cfg), replay_audit_context(self.ANCHOR) as audit:
+            result = route_to_vendor(
+                "get_crypto_ohlcv",
+                "BTC/USDT",
+                "2025-01-01",
+                "2025-01-15",
+            )
+
+        assert "2025-01-15" in result
+        assert len(audit.calls) == 1
+        call = audit.calls[0]
+        assert call["status"] == "success"
+        assert call["as_of"] == "2025-01-15"
+        assert call["end_time"] == "2025-01-15"
+        assert call["requested_end_time"] == "2025-01-15"
+        assert call["response_max_timestamp"].startswith("2025-01-15")
+        assert replay_timestamp_issues(audit.calls, self.ANCHOR) == []
+
+    def test_replay_rejects_provider_call_after_anchor(self, monkeypatch):
+        def fake_ohlcv(_symbol: str, _start_date: str, _end_date: str) -> str:
+            return "should not be called"
+
+        monkeypatch.setitem(
+            VENDOR_METHODS,
+            "get_crypto_ohlcv",
+            {"ccxt": fake_ohlcv},
+        )
+        cfg = self._replay_config(data_vendors={"crypto_ohlcv": "ccxt"})
+
+        with config_context(cfg), replay_audit_context(self.ANCHOR):
+            with pytest.raises(PolicyViolationError, match="LOOKAHEAD"):
+                route_to_vendor(
+                    "get_crypto_ohlcv",
+                    "BTC/USDT",
+                    "2025-01-01",
+                    "2025-01-16",
+                )
 
     def test_route_to_vendor_no_replay_config_uses_normal_path(self):
         """Without _replay key at all, normal path is used."""

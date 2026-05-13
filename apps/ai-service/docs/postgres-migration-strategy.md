@@ -28,7 +28,7 @@ connection URLs can be added later when backend work resumes.
 5. Load JSON payload columns as `jsonb`.
 6. Validate row counts for research runs, theses, signals, watchlists, briefs,
    run events, LLM calls, provider health, and freshness checks.
-7. Run a Python worker smoke job with `tradingagents engine run --request`.
+7. Run a Python worker smoke job with `lunacrypto engine run --request`.
 8. Read that run through `GET /research-runs/:id` and
    `GET /research-runs/:id/events`.
 

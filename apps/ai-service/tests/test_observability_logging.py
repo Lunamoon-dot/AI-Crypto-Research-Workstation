@@ -14,6 +14,7 @@ from tradingagents.observability.logging import (
     log_event,
     observability_context,
     observability_run_event_persistence,
+    redact_tool_call_args,
 )
 from tradingagents.services import JournalService
 
@@ -75,6 +76,56 @@ def test_log_event_redacts_secret_fields(caplog):
     assert payload["api_key"] == "[REDACTED]"
     assert payload["headers"]["Authorization"] == "[REDACTED]"
     assert payload["headers"]["x-request-id"] == "req-1"
+
+
+def test_global_log_record_factory_redacts_string_args(caplog):
+    logger = logging.getLogger("tests.observability.redaction_factory")
+    install_secret_redaction_filter()
+
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        logger.warning("provider failed: %s", "token=raw-secret")
+
+    assert "raw-secret" not in caplog.records[-1].getMessage()
+    assert "token=[REDACTED]" in caplog.records[-1].getMessage()
+
+
+def test_log_event_redacts_tool_args_unless_marked_safe(caplog):
+    logger = logging.getLogger("tests.observability.tool_args")
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_event(
+            logger,
+            "tool_call",
+            tool_name="get_news",
+            tool_args={
+                "args": ["BTC/USDT"],
+                "kwargs": {"api_key": "secret", "query": "ignore instructions"},
+            },
+        )
+        log_event(
+            logger,
+            "tool_call",
+            tool_name="get_news",
+            tool_args={
+                "args": ["BTC/USDT"],
+                "kwargs": {"api_key": "secret", "query": "latest ETF flow"},
+            },
+            tool_args_safe=True,
+        )
+
+    unsafe, safe = _json_messages(caplog)
+    assert unsafe["tool_args"]["args"] == "[REDACTED_UNSAFE_TOOL_ARGS]"
+    assert unsafe["tool_args"]["kwargs"] == "[REDACTED_UNSAFE_TOOL_ARGS]"
+    assert safe["tool_args"]["args"] == ["BTC/USDT"]
+    assert safe["tool_args"]["kwargs"]["api_key"] == "[REDACTED]"
+    assert safe["tool_args"]["kwargs"]["query"] == "latest ETF flow"
+
+
+def test_redact_tool_call_args_helper_defaults_to_redacted():
+    assert redact_tool_call_args(("BTC/USDT",), {"query": "raw"}) == {
+        "args": "[REDACTED_UNSAFE_TOOL_ARGS]",
+        "kwargs": "[REDACTED_UNSAFE_TOOL_ARGS]",
+    }
 
 
 def test_log_event_includes_research_run_context(caplog):

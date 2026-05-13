@@ -18,6 +18,10 @@ from tradingagents.domain.trending import HealthReport, TrendPoint
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_MIN_PERFORMANCE_SAMPLE_SIZE = 30
+DEFAULT_MIN_OUT_OF_SAMPLE_SIZE = 10
+
+
 class PerformanceTracker:
     """Tracks prediction quality over time using the evaluation journal."""
 
@@ -179,10 +183,23 @@ class PerformanceTracker:
                 recommendation="Cannot load evaluations. Check journal database.",
             )
 
-        if len(evaluations) < 5:
+        min_sample = int(
+            eval_cfg.get(
+                "min_performance_sample_size",
+                DEFAULT_MIN_PERFORMANCE_SAMPLE_SIZE,
+            )
+        )
+        min_oos = int(
+            eval_cfg.get("min_out_of_sample_size", DEFAULT_MIN_OUT_OF_SAMPLE_SIZE)
+        )
+        if len(evaluations) < min_sample:
             return HealthReport(
                 overall_status="insufficient_data",
-                recommendation=f"Need at least 5 evaluations for health check. Currently have {len(evaluations)}.",
+                recommendation=(
+                    f"Need at least {min_sample} evaluated theses and {min_oos} "
+                    f"out-of-sample windows for health check. Currently have "
+                    f"{len(evaluations)}."
+                ),
             )
 
         recent_cutoff = date.today() - timedelta(days=recent_days)
@@ -278,15 +295,33 @@ class PerformanceTracker:
             return ""
 
         overall = analytics.overall
-        if overall.sample_size < 5:
+        min_sample = int(
+            eval_cfg.get(
+                "min_performance_sample_size",
+                DEFAULT_MIN_PERFORMANCE_SAMPLE_SIZE,
+            )
+        )
+        min_oos = int(
+            eval_cfg.get("min_out_of_sample_size", DEFAULT_MIN_OUT_OF_SAMPLE_SIZE)
+        )
+        oos_sample = overall.sample_size
+        if overall.sample_size < min_sample or oos_sample < min_oos:
             return ""
 
         lines = [
-            "## Past Performance Context",
+            "## Empirical Calibration Context",
             "",
-            f"The system has evaluated **{overall.sample_size}** past theses.",
+            (
+                f"The system has evaluated **{overall.sample_size}** "
+                "forward-window theses. Treat these as empirical calibration, "
+                "not live trading performance."
+            ),
+            (
+                f"Minimum publication gate: n>={min_sample}, "
+                f"out-of-sample>={min_oos}; current out-of-sample n={oos_sample}."
+            ),
             "",
-            "### Overall Accuracy",
+            "### Out-of-sample quality review",
             f"- Hit rate: {self._pct(overall.hit_rate)}",
             f"- Invalidation rate: {self._pct(overall.invalidation_rate)}",
             f"- Avg favourable excursion: {self._pct(overall.average_mfe)}",

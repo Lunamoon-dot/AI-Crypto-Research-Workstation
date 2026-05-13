@@ -94,7 +94,7 @@ def get_user_selections():
     # Create welcome box content
     welcome_content = f"{welcome_ascii}\n"
     welcome_content += (
-        "[bold green]TradingAgents: AI Crypto Research Workspace[/bold green]\n\n"
+        "[bold green]LunaCrypto: AI Crypto Research Workspace[/bold green]\n\n"
     )
     welcome_content += "[bold]Research Workflow:[/bold]\n"
     welcome_content += "I. Analysts -> II. Research Debate -> III. Thesis Plan -> IV. Risk Review -> V. Journal\n\n"

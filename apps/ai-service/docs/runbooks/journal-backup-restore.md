@@ -8,7 +8,7 @@
 1. Stop active research runs so SQLite WAL files are stable.
 2. Resolve the active path:
    ```bash
-   tradingagents journal path
+   lunacrypto journal path
    ```
 3. Copy the database and any sidecars with the same basename:
    ```bash
@@ -28,17 +28,17 @@
 3. Copy the DB and sidecars into place.
 4. Verify:
    ```bash
-   tradingagents journal list --limit 3
+   lunacrypto journal list --limit 3
    python -c "import sqlite3, os; c=sqlite3.connect(os.environ['TRADINGAGENTS_JOURNAL_DB']); print(c.execute('PRAGMA integrity_check').fetchone()[0])"
    ```
 5. Run migrations after restore:
    ```bash
-   tradingagents journal migrate
+   lunacrypto journal migrate
    ```
 
 ## Acceptance Criteria
 
 - `PRAGMA integrity_check` returns `ok`.
 - `PRAGMA user_version` matches the current schema version.
-- `tradingagents journal list` and timeline inspection can read restored rows.
+- `lunacrypto journal list` and timeline inspection can read restored rows.
 - The source DB hash is unchanged when migration is tested on a copy.

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Generator, Iterable
 
 from tradingagents.exceptions import StorageError
 from tradingagents.observability import start_span
 
-from .migrations import ensure_column, migrate_sqlite
+from .migrations import ensure_column, migrate_path, migrate_sqlite
 
 
 class SQLiteStore:
@@ -39,6 +39,18 @@ class SQLiteStore:
             conn.execute("PRAGMA busy_timeout = 5000")
             conn.execute("PRAGMA foreign_keys = ON")
             migrate_sqlite(conn)
+
+    def backup_to(self, target: str | Path) -> Path:
+        """Write a consistent SQLite backup and return the backup path."""
+        return backup_sqlite(self.path, target)
+
+    @classmethod
+    def restore_from_backup(
+        cls, backup_path: str | Path, target: str | Path
+    ) -> "SQLiteStore":
+        """Restore *backup_path* into *target* and return an initialized store."""
+        restored_path = restore_sqlite_backup(backup_path, target)
+        return cls(restored_path)
 
     @staticmethod
     def _ensure_column(
@@ -105,3 +117,64 @@ class SQLiteStore:
             raise
         finally:
             conn.close()
+
+
+def backup_sqlite(source: str | Path, target: str | Path) -> Path:
+    """Create a consistent backup of *source* at *target* using SQLite backup API."""
+    source_path = Path(source).expanduser()
+    target_path = Path(target).expanduser()
+    if not source_path.exists():
+        raise StorageError(f"SQLite backup source does not exist: {source_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with closing(sqlite3.connect(source_path)) as src:
+            src.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            with closing(sqlite3.connect(target_path)) as dst:
+                src.backup(dst)
+                _assert_integrity(dst, target_path)
+                dst.commit()
+    except sqlite3.Error as exc:
+        raise StorageError(f"SQLite backup failed: {exc}") from exc
+    return target_path
+
+
+def restore_sqlite_backup(backup_path: str | Path, target: str | Path) -> Path:
+    """Restore a SQLite backup into *target* and run current app migrations."""
+    source_path = Path(backup_path).expanduser()
+    target_path = Path(target).expanduser()
+    if not source_path.exists():
+        raise StorageError(f"SQLite restore source does not exist: {source_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target_path.with_name(f"{target_path.name}.restore-tmp")
+    try:
+        with closing(sqlite3.connect(source_path)) as src:
+            _assert_integrity(src, source_path)
+            if tmp_path.exists():
+                tmp_path.unlink()
+            with closing(sqlite3.connect(tmp_path)) as dst:
+                src.backup(dst)
+                _assert_integrity(dst, tmp_path)
+                dst.commit()
+        _unlink_sqlite_sidecars(target_path)
+        tmp_path.replace(target_path)
+        migrate_path(target_path)
+    except sqlite3.Error as exc:
+        raise StorageError(f"SQLite restore failed: {exc}") from exc
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+    return target_path
+
+
+def _assert_integrity(conn: sqlite3.Connection, path: Path) -> None:
+    row = conn.execute("PRAGMA integrity_check").fetchone()
+    status = row[0] if row else "missing"
+    if status != "ok":
+        raise StorageError(f"SQLite integrity check failed for {path}: {status}")
+
+
+def _unlink_sqlite_sidecars(path: Path) -> None:
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{path}{suffix}")
+        if sidecar.exists():
+            sidecar.unlink()

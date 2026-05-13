@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
+
+from tradingagents.types import JSONInput
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -24,5 +26,5 @@ def model_from_json(model_cls: type[ModelT], payload: str) -> ModelT:
     return model_cls.parse_raw(payload)
 
 
-def dumps_payload(payload: Any) -> str:
+def dumps_payload(payload: JSONInput) -> str:
     return json.dumps(payload, ensure_ascii=True, sort_keys=True)

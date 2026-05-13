@@ -237,7 +237,7 @@ def create_analyst_opinion_builder(
                     f"Role: {role}\n"
                     f"Source report type: {source_report_type}\n\n"
                     "Analyst report:\n"
-                    f"{report}"
+                    f"{guard_untrusted_context(source_report_type, report)}"
                 ),
             },
         ]

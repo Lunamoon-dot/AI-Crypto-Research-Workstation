@@ -36,7 +36,7 @@ No keys are persisted to the journal database — `SecretRedactionFilter` strips
 
 ```bash
 # List configured providers (shows which env vars are expected)
-tradingagents config show | grep -i "api_key\|provider"
+lunacrypto config show | grep -i "api_key\|provider"
 
 # Check .env file (if using one)
 cat .env | grep -i "api_key\|token\|secret"
@@ -64,7 +64,7 @@ Common keys for TradingAgents:
 python scripts/smoke_structured_output.py
 
 # Run a minimal research to verify data providers
-tradingagents research BTC/USDT
+lunacrypto research BTC/USDT
 ```
 
 If the current key is already expired, skip to Section 4.
@@ -172,7 +172,7 @@ Rotate immediately — no coordination needed.
 - **Data provider key rotation**: Data provider calls are also keyed. Same guidance — wait for the run to finish.
 - **Checkpoint recovery**: If a run fails mid-rotation, resume with the new key:
   ```bash
-  tradingagents research BTC/USDT --checkpoint
+  lunacrypto research BTC/USDT --checkpoint
   ```
 
 ### Zero-downtime rotation (advanced)
@@ -194,10 +194,10 @@ For continuous operation:
 python scripts/smoke_structured_output.py
 
 # 2. Run a full research cycle
-tradingagents research BTC/USDT
+lunacrypto research BTC/USDT
 
 # 3. Check journal for no auth errors
-tradingagents journal timeline --limit 10
+lunacrypto journal timeline --limit 10
 # Expect: research_run_started → ... → research_run_completed
 # NOT: storage_operation_failed or llm_call status=failed
 
@@ -235,7 +235,7 @@ If an API key is known to be compromised:
 3. **Rotate all other keys** if the compromise vector is unknown.
 4. **Audit recent runs** for anomalies:
    ```bash
-   tradingagents journal list --limit 20
+   lunacrypto journal list --limit 20
    ```
 
 ### Recovery (within 24 hours)

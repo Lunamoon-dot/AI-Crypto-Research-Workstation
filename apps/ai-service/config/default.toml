@@ -1,4 +1,4 @@
-# TradingAgents default configuration.
+# LunaCrypto default configuration.
 #
 # This file is auto-loaded by ConfigLoader as the second layer:
 # code defaults -> config/default.toml -> config/local.toml -> profile -> env -> CLI.
@@ -78,8 +78,10 @@ retries = 2
 backoff_base_sec = 0.35
 backoff_max_sec = 2.5
 rate_limit_per_sec = 8.0
+max_workers = 8
 
 [signal_weights]
+version = "signal_weights:v1:2026-05-13"
 funding_oi = 0.20
 rsi_divergence = 0.12
 macd = 0.08
@@ -106,6 +108,16 @@ sell = -1.0
 mode = "warn"
 max_age_hours = 24.0
 
+[evaluation]
+auto_evaluate_enabled = true
+auto_evaluate_max_batch = 5
+feedback_enabled = true
+window_days = 14
+degradation_threshold = 0.20
+critical_threshold = 0.40
+min_performance_sample_size = 30
+min_out_of_sample_size = 10
+
 [observability]
 persist_run_events = true
 persist_data_provider_calls = true
@@ -114,4 +126,4 @@ persist_data_freshness_checks = true
 persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
 opentelemetry_enabled = false
-service_name = "tradingagents"
+service_name = "lunacrypto"

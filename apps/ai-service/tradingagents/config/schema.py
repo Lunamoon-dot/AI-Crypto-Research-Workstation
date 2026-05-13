@@ -187,6 +187,7 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
         "backoff_base_sec": float(provider_runtime.get("backoff_base_sec", 0.35)),
         "backoff_max_sec": float(provider_runtime.get("backoff_max_sec", 2.5)),
         "rate_limit_per_sec": float(provider_runtime.get("rate_limit_per_sec", 8.0)),
+        "max_workers": max(1, int(provider_runtime.get("max_workers", 8))),
     }
 
     if (
@@ -194,11 +195,30 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
         or normalized["provider_runtime"]["backoff_base_sec"] < 0
         or normalized["provider_runtime"]["backoff_max_sec"] < 0
         or normalized["provider_runtime"]["rate_limit_per_sec"] <= 0
+        or normalized["provider_runtime"]["max_workers"] < 1
     ):
         issues.append(
             "provider_runtime values must satisfy: timeout_sec>0, "
-            "backoff_base_sec>=0, backoff_max_sec>=0, rate_limit_per_sec>0"
+            "backoff_base_sec>=0, backoff_max_sec>=0, rate_limit_per_sec>0, "
+            "max_workers>=1"
         )
+
+    stale_data = normalized.get("stale_data", {})
+    if not isinstance(stale_data, dict):
+        issues.append("stale_data must be a mapping")
+        stale_data = deepcopy(DEFAULT_CONFIG.get("stale_data", {}))
+    stale_mode = _normalize_mode(stale_data.get("mode", "warn"))
+    if stale_mode not in {"warn", "fail_fast"}:
+        issues.append("stale_data.mode must be one of: warn, fail_fast")
+        stale_mode = "warn"
+    stale_max_age = float(stale_data.get("max_age_hours", 24.0))
+    if stale_max_age < 0:
+        issues.append("stale_data.max_age_hours must be non-negative")
+        stale_max_age = 24.0
+    normalized["stale_data"] = {
+        "mode": stale_mode,
+        "max_age_hours": stale_max_age,
+    }
 
     # Validate llm_fallback section
     llm_fallback = normalized.get("llm_fallback", {})
@@ -322,6 +342,7 @@ def validate_and_normalize_config(config: dict, *, source: str = "config") -> di
     sections = RuntimeConfigSections.from_config(normalized)
     normalized["journal"] = sections.journal.model_dump()
     normalized["provider_runtime"] = sections.provider_runtime.model_dump()
+    normalized["stale_data"] = sections.stale_data.model_dump()
     normalized["observability"] = sections.observability.model_dump()
     normalized["config_validation"] = sections.config_validation.model_dump()
     normalized["llm_fallback"] = sections.llm_fallback.model_dump()

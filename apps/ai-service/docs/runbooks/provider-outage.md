@@ -22,7 +22,7 @@
 
 ```bash
 # Check the last N events in the journal
-tradingagents journal timeline --limit 20
+lunacrypto journal timeline --limit 20
 
 # Run a targeted health check
 python -c "
@@ -109,7 +109,7 @@ retries = 3           # increase from default 2
 If a run was interrupted:
 
 ```bash
-tradingagents research BTC/USDT --checkpoint
+lunacrypto research BTC/USDT --checkpoint
 ```
 
 The graph resumes from the last successful node.
@@ -127,7 +127,7 @@ After the provider is restored:
 
 2. Check recent run events:
    ```bash
-   tradingagents journal timeline --limit 5
+   lunacrypto journal timeline --limit 5
    ```
 
 3. Verify circuit breakers are closed:
@@ -136,7 +136,7 @@ After the provider is restored:
 
 4. For data providers, verify freshness:
    ```bash
-   tradingagents signals BTC/USDT
+   lunacrypto signals BTC/USDT
    ```
    - Check that `stale_count` is 0.
 

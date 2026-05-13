@@ -1,9 +1,11 @@
 import logging
 import asyncio
 import contextvars
+import inspect
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from datetime import date, datetime, timezone
 from time import perf_counter
 from typing import Any, Callable
 
@@ -34,10 +36,14 @@ from .crypto_news_provider import (
 )
 from tradingagents.exceptions import (
     DataProviderError,
+    ErrorCategory,
     HealthCheckError,
+    PolicyViolationError,
     ProviderDisabledError,
     ProviderRetryExhaustedError,
     ProviderTimeoutError,
+    classify_error,
+    is_retryable_error,
 )
 from tradingagents.observability import log_event, start_span
 
@@ -46,10 +52,19 @@ from .historical_contract import (
     TimestampSemantics,
     validate_historical_request,
 )
+from .protocols import DataProviderCallable
+from .replay_audit import (
+    extract_response_max_timestamp,
+    record_replay_provider_call,
+)
 
 logger = logging.getLogger(__name__)
 _RATE_LIMIT_LOCK = threading.Lock()
 _VENDOR_NEXT_ALLOWED_AT: dict[str, float] = {}
+_EXECUTOR_LOCK = threading.Lock()
+_EXECUTOR: ThreadPoolExecutor | None = None
+_EXECUTOR_SEMAPHORE: threading.BoundedSemaphore | None = None
+_EXECUTOR_MAX_WORKERS = 0
 
 
 # -- thin wrappers that keep the VENDOR_METHODS pattern working ----------
@@ -144,7 +159,7 @@ VENDOR_LIST = [
 ]
 
 # Mapping of methods to their vendor-specific implementations
-VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
+VENDOR_METHODS: dict[str, dict[str, DataProviderCallable]] = {
     # technical_indicators
     "get_indicators": {
         "ccxt": _get_indicators_ccxt,
@@ -236,10 +251,14 @@ def route_to_vendor(method: str, *args, **kwargs):
         if window_data:
             from datetime import date as _date
 
+            anchor_value = window_data.get("anchor_date") or replay_cfg["anchor_date"]
+            anchor_date = (
+                anchor_value
+                if isinstance(anchor_value, _date)
+                else _date.fromisoformat(str(anchor_value))
+            )
             window = DataWindow(
-                anchor_date=_date.fromisoformat(
-                    window_data.get("anchor_date") or replay_cfg["anchor_date"]
-                ),
+                anchor_date=anchor_date,
                 lookback_days=window_data.get("lookback_days", 30),
                 forward_window_days=window_data.get("forward_window_days", 0),
             )
@@ -253,6 +272,7 @@ def route_to_vendor(method: str, *args, **kwargs):
                 *args,
                 window=window,
                 required_semantics=required_semantics,
+                strict=bool(replay_cfg.get("strict", False)),
                 **kwargs,
             )
     try:
@@ -351,7 +371,9 @@ def route_to_vendor(method: str, *args, **kwargs):
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            continue  # try next vendor on any error
+            if not _is_provider_fallbackable(exc):
+                raise
+            continue  # try next vendor only on transient provider errors
 
     if disabled_vendors:
         detail = (
@@ -374,6 +396,7 @@ def route_to_vendor_historical(
     *args,
     window: DataWindow | None = None,
     required_semantics: TimestampSemantics = TimestampSemantics.LATEST,
+    strict: bool | None = None,
     **kwargs,
 ):
     """Route a method call with historical contract validation.
@@ -400,6 +423,9 @@ def route_to_vendor_historical(
         return route_to_vendor(method, *args, **kwargs)
 
     config = get_config()
+    strict_mode = bool(config.get("_replay", {}).get("strict", False))
+    if strict is not None:
+        strict_mode = bool(strict)
     try:
         category = get_category_for_method(method)
     except ValueError as exc:
@@ -435,13 +461,21 @@ def route_to_vendor_historical(
             method=method,
             window=window,
             required_semantics=required_semantics,
+            allow_hybrid_as_of=not strict_mode,
         )
         if issues:
             issue_summary = "; ".join(issues)
-            # Phase 9C: strict mode — fail fast on LATEST-only endpoints
-            strict_mode = bool(config.get("_replay", {}).get("strict", False))
+            _record_historical_call(
+                vendor=vendor,
+                method=method,
+                window=window,
+                required_semantics=required_semantics,
+                strict_mode=strict_mode,
+                status="rejected",
+                error=issue_summary,
+            )
             if strict_mode:
-                raise DataProviderError(
+                raise PolicyViolationError(
                     f"[STRICT MODE] Historical contract validation FAILED for "
                     f"{vendor}.{method}: {issue_summary}. "
                     f"Re-run without --strict to allow fallback."
@@ -455,19 +489,57 @@ def route_to_vendor_historical(
             last_error = f"{vendor}.{method}: " + issue_summary
             continue
 
+        call_args = args
+        call_kwargs = dict(kwargs)
         try:
+            call_args, call_kwargs, requested_end_time = _prepare_historical_call(
+                method,
+                impl_func,
+                call_args,
+                call_kwargs,
+                window,
+            )
             runtime_cfg = config.get("provider_runtime", {})
-            return _invoke_with_resilience(
+            result = _invoke_with_resilience(
                 impl_func,
                 vendor=vendor,
                 method=method,
-                args=args,
-                kwargs=kwargs,
+                args=call_args,
+                kwargs=call_kwargs,
                 runtime_cfg=runtime_cfg,
             )
+            response_max_timestamp = extract_response_max_timestamp(result)
+            _validate_response_timestamp(
+                method=method,
+                vendor=vendor,
+                response_max_timestamp=response_max_timestamp,
+                window=window,
+            )
+            _record_historical_call(
+                vendor=vendor,
+                method=method,
+                window=window,
+                required_semantics=required_semantics,
+                strict_mode=strict_mode,
+                status="success",
+                requested_end_time=requested_end_time,
+                response_max_timestamp=response_max_timestamp,
+            )
+            return result
         except Exception as exc:
             last_error = str(exc)
+            _record_historical_call(
+                vendor=vendor,
+                method=method,
+                window=window,
+                required_semantics=required_semantics,
+                strict_mode=strict_mode,
+                status="failed",
+                error=str(exc),
+            )
             logger.debug("Vendor %s failed for %s: %s", vendor, method, exc)
+            if not _is_provider_fallbackable(exc):
+                raise
             continue
 
     if disabled_vendors:
@@ -495,6 +567,57 @@ def _apply_vendor_rate_limit(vendor: str, rate_limit_per_sec: float) -> None:
         time.sleep(wait)
 
 
+def _get_provider_executor(
+    max_workers: int,
+) -> tuple[ThreadPoolExecutor, threading.BoundedSemaphore]:
+    global _EXECUTOR, _EXECUTOR_MAX_WORKERS, _EXECUTOR_SEMAPHORE
+    workers = max(1, int(max_workers))
+    with _EXECUTOR_LOCK:
+        if (
+            _EXECUTOR is None
+            or _EXECUTOR_SEMAPHORE is None
+            or _EXECUTOR_MAX_WORKERS != workers
+        ):
+            old_executor = _EXECUTOR
+            _EXECUTOR = ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="provider-call",
+            )
+            _EXECUTOR_SEMAPHORE = threading.BoundedSemaphore(workers)
+            _EXECUTOR_MAX_WORKERS = workers
+            if old_executor is not None:
+                old_executor.shutdown(wait=False, cancel_futures=True)
+        return _EXECUTOR, _EXECUTOR_SEMAPHORE
+
+
+def _submit_provider_call(
+    impl_func,
+    *,
+    args: tuple,
+    kwargs: dict,
+    timeout_sec: float,
+    max_workers: int,
+):
+    executor, semaphore = _get_provider_executor(max_workers)
+    acquired = semaphore.acquire(timeout=timeout_sec)
+    if not acquired:
+        raise ProviderTimeoutError(
+            f"provider worker pool saturated after {timeout_sec}s"
+        )
+    ctx = contextvars.copy_context()
+    try:
+        future = executor.submit(ctx.run, impl_func, *args, **kwargs)
+    except Exception:
+        semaphore.release()
+        raise
+
+    def _release(_future):
+        semaphore.release()
+
+    future.add_done_callback(_release)
+    return future
+
+
 def _invoke_with_resilience(
     impl_func,
     *,
@@ -511,6 +634,7 @@ def _invoke_with_resilience(
     backoff_base = float(cfg.get("backoff_base_sec", 0.35))
     backoff_max = float(cfg.get("backoff_max_sec", 2.5))
     rate_limit = float(cfg.get("rate_limit_per_sec", 8.0))
+    max_workers = int(cfg.get("max_workers", 8))
 
     if not enabled:
         return impl_func(*args, **kwargs)
@@ -520,20 +644,19 @@ def _invoke_with_resilience(
     for attempt in range(1, attempts + 1):
         _apply_vendor_rate_limit(vendor, rate_limit)
         try:
-            ctx = contextvars.copy_context()
-            ex = ThreadPoolExecutor(max_workers=1)
-            fut = ex.submit(ctx.run, impl_func, *args, **kwargs)
+            fut = _submit_provider_call(
+                impl_func,
+                args=args,
+                kwargs=kwargs,
+                timeout_sec=timeout_sec,
+                max_workers=max_workers,
+            )
             try:
                 result = fut.result(timeout=timeout_sec)
             except FuturesTimeoutError:
                 fut.cancel()
-                ex.shutdown(wait=False, cancel_futures=True)
-                raise
-            except Exception:
-                ex.shutdown(wait=True, cancel_futures=True)
                 raise
             else:
-                ex.shutdown(wait=True, cancel_futures=True)
                 return result
         except FuturesTimeoutError:
             last_error = ProviderTimeoutError(
@@ -541,6 +664,8 @@ def _invoke_with_resilience(
             )
         except Exception as exc:
             last_error = exc
+            if not is_retryable_error(exc):
+                raise
 
         if attempt < attempts:
             sleep_sec = compute_backoff(attempt - 1, base=backoff_base, cap=backoff_max)
@@ -551,6 +676,152 @@ def _invoke_with_resilience(
     raise ProviderRetryExhaustedError(
         f"{vendor}.{method} failed after {attempts} attempts: {last_error}"
     ) from last_error
+
+
+def _is_provider_fallbackable(exc: Exception) -> bool:
+    """Allow provider fallback for transient provider failures only."""
+    return classify_error(exc).category is ErrorCategory.TRANSIENT_PROVIDER
+
+
+def _prepare_historical_call(
+    method: str,
+    impl_func: Callable[..., Any],
+    args: tuple,
+    kwargs: dict,
+    window: DataWindow,
+) -> tuple[tuple, dict, str]:
+    call_args = list(args)
+    call_kwargs = dict(kwargs)
+    as_of = window.anchor_date.isoformat()
+    end_time = window.end_date.isoformat()
+    requested_end_time = end_time
+
+    if method == "get_crypto_ohlcv":
+        requested_end_time = _extract_arg_or_kw(call_args, call_kwargs, 2, "end_date")
+        if not requested_end_time:
+            _set_arg_or_kw(call_args, call_kwargs, 2, "end_date", end_time)
+            requested_end_time = end_time
+        _validate_requested_timestamp(method, requested_end_time, window)
+    elif method == "get_indicators":
+        requested_end_time = _extract_arg_or_kw(call_args, call_kwargs, 2, "curr_date")
+        if not requested_end_time:
+            _set_arg_or_kw(call_args, call_kwargs, 2, "curr_date", as_of)
+            requested_end_time = as_of
+        _validate_requested_timestamp(method, requested_end_time, window)
+    else:
+        _inject_supported_temporal_kwargs(impl_func, call_kwargs, as_of, end_time)
+
+    return tuple(call_args), call_kwargs, requested_end_time
+
+
+def _inject_supported_temporal_kwargs(
+    impl_func: Callable[..., Any],
+    kwargs: dict,
+    as_of: str,
+    end_time: str,
+) -> None:
+    try:
+        parameters = inspect.signature(impl_func).parameters
+    except (TypeError, ValueError):
+        return
+    if "as_of" in parameters:
+        kwargs.setdefault("as_of", as_of)
+    if "end_time" in parameters:
+        kwargs.setdefault("end_time", end_time)
+
+
+def _extract_arg_or_kw(args: list, kwargs: dict, index: int, key: str) -> str:
+    if len(args) > index:
+        return str(args[index])
+    return str(kwargs.get(key) or "")
+
+
+def _set_arg_or_kw(args: list, kwargs: dict, index: int, key: str, value: str) -> None:
+    if len(args) > index:
+        args[index] = value
+    else:
+        kwargs[key] = value
+
+
+def _validate_requested_timestamp(
+    method: str,
+    value: str,
+    window: DataWindow,
+) -> None:
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        raise PolicyViolationError(
+            f"Historical replay could not parse {method} request timestamp {value!r}"
+        )
+    if parsed.date() > window.anchor_date:
+        raise PolicyViolationError(
+            f"LOOKAHEAD DETECTED: {method} requested {parsed.date().isoformat()} "
+            f"after replay_date {window.anchor_date.isoformat()}"
+        )
+
+
+def _validate_response_timestamp(
+    *,
+    method: str,
+    vendor: str,
+    response_max_timestamp: str | None,
+    window: DataWindow,
+) -> None:
+    parsed = _parse_datetime(response_max_timestamp)
+    if parsed is None:
+        return
+    if parsed.date() > window.anchor_date:
+        raise PolicyViolationError(
+            f"LOOKAHEAD DETECTED: {vendor}.{method} response timestamp "
+            f"{parsed.date().isoformat()} after replay_date "
+            f"{window.anchor_date.isoformat()}"
+        )
+
+
+def _record_historical_call(
+    *,
+    vendor: str,
+    method: str,
+    window: DataWindow,
+    required_semantics: TimestampSemantics,
+    strict_mode: bool,
+    status: str,
+    requested_end_time: str | None = None,
+    response_max_timestamp: str | None = None,
+    error: str | None = None,
+) -> None:
+    record_replay_provider_call(
+        vendor=vendor,
+        method=method,
+        status=status,
+        as_of=window.anchor_date.isoformat(),
+        end_time=window.end_date.isoformat(),
+        requested_end_time=requested_end_time or window.end_date.isoformat(),
+        response_max_timestamp=response_max_timestamp,
+        required_semantics=required_semantics.value,
+        strict_mode=strict_mode,
+        error=error,
+        error_category=(
+            classify_error(Exception(error)).category.value if error else None
+        ),
+    )
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime(value.year, value.month, value.day)
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 # ---------------------------------------------------------------------------

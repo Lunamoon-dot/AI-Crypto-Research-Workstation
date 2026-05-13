@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .tenancy import normalize_workspace_id
 
@@ -151,6 +151,11 @@ class TradeThesis(BaseModel):
     structured_summary: TradeThesisStructuredSummary | None = None
     thesis_text: str
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    heuristic_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    empirical_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    empirical_confidence_sample_size: int = 0
+    empirical_confidence_oos_sample_size: int = 0
+    confidence_version: str = "heuristic:v1"
     entry_zone: str | None = None
     invalidation_level: str | None = None
     target_zones: list[str] = Field(default_factory=list)
@@ -174,3 +179,11 @@ class TradeThesis(BaseModel):
     @classmethod
     def _normalize_workspace_id(cls, value: str | None) -> str:
         return normalize_workspace_id(value)
+
+    @model_validator(mode="after")
+    def _mirror_legacy_confidence(self) -> "TradeThesis":
+        if self.heuristic_confidence is None and self.confidence is not None:
+            self.heuristic_confidence = self.confidence
+        if self.confidence is None and self.heuristic_confidence is not None:
+            self.confidence = self.heuristic_confidence
+        return self

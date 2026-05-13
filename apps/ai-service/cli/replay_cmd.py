@@ -63,8 +63,8 @@ def replay_single(
 
     Example::
 
-        tradingagents replay single BTC/USDT 2025-01-15 --lookback 60
-        tradingagents replay single BTC/USDT 2025-01-15 --strict
+        lunacrypto replay single BTC/USDT 2025-01-15 --lookback 60
+        lunacrypto replay single BTC/USDT 2025-01-15 --strict
     """
     try:
         anchor = date.fromisoformat(anchor_date)
@@ -159,8 +159,8 @@ def replay_batch(
 
     Example::
 
-        tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
-        tradingagents replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7 --strict
+        lunacrypto replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7
+        lunacrypto replay batch BTC/USDT 2025-01-01 2025-03-31 --step 7 --strict
     """
     try:
         start = date.fromisoformat(start_date)
@@ -256,8 +256,8 @@ def replay_capabilities(
 
     Example::
 
-        tradingagents replay capabilities
-        tradingagents replay capabilities --vendor ccxt --json
+        lunacrypto replay capabilities
+        lunacrypto replay capabilities --vendor ccxt --json
     """
     vendors_to_show: dict[str, ProviderHistoricalDeclaration] = {}
     if vendor:

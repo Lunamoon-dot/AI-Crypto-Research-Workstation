@@ -176,16 +176,16 @@ def emit_research_run_complete_panel(
 
     next_cmds: list[str] = []
     if run and run.id:
-        next_cmds.append(f"tradingagents journal workspace {run.id}")
-        next_cmds.append(f"tradingagents research workspace {run.id}")
+        next_cmds.append(f"lunacrypto journal workspace {run.id}")
+        next_cmds.append(f"lunacrypto research workspace {run.id}")
     else:
-        next_cmds.append("tradingagents journal list")
-        next_cmds.append("tradingagents journal workspace <run_id>")
+        next_cmds.append("lunacrypto journal list")
+        next_cmds.append("lunacrypto journal workspace <run_id>")
     thesis_id = getattr(run, "thesis_id", None) if run else None
     if thesis_id:
-        next_cmds.append(f"tradingagents thesis show {thesis_id}")
-        next_cmds.append(f"tradingagents watchlist add-thesis {thesis_id}")
-    next_cmds.append("tradingagents research evaluate matured")
+        next_cmds.append(f"lunacrypto thesis show {thesis_id}")
+        next_cmds.append(f"lunacrypto watchlist add-thesis {thesis_id}")
+    next_cmds.append("lunacrypto research evaluate matured")
 
     lines.extend(["", "[bold]Next[/bold]", *[f"- {c}" for c in next_cmds]])
 

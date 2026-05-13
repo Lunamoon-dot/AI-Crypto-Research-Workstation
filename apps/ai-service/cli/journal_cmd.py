@@ -323,18 +323,18 @@ def journal_workspace(
         Panel("\n".join(lines), title="Research Workspace", border_style="cyan")
     )
     next_commands = [
-        f"tradingagents journal timeline {run.id}",
-        f"tradingagents signals snapshot {run.id}",
+        f"lunacrypto journal timeline {run.id}",
+        f"lunacrypto signals snapshot {run.id}",
     ]
     if run.thesis_id:
         next_commands.extend(
             [
-                f"tradingagents thesis show {run.thesis_id}",
-                f"tradingagents watchlist add-thesis {run.thesis_id}",
+                f"lunacrypto thesis show {run.thesis_id}",
+                f"lunacrypto watchlist add-thesis {run.thesis_id}",
             ]
         )
     if run.debate_id:
-        next_commands.append(f"tradingagents journal debate {run.debate_id}")
+        next_commands.append(f"lunacrypto journal debate {run.debate_id}")
 
     # --- Phase 4 (tail): surface signal reliability ---
     _show_reliability_panel(service, run)

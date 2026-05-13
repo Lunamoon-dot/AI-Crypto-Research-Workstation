@@ -20,6 +20,7 @@ class GraphFactory:
         conditional_logic: ConditionalLogic,
         config: dict[str, Any],
         budget_tracker: Any,
+        llm_orchestrator: Any | None = None,
     ) -> None:
         self.graph_setup = GraphSetup(
             quick_thinking_llm,
@@ -28,6 +29,7 @@ class GraphFactory:
             conditional_logic,
             config=config,
             budget_tracker=budget_tracker,
+            llm_orchestrator=llm_orchestrator,
         )
 
     def build_workflow(self, selected_analysts):

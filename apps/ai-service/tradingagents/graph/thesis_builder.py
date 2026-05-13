@@ -195,6 +195,25 @@ class ThesisBuilder:
             else:
                 if is_percent or confidence > 1:
                     confidence = confidence / 100
+        heuristic_confidence = confidence
+        empirical_confidence = (
+            getattr(quant, "empirical_confidence", None) if quant is not None else None
+        )
+        empirical_sample_size = (
+            int(getattr(quant, "empirical_sample_size", 0) or 0)
+            if quant is not None
+            else 0
+        )
+        empirical_oos_sample_size = (
+            int(getattr(quant, "empirical_oos_sample_size", 0) or 0)
+            if quant is not None
+            else 0
+        )
+        confidence_version = (
+            str(getattr(quant, "signal_weight_version", "") or "heuristic:v1")
+            if quant is not None
+            else "heuristic:v1"
+        )
 
         debate = getattr(self.host, "current_debate", None)
         debate_id = debate.id if debate else None
@@ -310,6 +329,11 @@ class ThesisBuilder:
             structured_summary=structured_summary,
             thesis_text=clean_decision,
             confidence=confidence,
+            heuristic_confidence=heuristic_confidence,
+            empirical_confidence=empirical_confidence,
+            empirical_confidence_sample_size=empirical_sample_size,
+            empirical_confidence_oos_sample_size=empirical_oos_sample_size,
+            confidence_version=confidence_version,
             debate_id=debate_id,
             supporting_signal_ids=supporting_ids,
             contradicting_signal_ids=contradicting_ids,
@@ -350,6 +374,11 @@ class ThesisBuilder:
             symbol=getattr(self.host, "ticker", None),
             thesis_direction=thesis.direction.value,
             confidence=thesis.confidence,
+            heuristic_confidence=thesis.heuristic_confidence,
+            empirical_confidence=thesis.empirical_confidence,
+            empirical_confidence_sample_size=thesis.empirical_confidence_sample_size,
+            empirical_confidence_oos_sample_size=thesis.empirical_confidence_oos_sample_size,
+            confidence_version=thesis.confidence_version,
             supporting_evidence_count=len(thesis.supporting_evidence),
             contradicting_evidence_count=len(thesis.contradicting_evidence),
             stale_or_missing_data_count=len(thesis.stale_or_missing_data),
@@ -364,6 +393,9 @@ class ThesisBuilder:
             thesis_direction=thesis.direction.value,
             setup_type=thesis.setup_type,
             confidence=thesis.confidence,
+            heuristic_confidence=thesis.heuristic_confidence,
+            empirical_confidence=thesis.empirical_confidence,
+            confidence_version=thesis.confidence_version,
         )
         return thesis
 

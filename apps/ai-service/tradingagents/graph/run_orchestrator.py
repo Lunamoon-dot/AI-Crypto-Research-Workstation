@@ -112,25 +112,19 @@ class ResearchRunOrchestrator:
                                     symbol=company_name,
                                     trade_date=str(trade_date),
                                 ):
-                                    result = host.orchestrator.execute_with_fallback(
-                                        lambda: self.run_graph(
-                                            host,
-                                            company_name,
-                                            trade_date,
-                                            node_callback=node_callback,
-                                            run_callbacks=run_callbacks,
-                                        )
+                                    result = host._run_graph(
+                                        company_name,
+                                        trade_date,
+                                        node_callback=node_callback,
+                                        run_callbacks=run_callbacks,
                                     )
+                                current_run = getattr(
+                                    host, "current_research_run", None
+                                )
                                 host.budget_tracker.log_summary(
-                                    run_id=getattr(
-                                        host.current_research_run,
-                                        "id",
-                                        None,
-                                    ),
+                                    run_id=getattr(current_run, "id", None),
                                     decision_id=getattr(
-                                        host.current_research_run,
-                                        "decision_id",
-                                        None,
+                                        current_run, "decision_id", None
                                     ),
                                     symbol=company_name,
                                     trade_date=str(trade_date),

@@ -201,6 +201,8 @@ class HistoricalDataContract(BaseModel):
         self,
         declaration: ProviderHistoricalDeclaration,
         method_name: str,
+        *,
+        allow_hybrid_as_of: bool = True,
     ) -> list[str]:
         """Validate this contract against a provider declaration.
 
@@ -218,6 +220,11 @@ class HistoricalDataContract(BaseModel):
                 issues.append(
                     f"{declaration.vendor}.{method_name} is LATEST-only; "
                     f"AS_OF semantics required by contract."
+                )
+            if semantics == TimestampSemantics.HYBRID and not allow_hybrid_as_of:
+                issues.append(
+                    f"{declaration.vendor}.{method_name} is HYBRID; strict replay "
+                    f"requires explicit AS_OF semantics."
                 )
 
         # Check lookback
@@ -384,6 +391,8 @@ def validate_historical_request(
     method: str,
     window: DataWindow,
     required_semantics: TimestampSemantics = TimestampSemantics.LATEST,
+    *,
+    allow_hybrid_as_of: bool = True,
 ) -> list[str]:
     """Convenience: validate a historical request in one call.
 
@@ -397,4 +406,8 @@ def validate_historical_request(
         window=window,
         required_semantics=required_semantics,
     )
-    return contract.validate_against(decl, method)
+    return contract.validate_against(
+        decl,
+        method,
+        allow_hybrid_as_of=allow_hybrid_as_of,
+    )

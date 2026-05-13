@@ -1,4 +1,10 @@
 import json
+from pathlib import Path
+
+try:  # Python 3.10 uses the backport declared in pyproject.toml.
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised only on Python 3.10
+    import tomli as tomllib
 
 from typer.testing import CliRunner
 
@@ -22,6 +28,15 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.services import JournalService, ResearchRunResult, WatchlistService
+
+
+def test_public_console_script_is_lunacrypto_only():
+    pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+    scripts = metadata["project"]["scripts"]
+    assert scripts["lunacrypto"] == "cli.main:app"
+    assert "tradingagents" not in scripts
 
 
 class _FakePropagator:
@@ -278,7 +293,7 @@ def test_config_list_uses_correct_show_hint(monkeypatch):
     result = runner.invoke(config_cmd.config_app, ["list"])
 
     assert result.exit_code == 0
-    assert "tradingagents config show <name>" in result.output
+    assert "lunacrypto config show <name>" in result.output
 
 
 def test_dashboard_renders_terminal_home(tmp_path, monkeypatch):
@@ -344,7 +359,7 @@ def test_config_setup_renders_first_run_summary_panel(tmp_path, monkeypatch):
     result = runner.invoke(config_cmd.config_app, ["setup"])
 
     assert result.exit_code == 0
-    assert "TradingAgents Setup Summary" in result.output
+    assert "LunaCrypto Setup Summary" in result.output
     assert "Journal path:" in result.output
     # The journal path may wrap across lines in narrow terminals; assert the
     # filename is rendered (path is always wide on Windows tmp dirs).
@@ -353,7 +368,7 @@ def test_config_setup_renders_first_run_summary_panel(tmp_path, monkeypatch):
     assert "Active provider routing:" in result.output
     assert "crypto_onchain: ccxt (disabled: coingecko)" in result.output
     assert "Next Useful Commands" in result.output
-    assert "tradingagents research run" in result.output
+    assert "lunacrypto research run" in result.output
 
 
 def test_config_setup_handles_no_disabled_vendors(monkeypatch):
@@ -448,7 +463,7 @@ def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch
     assert payload["run"]["symbol"] == "ETH/USDT"
     assert payload["trade_thesis"]["id"] == thesis.id
     assert any(
-        cmd.startswith("tradingagents thesis show ") for cmd in payload["next_commands"]
+        cmd.startswith("lunacrypto thesis show ") for cmd in payload["next_commands"]
     )
 
 
@@ -504,7 +519,7 @@ def test_journal_workspace_text_panel_includes_evidence_section(tmp_path, monkey
     assert "Research Workspace" in result.output
     assert "Supporting / Contradicting evidence" in result.output
     assert "Next Useful Commands" in result.output
-    assert "tradingagents thesis show" in result.output
+    assert "lunacrypto thesis show" in result.output
 
 
 def test_journal_show_surfaces_completed_degraded(tmp_path, monkeypatch):
@@ -707,6 +722,6 @@ def test_research_completion_panel_prioritizes_readable_summary():
     assert "Thesis direction: short" in output
     assert "Invalidation: Close below $90" in output
     assert "Record IDs: run=run_abc, thesis=thesis_abc, signals=signal_abc" in output
-    assert "tradingagents research evaluate matured" in output
+    assert "lunacrypto research evaluate matured" in output
     assert "tradingagents evaluate matured" not in output
     assert "Market Snapshot:" not in output

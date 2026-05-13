@@ -82,6 +82,35 @@ def test_freshness_policy_recent_old_and_unknown():
     assert unknown_age is None
 
 
+def test_freshness_policy_uses_configurable_max_age_hours():
+    now = datetime(2026, 5, 8, tzinfo=timezone.utc)
+    source_timestamp = now - timedelta(hours=6)
+
+    fresh, _ = freshness_from_timestamp(
+        source_timestamp,
+        now=now,
+        max_age_hours=8,
+    )
+    stale, _ = freshness_from_timestamp(
+        source_timestamp,
+        now=now,
+        max_age_hours=4,
+    )
+
+    assert fresh == DataFreshness.FRESH
+    assert stale == DataFreshness.STALE
+
+
+def test_signal_conversion_applies_max_age_hours_override():
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = _sample_result("2026-05-08T06:00:00Z")
+
+    signals = signal_result_to_domain_signals(result, now=now, max_age_hours=4)
+
+    assert signals[0].provenance.freshness == DataFreshness.STALE
+    assert signals[0].provenance.freshness_seconds == 21600
+
+
 def test_signal_result_to_domain_signals_preserves_provenance_and_evidence():
     now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
     result = _sample_result("2026-05-08T10:00:00Z")

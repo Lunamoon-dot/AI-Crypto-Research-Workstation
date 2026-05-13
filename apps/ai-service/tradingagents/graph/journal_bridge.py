@@ -15,9 +15,11 @@ from tradingagents.domain import (
 )
 from tradingagents.observability import log_event
 from tradingagents.services import JournalService
+from tradingagents.exceptions import StaleDataError, StorageError
 from tradingagents.signals.base import SignalResult
 from tradingagents.signals.snapshots import build_market_snapshot, build_signal_snapshot
 from tradingagents.signals.provenance import (
+    FRESHNESS_WINDOW,
     signal_result_to_domain_signals,
 )
 from tradingagents.agents.schemas import ScenarioPlan
@@ -123,7 +125,7 @@ class JournalBridge:
                 error_type=type(e).__name__,
                 error=str(e)[:500],
             )
-            return run
+            raise StorageError(f"Critical journal write failed: start_run: {e}") from e
 
     def save_quant_signals(
         self,
@@ -140,6 +142,10 @@ class JournalBridge:
         try:
             _merge_run_quality_from_signal_result(run, result)
             stale_mode = self.config.get("stale_data", {}).get("mode", "warn")
+            max_age_hours = self.config.get("stale_data", {}).get(
+                "max_age_hours",
+                FRESHNESS_WINDOW.total_seconds() / 3600.0,
+            )
 
             # --- Phase 4 (tail): build reliability map from historical evaluations ---
             reliability_map: dict[str, dict[str, float | int]] | None = None
@@ -166,6 +172,7 @@ class JournalBridge:
             domain_signals = signal_result_to_domain_signals(
                 result,
                 stale_mode=stale_mode,
+                max_age_hours=max_age_hours,
                 reliability_map=reliability_map,
             )
             market_snapshot = build_market_snapshot(result, research_run_id=run.id)
@@ -221,6 +228,9 @@ class JournalBridge:
             )
             self._record_persist_attempt(success=True)
             return run, signals
+        except StaleDataError:
+            self._record_persist_attempt(success=False)
+            raise
         except Exception as e:
             self._record_persist_attempt(success=False)
             logger.warning("Could not save quant signals to journal: %s", e)
@@ -232,7 +242,9 @@ class JournalBridge:
                 error_type=type(e).__name__,
                 error=str(e)[:500],
             )
-            return run, []
+            raise StorageError(
+                f"Critical journal write failed: save_quant_signals: {e}"
+            ) from e
 
     def complete_run(
         self,
@@ -310,7 +322,9 @@ class JournalBridge:
                 error_type=type(e).__name__,
                 error=str(e)[:500],
             )
-            return run, thesis
+            raise StorageError(
+                f"Critical journal write failed: complete_run: {e}"
+            ) from e
 
     def save_scenarios_from_plan(
         self,

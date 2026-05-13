@@ -25,6 +25,11 @@ from .historical_contract import (
     get_provider_declaration,
     validate_historical_request,
 )
+from .replay_audit import (
+    replay_audit_context,
+    replay_timestamp_issues,
+    record_replay_provider_call,
+)
 from .utils import safe_ticker_component
 
 __all__ = [
@@ -50,4 +55,7 @@ __all__ = [
     "PROVIDER_DECLARATIONS",
     "get_provider_declaration",
     "validate_historical_request",
+    "replay_audit_context",
+    "replay_timestamp_issues",
+    "record_replay_provider_call",
 ]

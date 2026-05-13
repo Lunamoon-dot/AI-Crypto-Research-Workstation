@@ -6,7 +6,7 @@ LunaPerception is a monorepo for a crypto research product. The current working 
 
 ```text
 apps/
-  ai-service/      Python TradingAgents service and CLI
+  ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
   web/             Future logged-in product app
   landing/         Future Next.js marketing and SEO site
@@ -17,7 +17,7 @@ packages/
   types/           Future shared API/domain types
 ```
 
-The Python package and CLI intentionally keep the existing `tradingagents` name for compatibility.
+The Python import namespace intentionally remains `tradingagents` for compatibility; the public CLI command is `lunacrypto`.
 
 ## Root Commands
 

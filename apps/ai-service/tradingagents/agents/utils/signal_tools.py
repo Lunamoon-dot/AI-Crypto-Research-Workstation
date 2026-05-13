@@ -25,10 +25,17 @@ def _get_signal_engine(config=None) -> SignalEngine:
         raise RuntimeError(
             "No config context bound. Wrap the call in config_context() or pass config explicitly."
         )
-    weights = config.get("signal_weights")
+    raw_weights = config.get("signal_weights") or {}
+    weight_version = str(raw_weights.get("version", "signal_weights:v1:2026-05-13"))
+    weights = {
+        key: float(value)
+        for key, value in raw_weights.items()
+        if key != "version" and isinstance(value, (int, float))
+    }
     thresholds = config.get("signal_thresholds", {})
     return SignalEngine(
-        weights=weights,
+        weights=weights or None,
+        weight_version=weight_version,
         strong_buy_threshold=thresholds.get("strong_buy", 0.60),
         buy_threshold=thresholds.get("buy", 0.25),
         sell_threshold=thresholds.get("sell", -0.25),

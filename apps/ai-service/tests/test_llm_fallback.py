@@ -160,6 +160,14 @@ class TestRetryableErrorDetection:
             Exception("429 Too Many Requests - rate limit")
         )
 
+    def test_parser_contract_error_is_not_retryable(self):
+        from tradingagents.exceptions import LLMOutputError
+        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+
+        assert not LLMOrchestrator.is_retryable_error(
+            LLMOutputError("structured output contract mismatch")
+        )
+
 
 class TestConfigLoaderFallbackDefaults:
     def test_fallback_providers_are_valid(self):

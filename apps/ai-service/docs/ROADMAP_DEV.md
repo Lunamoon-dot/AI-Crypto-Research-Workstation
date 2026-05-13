@@ -700,41 +700,41 @@ The current command tree should be documented and improved before adding a new U
 
 ```bash
 tradingagents
-tradingagents research run
+lunacrypto research run
 
-tradingagents journal path
-tradingagents journal list
-tradingagents journal show <run_id>
-tradingagents journal workspace <run_id>
-tradingagents journal timeline <run_id>
-tradingagents journal market-snapshot <snapshot_id>
-tradingagents journal signal-snapshot <snapshot_id>
-tradingagents journal debate <debate_id>
-tradingagents journal outcomes
-tradingagents journal retrospective
+lunacrypto journal path
+lunacrypto journal list
+lunacrypto journal show <run_id>
+lunacrypto journal workspace <run_id>
+lunacrypto journal timeline <run_id>
+lunacrypto journal market-snapshot <snapshot_id>
+lunacrypto journal signal-snapshot <snapshot_id>
+lunacrypto journal debate <debate_id>
+lunacrypto journal outcomes
+lunacrypto journal retrospective
 
-tradingagents thesis list
-tradingagents thesis show <thesis_id>
-tradingagents thesis scenarios <thesis_id>
-tradingagents thesis timeline <thesis_id>
-tradingagents thesis decide <thesis_id>
-tradingagents thesis review <thesis_id>
+lunacrypto thesis list
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis scenarios <thesis_id>
+lunacrypto thesis timeline <thesis_id>
+lunacrypto thesis decide <thesis_id>
+lunacrypto thesis review <thesis_id>
 
-tradingagents signals list
-tradingagents signals latest ETH/USDT
-tradingagents signals snapshot <run_id>
-tradingagents signals explain <signal_id>
+lunacrypto signals list
+lunacrypto signals latest ETH/USDT
+lunacrypto signals snapshot <run_id>
+lunacrypto signals explain <signal_id>
 
-tradingagents watchlist add-symbol BTC/USDT
-tradingagents watchlist add-thesis <thesis_id>
-tradingagents watchlist list
-tradingagents watchlist brief
-tradingagents watchlist check
-tradingagents watchlist alerts
+lunacrypto watchlist add-symbol BTC/USDT
+lunacrypto watchlist add-thesis <thesis_id>
+lunacrypto watchlist list
+lunacrypto watchlist brief
+lunacrypto watchlist check
+lunacrypto watchlist alerts
 
-tradingagents dashboard
-tradingagents config ...
-tradingagents brief ...
+lunacrypto dashboard
+lunacrypto config ...
+lunacrypto brief ...
 
 # Historical thesis evaluation CLI may ship under `evaluate` / journal flows — check Typer tree.
 # `risk` and `backtest` command groups are intentionally absent from the research workstation core.
@@ -749,14 +749,14 @@ Do not destructively rename existing commands. In the medium term, add a
 `research` namespace as aliases over the existing command groups:
 
 ```bash
-tradingagents research run BTC/USDT
-tradingagents research workspace <run_id>
-tradingagents research brief
-tradingagents research journal
-tradingagents research thesis list
-tradingagents research thesis show <thesis_id>
-tradingagents research watchlist brief
-tradingagents research signals BTC/USDT
+lunacrypto research run BTC/USDT
+lunacrypto research workspace <run_id>
+lunacrypto research brief
+lunacrypto research journal
+lunacrypto research thesis list
+lunacrypto research thesis show <thesis_id>
+lunacrypto research watchlist brief
+lunacrypto research signals BTC/USDT
 ```
 
 The alias layer is for UX coherence only. The service layer and persistence
@@ -767,9 +767,9 @@ model should remain shared with `journal`, `thesis`, `signals`, and `watchlist`.
 ### First-Run Setup
 
 ```bash
-tradingagents config list
-tradingagents config show <profile>
-tradingagents journal path
+lunacrypto config list
+lunacrypto config show <profile>
+lunacrypto journal path
 ```
 
 The user should immediately know:
@@ -782,16 +782,16 @@ The user should immediately know:
 ### Deep Research Workflow
 
 ```bash
-tradingagents research run
-tradingagents journal list
-tradingagents journal workspace <run_id>
+lunacrypto research run
+lunacrypto journal list
+lunacrypto journal workspace <run_id>
 ```
 
 The interactive run remains the default beginner flow. A later non-interactive
 flow should support:
 
 ```bash
-tradingagents research run BTC/USDT --date 2026-05-08 --profile default --yes
+lunacrypto research run BTC/USDT --date 2026-05-08 --profile default --yes
 ```
 
 That command should produce the same persisted run, thesis, signals, scenarios,
@@ -800,11 +800,11 @@ debate, and timeline as the interactive flow.
 ### Workspace Inspection Workflow
 
 ```bash
-tradingagents journal workspace <run_id>
-tradingagents signals snapshot <run_id>
-tradingagents signals explain <signal_id>
-tradingagents journal debate <debate_id>
-tradingagents journal timeline <run_id>
+lunacrypto journal workspace <run_id>
+lunacrypto signals snapshot <run_id>
+lunacrypto signals explain <signal_id>
+lunacrypto journal debate <debate_id>
+lunacrypto journal timeline <run_id>
 ```
 
 The workspace view is the main post-run screen. It should show:
@@ -819,12 +819,12 @@ The workspace view is the main post-run screen. It should show:
 ### Thesis Lifecycle Workflow
 
 ```bash
-tradingagents thesis list
-tradingagents thesis show <thesis_id>
-tradingagents thesis scenarios <thesis_id>
-tradingagents thesis decide <thesis_id>
-tradingagents thesis timeline <thesis_id>
-tradingagents thesis review <thesis_id>
+lunacrypto thesis list
+lunacrypto thesis show <thesis_id>
+lunacrypto thesis scenarios <thesis_id>
+lunacrypto thesis decide <thesis_id>
+lunacrypto thesis timeline <thesis_id>
+lunacrypto thesis review <thesis_id>
 ```
 
 The thesis detail screen should make the next action obvious:
@@ -844,17 +844,17 @@ Invalidation:
 - Lose 103800
 
 Next useful commands:
-- tradingagents thesis decide thesis_abc123
-- tradingagents watchlist add-thesis thesis_abc123
-- tradingagents thesis review thesis_abc123
+- lunacrypto thesis decide thesis_abc123
+- lunacrypto watchlist add-thesis thesis_abc123
+- lunacrypto thesis review thesis_abc123
 ```
 
 ### Daily Monitoring Workflow
 
 ```bash
-tradingagents watchlist brief
-tradingagents watchlist check
-tradingagents watchlist alerts
+lunacrypto watchlist brief
+lunacrypto watchlist check
+lunacrypto watchlist alerts
 ```
 
 `watchlist brief` is the daily home screen. It should summarize:
@@ -872,8 +872,8 @@ alerts. `watchlist brief` should remain read-only by default.
 ### Retrospective Workflow
 
 ```bash
-tradingagents journal outcomes
-tradingagents journal retrospective
+lunacrypto journal outcomes
+lunacrypto journal retrospective
 ```
 
 The retrospective view should answer:
@@ -886,7 +886,7 @@ The retrospective view should answer:
 ### Historical Thesis Evaluation Workflow
 
 ```bash
-tradingagents research evaluate thesis <thesis_id>
+lunacrypto research evaluate thesis <thesis_id>
 ```
 
 This is historical thesis evaluation, not broker-accurate backtesting. Do not
@@ -912,9 +912,9 @@ Conflict: high
 Freshness: ok
 
 Next:
-- tradingagents journal workspace run_abc123
-- tradingagents thesis show thesis_def456
-- tradingagents watchlist add-thesis thesis_def456
+- lunacrypto journal workspace run_abc123
+- lunacrypto thesis show thesis_def456
+- lunacrypto watchlist add-thesis thesis_def456
 ```
 
 ### Journal Workspace

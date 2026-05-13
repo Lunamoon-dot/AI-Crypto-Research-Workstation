@@ -32,10 +32,10 @@ TradingAgents persists model identifiers on every `ResearchRun` (fields `deep_th
 
 ```bash
 # List runs grouped by model to identify which historical runs are affected
-tradingagents journal timeline --limit 500 | grep -E "deep_think_llm|quick_think_llm"
+lunacrypto journal timeline --limit 500 | grep -E "deep_think_llm|quick_think_llm"
 
 # Check current config
-tradingagents config show
+lunacrypto config show
 ```
 
 ### Provider deprecation announcements
@@ -67,7 +67,7 @@ ORDER BY started_at DESC;
 Or via CLI:
 
 ```bash
-tradingagents journal list --limit 20
+lunacrypto journal list --limit 20
 ```
 
 ### Config hash mapping
@@ -122,7 +122,7 @@ export TRADINGAGENTS_QUICK_THINK_LLM="deepseek-v4.1-flash"
 python scripts/smoke_structured_output.py
 
 # Run a single-ticker research to verify end-to-end
-tradingagents research BTC/USDT
+lunacrypto research BTC/USDT
 ```
 
 ### Step 4: Re-run affected research (optional)
@@ -130,7 +130,7 @@ tradingagents research BTC/USDT
 For any critical past run that used the deprecated model, re-run with the new model to compare:
 
 ```bash
-tradingagents research BTC/USDT --date 2026-05-01
+lunacrypto research BTC/USDT --date 2026-05-01
 ```
 
 The new run will have a different `config_hash` and model fields, enabling side-by-side comparison.
@@ -208,12 +208,12 @@ If the new model produces worse results:
 
 2. Compare `config_hash` between runs:
    ```bash
-   tradingagents journal list --limit 20
+   lunacrypto journal list --limit 20
    ```
 
 3. Validate regression:
    ```bash
-   tradingagents research evaluate batch --symbol BTC/USDT --limit 20
+   lunacrypto research evaluate batch --symbol BTC/USDT --limit 20
    ```
 
 ---

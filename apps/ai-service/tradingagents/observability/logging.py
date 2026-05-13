@@ -59,13 +59,33 @@ _SECRET_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 _SECRET_INLINE_RE = re.compile(
-    r"((?:api[_-]?key|token|secret|password|authorization|auth)\s*[:=]\s*)([^\s,;]+)",
+    r"((?:api[_-]?key|token|secret|password|authorization|auth)\s*[:=]\s*)([^\s,;\"'}\]]+)",
     re.IGNORECASE,
 )
+_UNSAFE_TOOL_ARGS_REDACTION = "[REDACTED_UNSAFE_TOOL_ARGS]"
+_LOG_RECORD_FACTORY_INSTALLED = False
+_ORIGINAL_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
+
+
+class SafeLogValue:
+    """Marker for values that were intentionally approved for logs."""
+
+    def __init__(self, value: Any):
+        self.value = value
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+def safe_for_logging(value: Any) -> SafeLogValue:
+    """Mark a non-secret value as safe for direct log rendering."""
+    return SafeLogValue(value)
 
 
 def redact_secrets(value: Any) -> Any:
     """Return *value* with likely secrets replaced by ``[REDACTED]``."""
+    if isinstance(value, SafeLogValue):
+        return redact_secrets(value.value)
     if isinstance(value, Mapping):
         return {
             key: "[REDACTED]"
@@ -77,6 +97,8 @@ def redact_secrets(value: Any) -> Any:
         return [redact_secrets(item) for item in value]
     if isinstance(value, tuple):
         return tuple(redact_secrets(item) for item in value)
+    if isinstance(value, str):
+        return _SECRET_INLINE_RE.sub(r"\1[REDACTED]", value)
     return value
 
 
@@ -84,23 +106,47 @@ class SecretRedactionFilter(logging.Filter):
     """Best-effort global redaction filter for all logger records."""
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
-        try:
-            if isinstance(record.msg, Mapping):
-                record.msg = json.dumps(
-                    redact_secrets(record.msg), default=_json_default
-                )
-                record.args = ()
-            elif isinstance(record.msg, str):
-                record.msg = _SECRET_INLINE_RE.sub(r"\1[REDACTED]", record.msg)
-                if record.args:
-                    record.args = tuple(
-                        redact_secrets(arg) if isinstance(arg, Mapping) else arg
-                        for arg in record.args
-                    )
-        except Exception:
-            # Logging must never fail because redaction fails.
-            pass
+        _redact_log_record(record)
         return True
+
+
+def redact_tool_call_args(
+    args: tuple[Any, ...] = (),
+    kwargs: Mapping[str, Any] | None = None,
+    *,
+    marked_safe: bool = False,
+) -> dict[str, Any]:
+    """Return a log-safe representation of tool call args.
+
+    Raw tool args are considered untrusted by default because they may contain
+    prompt text, URLs with tokens, headers, or user-provided instructions.
+    """
+    if not marked_safe:
+        return {
+            "args": _UNSAFE_TOOL_ARGS_REDACTION if args else [],
+            "kwargs": _UNSAFE_TOOL_ARGS_REDACTION if kwargs else {},
+        }
+    return {
+        "args": redact_secrets(list(args)),
+        "kwargs": redact_secrets(dict(kwargs or {})),
+    }
+
+
+def _redact_log_record(record: logging.LogRecord) -> None:
+    try:
+        if isinstance(record.msg, Mapping):
+            record.msg = json.dumps(redact_secrets(record.msg), default=_json_default)
+            record.args = ()
+        elif isinstance(record.msg, str):
+            record.msg = _SECRET_INLINE_RE.sub(r"\1[REDACTED]", record.msg)
+        if record.args:
+            if isinstance(record.args, Mapping):
+                record.args = redact_secrets(record.args)
+            else:
+                record.args = tuple(redact_secrets(arg) for arg in record.args)
+    except Exception:
+        # Logging must never fail because redaction fails.
+        pass
 
 
 def _json_default(value: Any) -> str:
@@ -189,6 +235,17 @@ def configure_plain_observability_logging(level: int | None = None) -> None:
 
 def install_secret_redaction_filter() -> None:
     """Install a global redaction filter on root and tradingagents loggers."""
+    global _LOG_RECORD_FACTORY_INSTALLED
+    if not _LOG_RECORD_FACTORY_INSTALLED:
+
+        def _record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+            record = _ORIGINAL_LOG_RECORD_FACTORY(*args, **kwargs)
+            _redact_log_record(record)
+            return record
+
+        logging.setLogRecordFactory(_record_factory)
+        _LOG_RECORD_FACTORY_INSTALLED = True
+
     redaction_filter = SecretRedactionFilter()
     for logger_name in ("", "tradingagents"):
         target = logging.getLogger(logger_name)
@@ -297,6 +354,25 @@ def log_event(
     **fields: Any,
 ) -> None:
     """Emit a redacted structured observability event."""
+    tool_args_safe = bool(fields.pop("tool_args_safe", False))
+    if "tool_args" in fields:
+        raw_tool_args = fields["tool_args"]
+        if isinstance(raw_tool_args, Mapping):
+            raw_args_value = raw_tool_args.get("args") or ()
+            raw_args = (
+                tuple(raw_args_value)
+                if isinstance(raw_args_value, (list, tuple))
+                else (raw_args_value,)
+            )
+            raw_kwargs = raw_tool_args.get("kwargs") or {}
+        else:
+            raw_args = (raw_tool_args,)
+            raw_kwargs = {}
+        fields["tool_args"] = redact_tool_call_args(
+            raw_args,
+            raw_kwargs,
+            marked_safe=tool_args_safe,
+        )
     payload = {
         "event": event,
         **dict(_OBSERVABILITY_CONTEXT.get() or {}),

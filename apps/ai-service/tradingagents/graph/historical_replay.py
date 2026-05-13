@@ -25,6 +25,7 @@ Guardrails
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from datetime import date, datetime
 
 from tradingagents.dataflows.config import config_context
@@ -33,6 +34,11 @@ from tradingagents.dataflows.historical_contract import (
     TimestampSemantics,
     PROVIDER_DECLARATIONS,
     validate_historical_request,
+)
+from tradingagents.dataflows.replay_audit import (
+    bind_research_run_id,
+    replay_audit_context,
+    replay_timestamp_issues,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.checkpointer import thread_id
@@ -139,13 +145,15 @@ class HistoricalReplay:
         strict_mode = bool(
             self.config.get("historical_data", {}).get("strict_mode", False)
         )
-        replay_config = dict(self.config)
+        replay_config = deepcopy(self.config)
         replay_config["_replay"] = {
             "enabled": True,
             "anchor_date": anchor_date.isoformat(),
-            "window": window.model_dump(),
+            "window": window.model_dump(mode="json"),
             "required_semantics": "as_of",
             "strict": strict_mode,
+            "as_of": anchor_date.isoformat(),
+            "end_time": window.end_date.isoformat(),
         }
         replay_config["max_debate_rounds"] = max_debate_rounds
         replay_config["max_risk_discuss_rounds"] = max_risk_rounds
@@ -160,23 +168,54 @@ class HistoricalReplay:
         final_signal = None
 
         try:
-            with config_context(replay_config):
-                graph = ResearchAgentsGraph(
-                    selected_analysts=selected_analysts
-                    or ["market", "social", "news", "onchain"],
-                    debug=False,
-                    config=replay_config,
-                )
+            with (
+                config_context(replay_config),
+                replay_audit_context(anchor_date) as audit_session,
+            ):
+                try:
+                    graph = ResearchAgentsGraph(
+                        selected_analysts=selected_analysts
+                        or ["market", "social", "news", "onchain"],
+                        debug=False,
+                        config=replay_config,
+                    )
 
-                # Override thread_id for checkpoint isolation
-                graph._replay_thread_id = tid
+                    # Override thread_id for checkpoint isolation
+                    graph._replay_thread_id = tid
 
-                final_state, final_signal = graph.propagate(
-                    company_name=ticker,
-                    trade_date=anchor_date.isoformat(),
-                )
+                    final_state, final_signal = graph.propagate(
+                        company_name=ticker,
+                        trade_date=anchor_date.isoformat(),
+                    )
+                    run_id = getattr(
+                        getattr(graph, "current_research_run", None),
+                        "id",
+                        None,
+                    )
+                    bind_research_run_id(run_id)
+                finally:
+                    self._data_call_log = list(audit_session.calls)
 
         except Exception as exc:
+            if graph is not None:
+                run_id = getattr(
+                    getattr(graph, "current_research_run", None),
+                    "id",
+                    None,
+                )
+                if run_id:
+                    bind_research_run_id(run_id)
+                    _save_replay_audit_event(
+                        ticker=ticker,
+                        anchor_date=anchor_date,
+                        window=window,
+                        strict_mode=strict_mode,
+                        config=replay_config,
+                        research_run_id=run_id,
+                        data_call_log=self._data_call_log,
+                        success=False,
+                        error=str(exc),
+                    )
             logger.error(
                 "Replay failed for %s @ %s: %s",
                 ticker,
@@ -192,6 +231,32 @@ class HistoricalReplay:
                 data_call_log=self._data_call_log,
             )
 
+        timestamp_issues = replay_timestamp_issues(self._data_call_log, anchor_date)
+        if timestamp_issues:
+            run_id = getattr(
+                getattr(graph, "current_research_run", None),
+                "id",
+                None,
+            )
+            _save_replay_audit_event(
+                ticker=ticker,
+                anchor_date=anchor_date,
+                window=window,
+                strict_mode=strict_mode,
+                config=replay_config,
+                research_run_id=run_id,
+                data_call_log=self._data_call_log,
+                success=False,
+                error="; ".join(timestamp_issues),
+            )
+            return ReplayResult(
+                ticker=ticker,
+                anchor_date=anchor_date,
+                success=False,
+                errors=timestamp_issues,
+                data_call_log=self._data_call_log,
+            )
+
         thesis_text = ""
         if final_state:
             thesis_text = final_state.get("final_trade_decision", "")
@@ -203,6 +268,13 @@ class HistoricalReplay:
             window=window,
             strict_mode=strict_mode,
             config=replay_config,
+            research_run_id=getattr(
+                getattr(graph, "current_research_run", None),
+                "id",
+                None,
+            ),
+            data_call_log=self._data_call_log,
+            success=True,
         )
 
         return ReplayResult(
@@ -330,6 +402,10 @@ def _save_replay_audit_event(
     window: DataWindow,
     strict_mode: bool,
     config: dict,
+    research_run_id: str | None = None,
+    data_call_log: list[dict] | None = None,
+    success: bool = True,
+    error: str | None = None,
 ) -> None:
     """Persist a ``replay_audit`` run event summarising provider capability checks.
 
@@ -340,9 +416,15 @@ def _save_replay_audit_event(
     try:
         from tradingagents.services.journal_service import JournalService
 
-        required_semantics = (
-            TimestampSemantics.AS_OF if strict_mode else TimestampSemantics.HYBRID
-        )
+        if not research_run_id:
+            logger.warning(
+                "Replay audit for %s @ %s skipped: no journal research_run_id.",
+                ticker,
+                anchor_date.isoformat(),
+            )
+            return
+
+        required_semantics = TimestampSemantics.AS_OF
         endpoint_audits: list[dict] = []
 
         for vendor_name, declaration in PROVIDER_DECLARATIONS.items():
@@ -352,6 +434,7 @@ def _save_replay_audit_event(
                     method=ep.method_name,
                     window=window,
                     required_semantics=required_semantics,
+                    allow_hybrid_as_of=not strict_mode,
                 )
                 endpoint_audits.append(
                     {
@@ -371,24 +454,35 @@ def _save_replay_audit_event(
 
         untrusted_count = sum(1 for a in endpoint_audits if not a["trusted_for_replay"])
         trusted_count = len(endpoint_audits) - untrusted_count
+        calls = data_call_log or []
+        timestamp_issues = replay_timestamp_issues(calls, anchor_date)
 
         service = JournalService(config)
         service.add_run_event(
-            research_run_id="",  # Will be populated if run exists
+            research_run_id=research_run_id,
             event_type="replay_audit",
             message=(
                 f"Replay audit for {ticker} @ {anchor_date.isoformat()}: "
                 f"{trusted_count}/{len(endpoint_audits)} endpoints trusted "
                 f"({untrusted_count} with issues)"
                 + (" [STRICT]" if strict_mode else "")
+                + (
+                    f"; {len(timestamp_issues)} timestamp issue(s)"
+                    if timestamp_issues
+                    else ""
+                )
             ),
             payload={
                 "ticker": ticker,
                 "anchor_date": anchor_date.isoformat(),
-                "window": window.model_dump(),
+                "window": window.model_dump(mode="json"),
                 "strict_mode": strict_mode,
+                "success": success,
+                "error": error,
                 "required_semantics": required_semantics.value,
                 "endpoints": endpoint_audits,
+                "provider_calls": calls,
+                "timestamp_issues": timestamp_issues,
                 "trusted_count": trusted_count,
                 "untrusted_count": untrusted_count,
             },

@@ -1,4 +1,5 @@
 from tradingagents.exceptions import (
+    ErrorCategory,
     ConfigurationError,
     ConfigurationValidationError,
     DataProviderError,
@@ -12,6 +13,7 @@ from tradingagents.exceptions import (
     StaleDataError,
     StorageError,
     TradingAgentsError,
+    classify_error,
 )
 
 
@@ -87,6 +89,27 @@ class TestExceptionMessages:
         err = RateLimitError("ccxt rate limited: exchange returned 429")
         assert "ccxt" in str(err)
         assert "429" in str(err)
+
+
+class TestErrorTaxonomy:
+    def test_categories_are_explicit(self):
+        assert classify_error(ProviderTimeoutError("timeout")).category == (
+            ErrorCategory.TRANSIENT_PROVIDER
+        )
+        assert classify_error(DataProviderError("invalid symbol")).category == (
+            ErrorCategory.PERMANENT_PROVIDER
+        )
+        assert classify_error(StorageError("disk full")).category == (
+            ErrorCategory.PERSISTENCE_FAILURE
+        )
+        assert classify_error(LLMOutputError("bad json")).category == (
+            ErrorCategory.PARSER_CONTRACT
+        )
+
+    def test_only_transient_errors_are_retryable(self):
+        assert classify_error(ProviderTimeoutError("timeout")).retryable is True
+        assert classify_error(DataProviderError("invalid symbol")).retryable is False
+        assert classify_error(ValueError("bug")).retryable is False
 
 
 class TestExistingHierarchyPreserved:

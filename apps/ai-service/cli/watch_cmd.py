@@ -243,16 +243,16 @@ def brief(
             Panel(
                 "No active watchlist items yet.\n\n"
                 "Start with:\n"
-                "- tradingagents watchlist add-symbol BTC/USDT\n"
-                "- tradingagents thesis list\n"
-                "- tradingagents watchlist add-thesis <thesis_id>",
+                "- lunacrypto watchlist add-symbol BTC/USDT\n"
+                "- lunacrypto thesis list\n"
+                "- lunacrypto watchlist add-thesis <thesis_id>",
                 title="Watchlist Empty State",
                 border_style="yellow",
             )
         )
         return
     console.print(
-        "[dim]Brief is read-only. Use `tradingagents watchlist check` to create alerts.[/dim]"
+        "[dim]Brief is read-only. Use `lunacrypto watchlist check` to create alerts.[/dim]"
     )
     _print_symbol_only_items(summary.symbol_only_items)
     _print_brief_theses(summary.theses)
@@ -264,9 +264,9 @@ def brief(
         console.print(f"[yellow]Missing item:[/yellow] {missing}")
     console.print(
         Panel(
-            "- tradingagents watchlist check\n"
-            "- tradingagents watchlist alerts\n"
-            "- tradingagents thesis list",
+            "- lunacrypto watchlist check\n"
+            "- lunacrypto watchlist alerts\n"
+            "- lunacrypto thesis list",
             title="Next Useful Commands",
             border_style="blue",
         )

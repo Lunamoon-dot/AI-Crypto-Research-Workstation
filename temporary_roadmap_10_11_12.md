@@ -9,7 +9,7 @@
 - [x] Optional provider failures degrade with typed reasons; required failures surface typed provider/config errors.
 - [x] Provider, LLM, storage, stale-data, and config failures use the project exception taxonomy.
 - [x] Secret redaction is installed for structured logs, config hash, and observability payloads.
-- [x] Worker-ready engine command is implemented as `tradingagents engine run --request request.json`.
+- [x] Worker-ready engine command is implemented as `lunacrypto engine run --request request.json`.
 
 ### Phase 11: Observability & Trust Contract
 
@@ -135,7 +135,7 @@ Config/health output phải redact secrets.
 Worker-ready engine:
 
 Python core phải có entrypoint không phụ thuộc CLI/TUI:
-tradingagents engine run --request request.json
+lunacrypto engine run --request request.json
 hoặc function/service nhận JSON request và trả structured result.
 Phase 11: Observability & Trust Contract
 Mục tiêu: NestJS/frontend sau này đọc được progress, trace, evidence, cost, failure reason.

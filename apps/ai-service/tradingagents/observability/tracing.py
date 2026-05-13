@@ -39,7 +39,7 @@ def configure_opentelemetry(config: dict | None = None) -> bool:
         _ENABLED = False
         return False
 
-    service_name = cfg.get("service_name", "tradingagents")
+    service_name = cfg.get("service_name", "lunacrypto")
     provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
     provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)

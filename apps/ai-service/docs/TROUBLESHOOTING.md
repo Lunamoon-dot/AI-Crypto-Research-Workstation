@@ -101,7 +101,7 @@ Actions:
 Actions:
 
 1. Stop active runs and CLI sessions that may be using the same DB.
-2. Confirm the journal path with `tradingagents journal path`.
+2. Confirm the journal path with `lunacrypto journal path`.
 3. Back up the DB before deleting sidecars.
 4. Use `docs/runbooks/journal-backup-restore.md` for backup and restore checks.
 

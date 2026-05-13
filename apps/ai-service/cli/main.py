@@ -1,4 +1,4 @@
-"""TradingAgents CLI — entry point and command registration.
+"""LunaCrypto CLI - entry point and command registration.
 
 After the God-file split, this module is a thin shell that:
 - Registers all sub-commands
@@ -37,8 +37,8 @@ _configure_stdio()
 console = Console()
 
 app = typer.Typer(
-    name="TradingAgents",
-    help="TradingAgents CLI: AI crypto research workspace",
+    name="LunaCrypto",
+    help="LunaCrypto CLI: AI crypto research workspace",
     add_completion=True,
 )
 
