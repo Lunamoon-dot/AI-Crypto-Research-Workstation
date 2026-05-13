@@ -44,7 +44,9 @@ class CliPersistencePolicy:
     persist_raw_llm_output: bool = False
 
     @classmethod
-    def from_config(cls, config: dict[str, Any] | None = None) -> "CliPersistencePolicy":
+    def from_config(
+        cls, config: dict[str, Any] | None = None
+    ) -> "CliPersistencePolicy":
         """Build policy from ``config["cli_logging"]`` plus env overrides."""
         raw_cfg = (config or {}).get("cli_logging", {})
         cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
@@ -56,7 +58,9 @@ class CliPersistencePolicy:
         persist_raw = _coerce_bool(raw_opt_in, default=False)
         for env_name in _RAW_OUTPUT_ENV_VARS:
             if env_name in os.environ:
-                persist_raw = _coerce_bool(os.environ.get(env_name), default=persist_raw)
+                persist_raw = _coerce_bool(
+                    os.environ.get(env_name), default=persist_raw
+                )
                 break
 
         return cls(

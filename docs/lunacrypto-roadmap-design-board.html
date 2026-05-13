@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LunaCrypto Research Workstation Design Board</title>
+  <style>
+    :root {
+      --bg: #f6f7f5;
+      --surface: #ffffff;
+      --surface-2: #eef1ee;
+      --soft: #fafbfa;
+      --ink: #17201b;
+      --muted: #607068;
+      --border: #d9dfda;
+      --nav: #111715;
+      --nav-2: #1f2a25;
+      --teal: #127c66;
+      --green: #1b8a5a;
+      --red: #b23b45;
+      --amber: #c58626;
+      --blue: #2f6f9f;
+      --violet: #5d5a9c;
+      --shadow: 0 14px 36px rgba(17, 23, 21, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #e8ece8;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    .board {
+      min-width: 1600px;
+      padding: 36px;
+    }
+
+    .board-header {
+      width: 1440px;
+      margin: 0 0 26px;
+    }
+
+    .board-header h1 {
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .board-header p {
+      width: 940px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .frame-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 1440px;
+      margin: 28px 0 10px;
+    }
+
+    .frame-label h2 {
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .frame {
+      position: relative;
+      width: 1440px;
+      height: 1024px;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid #cbd3cd;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .cover {
+      padding: 64px 72px;
+      height: 920px;
+    }
+
+    .cover h2 {
+      font-size: 38px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    .cover .sub {
+      width: 800px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .chip.green { background: #ddeee6; color: #0f5e48; }
+    .chip.red { background: #f4dddd; color: #8c2831; }
+    .chip.amber { background: #f7e8d0; color: #7a4b00; }
+    .chip.blue { background: #e0ebf2; color: #1f5e79; }
+    .chip.violet { background: #e8e7f4; color: #3d3974; }
+    .chip.dark { background: #1f2a25; color: #ecf2ee; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 12px 14px 11px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-header h3 {
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .panel-body { padding: 16px 18px; }
+
+    .panel p,
+    .card p,
+    .rail p,
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .card {
+      background: var(--soft);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .card h3 {
+      margin-bottom: 7px;
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .grid { display: grid; gap: 12px; }
+    .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 28px;
+      margin-top: 54px;
+    }
+
+    .flow-node {
+      position: relative;
+      min-height: 96px;
+      padding: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .flow-node.engine {
+      background: #eaf6f1;
+      border-color: var(--teal);
+    }
+
+    .flow-node:not(:last-child)::after {
+      content: ">";
+      position: absolute;
+      top: 33px;
+      right: -21px;
+      color: var(--muted);
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .flow-node h3 { font-size: 14px; line-height: 1.25; }
+    .flow-node p { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+
+    .route-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .route-table th,
+    .route-table td {
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .route-table th {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 232px 1fr 326px;
+      width: 100%;
+      height: 100%;
+    }
+
+    .app.no-rail { grid-template-columns: 232px 1fr; }
+    .app.wide-rail { grid-template-columns: 232px 1fr 360px; }
+
+    .sidebar {
+      background: var(--nav);
+      color: #fff;
+      padding: 20px 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+      font-weight: 850;
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--teal), #e9c46a);
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 0 10px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      color: #d7dfda;
+      font-size: 13px;
+    }
+
+    .nav-item.active {
+      background: var(--nav-2);
+      color: #fff;
+      font-weight: 750;
+    }
+
+    .local-box {
+      margin-top: 288px;
+      padding: 12px;
+      background: #18211e;
+      border: 1px solid #2c3833;
+      border-radius: 8px;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 20px;
+    }
+
+    .rail {
+      border-left: 1px solid var(--border);
+      background: #fbfcfb;
+      padding: 20px;
+    }
+
+    .rail h2 {
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .search {
+      height: 42px;
+      padding: 11px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 42px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--teal);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .button.secondary {
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--border);
+    }
+
+    .title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .title-row h2 {
+      font-size: 28px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .title-row p {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      min-height: 104px;
+      padding: 13px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .metric .value {
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 850;
+    }
+
+    .metric p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+    }
+
+    .stack { display: grid; gap: 16px; }
+
+    .row {
+      display: grid;
+      gap: 8px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .row:last-child { border-bottom: 0; }
+    .thesis-row { grid-template-columns: 72px 1fr 72px; }
+    .signal-row { grid-template-columns: 110px 1fr 78px; }
+    .event-row { grid-template-columns: 72px 1fr 54px; }
+    .scenario-row { grid-template-columns: 82px 1fr; }
+
+    .strong {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .bar {
+      height: 8px;
+      overflow: hidden;
+      background: #e8ece9;
+      border-radius: 999px;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      background: var(--teal);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .pipe-step {
+      min-height: 70px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .pipe-step.good {
+      background: #eaf6f1;
+      border-color: var(--teal);
+    }
+
+    .pipe-step.warn {
+      background: #fff7ea;
+      border-color: var(--amber);
+    }
+
+    .pipe-step h3 { font-size: 12px; }
+    .pipe-step p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.3; }
+
+    .input-grid {
+      display: grid;
+      grid-template-columns: 128px 1fr;
+      gap: 14px 16px;
+      align-items: center;
+    }
+
+    .field-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .field {
+      height: 38px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .code-block {
+      padding: 16px;
+      background: #17201b;
+      border-radius: 8px;
+      color: #ecf2ee;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .table {
+      display: grid;
+      border-top: 1px solid var(--border);
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 92px 142px 94px 94px 110px 108px 90px;
+      gap: 8px;
+      align-items: start;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-row.header {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .table-row:not(.header) {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .table-row b { color: var(--ink); }
+
+    .textarea {
+      min-height: 90px;
+      padding: 11px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .mt-8 { margin-top: 8px; }
+    .mt-12 { margin-top: 12px; }
+    .mt-16 { margin-top: 16px; }
+    .mt-20 { margin-top: 20px; }
+    .mt-24 { margin-top: 24px; }
+    .mb-16 { margin-bottom: 16px; }
+    .w-full { width: 100%; }
+
+    @media print {
+      body { background: #fff; }
+      .board { padding: 0; min-width: 0; }
+      .board-header { display: none; }
+      .frame-label { break-before: page; margin-top: 0; }
+      .frame { box-shadow: none; border-color: #999; }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header class="board-header">
+      <h1>LunaCrypto Research Workstation Design Board</h1>
+      <p>Static HTML replacement for the blocked Figma workflow. These frames are derived from the roadmap, UX architecture, frontend system design, API contract, and existing UI concept in this repo.</p>
+      <div class="chips mt-16">
+        <span class="chip green">Research-first</span>
+        <span class="chip blue">Journal-backed</span>
+        <span class="chip amber">Manual decision</span>
+        <span class="chip red">No autonomous execution</span>
+      </div>
+    </header>
+
+    <div class="frame-label">
+      <h2>00 Cover - Roadmap Scope</h2>
+      <span class="chip dark">repo-derived</span>
+    </div>
+    <section class="frame cover">
+      <h2>LunaCrypto Research Workstation</h2>
+      <p class="sub">Logged-in AI crypto research workstation. The browser talks only to the NestJS API, research artifacts stay inspectable, and the product never presents itself as an execution terminal.</p>
+      <div class="chips mt-16">
+        <span class="chip green">Market context</span>
+        <span class="chip blue">Deterministic signals</span>
+        <span class="chip violet">Multi-agent research</span>
+        <span class="chip amber">Structured thesis</span>
+        <span class="chip dark">User journal</span>
+      </div>
+
+      <div class="flow">
+        <div class="flow-node"><h3>Web UI</h3><p>Routes, workstation layout, command rail, evidence surfaces.</p></div>
+        <div class="flow-node"><h3>NestJS API</h3><p>Auth headers, workspace boundary, product REST contracts.</p></div>
+        <div class="flow-node"><h3>Jobs / Queue</h3><p>Inline, memory, and future BullMQ status projection.</p></div>
+        <div class="flow-node engine"><h3>Python Engine</h3><p>Agents, SignalEngine, providers, thesis builder.</p></div>
+        <div class="flow-node"><h3>Journal DB</h3><p>Runs, events, theses, signals, briefs, alerts, reviews.</p></div>
+        <div class="flow-node"><h3>Read APIs</h3><p>Typed DTOs for web screens and audit drawers.</p></div>
+      </div>
+
+      <div class="grid cols-2 mt-24">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Non-negotiable product rules</h3>
+            <span class="chip dark">P0</span>
+          </div>
+          <div class="panel-body">
+            <p>Every thesis screen shows evidence, contradictions, freshness, missing data, confidence, invalidation, and monitor-next near the decision surface.</p>
+            <p class="mt-12">Every AI output remains inspectable through run IDs, thesis IDs, signal IDs, source timestamps, payload drawers, and timeline events.</p>
+            <p class="mt-12">Use research language: Run research, Watch, Review, Record decision, Scenario active, Invalidation risk.</p>
+            <p class="mt-12">Do not add order execution, broker integration, fake PnL, Sharpe, alpha, annualized returns, or guaranteed language.</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Route map</h3>
+            <span class="chip blue">MVP screens</span>
+          </div>
+          <div class="panel-body">
+            <table class="route-table">
+              <thead>
+                <tr><th>Route</th><th>Purpose</th><th>Backend source</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>/workbench</code></td><td>Daily command center</td><td>briefs, alerts, theses, signals, watchlists</td></tr>
+                <tr><td><code>/research/new</code></td><td>Run launcher</td><td><code>POST /research-runs</code></td></tr>
+                <tr><td><code>/research/runs/:id</code></td><td>Run workspace</td><td>events, snapshots, debate</td></tr>
+                <tr><td><code>/theses/:id</code></td><td>Decision and review</td><td>thesis, scenarios, decision, review</td></tr>
+                <tr><td><code>/signals</code></td><td>Signal explorer</td><td>deterministic evidence</td></tr>
+                <tr><td><code>/watchlists</code></td><td>Monitoring loop</td><td>watchlists, add item, alerts</td></tr>
+                <tr><td><code>/operations</code></td><td>Trust surface</td><td>future health endpoints</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>01 Workbench - Daily Operating View</h2>
+      <span class="chip blue">first logged-in screen</span>
+    </div>
+    <section class="frame">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item active">Workbench <span>01</span></div>
+          <div class="nav-item">Research <span>12</span></div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses <span>7</span></div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Retrospective</div>
+          <div class="nav-item">Operations</div>
+          <div class="nav-item">Settings</div>
+          <div class="local-box">
+            <span class="chip dark">local mode</span>
+            <p class="mt-12">workspace: local<br />user: local-user</p>
+          </div>
+        </aside>
+
+        <section class="main">
+          <div class="topbar">
+            <div class="search">Search symbol, run, thesis, signal... BTC/USDT</div>
+            <button class="button secondary">Spot</button>
+            <button class="button secondary">2026-05-13</button>
+            <button class="button secondary">default</button>
+            <button class="button">Run research</button>
+          </div>
+
+          <div class="metric-row">
+            <div class="metric"><div class="label">Active theses</div><div class="value">7</div><p>3 need review</p></div>
+            <div class="metric"><div class="label">Fresh signals</div><div class="value">42</div><p>5 stale optional</p></div>
+            <div class="metric"><div class="label">Unread alerts</div><div class="value">9</div><p>2 scenario active</p></div>
+            <div class="metric"><div class="label">Queued runs</div><div class="value">2</div><p>memory backend</p></div>
+          </div>
+
+          <div class="content-grid">
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Daily market brief</h3>
+                  <span class="chip amber">missing onchain secondary</span>
+                </div>
+                <div class="panel-body">
+                  <p>Market context leans constructive but not clean. BTC remains the core risk barometer; ETH is range-bound; SOL target approach requires outcome review.</p>
+                  <div class="grid cols-3 mt-16">
+                    <div class="card"><h3>BTC/USDT</h3><p>Regime: trending<br />Direction: bullish<br />Freshness: fresh</p></div>
+                    <div class="card"><h3>ETH/USDT</h3><p>Regime: ranging<br />Direction: neutral<br />Freshness: fresh</p></div>
+                    <div class="card"><h3>SOL/USDT</h3><p>Regime: volatile<br />Direction: bearish<br />Review due</p></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Thesis inbox</h3>
+                  <span class="chip blue">sorted by monitor next</span>
+                </div>
+                <div class="panel-body">
+                  <div class="row thesis-row"><span class="chip green">Watch</span><div><div class="strong">BTC/USDT trend pullback</div><p>Entry 100.8k-102.2k, invalidation below 98.4k.</p></div><div class="small">72%</div></div>
+                  <div class="row thesis-row"><span class="chip amber">Review</span><div><div class="strong">ETH/USDT range reversion</div><p>Wait for reclaim; stale funding data reduces confidence.</p></div><div class="small">48%</div></div>
+                  <div class="row thesis-row"><span class="chip red">Review</span><div><div class="strong">SOL/USDT failed reclaim</div><p>Target zone reached. Outcome review required.</p></div><div class="small">70%</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Composite signal board</h3>
+                  <span class="chip green">fresh</span>
+                </div>
+                <div class="panel-body">
+                  <div class="row signal-row"><span class="strong">funding_oi</span><p>Bearish crowding, OI expansion.</p><span class="chip red">bearish</span></div>
+                  <div class="row signal-row"><span class="strong">regime</span><p>Trend strength improving.</p><span class="chip green">bullish</span></div>
+                  <div class="row signal-row"><span class="strong">onchain</span><p>NVT unavailable, partial data.</p><span class="chip amber">degraded</span></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Watchlist overview</h3>
+                  <span class="chip dark">3 lists</span>
+                </div>
+                <div class="panel-body grid">
+                  <div class="card"><h3>Core majors</h3><p>BTC, ETH, SOL. Five active alerts.</p></div>
+                  <div class="card"><h3>High beta setups</h3><p>LINK, AVAX, OP. Two stale theses.</p></div>
+                  <div class="card"><h3>Event watch</h3><p>Macro, unlocks, exchange flow triggers.</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>AI command rail</h2>
+          <p class="mt-8">Context: Workbench, default watchlist, 7 active theses.</p>
+          <div class="card mt-20"><h3>Scenario alert</h3><p>SOL scenario activated near target zone. Review thesis before changing watch status.</p></div>
+          <div class="card mt-12"><h3>Suggested prompt</h3><p>Explain why BTC signal is bullish while funding/OI is bearish.</p></div>
+          <div class="textarea mt-16">Ask about this workspace...</div>
+          <button class="button w-full mt-12">Ask with evidence</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>02 Research Launcher</h2>
+      <span class="chip green">POST /research-runs</span>
+    </div>
+    <section class="frame">
+      <div class="app no-rail">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item active">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Operations</div>
+        </aside>
+
+        <section class="main">
+          <div class="topbar">
+            <div class="search">BTC/USDT</div>
+            <button class="button secondary">Spot</button>
+            <button class="button secondary">2026-05-13</button>
+            <button class="button secondary">default</button>
+            <button class="button">Run research</button>
+          </div>
+          <div class="title-row">
+            <div>
+              <h2>Launch research run</h2>
+              <p>Creates a research run through the API boundary. The browser never calls the Python AI service directly.</p>
+            </div>
+            <span class="chip green">API-ready</span>
+          </div>
+
+          <div class="grid cols-2">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Run parameters</h3>
+                <span class="chip dark">local auth</span>
+              </div>
+              <div class="panel-body">
+                <div class="input-grid">
+                  <div class="field-label">Symbol</div><div class="field">BTC/USDT</div>
+                  <div class="field-label">Asset class</div><div class="field">crypto</div>
+                  <div class="field-label">Market type</div><div class="field">spot</div>
+                  <div class="field-label">Analysis date</div><div class="field">2026-05-13</div>
+                  <div class="field-label">Config profile</div><div class="field">default</div>
+                </div>
+                <div class="mt-20">
+                  <div class="field-label mb-16">Analysts</div>
+                  <div class="chips">
+                    <span class="chip blue">market</span>
+                    <span class="chip blue">news</span>
+                    <span class="chip blue">social</span>
+                    <span class="chip amber">onchain</span>
+                    <span class="chip blue">quant</span>
+                    <span class="chip blue">risk</span>
+                  </div>
+                </div>
+                <div class="chips mt-24">
+                  <button class="button">Create research run</button>
+                  <button class="button secondary">Reset</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Request payload preview</h3>
+                <span class="chip blue">inspectable</span>
+              </div>
+              <div class="panel-body">
+                <div class="code-block">{
+  "workspace_id": "local",
+  "symbol": "BTC/USDT",
+  "asset_class": "crypto",
+  "market_type": "spot",
+  "analysis_date": "2026-05-13",
+  "analysts": ["market", "news", "social", "onchain", "quant", "risk"],
+  "config_profile": "default"
+}</div>
+                <div class="grid cols-2 mt-16">
+                  <div class="card"><h3>Local identity headers</h3><p>x-user-id: local-user<br />x-workspace-id: local<br />Hidden behind auth/workspace provider.</p></div>
+                  <div class="card"><h3>Post-submit routing</h3><p>Redirect to run workspace using run_id and poll events until terminal status.</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid cols-2 mt-16">
+            <div class="card"><h3>Blocked backend gap</h3><p>POST returns job_id, but the roadmap calls out GET /jobs/:id as P0 for queue clarity.</p></div>
+            <div class="card"><h3>Product copy guardrail</h3><p>Use Run research, Watch, Review, Record decision. Avoid execution or guaranteed outcome language.</p></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>03 Research Run Workspace</h2>
+      <span class="chip amber">completed degraded</span>
+    </div>
+    <section class="frame">
+      <div class="app wide-rail">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item active">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Operations</div>
+        </aside>
+
+        <section class="main">
+          <div class="title-row">
+            <div>
+              <h2>BTC/USDT research run</h2>
+              <p>run_7f3a... | spot | default profile | config hash pinned | started 09:31 | completed 09:34</p>
+            </div>
+            <span class="chip amber">completed degraded</span>
+          </div>
+
+          <div class="panel mb-16">
+            <div class="panel-header">
+              <h3>Agent pipeline</h3>
+              <span class="chip blue">timeline-linked</span>
+            </div>
+            <div class="panel-body pipeline">
+              <div class="pipe-step good"><h3>Quant</h3><p>7 factors</p></div>
+              <div class="pipe-step good"><h3>Market</h3><p>tool loop ok</p></div>
+              <div class="pipe-step warn"><h3>Social</h3><p>partial data</p></div>
+              <div class="pipe-step good"><h3>News</h3><p>fresh</p></div>
+              <div class="pipe-step warn"><h3>Onchain</h3><p>NVT missing</p></div>
+              <div class="pipe-step good"><h3>Debate</h3><p>medium conflict</p></div>
+              <div class="pipe-step good"><h3>Thesis</h3><p>saved</p></div>
+            </div>
+          </div>
+
+          <div class="content-grid">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Run timeline</h3>
+                <span class="chip dark">events</span>
+              </div>
+              <div class="panel-body">
+                <div class="row event-row"><span class="small">09:31:10</span><p>run.started for BTC/USDT</p><span class="chip green">ok</span></div>
+                <div class="row event-row"><span class="small">09:31:38</span><p>snapshots_saved, 7 signals persisted</p><span class="chip green">ok</span></div>
+                <div class="row event-row"><span class="small">09:33:04</span><p>risk.debate.recorded</p><span class="chip blue">audit</span></div>
+                <div class="row event-row"><span class="small">09:34:20</span><p>trade_thesis_saved</p><span class="chip green">ok</span></div>
+                <div class="row event-row"><span class="small">09:34:25</span><p>run.completed_degraded: missing_onchain_secondary</p><span class="chip amber">warn</span></div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Composite signal</h3>
+                  <span class="chip green">Watch 68%</span>
+                </div>
+                <div class="panel-body">
+                  <p>Composite score +0.34. Four bullish, one bearish, two neutral factors. Optional onchain data unavailable.</p>
+                  <div class="bar mt-12"><span style="width: 68%;"></span></div>
+                </div>
+              </div>
+
+              <div class="grid cols-3">
+                <div class="card"><h3>Consensus</h3><p>Bullish 3, bearish 1, uncertain 1. Conflict: medium.</p></div>
+                <div class="card"><h3>Contradiction</h3><p>Trend constructive while funding/OI crowding raises squeeze risk.</p></div>
+                <div class="card"><h3>Freshness</h3><p>OHLCV fresh. Funding fresh. Onchain secondary missing.</p></div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Agent evidence tabs</h3>
+                  <span class="chip dark">market | social | news | onchain</span>
+                </div>
+                <div class="panel-body">
+                  <div class="row signal-row"><span class="strong">Market</span><p>Trend strength supports pullback entries, but range break needs confirmation.</p><span class="chip green">bullish</span></div>
+                  <div class="row signal-row"><span class="strong">Bear</span><p>Funding and OI concentration make late longs fragile.</p><span class="chip red">bearish</span></div>
+                  <div class="row signal-row"><span class="strong">Manager</span><p>Manual review, entry below resistance only.</p><span class="chip green">final</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>Generated thesis</h2>
+          <div class="chips mt-12"><span class="chip green">Overweight</span><span class="chip blue">spot</span><span class="chip amber">degraded</span></div>
+          <div class="card mt-20"><h3>Action summary</h3><p>Accumulate only on pullback confirmation; avoid chasing breakout until funding resets.</p></div>
+          <div class="card mt-12"><h3>Entry zone</h3><p>100.8k-102.2k</p></div>
+          <div class="card mt-12"><h3>Invalidation</h3><p>Daily close below 98.4k or funding spike with OI expansion.</p></div>
+          <div class="card mt-12"><h3>Monitor next</h3><p>Funding reset below threshold, spot CVD confirmation, reclaim above local resistance.</p></div>
+          <button class="button w-full mt-20">Open thesis detail</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>04 Thesis Detail And Review</h2>
+      <span class="chip dark">decision surface</span>
+    </div>
+    <section class="frame">
+      <div class="app wide-rail">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item active">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Retrospective</div>
+        </aside>
+
+        <section class="main">
+          <div class="title-row">
+            <div>
+              <h2>BTC/USDT trend pullback thesis</h2>
+              <p>thesis_91c... | from run_7f3a... | created 2026-05-13 | setup: trend_pullback</p>
+            </div>
+            <span class="chip green">Overweight 68%</span>
+          </div>
+
+          <div class="metric-row">
+            <div class="metric"><div class="label">Direction</div><div class="value">Long</div><p>spot thesis</p></div>
+            <div class="metric"><div class="label">Confidence</div><div class="value">68%</div><p>medium conflict</p></div>
+            <div class="metric"><div class="label">Invalidation</div><div class="value">98.4k</div><p>daily close</p></div>
+            <div class="metric"><div class="label">Targets</div><div class="value">108k</div><p>then 112k</p></div>
+          </div>
+
+          <div class="content-grid">
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Evidence and contradictions</h3>
+                  <span class="chip dark">near decision</span>
+                </div>
+                <div class="panel-body grid cols-2">
+                  <div class="card"><h3>Supporting evidence</h3><p>Regime is trending and bullish. Volume profile shows accumulation above prior value area. News risk is known and not immediately negative.</p></div>
+                  <div class="card"><h3>Contradicting evidence</h3><p>Funding/OI is crowded. Late longs are fragile if price loses entry zone. Onchain secondary data is missing.</p></div>
+                  <div class="card"><h3>Missing or stale data</h3><p>Optional onchain NVT and exchange flow metrics unavailable in this run.</p></div>
+                  <div class="card"><h3>Monitor next</h3><p>Funding reset, CVD confirmation, reclaim above resistance, invalidation approach.</p></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Decision journal</h3>
+                  <span class="chip blue">manual</span>
+                </div>
+                <div class="panel-body">
+                  <div class="chips">
+                    <button class="button secondary">Watch</button>
+                    <button class="button secondary">Accept</button>
+                    <button class="button secondary">Reject</button>
+                  </div>
+                  <div class="textarea mt-12">Notes: waiting for funding reset and spot CVD confirmation.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Scenario radar</h3>
+                  <span class="chip violet">3 branches</span>
+                </div>
+                <div class="panel-body">
+                  <div class="row scenario-row"><span class="chip green">High</span><p>Pullback holds above 100.8k with funding reset. Suggested action: review long thesis.</p></div>
+                  <div class="row scenario-row"><span class="chip amber">Medium</span><p>Price chops between entry and target without CVD confirmation. Suggested action: watch.</p></div>
+                  <div class="row scenario-row"><span class="chip red">Invalid</span><p>Daily close below 98.4k. Suggested action: invalidate thesis and record outcome.</p></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h3>Outcome review</h3>
+                  <span class="chip amber">due later</span>
+                </div>
+                <div class="panel-body">
+                  <p>Record hit target, invalidated, mixed, expired, or unknown. This feeds retrospective reliability and future research context.</p>
+                  <button class="button secondary mt-16">Review outcome</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>Contextual AI</h2>
+          <p class="mt-8">Answers should cite this thesis, linked run, signals, scenarios, and journal state.</p>
+          <div class="card mt-20"><h3>Suggested questions</h3><p>What would change this thesis?<br />Which signal is weakest?<br />How did similar theses perform?</p></div>
+          <div class="card mt-12"><h3>Trust state</h3><p>Core OHLCV is fresh. Optional onchain data missing. Thesis is usable but degraded.</p></div>
+          <div class="textarea mt-16">Ask about thesis_91c...</div>
+          <button class="button w-full mt-12">Explain with citations</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>05 Signals Explorer And Alerts Inbox</h2>
+      <span class="chip blue">audit artifacts</span>
+    </div>
+    <section class="frame">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item active">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Operations</div>
+        </aside>
+
+        <section class="main">
+          <div class="title-row">
+            <div>
+              <h2>Signals explorer</h2>
+              <p>Deterministic evidence independent of AI prose. Rows expose source, timestamp, confidence, freshness, and payload detail.</p>
+            </div>
+            <button class="button secondary">Refresh</button>
+          </div>
+
+          <div class="panel mb-16">
+            <div class="panel-header">
+              <h3>Signal filters</h3>
+              <span class="chip blue">deterministic</span>
+            </div>
+            <div class="panel-body chips">
+              <span class="chip">BTC/USDT</span>
+              <span class="chip">direction: any</span>
+              <span class="chip">type: any</span>
+              <span class="chip">min confidence: 50%</span>
+              <span class="chip green">fresh only</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Signals table</h3>
+              <span class="chip dark">row drawer</span>
+            </div>
+            <div class="panel-body">
+              <div class="table">
+                <div class="table-row header"><span>Symbol</span><span>Type</span><span>Direction</span><span>Confidence</span><span>Observed</span><span>Source</span><span>Freshness</span></div>
+                <div class="table-row"><b>BTC/USDT</b><span>funding_oi</span><span>bearish</span><span>64%</span><span>09:31</span><span>ccxt</span><span class="chip red">fresh</span></div>
+                <div class="table-row"><b>BTC/USDT</b><span>regime</span><span>bullish</span><span>78%</span><span>09:31</span><span>ohlcv</span><span class="chip green">fresh</span></div>
+                <div class="table-row"><b>ETH/USDT</b><span>volume_profile</span><span>neutral</span><span>52%</span><span>09:22</span><span>ohlcv</span><span class="chip green">fresh</span></div>
+                <div class="table-row"><b>SOL/USDT</b><span>onchain</span><span>unknown</span><span>n/a</span><span>09:08</span><span>provider</span><span class="chip amber">missing</span></div>
+                <div class="table-row"><b>LINK/USDT</b><span>news_event</span><span>bullish</span><span>61%</span><span>08:54</span><span>news</span><span class="chip green">fresh</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>Alerts inbox</h2>
+          <div class="chips mt-12"><span class="chip red">unread 9</span><span class="chip blue">monitoring</span></div>
+          <div class="card mt-20"><h3>scenario_active</h3><p>SOL/USDT target approached. Open thesis and record review.</p></div>
+          <div class="card mt-12"><h3>freshness_degraded</h3><p>BTC optional onchain secondary missing for latest run.</p></div>
+          <div class="card mt-12"><h3>watchlist_condition</h3><p>ETH reclaim condition is watching. No decision is inferred.</p></div>
+          <button class="button secondary w-full mt-20">Mark selected read</button>
+        </aside>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>06 Watchlists And Daily Briefs</h2>
+      <span class="chip green">monitoring loop</span>
+    </div>
+    <section class="frame">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item">Research</div>
+          <div class="nav-item">Journal</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item active">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Settings</div>
+        </aside>
+
+        <section class="main">
+          <div class="title-row">
+            <div>
+              <h2>Watchlists and daily briefs</h2>
+              <p>Research habit loop for monitored symbols, theses, setup types, alerts, and daily summary memory.</p>
+            </div>
+            <button class="button">Add watch</button>
+          </div>
+
+          <div class="grid cols-2">
+            <div class="panel">
+              <div class="panel-header"><h3>Watchlists</h3><span class="chip green">API-ready base</span></div>
+              <div class="panel-body grid">
+                <div class="card"><h3>Core majors</h3><p>enabled: true<br />items: BTC, ETH, SOL<br />latest brief: today</p></div>
+                <div class="card"><h3>High beta setups</h3><p>enabled: true<br />items: LINK, AVAX, OP<br />2 unread alerts</p></div>
+                <div class="card"><h3>Event watch</h3><p>enabled: false<br />items: macro_event, unlocks<br />manual check pending endpoint</p></div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-header"><h3>Add watchlist item</h3><span class="chip blue">current endpoint</span></div>
+                <div class="panel-body">
+                  <div class="input-grid">
+                    <div class="field-label">Item type</div><div class="field">symbol</div>
+                    <div class="field-label">Symbol</div><div class="field">BTC/USDT</div>
+                    <div class="field-label">Thesis ID</div><div class="field">optional</div>
+                    <div class="field-label">Setup type</div><div class="field">trend_pullback</div>
+                  </div>
+                  <button class="button mt-16">Add item</button>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header"><h3>Daily brief archive</h3><span class="chip amber">habit loop</span></div>
+                <div class="panel-body grid">
+                  <div class="card"><h3>2026-05-13 / Core majors</h3><p>BTC constructive, ETH range-bound, SOL review due. Links: thesis_91c, signal_44a.</p></div>
+                  <div class="card"><h3>2026-05-12 / Core majors</h3><p>Previous brief link maintained. Future payload should show what changed since yesterday.</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>Monitoring loop</h2>
+          <div class="card mt-20"><h3>Why this page matters</h3><p>Watchlists, alerts, and briefs turn research output into a daily review habit without becoming trade-command UI.</p></div>
+          <div class="card mt-12"><h3>Copy rule</h3><p>Use Watch, Review, Scenario active, Invalidation risk. Do not use direct execution commands.</p></div>
+          <div class="card mt-12"><h3>Next backend work</h3><p>Watchlist CRUD and GET /briefs/:id complete the page beyond the current API-ready base.</p></div>
+        </aside>
+      </div>
+    </section>
+
+    <div class="frame-label">
+      <h2>07 Trust, Operations, Settings, Retrospective</h2>
+      <span class="chip amber">future endpoints</span>
+    </div>
+    <section class="frame">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"></span><span>LunaCrypto</span></div>
+          <div class="nav-item">Workbench</div>
+          <div class="nav-item">Research</div>
+          <div class="nav-item">Theses</div>
+          <div class="nav-item">Signals</div>
+          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Retrospective</div>
+          <div class="nav-item active">Operations</div>
+          <div class="nav-item">Settings</div>
+        </aside>
+
+        <section class="main">
+          <div class="title-row">
+            <div>
+              <h2>Trust, operations, settings</h2>
+              <p>Explain provider, model, freshness, auth, and reliability state without fake trading metrics.</p>
+            </div>
+            <button class="button secondary">Check health</button>
+          </div>
+
+          <div class="grid cols-2">
+            <div class="panel">
+              <div class="panel-header"><h3>Operations trust surface</h3><span class="chip amber">future endpoints</span></div>
+              <div class="panel-body grid">
+                <div class="card"><h3>Provider health</h3><p>GET /operations/provider-health. Show configured, degraded, unavailable. Never expose secrets.</p></div>
+                <div class="card"><h3>LLM calls</h3><p>GET /operations/llm-calls. Run, stage, agent, model, status, latency, token totals.</p></div>
+                <div class="card"><h3>Data freshness</h3><p>GET /operations/data-freshness. Source, symbol, freshness state, missing core and optional data.</p></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header"><h3>Settings local mode</h3><span class="chip dark">private beta</span></div>
+              <div class="panel-body grid">
+                <div class="card"><h3>API base URL</h3><p>NEXT_PUBLIC_API_BASE_URL=http://localhost:3000</p></div>
+                <div class="card"><h3>Local identity</h3><p>NEXT_PUBLIC_LOCAL_USER_ID=local-user<br />NEXT_PUBLIC_LOCAL_WORKSPACE_ID=local</p></div>
+                <div class="card"><h3>Auth abstraction</h3><p>Header-based auth stays behind provider so hosted auth can replace it later.</p></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel mt-16">
+            <div class="panel-header"><h3>Retrospective and reliability</h3><span class="chip red">no fake PnL</span></div>
+            <div class="panel-body">
+              <div class="metric-row">
+                <div class="metric"><div class="label">Thesis hit rate</div><div class="value">61%</div><p>only evaluated theses</p></div>
+                <div class="metric"><div class="label">Invalidation rate</div><div class="value">18%</div><p>review-backed</p></div>
+                <div class="metric"><div class="label">Signal reliability</div><div class="value">0.72</div><p>by factor</p></div>
+                <div class="metric"><div class="label">Confidence calibration</div><div class="value">fair</div><p>needs more reviews</p></div>
+              </div>
+              <p>Show hit rate, invalidation rate, MFE/MAE only if evaluation data exists, factor reliability, agent calibration, setup quality, and lessons. Do not show Sharpe, alpha, annualized return, account PnL, or broker-style win rate.</p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="rail">
+          <h2>Release gates</h2>
+          <div class="card mt-20"><h3>Local MVP gate</h3><p>Workbench, run launcher, run workspace, thesis detail, decision, review, signals, alerts, watchlists, briefs.</p></div>
+          <div class="card mt-12"><h3>Private beta gate</h3><p>Stable error envelope, run/job clarity, workspace access tests, degraded states, no secret leakage.</p></div>
+          <div class="card mt-12"><h3>Hosted beta gate</h3><p>Real auth, RBAC, BullMQ, dedicated workers, rate limits, audit log, backups, monitoring.</p></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

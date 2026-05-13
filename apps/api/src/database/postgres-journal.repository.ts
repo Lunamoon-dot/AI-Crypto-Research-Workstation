@@ -16,6 +16,54 @@ export class PostgresJournalRepository implements JournalRepository {
     }
   }
 
+  async listResearchRuns(
+    filters: {
+      symbol?: string;
+      status?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    if (filters.status) {
+      params.push(filters.status);
+      where.push(`status = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'asset_class', asset_class,
+         'timeframe', timeframe,
+         'status', status,
+         'started_at', started_at,
+         'completed_at', completed_at,
+         'market_snapshot_id', market_snapshot_id,
+         'signal_snapshot_id', signal_snapshot_id,
+         'debate_id', debate_id,
+         'thesis_id', thesis_id,
+         'decision_id', decision_id,
+         'user_decision_id', user_decision_id,
+         'outcome_review_id', outcome_review_id,
+         'degradation_reasons', degradation_reasons_json,
+         'missing_core_data', missing_core_data_json,
+         'missing_optional_data', missing_optional_data_json
+       ) AS payload_json
+       FROM research_runs
+       WHERE ${where.join(' AND ')}
+       ORDER BY started_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
   async getResearchRun(
     id: string,
     workspaceId: string,
@@ -276,11 +324,98 @@ export class PostgresJournalRepository implements JournalRepository {
 
   async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
-      `SELECT payload_json FROM watchlists
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json
+       FROM watchlists
        WHERE workspace_id = $1
        ORDER BY created_at DESC
        LIMIT $2`,
       [workspaceId, limit],
+    );
+  }
+
+  async createWatchlist(
+    input: { name: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = `watch_${randomUUID().replaceAll('-', '')}`;
+    const createdAt = new Date().toISOString();
+    const payload = {
+      id,
+      workspace_id: workspaceId,
+      name: input.name,
+      enabled: input.enabled ?? true,
+      created_at: createdAt,
+    };
+    const watchlist = await this.one(
+      `INSERT INTO watchlists
+       (id, workspace_id, name, enabled, created_at, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        input.name,
+        payload.enabled ? 1 : 0,
+        createdAt,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    return watchlist;
+  }
+
+  async getWatchlist(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json
+       FROM watchlists
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listWatchlistItems(
+    watchlistId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'watchlist_id', watchlist_id,
+         'item_type', item_type,
+         'symbol', symbol,
+         'thesis_id', thesis_id,
+         'setup_type', setup_type,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json
+       FROM watchlist_items
+       WHERE watchlist_id = $1 AND workspace_id = $2
+       ORDER BY created_at DESC`,
+      [watchlistId, workspaceId],
     );
   }
 
@@ -326,6 +461,67 @@ export class PostgresJournalRepository implements JournalRepository {
       ],
     );
     return payload;
+  }
+
+  async updateWatchlist(
+    id: string,
+    input: { name?: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const existing = await this.getWatchlist(id, workspaceId);
+    if (!existing) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    const name = input.name ?? stringValue(existing.name, '');
+    const enabled = input.enabled ?? booleanValue(existing.enabled, true);
+    const payload = {
+      ...existing,
+      id,
+      workspace_id: workspaceId,
+      name,
+      enabled,
+    };
+    const watchlist = await this.one(
+      `UPDATE watchlists
+       SET name = $3,
+           enabled = $4,
+           payload_json = payload_json || $5::jsonb
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json`,
+      [id, workspaceId, name, enabled ? 1 : 0, JSON.stringify(payload)],
+    );
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    return watchlist;
+  }
+
+  async removeWatchlistItem(
+    watchlistId: string,
+    itemId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const removed = await this.one(
+      `DELETE FROM watchlist_items
+       WHERE id = $1 AND watchlist_id = $2 AND workspace_id = $3
+       RETURNING jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'watchlist_id', watchlist_id,
+         'removed', true
+       ) AS payload_json`,
+      [itemId, watchlistId, workspaceId],
+    );
+    if (!removed) {
+      throw new NotFoundException(`Watchlist item ${itemId} not found`);
+    }
+    return removed;
   }
 
   async listDailyBriefs(
@@ -468,4 +664,34 @@ function parsePayload(value: string | JsonRecord): JsonRecord {
     return JSON.parse(value) as JsonRecord;
   }
   return value;
+}
+
+function stringValue(value: unknown, fallback: string): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  return String(value);
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  const normalized = String(value).toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
 }

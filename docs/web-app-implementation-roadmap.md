@@ -128,6 +128,605 @@ handled before claiming the app is production-ready.
 | Real auth/session | P0 for hosted | Header identity is acceptable only for local/private beta | Phase 20 |
 | Workspace RBAC hardening | P0 for hosted | Team/cloud mode requires real isolation | Phase 20 |
 
+## 3.1 Recommended Technical Decisions
+
+This roadmap should be opinionated so implementation does not stall on every
+tooling choice. These are the default recommendations unless the owner rejects a
+specific tradeoff.
+
+| Area | Recommendation | Why |
+| --- | --- | --- |
+| Web framework | Next.js App Router | Good route organization, server/client boundaries, middleware support, and deployment ergonomics |
+| UI runtime | React + TypeScript | Matches repo TypeScript/NestJS direction and keeps the web strongly typed |
+| Styling | Tailwind CSS with local primitives | Fast workstation UI without introducing a premature design-system package |
+| Icons | `lucide-react` | Consistent icon set for dense operational UI |
+| Server state | TanStack Query | Polling, caching, retries, mutation states, and query invalidation fit this app well |
+| Forms | React Hook Form + Zod | Clear form validation for run launch, decisions, reviews, watchlists, and settings |
+| Accessible primitives | Radix UI for Dialog, Select, Tabs, Tooltip, Popover | Avoid hand-rolling keyboard/focus behavior |
+| Tables | Native table first, TanStack Table when sorting/column state grows | Avoid overbuilding early list views |
+| Dates | `date-fns` or small local helpers | Keep timestamp formatting predictable |
+| Charts | Recharts later, only for retrospective analytics | Do not add charting before reliability screens exist |
+| API contract | Manual mirrored types first, then OpenAPI/codegen | Fast start now, stable contract before hosted beta |
+| Tests | Vitest, React Testing Library, Playwright | Unit, component, and browser smoke coverage |
+| Auth during dev/FE-BE MVP | Keep current local/header auth, hidden behind provider abstraction | Security is not the bottleneck yet; avoid blocking product workflow work |
+| Auth architecture | Build auth abstraction now, not real hosted auth now | Prevents a future rewrite while keeping dev velocity high |
+| Auth hosted-beta checkpoint | Decide between Clerk, Better Auth, or Auth0 before external users | Hosted auth matters only when leaving local/private dev |
+| Auth hosted-beta default | Clerk Organizations + JWT verification in NestJS, if no owner objection | Fastest safe path for SaaS-like workspaces, invites, sessions, MFA/passkeys, and org roles |
+| Auth self-host fallback | Better Auth | Best fallback if vendor avoidance/local-first ownership becomes more important than speed |
+| Enterprise auth fallback | Auth0 | Better fit if enterprise SSO, procurement, and mature B2B IAM matter earlier |
+
+External docs checked for the auth recommendation:
+
+- Next.js authentication guide: `https://nextjs.org/docs/app/guides/authentication`
+- Clerk Next.js SDK and Organizations docs: `https://clerk.com/docs/nextjs/overview`,
+  `https://clerk.com/docs/nextjs/guides/organizations/getting-started`
+- Clerk manual JWT verification docs:
+  `https://clerk.com/docs/backend-requests/manual-jwt`
+- Auth0 JWKS and Organizations token docs: `https://auth0.com/docs/jwks`,
+  `https://auth0.com/docs/organizations/using-tokens`
+- Better Auth docs: `https://better-auth.com/docs/introduction`
+- Auth.js docs: `https://authjs.dev/`
+
+## 3.2 Auth Recommendation
+
+Recommended auth path:
+
+```text
+Phase A, current dev/FE-BE MVP:
+  keep x-user-id and x-workspace-id headers
+  hide them behind Web AuthProvider and API AuthService
+  do not integrate Clerk/Auth0/Better Auth yet
+  do not hand-roll JWT user auth
+
+Phase B, pre-hosted checkpoint:
+  choose hosted auth provider only when external users/workspaces are planned
+  default recommendation remains Clerk Organizations
+  Better Auth is the self-host fallback
+  Auth0 is the enterprise IAM fallback
+
+Phase C, hosted private beta:
+  Web gets a session token/JWT from Clerk
+  Web sends Authorization: Bearer <token> to NestJS API
+  API verifies JWT using Clerk SDK or JWKS
+  API maps external user/org claims to local User, Workspace, WorkspaceMembership rows
+  API enforces workspace RBAC from local database, not from frontend input
+
+Phase D, enterprise/pro:
+  add SSO/SAML only when customers actually require it
+  Auth0 can replace Clerk if enterprise IAM becomes the primary requirement
+```
+
+Current dev decision:
+
+```text
+Use local/header auth now.
+Do not spend implementation time on real user auth until the web research loop is useful.
+Do not build custom JWT user auth as a temporary step.
+```
+
+Why this is acceptable during dev:
+
+- The app is not yet hosted for untrusted external users.
+- Current API already expects local identity headers.
+- The main risk right now is building the wrong product workflow, not losing
+  production user sessions.
+- Header auth is fine for local/private development if every file labels it as
+  dev-only and no public deployment trusts it.
+
+What must still be done now:
+
+- Keep identity and workspace access behind abstractions.
+- Keep all API routes workspace-scoped.
+- Do not scatter `x-user-id` and `x-workspace-id` across components.
+- Do not store real provider secrets in the frontend.
+- Do not claim the app is hosted-production-safe while local headers are active.
+
+Why Clerk remains the default later:
+
+- The app is likely to need organizations/workspaces, invitations, user
+  management, sessions, social login, MFA/passkeys, and role checks before it
+  needs fully custom auth.
+- Auth is not the product moat. The moat is research memory, thesis lifecycle,
+  evidence, diff, and reliability analytics.
+- Managed auth lowers security implementation risk for hosted beta.
+- NestJS can stay provider-neutral by verifying bearer tokens through an
+  `AuthProviderAdapter` interface.
+
+Why not hand-written JWT first:
+
+- A secure custom implementation is not just "issue a JWT".
+- It needs password hashing, email verification, reset tokens, session
+  revocation, refresh-token rotation, CSRF policy, MFA, device/session
+  management, abuse protection, audit logging, and key rotation.
+- That work delays the research workstation without improving the core product.
+
+When to choose Better Auth instead:
+
+- You want self-hosted auth from day one.
+- You do not want user identity to depend on a SaaS vendor.
+- Local-first/offline ownership matters more than fastest hosted beta.
+- You are willing to own auth database tables, migrations, email flows, session
+  hardening, and future SSO complexity.
+
+When to choose Auth0 instead:
+
+- Enterprise SSO, B2B IAM procurement, and mature organization/tenant controls
+  are more important than developer-speed UI components.
+- Customers explicitly require Auth0-compatible IAM patterns.
+
+Owner decision to confirm before hosted beta, not before local MVP:
+
+```text
+Default recommendation: Clerk Organizations.
+Alternative: Better Auth if vendor avoidance/self-hosting is a hard requirement.
+Alternative: Auth0 if enterprise SSO/B2B IAM is the first paid market.
+```
+
+## 3.3 Auth Architecture Blueprint
+
+### Local/private-beta mode
+
+Current API behavior:
+
+```text
+x-user-id: local-user
+x-workspace-id: local
+```
+
+Rules:
+
+- Only use local header auth in development/private local deployments.
+- Web components never set these headers directly.
+- `apps/web/src/auth/auth-provider.tsx` owns local identity state.
+- `apps/web/src/api/client.ts` translates local identity into headers.
+- The API keeps `AuthService.resolveUser()` and
+  `WorkspacesService.resolveWorkspace()` for local mode.
+
+Done when:
+
+- Local mode is useful but clearly marked as not hosted-auth-safe.
+
+### Hosted mode
+
+Request flow:
+
+```text
+Browser
+-> Clerk session
+-> Web gets session JWT
+-> Authorization: Bearer <jwt>
+-> NestJS AuthGuard verifies token
+-> AuthService resolves external subject to local User
+-> WorkspacesService resolves external org to local Workspace
+-> WorkspaceMembership enforces role
+-> Controller/service runs
+```
+
+API rules:
+
+- Do not trust `x-user-id` or `x-workspace-id` in hosted mode.
+- Do not trust `workspace_id` from request body as authorization.
+- If a request includes `workspace_id`, assert it matches the authenticated
+  active workspace.
+- Store provider user/org IDs in local database so authorization does not depend
+  only on frontend claims.
+- API route authorization belongs in NestJS, not only in Next.js middleware.
+- All expensive operations must require `analyst` or `owner`.
+
+Recommended API auth files:
+
+```text
+apps/api/src/auth/
+  auth.module.ts
+  auth.guard.ts
+  auth.service.ts
+  auth.types.ts
+  current-user.decorator.ts
+  workspace.decorator.ts
+  roles.decorator.ts
+  roles.guard.ts
+  providers/
+    auth-provider.adapter.ts
+    local-auth-provider.ts
+    clerk-auth-provider.ts
+    auth0-auth-provider.ts
+  jwt/
+    jwks-client.ts
+    jwt-verifier.ts
+```
+
+Recommended API authorization files:
+
+```text
+apps/api/src/authorization/
+  authorization.module.ts
+  permissions.ts
+  role-policy.ts
+  workspace-policy.ts
+```
+
+Recommended web auth files:
+
+```text
+apps/web/src/auth/
+  auth-provider.tsx
+  auth-types.ts
+  local-auth.ts
+  hosted-auth.ts
+  require-auth.tsx
+  workspace-switcher.tsx
+```
+
+If using Clerk, add:
+
+```text
+apps/web/middleware.ts
+apps/web/src/auth/clerk-provider.tsx
+apps/web/src/auth/clerk-token.ts
+```
+
+### Token policy
+
+Hosted mode should use:
+
+- Short-lived bearer access token/JWT sent to NestJS.
+- Provider-managed session cookies in the web app.
+- API-side JWT verification via SDK or JWKS.
+- No long-lived API token in localStorage.
+- No secrets in `NEXT_PUBLIC_*` variables.
+
+For machine-to-machine later:
+
+- Use separate service tokens for workers/internal services.
+- Do not reuse browser session tokens for Python workers.
+
+## 3.4 RBAC Matrix
+
+Initial roles:
+
+```text
+owner
+analyst
+reviewer
+viewer
+```
+
+Permission matrix:
+
+| Capability | Owner | Analyst | Reviewer | Viewer |
+| --- | --- | --- | --- | --- |
+| Read workbench | yes | yes | yes | yes |
+| Read runs/theses/signals/briefs/alerts | yes | yes | yes | yes |
+| Create research run | yes | yes | no | no |
+| Create/update watchlist | yes | yes | no | no |
+| Record thesis decision | yes | yes | yes | no |
+| Record outcome review | yes | yes | yes | no |
+| Mark alerts read | yes | yes | yes | no |
+| View operations/provider health | yes | yes | yes | yes |
+| Manage provider/settings | yes | no | no | no |
+| Manage workspace members | yes | no | no | no |
+| Delete/export workspace data | yes | no | no | no |
+
+Rules:
+
+- A `viewer` can inspect research but cannot mutate journal state.
+- A `reviewer` can record decisions/reviews but cannot launch expensive runs.
+- An `analyst` can launch runs and manage watchlists.
+- An `owner` manages workspace, settings, provider configuration, and exports.
+
+## 3.5 Auth-Related Database Recommendations
+
+Current Prisma models already include:
+
+```text
+User
+Workspace
+WorkspaceMembership
+```
+
+For hosted auth, extend them later with provider mapping fields:
+
+```text
+User
+  authProvider        String?
+  externalAuthId      String?  unique
+  emailVerifiedAt     DateTime?
+  lastLoginAt         DateTime?
+
+Workspace
+  externalOrgId       String?  unique
+  slug                String?  unique
+
+WorkspaceMembership
+  externalMembershipId String?
+  invitedByUserId      String?
+  status               String?  # active, invited, suspended
+```
+
+Add before hosted beta:
+
+```text
+AuditLog
+  id
+  workspaceId
+  actorUserId
+  action
+  entityType
+  entityId
+  createdAt
+  payloadJson
+```
+
+If using Better Auth instead of Clerk/Auth0:
+
+- Add Better Auth tables through its migration flow or explicitly map its
+  required schema.
+- Keep product `User`, `Workspace`, and `WorkspaceMembership` as the app-level
+  authorization model even if auth tables are separate.
+
+## 3.6 Standard Project Folder Organization
+
+The web app should be organized by route groups and feature ownership, not by a
+flat pile of components.
+
+Recommended `apps/web` structure:
+
+```text
+apps/web/
+  app/
+    layout.tsx
+    page.tsx
+    globals.css
+    middleware.ts                 # only when hosted auth is enabled
+    (auth)/
+      sign-in/
+        page.tsx
+      sign-up/
+        page.tsx
+    (workstation)/
+      layout.tsx
+      workbench/
+        page.tsx
+      research/
+        new/
+          page.tsx
+        runs/
+          [id]/
+            page.tsx
+      journal/
+        runs/
+          [id]/
+            page.tsx
+      theses/
+        page.tsx
+        [id]/
+          page.tsx
+      signals/
+        page.tsx
+      alerts/
+        page.tsx
+      watchlists/
+        page.tsx
+        [id]/
+          page.tsx
+      briefs/
+        daily/
+          page.tsx
+          [id]/
+            page.tsx
+      retrospective/
+        page.tsx
+      operations/
+        page.tsx
+      settings/
+        page.tsx
+  src/
+    api/
+      client.ts
+      query-keys.ts
+      types.ts
+      research-runs.ts
+      theses.ts
+      signals.ts
+      alerts.ts
+      watchlists.ts
+      briefs.ts
+      operations.ts
+      settings.ts
+    app/
+      app-shell.tsx
+      providers.tsx
+      sidebar-nav.tsx
+      top-command-strip.tsx
+    auth/
+      auth-provider.tsx
+      auth-types.ts
+      local-auth.ts
+      hosted-auth.ts
+      require-auth.tsx
+      workspace-switcher.tsx
+    components/
+      ui/
+      research/
+      layout/
+    features/
+      workbench/
+      research-runs/
+      theses/
+      signals/
+      alerts/
+      watchlists/
+      briefs/
+      retrospective/
+      operations/
+      settings/
+    lib/
+      dates.ts
+      env.ts
+      format.ts
+      ids.ts
+      freshness.ts
+      routes.ts
+      utils.ts
+    styles/
+    test/
+      mocks/
+      render.tsx
+```
+
+Feature folder convention:
+
+```text
+src/features/<feature>/
+  components/
+  hooks/
+  schemas/
+  utils/
+  <feature>-page.tsx
+```
+
+Rules:
+
+- `app/**/page.tsx` should be thin and route-focused.
+- Feature components own screen composition.
+- `src/api` owns all HTTP paths.
+- `src/auth` owns identity/session/workspace context.
+- `src/components/ui` owns generic primitives.
+- `src/components/research` owns domain UI shared across features.
+- Do not create `packages/ui` until at least two apps need it.
+- Do not create `packages/contracts` until the API contract is stable enough to
+  share or generate.
+
+Recommended future shared packages:
+
+```text
+packages/contracts/   # generated or shared API DTOs
+packages/config/      # shared eslint/tsconfig/tailwind only if needed
+packages/ui/          # only after repeated UI reuse across apps
+```
+
+## 3.7 Environment Variables
+
+Local web:
+
+```text
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_AUTH_MODE=local
+NEXT_PUBLIC_LOCAL_USER_ID=local-user
+NEXT_PUBLIC_LOCAL_WORKSPACE_ID=local
+```
+
+Hosted web with Clerk, later only:
+
+```text
+NEXT_PUBLIC_AUTH_MODE=clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
+CLERK_JWT_TEMPLATE=lunacrypto-api
+NEXT_PUBLIC_API_BASE_URL=https://api.example.com
+```
+
+Hosted API:
+
+```text
+AUTH_MODE=jwt
+AUTH_PROVIDER=clerk
+AUTH_JWT_ISSUER=...
+AUTH_JWT_AUDIENCE=lunacrypto-api
+AUTH_JWKS_URL=...
+DATABASE_URL=...
+REDIS_URL=...
+```
+
+Rules:
+
+- Never put provider secret keys into `NEXT_PUBLIC_*`.
+- Keep AI provider keys on API/worker side only.
+- Web should know only publishable auth keys and API base URL.
+- API should own JWT verification, workspace access, rate limits, and audit
+  logging.
+- During current dev/FE-BE MVP, only the local web variables are required.
+- Clerk/Auth0/Better Auth env vars are not required until the hosted-beta
+  checkpoint.
+
+## 3.8 Owner Decisions To Confirm Later
+
+Use these as explicit product/engineering questions before hosted beta:
+
+1. Confirm auth provider: Clerk default, Better Auth self-host fallback, or
+   Auth0 enterprise fallback.
+2. Confirm first login methods: email magic link, Google/GitHub OAuth,
+   email/password, passkey, or a combination.
+3. Confirm whether organizations/workspaces are mandatory for every user.
+4. Confirm whether invite flow is needed in the first hosted beta.
+5. Confirm whether MFA/passkey is required at launch or only for owners.
+6. Confirm whether API and web share the same domain or use cross-origin bearer
+   tokens.
+7. Confirm whether local-first mode must keep working without hosted auth.
+8. Confirm whether enterprise SSO is required before paid launch.
+
+Default answers unless changed later:
+
+```text
+current dev auth: local/header auth
+current login UI: none
+current organization UI: local workspace selector only if useful
+hosted auth provider later: Clerk
+hosted login methods later: email magic link + Google/GitHub OAuth
+hosted organization required later: yes
+hosted invite flow later: yes, but after local MVP
+hosted MFA/passkey later: owner/admin recommended first, optional for others
+hosted API/web topology later: separate API accepted, bearer token required
+local-first mode: keep local header mode for development/local deployment
+enterprise SSO: later, only if needed
+```
+
+## 3.9 Current Local MVP Implementation Status
+
+Updated: 2026-05-13
+
+Implemented for the local/private FE-BE MVP:
+
+- [x] Next.js workstation app under `apps/web` with route-group shell.
+- [x] Local/header auth hidden behind web auth and API client abstractions.
+- [x] Workbench route for briefs, alerts, theses, signals, watchlists, and
+  recent research runs.
+- [x] Research run launcher through `POST /research-runs`.
+- [x] Research run workspace for status, timeline, snapshots, debate, thesis,
+  data quality, and job-pending state.
+- [x] Thesis library and thesis detail with evidence, contradictions, stale or
+  missing data, scenarios, invalidation, monitor-next, decision form, and
+  outcome review form.
+- [x] Signal explorer.
+- [x] Alerts inbox with mark-read action.
+- [x] Basic watchlist maintenance: create, rename, enable/disable, list items,
+  add item, and remove item.
+- [x] Daily brief archive.
+- [x] Settings page that exposes local auth/API mode.
+- [x] Operations page with honest empty states for provider/model/freshness
+  endpoints that do not exist yet.
+- [x] Backend MVP additions: `GET /research-runs`, `GET /jobs/:id`, and
+  watchlist CRUD/items endpoints.
+- [x] Local MVP gates verified: `pnpm lint`, `pnpm typecheck`, `pnpm build`,
+  and `pnpm test`.
+
+Explicitly deferred beyond this MVP foundation:
+
+- [ ] Hosted auth with Clerk/Auth0/Better Auth.
+- [ ] Hosted workspace RBAC hardening and role matrix tests across every route.
+- [ ] BullMQ production workers and dedicated Python worker deployment.
+- [ ] Provider health, LLM call, data freshness, queue, and config-health
+  operations endpoints.
+- [ ] OpenAPI/code-generated frontend client.
+- [ ] Watchlist scheduled/manual monitoring engine.
+- [ ] Compare/diff routes for runs and theses.
+- [ ] Retrospective reliability analytics and calibration dashboards.
+- [ ] Export bundles, markdown/PDF export, and research package sharing.
+- [ ] External notifications through email, Telegram, Discord, or webhooks.
+- [ ] Billing, hosted SaaS packaging, team invites, and enterprise SSO.
+- [ ] Broker/exchange execution, auto-trading, leverage automation, and fake PnL
+  dashboards.
+
 ## 4. Delivery Milestones
 
 Use these milestones as merge boundaries.
@@ -172,11 +771,15 @@ Recommended stack:
 - TypeScript.
 - Tailwind CSS.
 - TanStack Query.
-- Local component primitives first.
+- React Hook Form.
+- Zod for form schemas.
+- Radix UI for accessible dialog/select/tabs/tooltip primitives.
+- Local component primitives first, built on top of Radix only where needed.
 - `lucide-react` for icons.
-- `zod` only if frontend runtime validation is needed.
 - `date-fns` or a small local date helper for formatting.
 - Recharts only when reliability/analytics charts are actually implemented.
+- Local/header auth for the current dev/FE-BE MVP.
+- Hosted auth provider selected later at the hosted-beta decision checkpoint.
 
 Do not add:
 
@@ -184,6 +787,9 @@ Do not add:
 - A shared UI package before repeated usage exists.
 - Heavy charting libraries before analytics screens need them.
 - A marketing template or landing-page framework.
+- Clerk/Auth0/Better Auth packages during the first local web MVP unless the
+  owner explicitly moves the project into hosted-beta auth work.
+- Custom JWT user-auth scaffolding as a temporary bridge.
 
 Done when:
 
@@ -301,6 +907,51 @@ Required fields:
 }
 ```
 
+Recommended runtime dependencies:
+
+```text
+next
+react
+react-dom
+@tanstack/react-query
+react-hook-form
+zod
+@hookform/resolvers
+lucide-react
+date-fns
+clsx
+tailwind-merge
+class-variance-authority
+@radix-ui/react-dialog
+@radix-ui/react-select
+@radix-ui/react-tabs
+@radix-ui/react-tooltip
+@radix-ui/react-popover
+```
+
+Add only when the relevant feature starts:
+
+```text
+@clerk/nextjs          # hosted Clerk auth
+recharts               # retrospective analytics charts
+@tanstack/react-table  # advanced table sorting/column state
+```
+
+Recommended dev dependencies:
+
+```text
+typescript
+eslint
+tailwindcss
+postcss
+autoprefixer
+vitest
+@testing-library/react
+@testing-library/jest-dom
+@testing-library/user-event
+@playwright/test
+```
+
 Adjust scripts if the selected Next.js version no longer supports `next lint`;
 the important part is that root `pnpm lint`, `pnpm build`, and
 `pnpm typecheck` can include the web package through Turbo.
@@ -360,13 +1011,17 @@ Done when:
 Create:
 
 ```text
+apps/web/app/(auth)/
+apps/web/app/(workstation)/
 apps/web/src/api/
 apps/web/src/app/
-apps/web/src/components/
+apps/web/src/auth/
+apps/web/src/components/ui/
+apps/web/src/components/research/
 apps/web/src/features/
 apps/web/src/lib/
 apps/web/src/styles/
-apps/web/src/types/
+apps/web/src/test/
 ```
 
 Recommended feature folders:
@@ -379,14 +1034,17 @@ apps/web/src/features/signals/
 apps/web/src/features/alerts/
 apps/web/src/features/watchlists/
 apps/web/src/features/briefs/
-apps/web/src/features/settings/
 apps/web/src/features/retrospective/
+apps/web/src/features/operations/
+apps/web/src/features/settings/
 ```
 
 Done when:
 
-- Route files stay thin.
-- Fetching, formatting, and UI logic live in feature/source folders.
+- Route files stay thin and only bind route params to feature pages.
+- Fetching, formatting, auth, and UI logic live in source folders.
+- Auth code lives under `src/auth`, not scattered through pages.
+- API paths live only under `src/api`.
 
 ## 8. Phase 3 - API Client, Query, And Auth Foundation
 
@@ -422,8 +1080,9 @@ Create `apps/web/src/api/client.ts`.
 Responsibilities:
 
 - Resolve `baseUrl` from `NEXT_PUBLIC_API_BASE_URL`.
-- Attach `x-user-id`.
-- Attach `x-workspace-id`.
+- In local mode, attach `x-user-id`.
+- In local mode, attach `x-workspace-id`.
+- In hosted mode, attach `Authorization: Bearer <jwt>`.
 - Serialize query strings.
 - Parse JSON.
 - Convert non-2xx responses into one `ApiError` shape.
@@ -444,6 +1103,8 @@ Done when:
 
 - Components never call `fetch` directly.
 - Every API error can be displayed with a useful message and debug details.
+- Switching from local headers to hosted bearer tokens changes only auth/client
+  plumbing, not feature components.
 
 ### WEB-0303 - Create endpoint modules
 
@@ -513,12 +1174,17 @@ Done when:
 - Server state is not duplicated into a global client store.
 - Active run polling can be managed with query options.
 
-### WEB-0305 - Add local auth/workspace provider
+### WEB-0305 - Add auth/workspace provider
 
 Create:
 
 ```text
-apps/web/src/app/auth-context.tsx
+apps/web/src/auth/auth-provider.tsx
+apps/web/src/auth/auth-types.ts
+apps/web/src/auth/local-auth.ts
+apps/web/src/auth/hosted-auth.ts
+apps/web/src/auth/require-auth.tsx
+apps/web/src/auth/workspace-switcher.tsx
 apps/web/src/lib/env.ts
 ```
 
@@ -526,14 +1192,48 @@ Responsibilities:
 
 - Provide current `userId`.
 - Provide current `workspaceId`.
+- Provide current auth mode: `local`, `clerk`, `auth0`, or `better-auth`.
+- Provide a placeholder `getApiToken()` function for future hosted mode.
+- Provide a `getLocalHeaders()` function for local mode.
 - Use local defaults in development.
 - Expose a small dev-only switcher later.
 - Hide header-based auth behind the API client.
+- Keep hosted token retrieval behind the same interface later, but do not
+  implement a hosted provider in the current local MVP.
+
+Local mode behavior:
+
+```text
+auth mode: local
+identity source: NEXT_PUBLIC_LOCAL_USER_ID
+workspace source: NEXT_PUBLIC_LOCAL_WORKSPACE_ID
+transport: x-user-id and x-workspace-id
+```
+
+Hosted Clerk behavior:
+
+```text
+auth mode: clerk
+identity source: Clerk user/session
+workspace source: active Clerk organization mapped to local Workspace
+transport: Authorization bearer token
+```
+
+Do not implement hosted Clerk behavior in the first local MVP. Keep this as the
+interface shape so the later hosted-auth work is additive.
+
+Route protection:
+
+- Local mode can render the app directly.
+- Hosted mode later protects `(workstation)` routes and redirects
+  unauthenticated users to `(auth)/sign-in`.
+- API still enforces authorization; Next.js route protection is not enough.
 
 Done when:
 
 - No component imports `NEXT_PUBLIC_LOCAL_USER_ID` directly.
 - Hosted auth can later replace this provider.
+- Feature code does not know whether auth is local headers or JWT.
 
 ## 9. Phase 4 - UI System And App Shell
 
@@ -2016,17 +2716,74 @@ Goal: move from local/private beta to hosted safely.
 
 ### PROD-1901 - Real auth
 
-Replace trusted browser headers with:
+Do this only when moving from local/dev or private same-machine testing to
+hosted private beta with external users or real multi-workspace data.
 
-- Session cookie or JWT.
-- Server-derived user ID.
-- Login flow.
+Default hosted implementation at that point:
+
+- Clerk Organizations for user/org/session management.
+- Next.js middleware protects workstation routes.
+- Web retrieves a Clerk session JWT for API calls.
+- NestJS API verifies the bearer token through Clerk SDK or JWKS.
+- API maps provider `sub` to local `User`.
+- API maps provider org ID to local `Workspace`.
+- API enforces local `WorkspaceMembership` role before every route action.
+
+Required web work:
+
+```text
+apps/web/middleware.ts
+apps/web/app/(auth)/sign-in/page.tsx
+apps/web/app/(auth)/sign-up/page.tsx
+apps/web/src/auth/clerk-provider.tsx
+apps/web/src/auth/clerk-token.ts
+apps/web/src/auth/require-auth.tsx
+```
+
+Required API work:
+
+```text
+apps/api/src/auth/providers/clerk-auth-provider.ts
+apps/api/src/auth/jwt/jwks-client.ts
+apps/api/src/auth/jwt/jwt-verifier.ts
+apps/api/src/auth/current-user.decorator.ts
+apps/api/src/auth/roles.decorator.ts
+apps/api/src/auth/roles.guard.ts
+```
+
+Required behavior:
+
+- Login.
 - Logout.
 - Session refresh.
+- Organization/workspace selection.
+- Invitation flow, if enabled for hosted beta.
+- Provider webhook or sync job to upsert local users/workspaces/memberships.
+- Fallback local auth remains available only for development/local deployment.
+
+Security rules:
+
+- Hosted mode ignores `x-user-id` and `x-workspace-id`.
+- Hosted mode does not trust `workspace_id` in body without matching the active
+  authenticated workspace.
+- No JWT or refresh token is stored in localStorage.
+- No auth secret is exposed through `NEXT_PUBLIC_*`.
+- API returns stable `401 unauthenticated` and `403 workspace_forbidden`
+  envelopes.
+
+Alternatives:
+
+- Use Better Auth if the owner confirms self-hosted/no-vendor auth is required.
+- Use Auth0 if the owner confirms enterprise SSO/B2B IAM is required before
+  broader product work.
 
 Done when:
 
 - Browser cannot spoof `x-user-id` or `x-workspace-id`.
+- NestJS, not the browser, derives user/workspace identity.
+- Workspace isolation tests pass for all user-facing routes.
+- Owner has explicitly accepted Clerk, Better Auth, or Auth0 as the hosted auth
+  provider.
 
 ### PROD-1902 - Workspace RBAC
 
@@ -2042,13 +2799,16 @@ viewer
 Rules:
 
 - Every read/write checks workspace membership.
-- Editors can create runs, decisions, reviews, watchlist items.
+- Analysts can create runs and manage watchlists.
+- Reviewers can record decisions and outcome reviews.
 - Viewers can read only.
-- Owners can manage workspace/users/settings.
+- Owners can manage workspace, members, settings, exports, and provider config.
+- Role checks are centralized in API policies.
 
 Done when:
 
 - Workspace A cannot read or mutate Workspace B records in tests.
+- Role tests cover owner, analyst, reviewer, and viewer for every mutation.
 
 ### PROD-1903 - BullMQ and dedicated Python workers
 

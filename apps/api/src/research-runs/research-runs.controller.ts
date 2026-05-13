@@ -1,10 +1,29 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 import { ResearchRunsService } from './research-runs.service';
 
 @Controller('research-runs')
 export class ResearchRunsController {
   constructor(private readonly researchRuns: ResearchRunsService) {}
+
+  @Get()
+  list(
+    @Query('symbol') symbol?: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.list(
+      {
+        symbol,
+        status,
+        limit: Number(limit ?? 50),
+      },
+      userId,
+      workspaceId,
+    );
+  }
 
   @Post()
   create(

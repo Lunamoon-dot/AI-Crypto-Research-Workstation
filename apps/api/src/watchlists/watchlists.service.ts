@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   JOURNAL_REPOSITORY,
   JournalRepository,
@@ -10,6 +10,8 @@ import {
   toWatchlistResponse,
 } from '../contracts/frontend-contract';
 import { AddWatchlistItemDto } from './dto/add-watchlist-item.dto';
+import { CreateWatchlistDto } from './dto/create-watchlist.dto';
+import { UpdateWatchlistDto } from './dto/update-watchlist.dto';
 
 @Injectable()
 export class WatchlistsService {
@@ -26,8 +28,55 @@ export class WatchlistsService {
       workspaceHeader,
       'viewer',
     );
-    const watchlists = await this.journal.listWatchlists(limit, workspaceId);
+    const watchlists = await this.journal.listWatchlists(
+      normalizeLimit(limit),
+      workspaceId,
+    );
     return watchlists.map(toWatchlistResponse);
+  }
+
+  async create(
+    dto: CreateWatchlistDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const watchlist = await this.journal.createWatchlist(
+      { name: dto.name.trim(), enabled: dto.enabled },
+      workspaceId,
+    );
+    return toWatchlistResponse(watchlist);
+  }
+
+  async get(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const watchlist = await this.journal.getWatchlist(id, workspaceId);
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    return toWatchlistResponse(watchlist);
+  }
+
+  async items(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const watchlist = await this.journal.getWatchlist(id, workspaceId);
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    const items = await this.journal.listWatchlistItems(id, workspaceId);
+    return items.map(toWatchlistItemResponse);
   }
 
   async addItem(
@@ -45,6 +94,42 @@ export class WatchlistsService {
     return toWatchlistItemResponse(item);
   }
 
+  async update(
+    id: string,
+    dto: UpdateWatchlistDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const watchlist = await this.journal.updateWatchlist(
+      id,
+      {
+        name: dto.name?.trim(),
+        enabled: dto.enabled,
+      },
+      workspaceId,
+    );
+    return toWatchlistResponse(watchlist);
+  }
+
+  async removeItem(
+    id: string,
+    itemId: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    return this.journal.removeWatchlistItem(id, itemId, workspaceId);
+  }
+
   private async resolveWorkspace(
     userId?: string,
     workspaceHeader?: string,
@@ -55,4 +140,11 @@ export class WatchlistsService {
     await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
+}
+
+function normalizeLimit(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 50;
+  }
+  return Math.min(Math.max(Math.trunc(value), 1), 100);
 }

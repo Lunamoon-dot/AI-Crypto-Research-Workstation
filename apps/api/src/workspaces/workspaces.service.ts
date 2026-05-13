@@ -4,8 +4,7 @@ import {
   Injectable,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
 
 export type WorkspaceRole = 'viewer' | 'editor' | 'admin' | 'owner';
 
@@ -24,19 +23,18 @@ const ROLE_RANK: Record<WorkspaceRole, number> = {
 
 @Injectable()
 export class WorkspacesService implements OnModuleDestroy {
-  private readonly client?: PrismaClient;
+  private readonly pool?: Pool;
   private staticMemberships: WorkspaceMembership[] | undefined;
 
   constructor() {
-    if (process.env.DATABASE_URL) {
-      this.client = new PrismaClient({
-        adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-      });
+    const databaseUrl = process.env.DATABASE_URL;
+    if (databaseUrl) {
+      this.pool = new Pool({ connectionString: databaseUrl });
     }
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.client?.$disconnect();
+    await this.pool?.end();
   }
 
   resolveWorkspace(workspaceId?: string): string {
@@ -100,14 +98,17 @@ export class WorkspacesService implements OnModuleDestroy {
     if (staticMembership) {
       return staticMembership;
     }
-    if (this.client) {
-      const rows = await this.client.$queryRaw`
+    if (this.pool) {
+      const result = await this.pool.query(
+        `
         SELECT user_id, workspace_id, role
         FROM workspace_memberships
-        WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
+        WHERE user_id = $1 AND workspace_id = $2
         LIMIT 1
-      `;
-      const row = Array.isArray(rows) ? rows[0] : undefined;
+        `,
+        [userId, workspaceId],
+      );
+      const row = result.rows[0];
       return row ? membershipFromRow(row) : null;
     }
     return null;

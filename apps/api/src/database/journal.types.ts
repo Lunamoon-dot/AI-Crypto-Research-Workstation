@@ -12,6 +12,14 @@ export interface EngineRunRequest {
 }
 
 export interface JournalRepository {
+  listResearchRuns(
+    filters: {
+      symbol?: string;
+      status?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   getResearchRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]>;
   getMarketSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
@@ -42,9 +50,28 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  createWatchlist(
+    input: { name: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  getWatchlist(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  listWatchlistItems(
+    watchlistId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   addWatchlistItem(
     watchlistId: string,
     item: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  updateWatchlist(
+    id: string,
+    input: { name?: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  removeWatchlistItem(
+    watchlistId: string,
+    itemId: string,
     workspaceId: string,
   ): Promise<JsonRecord>;
   listDailyBriefs(

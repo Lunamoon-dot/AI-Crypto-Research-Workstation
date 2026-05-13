@@ -34,6 +34,23 @@ export class ResearchRunsService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
+  async list(
+    filters: { symbol?: string; status?: string; limit?: number },
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
+    const runs = await this.journal.listResearchRuns(
+      {
+        symbol: normalizeOptional(filters.symbol),
+        status: normalizeOptional(filters.status),
+        limit: normalizeLimit(filters.limit),
+      },
+      workspaceId,
+    );
+    return runs.map(toResearchRunResponse);
+  }
+
   async create(
     dto: CreateResearchRunDto,
     userId?: string,
@@ -193,4 +210,16 @@ function stringField(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+function normalizeOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 50;
+  }
+  return Math.min(Math.max(Math.trunc(value), 1), 100);
 }

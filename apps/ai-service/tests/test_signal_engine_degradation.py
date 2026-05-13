@@ -67,9 +67,10 @@ def test_signal_engine_records_failed_factor_as_degradation(monkeypatch):
     assert "Signal factors unavailable" in result.to_prompt_block()
 
     composite = signal_result_to_domain_signals(result)[0]
-    assert "signal_factor_macd_failed" in composite.provenance.metadata[
-        "missing_optional_data"
-    ]
+    assert (
+        "signal_factor_macd_failed"
+        in composite.provenance.metadata["missing_optional_data"]
+    )
     assert composite.provenance.metadata["factor_failures"][0]["factor"] == "macd"
     assert composite.evidence["factor_failures"][0]["reason"] == (
         "signal_factor_macd_failed"
@@ -101,10 +102,14 @@ def test_precompute_quant_signal_preserves_engine_degradation(monkeypatch):
             return _OHLCV_CSV
         raise RuntimeError("optional provider unavailable")
 
-    monkeypatch.setattr(quant_signals, "_get_signal_engine", lambda config: FakeEngine())
+    monkeypatch.setattr(
+        quant_signals, "_get_signal_engine", lambda config: FakeEngine()
+    )
     monkeypatch.setattr(quant_signals, "route_to_vendor", fake_route)
 
-    _prompt, result = quant_signals.precompute_quant_signal({}, "BTC/USDT", "2026-05-13")
+    _prompt, result = quant_signals.precompute_quant_signal(
+        {}, "BTC/USDT", "2026-05-13"
+    )
 
     assert "signal_factor_macd_failed" in result.missing_optional_data
     assert "missing_funding_rate" in result.missing_optional_data

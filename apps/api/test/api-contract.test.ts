@@ -20,6 +20,7 @@ import {
 import { AuthService } from '../src/auth/auth.service';
 import { WorkspacesService } from '../src/workspaces/workspaces.service';
 import { JobsService } from '../src/jobs/jobs.service';
+import { JobsController } from '../src/jobs/jobs.controller';
 import { PythonEngineClient } from '../src/jobs/python-engine.client';
 import { ResearchRunsController } from '../src/research-runs/research-runs.controller';
 import { CreateResearchRunDto } from '../src/research-runs/dto/create-research-run.dto';
@@ -41,6 +42,7 @@ class FakeJournalRepository implements JournalRepository {
   readonly scenarios = new Map<string, JsonRecord[]>();
   readonly signals: JsonRecord[] = [];
   readonly watchlists: JsonRecord[] = [];
+  readonly watchlistItems: JsonRecord[] = [];
   readonly briefs: JsonRecord[] = [];
   readonly alerts: JsonRecord[] = [];
   readonly decisionCalls: Array<{
@@ -55,6 +57,17 @@ class FakeJournalRepository implements JournalRepository {
     notes: string;
     workspaceId: string;
   }> = [];
+
+  async listResearchRuns(
+    filters: { symbol?: string; status?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.researchRuns.values()]
+      .filter((run) => run.workspace_id === workspaceId)
+      .filter((run) => !filters.symbol || run.symbol === filters.symbol)
+      .filter((run) => !filters.status || run.status === filters.status)
+      .slice(0, filters.limit);
+  }
 
   async getResearchRun(
     id: string,
@@ -161,6 +174,40 @@ class FakeJournalRepository implements JournalRepository {
       .slice(0, limit);
   }
 
+  async createWatchlist(
+    input: { name: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const watchlist = {
+      id: `watch_${this.watchlists.length + 1}`,
+      workspace_id: workspaceId,
+      name: input.name,
+      enabled: input.enabled ?? true,
+      created_at: '2026-05-12T00:00:00.000Z',
+    };
+    this.watchlists.unshift(watchlist);
+    return watchlist;
+  }
+
+  async getWatchlist(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    return (
+      this.watchlists.find(
+        (watchlist) =>
+          watchlist.id === id && watchlist.workspace_id === workspaceId,
+      ) ?? null
+    );
+  }
+
+  async listWatchlistItems(
+    watchlistId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.watchlistItems.filter(
+      (item) =>
+        item.watchlist_id === watchlistId && item.workspace_id === workspaceId,
+    );
+  }
+
   async addWatchlistItem(
     watchlistId: string,
     item: JsonRecord,
@@ -173,8 +220,8 @@ class FakeJournalRepository implements JournalRepository {
     if (!exists) {
       throw new NotFoundException(`Watchlist ${watchlistId} not found`);
     }
-    return {
-      id: 'watch_item_1',
+    const created = {
+      id: `watch_item_${this.watchlistItems.length + 1}`,
       workspace_id: workspaceId,
       watchlist_id: watchlistId,
       item_type: item.item_type ?? 'symbol',
@@ -183,6 +230,49 @@ class FakeJournalRepository implements JournalRepository {
       setup_type: item.setup_type ?? null,
       enabled: true,
       created_at: '2026-05-12T00:00:00.000Z',
+    };
+    this.watchlistItems.unshift(created);
+    return created;
+  }
+
+  async updateWatchlist(
+    id: string,
+    input: { name?: string; enabled?: boolean },
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const watchlist = await this.getWatchlist(id, workspaceId);
+    if (!watchlist) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    if (input.name !== undefined) {
+      watchlist.name = input.name;
+    }
+    if (input.enabled !== undefined) {
+      watchlist.enabled = input.enabled;
+    }
+    return watchlist;
+  }
+
+  async removeWatchlistItem(
+    watchlistId: string,
+    itemId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const index = this.watchlistItems.findIndex(
+      (item) =>
+        item.id === itemId &&
+        item.watchlist_id === watchlistId &&
+        item.workspace_id === workspaceId,
+    );
+    if (index === -1) {
+      throw new NotFoundException(`Watchlist item ${itemId} not found`);
+    }
+    this.watchlistItems.splice(index, 1);
+    return {
+      id: itemId,
+      workspace_id: workspaceId,
+      watchlist_id: watchlistId,
+      removed: true,
     };
   }
 
@@ -316,6 +406,39 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
   ]);
 });
 
+test('GET /research-runs lists only the active workspace and filters runs', async () => {
+  const { journal, researchRuns } = buildHarness();
+  journal.researchRuns.set(key('run_btc', 'workspace_a'), {
+    id: 'run_btc',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    status: 'completed',
+  });
+  journal.researchRuns.set(key('run_eth', 'workspace_a'), {
+    id: 'run_eth',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    status: 'failed',
+  });
+  journal.researchRuns.set(key('run_other', 'workspace_b'), {
+    id: 'run_other',
+    workspace_id: 'workspace_b',
+    symbol: 'BTC/USDT',
+    status: 'completed',
+  });
+
+  const runs = await researchRuns.list(
+    { symbol: 'BTC/USDT', status: 'completed', limit: 50 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.deepEqual(
+    runs.map((run) => run.id),
+    ['run_btc'],
+  );
+});
+
 test('POST /research-runs passes explicit market_type to engine request', async () => {
   const { researchRunsController, jobs } = buildHarness();
 
@@ -417,8 +540,25 @@ test('JobsService memory mode queues requests when Redis and inline are disabled
       assert.deepEqual(listed, [request]);
       listed.length = 0;
       assert.equal(jobs.listMemoryJobs().length, 1);
+      const status = await jobs.getJobStatus('run_memory');
+      assert.equal(status.status, 'queued');
+      assert.equal(status.workspace_id, 'workspace_a');
       await jobs.onModuleDestroy();
     },
+  );
+});
+
+test('GET /jobs/:id exposes workspace-scoped job status', async () => {
+  const { jobs, jobsController } = buildHarness();
+  await jobs.enqueueResearchRun(engineRequest('run_status'));
+
+  const status = await jobsController.get('run_status', 'user_1', 'workspace_a');
+
+  assert.equal(status.run_id, 'run_status');
+  assert.equal(status.status, 'queued');
+  await assert.rejects(
+    () => jobsController.get('run_status', 'user_1', 'workspace_b'),
+    isException(NotFoundException),
   );
 });
 
@@ -629,6 +769,24 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
     'user_1',
     'workspace_a',
   );
+  const createdWatchlist = await watchlists.create(
+    { name: 'Momentum' },
+    'user_1',
+    'workspace_a',
+  );
+  const watchItems = await watchlists.items('watch_1', 'user_1', 'workspace_a');
+  const updatedWatchlist = await watchlists.update(
+    'watch_1',
+    { name: 'Core renamed', enabled: false },
+    'user_1',
+    'workspace_a',
+  );
+  const removedItem = await watchlists.removeItem(
+    'watch_1',
+    item.id ?? '',
+    'user_1',
+    'workspace_a',
+  );
   const dailyBriefs = await briefs.daily(
     '2026-05-12',
     20,
@@ -639,7 +797,12 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
   assert.equal(thesis.summary.entry_zone, '180');
   assert.deepEqual(thesis.summary.target_zones, ['160']);
   assert.equal(listedWatchlists[0]?.enabled, true);
+  assert.equal(createdWatchlist.name, 'Momentum');
   assert.equal(item.workspace_id, 'workspace_a');
+  assert.equal(watchItems[0]?.id, item.id);
+  assert.equal(updatedWatchlist.name, 'Core renamed');
+  assert.equal(updatedWatchlist.enabled, false);
+  assert.equal(removedItem.removed, true);
   assert.equal(dailyBriefs[0]?.summary, 'Risk-on tone.');
   assert.deepEqual(dailyBriefs[0]?.thesis_ids, ['thesis_2']);
 });
@@ -887,6 +1050,7 @@ function buildHarness() {
     jobs,
     researchRuns,
     researchRunsController: new ResearchRunsController(researchRuns),
+    jobsController: new JobsController(jobs, auth, workspaces),
     signals: new SignalsService(journal, auth, workspaces),
     theses: new ThesesService(journal, auth, workspaces),
     watchlists: new WatchlistsService(journal, auth, workspaces),

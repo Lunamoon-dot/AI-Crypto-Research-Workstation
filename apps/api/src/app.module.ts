@@ -3,6 +3,7 @@ import { AlertsModule } from './alerts/alerts.module';
 import { AuthModule } from './auth/auth.module';
 import { BriefsModule } from './briefs/briefs.module';
 import { DatabaseModule } from './database/database.module';
+import { JobsController } from './jobs/jobs.controller';
 import { JobsModule } from './jobs/jobs.module';
 import { JournalModule } from './journal/journal.module';
 import { ResearchRunsModule } from './research-runs/research-runs.module';
@@ -27,5 +28,6 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     BriefsModule,
     AlertsModule,
   ],
+  controllers: [JobsController],
 })
 export class AppModule {}
