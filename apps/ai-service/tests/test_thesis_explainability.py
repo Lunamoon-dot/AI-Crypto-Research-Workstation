@@ -67,7 +67,10 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     assert "structured_summary_missing" in thesis.structured_summary.degradation_reasons
     assert "entry_zone_from_prose" in thesis.structured_summary.degradation_reasons
     assert thesis.structured_summary.market_type == "perp"
-    assert thesis.structured_summary.missing_data == ["regime: unknown", "funding: stale"]
+    assert thesis.structured_summary.missing_data == [
+        "regime: unknown",
+        "funding: stale",
+    ]
 
 
 def test_graph_builds_thesis_from_structured_summary_json_first():
@@ -118,7 +121,10 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     assert thesis.structured_summary is not None
     assert thesis.structured_summary.is_degraded is False
     assert thesis.structured_summary.market_type == "perp"
-    assert thesis.structured_summary.perp_notes == "Funding is elevated; cap leverage at 2x."
+    assert (
+        thesis.structured_summary.perp_notes
+        == "Funding is elevated; cap leverage at 2x."
+    )
     assert thesis.structured_summary.missing_data == ["liquidation heatmap"]
 
 

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, cast
 
+from langgraph.checkpoint.base import CheckpointMetadata
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from tradingagents.dataflows.utils import safe_ticker_component
@@ -32,8 +33,9 @@ class _JsonSafeSqliteSaver(SqliteSaver):
         # LangGraph stores the actual checkpoint and pending writes separately.
         # The metadata copy of node writes can contain BaseMessages, Pydantic
         # models, and other app objects that stdlib JSON cannot encode.
-        metadata_without_writes = dict(metadata)
-        metadata_without_writes.pop("writes", None)
+        metadata_dict = dict(metadata)
+        metadata_dict.pop("writes", None)
+        metadata_without_writes = cast(CheckpointMetadata, metadata_dict)
         return super().put(
             config,
             checkpoint,

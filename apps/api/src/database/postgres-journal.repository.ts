@@ -21,7 +21,28 @@ export class PostgresJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      'SELECT payload_json FROM research_runs WHERE id = $1 AND workspace_id = $2',
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'asset_class', asset_class,
+         'timeframe', timeframe,
+         'status', status,
+         'started_at', started_at,
+         'completed_at', completed_at,
+         'market_snapshot_id', market_snapshot_id,
+         'signal_snapshot_id', signal_snapshot_id,
+         'debate_id', debate_id,
+         'thesis_id', thesis_id,
+         'decision_id', decision_id,
+         'user_decision_id', user_decision_id,
+         'outcome_review_id', outcome_review_id,
+         'degradation_reasons', degradation_reasons_json,
+         'missing_core_data', missing_core_data_json,
+         'missing_optional_data', missing_optional_data_json
+       ) AS payload_json
+       FROM research_runs
+       WHERE id = $1 AND workspace_id = $2`,
       [id, workspaceId],
     );
   }
@@ -45,6 +66,96 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async getMarketSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'captured_at', captured_at,
+         'current_price', current_price,
+         'source', source,
+         'source_timestamp', source_timestamp,
+         'payload', payload_json
+       ) AS payload_json
+       FROM market_snapshots
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async getSignalSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'captured_at', captured_at,
+         'composite_signal_id', composite_signal_id,
+         'signal_count', signal_count,
+         'bullish_count', bullish_count,
+         'bearish_count', bearish_count,
+         'neutral_count', neutral_count,
+         'stale_count', stale_count,
+         'unknown_freshness_count', unknown_freshness_count,
+         'payload', payload_json
+       ) AS payload_json
+       FROM signal_snapshots
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async getDebate(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'consensus_stance', consensus_stance,
+         'conflict_level', conflict_level,
+         'created_at', created_at,
+         'payload', payload_json
+       ) AS payload_json
+       FROM debates
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listAgentOpinions(
+    debateId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'debate_id', debate_id,
+         'research_run_id', research_run_id,
+         'agent_name', agent_name,
+         'agent_role', agent_role,
+         'stance', stance,
+         'confidence', confidence,
+         'created_at', created_at,
+         'payload', payload_json
+       ) AS payload_json
+       FROM agent_opinions
+       WHERE debate_id = $1 AND workspace_id = $2
+       ORDER BY created_at ASC, id ASC`,
+      [debateId, workspaceId],
+    );
+  }
+
   async listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT payload_json FROM trade_theses
@@ -59,6 +170,26 @@ export class PostgresJournalRepository implements JournalRepository {
     return this.one(
       'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
       [id, workspaceId],
+    );
+  }
+
+  async listScenarios(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'thesis_id', thesis_id,
+         'probability_band', probability_band,
+         'suggested_user_action', suggested_user_action,
+         'payload', payload_json
+       ) AS payload_json
+       FROM scenarios
+       WHERE thesis_id = $1 AND workspace_id = $2
+       ORDER BY id ASC`,
+      [thesisId, workspaceId],
     );
   }
 
@@ -217,6 +348,77 @@ export class PostgresJournalRepository implements JournalRepository {
        LIMIT $2`,
       [workspaceId, limit],
     );
+  }
+
+  async listAlerts(
+    symbol: string | undefined,
+    thesisId: string | undefined,
+    unreadOnly: boolean,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const filters = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (symbol) {
+      params.push(symbol);
+      filters.push(`symbol = $${params.length}`);
+    }
+    if (thesisId) {
+      params.push(thesisId);
+      filters.push(`thesis_id = $${params.length}`);
+    }
+    if (unreadOnly) {
+      filters.push('read_at IS NULL');
+    }
+    params.push(limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'alert_type', alert_type,
+         'symbol', symbol,
+         'thesis_id', thesis_id,
+         'watchlist_item_id', watchlist_item_id,
+         'trigger_key', trigger_key,
+         'created_at', created_at,
+         'read_at', read_at,
+         'message', message,
+         'payload', payload_json
+       ) AS payload_json
+       FROM alerts
+       WHERE ${filters.join(' AND ')}
+       ORDER BY created_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
+  async markAlertRead(id: string, workspaceId: string): Promise<JsonRecord> {
+    const readAt = new Date().toISOString();
+    const alert = await this.one(
+      `UPDATE alerts
+       SET read_at = COALESCE(read_at, $3),
+           payload_json = payload_json || jsonb_build_object('read_at', COALESCE(read_at, $3))
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'alert_type', alert_type,
+         'symbol', symbol,
+         'thesis_id', thesis_id,
+         'watchlist_item_id', watchlist_item_id,
+         'trigger_key', trigger_key,
+         'created_at', created_at,
+         'read_at', read_at,
+         'message', message,
+         'payload', payload_json
+       ) AS payload_json`,
+      [id, workspaceId, readAt],
+    );
+    if (!alert) {
+      throw new NotFoundException(`Alert ${id} not found`);
+    }
+    return alert;
   }
 
   private async one(sql: string, params: unknown[]): Promise<JsonRecord | null> {

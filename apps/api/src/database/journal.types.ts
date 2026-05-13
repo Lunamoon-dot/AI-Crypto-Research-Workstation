@@ -14,8 +14,16 @@ export interface EngineRunRequest {
 export interface JournalRepository {
   getResearchRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]>;
+  getMarketSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getSignalSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getDebate(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  listAgentOpinions(
+    debateId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]>;
   getThesis(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  listScenarios(thesisId: string, workspaceId: string): Promise<JsonRecord[]>;
   recordThesisDecision(
     thesisId: string,
     action: string,
@@ -44,6 +52,14 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
+  listAlerts(
+    symbol: string | undefined,
+    thesisId: string | undefined,
+    unreadOnly: boolean,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  markAlertRead(id: string, workspaceId: string): Promise<JsonRecord>;
 }
 
 export const JOURNAL_REPOSITORY = Symbol('JOURNAL_REPOSITORY');

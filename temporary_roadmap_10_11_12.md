@@ -25,9 +25,11 @@
 - [x] Monorepo app structure exists: `apps/api`, `apps/web`, and existing Python `tradingagents`.
 - [x] NestJS modules exist for auth, users, workspaces, research runs, theses, signals, watchlists, briefs, and jobs.
 - [x] Core REST endpoints are implemented for research runs, run events, theses, thesis decisions/reviews, signals, watchlists, watchlist items, and daily briefs.
+- [x] High-priority workstation read endpoints are implemented for journal workspace, run snapshots, run debate, thesis scenarios, and alerts.
 - [x] Job orchestration boundary accepts validated NestJS requests and enqueues through BullMQ/Redis when configured, with memory and inline-worker fallbacks for local/dev.
 - [x] Python worker boundary uses the stable request/result JSON contract.
-- [x] NestJS reads product records from a Postgres-oriented journal repository; local Python SQLite mode remains supported.
+- [x] Local Postgres is the current Prisma target while implementation focus stays on `apps/ai-service`.
+- [x] Prisma schema/client generation lives in `packages/database/prisma/schema.prisma`; hosted/NestJS `DATABASE_URL` can be added later.
 - [x] SQLite-to-Postgres migration strategy is documented in `docs/postgres-migration-strategy.md`.
 
 Đúng, cách nghĩ đó chuẩn hơn: Python nên là công nghệ lõi/engine, không phải backend sản phẩm chính.
@@ -62,9 +64,9 @@ billing sau này
 đọc kết quả từ DB và trả cho frontend
 Database
 
-Postgres cho hosted/cloud
-SQLite chỉ nên là local mode
-schema phải đủ rõ để NestJS đọc/ghi các entity sản phẩm
+Local Postgres is the temporary database target.
+SQLite remains the current ai-service journal until migration work is resumed.
+The schema must stay clear enough for NestJS to read/write product entities later.
 Queue
 
 BullMQ/Redis hoặc Temporal sau này
@@ -232,9 +234,9 @@ Python ghi events/results vào DB.
 NestJS đọc DB trả status/result.
 Database direction:
 
-Local mode: SQLite vẫn OK.
-Cloud/NestJS mode: Postgres nên là target.
-Cần migration strategy từ SQLite domain sang Postgres schema.
+Local mode: ai-service remains the focus.
+Database target now: local Postgres through Prisma.
+Hosted/NestJS DATABASE_URL can be added later.
 Python worker boundary:
 Request shape:
 

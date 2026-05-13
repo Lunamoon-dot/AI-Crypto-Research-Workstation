@@ -245,8 +245,8 @@ def _validated_structured_summary(
         or contradictions[:3]
         or ["Manual review required before changing thesis stance."]
     )
-    summary_payload["missing_data"] = summary_payload.get("missing_data") or (
-        stale_or_missing_data[:3]
+    summary_payload["missing_data"] = (
+        summary_payload.get("missing_data") or (stale_or_missing_data[:3])
     )
 
     try:

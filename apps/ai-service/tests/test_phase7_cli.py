@@ -452,9 +452,7 @@ def test_journal_workspace_json_returns_structured_payload(tmp_path, monkeypatch
     )
 
 
-def test_research_workspace_alias_delegates_to_journal_workspace(
-    tmp_path, monkeypatch
-):
+def test_research_workspace_alias_delegates_to_journal_workspace(tmp_path, monkeypatch):
     _patch_journal_default_config(monkeypatch, tmp_path)
     config = {
         "data_cache_dir": str(tmp_path / "cache"),

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 FRESHNESS_WINDOW = timedelta(hours=24)
 
+
 def signal_score_to_direction(score: SignalScore) -> SignalDirection:
     """Map the quant layer's 5-tier score to journal signal direction."""
     if score in (SignalScore.STRONG_BUY, SignalScore.BUY):
@@ -291,7 +292,11 @@ def _lane_evidence(factors: list[FactorSignal]) -> dict[str, dict[str, list[dict
     for factor in factors:
         signal_type = canonical_signal_type(factor.name)
         lane, category = classify_evidence_lane(signal_type)
-        lane_key = lane.value if lane in (SignalEvidenceLane.SPOT, SignalEvidenceLane.PERP) else "unknown"
+        lane_key = (
+            lane.value
+            if lane in (SignalEvidenceLane.SPOT, SignalEvidenceLane.PERP)
+            else "unknown"
+        )
         grouped[lane_key].setdefault(category, []).append(
             {
                 "signal_type": signal_type,

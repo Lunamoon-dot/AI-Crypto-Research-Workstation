@@ -90,7 +90,7 @@ def _format_reliability(signal: Signal) -> str:
 
 
 def _signals_by_lane(signals: list[Signal]) -> dict[str, list[Signal]]:
-    grouped = {lane: [] for lane in LANE_ORDER}
+    grouped: dict[str, list[Signal]] = {lane: [] for lane in LANE_ORDER}
     for signal in signals:
         grouped.setdefault(_lane(signal), []).append(signal)
     return grouped
@@ -214,9 +214,7 @@ def _emit_snapshot(
     plain: bool,
 ) -> None:
     if json_out:
-        print_json_stdout(
-            _bundle_payload(run=run, snapshot=snapshot, signals=signals)
-        )
+        print_json_stdout(_bundle_payload(run=run, snapshot=snapshot, signals=signals))
         return
     if plain:
         print_plain_stdout(
@@ -363,9 +361,7 @@ def signals_explain(
             {
                 "signal": _signal_payload(signal),
                 "run": run.model_dump(mode="json") if run else None,
-                "signal_snapshot": (
-                    _snapshot_payload(snapshot) if snapshot else None
-                ),
+                "signal_snapshot": (_snapshot_payload(snapshot) if snapshot else None),
             }
         )
         return

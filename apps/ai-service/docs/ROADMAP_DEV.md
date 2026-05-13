@@ -21,7 +21,7 @@ This section replaces the old branch-specific narrative. Update it when architec
 - **Config:** `signal_weights`, `signal_thresholds`, and `fixed_sizing` are **research / display knobs**, not live sizing engines.
 - **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts — parsed from graph state after each run.
 - **CLI:** Run `python -m cli.main --help` for truth; expect `analyze`, `research`, `journal`, `thesis`, `signals`, `watchlist`, `dashboard`, `config`, `brief`, `evaluate`.
-- **Tests:** `python -m pytest -q` currently passes locally with 503 tests passed, 1 skipped when `hypothesis` is missing, and 42 subtests passed. `ruff`, `ruff format --check`, and `mypy tradingagents cli` are required gates.
+- **Tests:** `python -m pytest` currently passes locally with 573 tests. `ruff`, `ruff format --check`, and `mypy tradingagents cli` are required gates.
 
 Phase sections below state **intent**; partial implementations should track acceptance criteria as backlog.
 

@@ -1,6 +1,15 @@
+import 'reflect-metadata';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
+import type { ArgumentMetadata } from '@nestjs/common';
 import {
   EngineRunRequest,
   JournalRepository,
@@ -9,20 +18,29 @@ import {
 import { AuthService } from '../src/auth/auth.service';
 import { WorkspacesService } from '../src/workspaces/workspaces.service';
 import { JobsService } from '../src/jobs/jobs.service';
+import { PythonEngineClient } from '../src/jobs/python-engine.client';
 import { ResearchRunsController } from '../src/research-runs/research-runs.controller';
+import { CreateResearchRunDto } from '../src/research-runs/dto/create-research-run.dto';
 import { ResearchRunsService } from '../src/research-runs/research-runs.service';
 import { SignalsService } from '../src/signals/signals.service';
 import { ThesesService } from '../src/theses/theses.service';
 import { WatchlistsService } from '../src/watchlists/watchlists.service';
 import { BriefsService } from '../src/briefs/briefs.service';
+import { AlertsService } from '../src/alerts/alerts.service';
 
 class FakeJournalRepository implements JournalRepository {
   readonly researchRuns = new Map<string, JsonRecord>();
   readonly events = new Map<string, JsonRecord[]>();
+  readonly marketSnapshots = new Map<string, JsonRecord>();
+  readonly signalSnapshots = new Map<string, JsonRecord>();
+  readonly debates = new Map<string, JsonRecord>();
+  readonly agentOpinions = new Map<string, JsonRecord[]>();
   readonly theses = new Map<string, JsonRecord>();
+  readonly scenarios = new Map<string, JsonRecord[]>();
   readonly signals: JsonRecord[] = [];
   readonly watchlists: JsonRecord[] = [];
   readonly briefs: JsonRecord[] = [];
+  readonly alerts: JsonRecord[] = [];
   readonly decisionCalls: Array<{
     thesisId: string;
     action: string;
@@ -47,6 +65,31 @@ class FakeJournalRepository implements JournalRepository {
     return this.events.get(key(runId, workspaceId)) ?? [];
   }
 
+  async getMarketSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.marketSnapshots.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getSignalSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.signalSnapshots.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getDebate(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    return this.debates.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listAgentOpinions(
+    debateId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.agentOpinions.get(key(debateId, workspaceId)) ?? [];
+  }
+
   async listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return [...this.theses.values()]
       .filter((thesis) => thesis.workspace_id === workspaceId)
@@ -55,6 +98,13 @@ class FakeJournalRepository implements JournalRepository {
 
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listScenarios(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.scenarios.get(key(thesisId, workspaceId)) ?? [];
   }
 
   async recordThesisDecision(
@@ -144,6 +194,33 @@ class FakeJournalRepository implements JournalRepository {
       .filter((brief) => !date || brief.brief_date === date)
       .slice(0, limit);
   }
+
+  async listAlerts(
+    symbol: string | undefined,
+    thesisId: string | undefined,
+    unreadOnly: boolean,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.alerts
+      .filter((alert) => alert.workspace_id === workspaceId)
+      .filter((alert) => !symbol || alert.symbol === symbol)
+      .filter((alert) => !thesisId || alert.thesis_id === thesisId)
+      .filter((alert) => !unreadOnly || !alert.read_at)
+      .slice(0, limit);
+  }
+
+  async markAlertRead(id: string, workspaceId: string): Promise<JsonRecord> {
+    const alert = this.alerts.find(
+      (candidate) =>
+        candidate.id === id && candidate.workspace_id === workspaceId,
+    );
+    if (!alert) {
+      throw new NotFoundException(`Alert ${id} not found`);
+    }
+    alert.read_at = alert.read_at ?? '2026-05-12T00:00:00.000Z';
+    return alert;
+  }
 }
 
 test('POST /research-runs rejects x-workspace-id mismatches', async () => {
@@ -215,6 +292,164 @@ test('POST /research-runs passes explicit market_type to engine request', async 
   );
 
   assert.equal(jobs.listMemoryJobs()[0]?.market_type, 'perp');
+});
+
+test('CreateResearchRunDto rejects invalid boundary payloads', async () => {
+  const validPayload = {
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    analysis_date: '2026-05-12',
+    analysts: ['market'],
+  };
+  const invalidPayloads: JsonRecord[] = [
+    { ...validPayload, unexpected: true },
+    { ...validPayload, market_type: 'futures' },
+    { ...validPayload, symbol: '   ' },
+    { ...validPayload, workspace_id: '   ' },
+    { ...validPayload, analysts: [] },
+    { ...validPayload, analysts: ['market', '   '] },
+    { ...validPayload, analysis_date: 'not-a-date' },
+  ];
+
+  for (const payload of invalidPayloads) {
+    await assert.rejects(
+      () => validateCreateResearchRun(payload),
+      isException(BadRequestException),
+    );
+  }
+
+  const dto = await validateCreateResearchRun({
+    ...validPayload,
+    market_type: 'perp',
+  });
+  assert.equal(dto.workspace_id, 'workspace_a');
+  assert.equal(dto.market_type, 'perp');
+});
+
+test('JobsService inline mode returns engine result without memory queue', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'inline', REDIS_URL: undefined },
+    async () => {
+      let captured: EngineRunRequest | undefined;
+      const jobs = new JobsService({
+        runInline: async (request: EngineRunRequest) => {
+          captured = request;
+          return {
+            status: 'completed',
+            run_id: request.run_id,
+            workspace_id: request.workspace_id,
+          };
+        },
+      } as PythonEngineClient);
+
+      const result = await jobs.enqueueResearchRun(engineRequest('run_inline'));
+
+      assert.equal(result.backend, 'inline');
+      assert.match(result.id, /^inline_/);
+      assert.deepEqual(result.result, {
+        status: 'completed',
+        run_id: 'run_inline',
+        workspace_id: 'workspace_a',
+      });
+      assert.equal(captured?.run_id, 'run_inline');
+      assert.deepEqual(jobs.listMemoryJobs(), []);
+      await jobs.onModuleDestroy();
+    },
+  );
+});
+
+test('JobsService memory mode queues requests when Redis and inline are disabled', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: undefined, REDIS_URL: undefined },
+    async () => {
+      const jobs = new JobsService({
+        runInline: async () => {
+          throw new Error('inline engine should not run');
+        },
+      } as PythonEngineClient);
+      const request = engineRequest('run_memory');
+
+      const result = await jobs.enqueueResearchRun(request);
+      const listed = jobs.listMemoryJobs();
+
+      assert.deepEqual(result, { id: 'run_memory', backend: 'memory' });
+      assert.deepEqual(listed, [request]);
+      listed.length = 0;
+      assert.equal(jobs.listMemoryJobs().length, 1);
+      await jobs.onModuleDestroy();
+    },
+  );
+});
+
+test('PythonEngineClient resolves JSON output from the configured command', async () => {
+  const scriptPath = await writeEngineScript(`
+    const fs = require('node:fs');
+    const request = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+    process.stdout.write(JSON.stringify({
+      status: 'completed',
+      run_id: request.run_id,
+      workspace_id: request.workspace_id
+    }));
+  `);
+
+  await withEnv(
+    {
+      PYTHON_ENGINE_COMMAND: process.execPath,
+      PYTHON_ENGINE_ARGS: scriptPath,
+    },
+    async () => {
+      const result = await new PythonEngineClient().runInline(
+        engineRequest('run_python_success'),
+      );
+
+      assert.deepEqual(result, {
+        status: 'completed',
+        run_id: 'run_python_success',
+        workspace_id: 'workspace_a',
+      });
+    },
+  );
+});
+
+test('PythonEngineClient rejects non-zero engine exits with stderr', async () => {
+  const scriptPath = await writeEngineScript(`
+    process.stderr.write('engine failed');
+    process.exit(7);
+  `);
+
+  await withEnv(
+    {
+      PYTHON_ENGINE_COMMAND: process.execPath,
+      PYTHON_ENGINE_ARGS: scriptPath,
+    },
+    async () => {
+      await assert.rejects(
+        () => new PythonEngineClient().runInline(engineRequest('run_python_fail')),
+        (error: unknown) =>
+          error instanceof Error && /engine failed/.test(error.message),
+      );
+    },
+  );
+});
+
+test('PythonEngineClient rejects successful exits with invalid JSON stdout', async () => {
+  const scriptPath = await writeEngineScript(`
+    process.stdout.write('not json');
+  `);
+
+  await withEnv(
+    {
+      PYTHON_ENGINE_COMMAND: process.execPath,
+      PYTHON_ENGINE_ARGS: scriptPath,
+    },
+    async () => {
+      await assert.rejects(
+        () =>
+          new PythonEngineClient().runInline(engineRequest('run_python_bad_json')),
+        (error: unknown) => error instanceof SyntaxError,
+      );
+    },
+  );
 });
 
 test('read APIs scope research runs and signals to the request workspace', async () => {
@@ -368,6 +603,229 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
   assert.deepEqual(dailyBriefs[0]?.thesis_ids, ['thesis_2']);
 });
 
+test('research workspace exposes snapshots, debate, scenarios, and events', async () => {
+  const { journal, researchRuns, theses } = buildHarness();
+  journal.researchRuns.set(key('run_workspace', 'workspace_a'), {
+    id: 'run_workspace',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    status: 'completed',
+    market_snapshot_id: 'market_1',
+    signal_snapshot_id: 'snapshot_1',
+    debate_id: 'debate_1',
+    thesis_id: 'thesis_3',
+  });
+  journal.events.set(key('run_workspace', 'workspace_a'), [
+    {
+      id: 'event_1',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_workspace',
+      event_type: 'run.completed',
+      message: 'completed',
+      payload: { status: 'completed' },
+    },
+  ]);
+  journal.marketSnapshots.set(key('market_1', 'workspace_a'), {
+    id: 'market_1',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_workspace',
+    symbol: 'BTC/USDT',
+    current_price: '100100',
+    source: 'ccxt',
+  });
+  journal.signalSnapshots.set(key('snapshot_1', 'workspace_a'), {
+    id: 'snapshot_1',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_workspace',
+    symbol: 'BTC/USDT',
+    signal_count: 3,
+    bullish_count: 2,
+    bearish_count: 1,
+    neutral_count: 0,
+    stale_count: 0,
+    unknown_freshness_count: 0,
+  });
+  journal.debates.set(key('debate_1', 'workspace_a'), {
+    id: 'debate_1',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_workspace',
+    symbol: 'BTC/USDT',
+    consensus_stance: 'bullish',
+    conflict_level: 'medium',
+  });
+  journal.agentOpinions.set(key('debate_1', 'workspace_a'), [
+    {
+      id: 'opinion_1',
+      workspace_id: 'workspace_a',
+      debate_id: 'debate_1',
+      research_run_id: 'run_workspace',
+      agent_name: 'market_analyst',
+      agent_role: 'analyst',
+      stance: 'bullish',
+      confidence: '0.64',
+    },
+  ]);
+  journal.theses.set(key('thesis_3', 'workspace_a'), {
+    id: 'thesis_3',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_workspace',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    setup_type: 'trend_pullback',
+  });
+  journal.scenarios.set(key('thesis_3', 'workspace_a'), [
+    {
+      id: 'scenario_1',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_3',
+      probability_band: 'high',
+      suggested_user_action: 'watch',
+      payload: {
+        condition: 'Holds entry zone',
+        expected_behavior: 'Rotation higher',
+      },
+    },
+  ]);
+
+  const snapshots = await researchRuns.snapshots(
+    'run_workspace',
+    'user_1',
+    'workspace_a',
+  );
+  const debate = await researchRuns.debate(
+    'run_workspace',
+    'user_1',
+    'workspace_a',
+  );
+  const workspace = await researchRuns.workspace(
+    'run_workspace',
+    'user_1',
+    'workspace_a',
+  );
+  const scenarios = await theses.scenarios(
+    'thesis_3',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(snapshots.market_snapshot?.current_price, 100100);
+  assert.equal(snapshots.signal_snapshot?.signal_count, 3);
+  assert.equal(debate.debate?.consensus_stance, 'bullish');
+  assert.equal(debate.agent_opinions[0]?.confidence, 0.64);
+  assert.equal(workspace.events[0]?.event_type, 'run.completed');
+  assert.equal(workspace.thesis?.id, 'thesis_3');
+  assert.equal(scenarios[0]?.condition, 'Holds entry zone');
+});
+
+test('alerts list and read APIs are workspace scoped', async () => {
+  const { journal, alerts } = buildHarness();
+  journal.alerts.push(
+    {
+      id: 'alert_1',
+      workspace_id: 'workspace_a',
+      alert_type: 'scenario_activated',
+      symbol: 'SOL/USDT',
+      thesis_id: 'thesis_a',
+      created_at: '2026-05-12T00:00:00.000Z',
+      message: 'Scenario activated',
+    },
+    {
+      id: 'alert_2',
+      workspace_id: 'workspace_b',
+      alert_type: 'target_zone_reached',
+      symbol: 'SOL/USDT',
+      thesis_id: 'thesis_b',
+      created_at: '2026-05-12T00:00:00.000Z',
+      message: 'Target reached',
+    },
+  );
+
+  const unread = await alerts.list(
+    { symbol: 'SOL/USDT', unreadOnly: true },
+    'user_1',
+    'workspace_a',
+  );
+  const read = await alerts.markRead('alert_1', 'user_1', 'workspace_a');
+
+  assert.deepEqual(
+    unread.map((alert) => alert.id),
+    ['alert_1'],
+  );
+  assert.equal(read.read_at, '2026-05-12T00:00:00.000Z');
+  await assert.rejects(
+    () => alerts.markRead('alert_2', 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
+});
+
+const createResearchRunMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: CreateResearchRunDto,
+  data: '',
+};
+
+const createResearchRunPipe = new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+});
+
+async function validateCreateResearchRun(
+  payload: JsonRecord,
+): Promise<CreateResearchRunDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    createResearchRunMetadata,
+  )) as CreateResearchRunDto;
+}
+
+function engineRequest(runId: string): EngineRunRequest {
+  return {
+    run_id: runId,
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    market_type: 'spot',
+    analysis_date: '2026-05-12',
+    analysts: ['market'],
+    config_profile: 'default',
+  };
+}
+
+async function writeEngineScript(source: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'api-engine-client-'));
+  const scriptPath = join(dir, 'engine.js');
+  await writeFile(scriptPath, source, 'utf8');
+  return scriptPath;
+}
+
+async function withEnv<T>(
+  overrides: Record<string, string | undefined>,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const previous: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(overrides)) {
+    previous[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 function buildHarness() {
   const journal = new FakeJournalRepository();
   const auth = new AuthService();
@@ -388,6 +846,7 @@ function buildHarness() {
     theses: new ThesesService(journal, auth, workspaces),
     watchlists: new WatchlistsService(journal, auth, workspaces),
     briefs: new BriefsService(journal, auth, workspaces),
+    alerts: new AlertsService(journal, auth, workspaces),
   };
 }
 

@@ -32,4 +32,31 @@ export class ResearchRunsController {
   ) {
     return this.researchRuns.events(id, userId, workspaceId);
   }
+
+  @Get(':id/snapshots')
+  snapshots(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.snapshots(id, userId, workspaceId);
+  }
+
+  @Get(':id/debate')
+  debate(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.debate(id, userId, workspaceId);
+  }
+
+  @Get(':id/workspace')
+  workspace(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.workspace(id, userId, workspaceId);
+  }
 }

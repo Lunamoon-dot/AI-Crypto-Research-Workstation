@@ -1,3 +1,8 @@
+import time
+
+import pytest
+
+from tradingagents.exceptions import ProviderRetryExhaustedError
 from tradingagents.dataflows import interface
 from tradingagents.dataflows.config import config_context, get_config
 
@@ -70,3 +75,65 @@ def test_resilience_worker_preserves_config_context():
         )
 
     assert result == "binance"
+
+
+def test_route_to_vendor_preserves_config_context_inside_worker(monkeypatch):
+    def vendor_reads_context():
+        return get_config()["crypto_exchange"]
+
+    monkeypatch.setitem(
+        interface.TOOLS_CATEGORIES,
+        "test_context",
+        {"description": "context", "tools": ["get_context_data"]},
+    )
+    monkeypatch.setitem(
+        interface.VENDOR_METHODS,
+        "get_context_data",
+        {"ccxt": vendor_reads_context},
+    )
+
+    with config_context(
+        {
+            "crypto_exchange": "binance",
+            "tool_vendors": {},
+            "data_vendors": {"test_context": "ccxt"},
+            "disabled_data_vendors": [],
+            "provider_runtime": {
+                "enabled": True,
+                "timeout_sec": 2.0,
+                "retries": 0,
+                "backoff_base_sec": 0.0,
+                "backoff_max_sec": 0.0,
+                "rate_limit_per_sec": 0.0,
+            },
+        }
+    ):
+        result = interface.route_to_vendor("get_context_data")
+
+    assert result == "binance"
+
+
+def test_resilience_timeout_returns_before_blocking_vendor_finishes():
+    def blocking_vendor():
+        time.sleep(0.7)
+        return "late"
+
+    started = time.perf_counter()
+    with pytest.raises(ProviderRetryExhaustedError, match="timed out"):
+        interface._invoke_with_resilience(
+            blocking_vendor,
+            vendor="ccxt",
+            method="get_blocking_data",
+            args=(),
+            kwargs={},
+            runtime_cfg={
+                "enabled": True,
+                "timeout_sec": 0.05,
+                "retries": 0,
+                "backoff_base_sec": 0.0,
+                "backoff_max_sec": 0.0,
+                "rate_limit_per_sec": 0.0,
+            },
+        )
+
+    assert time.perf_counter() - started < 0.35

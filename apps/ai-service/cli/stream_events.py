@@ -220,9 +220,7 @@ class ChunkProcessor:
                     f"### Research Manager Decision\n{judge}",
                 )
                 self.update_research_team_status("completed")
-                self.message_buffer.update_agent_status(
-                    "Setup Planner", "in_progress"
-                )
+                self.message_buffer.update_agent_status("Setup Planner", "in_progress")
 
         if chunk.get("trader_investment_plan"):
             self.message_buffer.update_report_section(

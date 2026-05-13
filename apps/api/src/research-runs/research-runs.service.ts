@@ -9,9 +9,18 @@ import { JobsService } from '../jobs/jobs.service';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
+  JournalRunWorkspaceResponse,
+  ResearchRunDebateResponse,
   ResearchRunQueuedResponse,
+  ResearchRunSnapshotsResponse,
+  toAgentOpinionResponse,
+  toDebateResponse,
+  toMarketSnapshotResponse,
   toResearchRunEventResponse,
   toResearchRunResponse,
+  toScenarioResponse,
+  toSignalSnapshotResponse,
+  toThesisResponse,
 } from '../contracts/frontend-contract';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 
@@ -65,18 +74,94 @@ export class ResearchRunsService {
 
   async get(id: string, userId?: string, workspaceHeader?: string) {
     const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
-    const run = await this.journal.getResearchRun(id, workspaceId);
-    if (!run) {
-      throw new NotFoundException(`Research run ${id} not found`);
-    }
+    const run = await this.getRawRunOrThrow(id, workspaceId);
     return toResearchRunResponse(run);
   }
 
   async events(id: string, userId?: string, workspaceHeader?: string) {
     const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
-    await this.get(id, userId, workspaceId);
+    await this.getRawRunOrThrow(id, workspaceId);
     const events = await this.journal.listRunEvents(id, workspaceId);
     return events.map(toResearchRunEventResponse);
+  }
+
+  async snapshots(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchRunSnapshotsResponse> {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const run = await this.getRawRunOrThrow(id, workspaceId);
+    const marketSnapshotId = stringField(run.market_snapshot_id);
+    const signalSnapshotId = stringField(run.signal_snapshot_id);
+    const [marketSnapshot, signalSnapshot] = await Promise.all([
+      marketSnapshotId
+        ? this.journal.getMarketSnapshot(marketSnapshotId, workspaceId)
+        : Promise.resolve(null),
+      signalSnapshotId
+        ? this.journal.getSignalSnapshot(signalSnapshotId, workspaceId)
+        : Promise.resolve(null),
+    ]);
+    return {
+      market_snapshot: marketSnapshot
+        ? toMarketSnapshotResponse(marketSnapshot)
+        : null,
+      signal_snapshot: signalSnapshot
+        ? toSignalSnapshotResponse(signalSnapshot)
+        : null,
+    };
+  }
+
+  async debate(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchRunDebateResponse> {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const run = await this.getRawRunOrThrow(id, workspaceId);
+    const debateId = stringField(run.debate_id);
+    if (!debateId) {
+      return { debate: null, agent_opinions: [] };
+    }
+    const debate = await this.journal.getDebate(debateId, workspaceId);
+    if (!debate) {
+      return { debate: null, agent_opinions: [] };
+    }
+    const opinions = await this.journal.listAgentOpinions(debateId, workspaceId);
+    return {
+      debate: toDebateResponse(debate),
+      agent_opinions: opinions.map(toAgentOpinionResponse),
+    };
+  }
+
+  async workspace(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<JournalRunWorkspaceResponse> {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    const run = await this.getRawRunOrThrow(id, workspaceId);
+    const thesisId = stringField(run.thesis_id);
+    const [events, snapshots, debate, thesis] = await Promise.all([
+      this.journal.listRunEvents(id, workspaceId),
+      this.snapshots(id, userId, workspaceId),
+      this.debate(id, userId, workspaceId),
+      thesisId
+        ? this.journal.getThesis(thesisId, workspaceId)
+        : Promise.resolve(null),
+    ]);
+    const scenarios =
+      thesisId && thesis
+        ? await this.journal.listScenarios(thesisId, workspaceId)
+        : [];
+    return {
+      run: toResearchRunResponse(run),
+      events: events.map(toResearchRunEventResponse),
+      snapshots,
+      debate,
+      thesis: thesis ? toThesisResponse(thesis) : null,
+      scenarios: scenarios.map(toScenarioResponse),
+    };
   }
 
   private resolveWorkspace(userId?: string, workspaceHeader?: string): string {
@@ -85,4 +170,19 @@ export class ResearchRunsService {
     this.workspaces.assertAccess(user, workspaceId);
     return workspaceId;
   }
+
+  private async getRawRunOrThrow(id: string, workspaceId: string) {
+    const run = await this.journal.getResearchRun(id, workspaceId);
+    if (!run) {
+      throw new NotFoundException(`Research run ${id} not found`);
+    }
+    return run;
+  }
+}
+
+function stringField(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
 }

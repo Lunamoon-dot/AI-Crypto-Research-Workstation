@@ -41,15 +41,15 @@ API-ready surfaces from `apps/api`:
 | Watchlists | `GET /watchlists`, `POST /watchlists/:id/items` | Watchlist management |
 | Daily briefs | `GET /briefs/daily` | Daily brief archive |
 
-AI-service capabilities that should be exposed next:
+AI-service capabilities beyond the first API boundary:
 
-| Capability | Current Python source | Needed product endpoint |
+| Capability | Current Python source | Product endpoint/status |
 | --- | --- | --- |
-| Full journal workspace | `ThesisService.build_workspace_payload`, journal CLI | `GET /journal/runs/:id/workspace` |
-| Market/signal snapshots | `market_snapshots`, `signal_snapshots` tables | `GET /runs/:id/snapshots` |
-| Agent opinions and debate | `agent_opinions`, `debates` tables | `GET /runs/:id/debate` |
-| Scenario planner | `scenarios` table | `GET /theses/:id/scenarios` |
-| Alerts | `alerts` table, `WatchlistService` | `GET /alerts`, `POST /alerts/:id/read` |
+| Full journal workspace | `ThesisService.build_workspace_payload`, journal CLI | Implemented: `GET /journal/runs/:id/workspace` |
+| Market/signal snapshots | `market_snapshots`, `signal_snapshots` tables | Implemented: `GET /research-runs/:id/snapshots` |
+| Agent opinions and debate | `agent_opinions`, `debates` tables | Implemented: `GET /research-runs/:id/debate` |
+| Scenario planner | `scenarios` table | Implemented: `GET /theses/:id/scenarios` |
+| Alerts | `alerts` table, `WatchlistService` | Implemented: `GET /alerts`, `POST /alerts/:id/read` |
 | Provider health | `provider_health` table | `GET /operations/providers` |
 | LLM cost/latency | `llm_calls` table | `GET /operations/llm-calls` |
 | Data freshness | `data_freshness_checks` table | `GET /operations/freshness` |
@@ -57,6 +57,14 @@ AI-service capabilities that should be exposed next:
 | Reliability | `reliability_snapshots`, factor reliability | `GET /retrospective/reliability` |
 | Config/profile health | `config` CLI and loaders | `GET /settings/config-health`, `GET /settings/profiles` |
 | Diff/replay | `diff_cmd.py`, `replay_cmd.py` | `POST /compare`, `POST /replay` |
+
+Database boundary:
+
+- Current implementation focus stays on `apps/ai-service`.
+- Local Postgres is the temporary Prisma target for product-schema/migration
+  work. The schema/client source is `packages/database/prisma/schema.prisma`.
+- The NestJS repository can use Prisma later when `DATABASE_URL` is added; raw
+  `pg` access remains an explicit fallback.
 
 ## Route Architecture
 
@@ -66,12 +74,12 @@ Recommended route map:
 | --- | --- | --- |
 | `/workbench` | Daily command center with briefs, active theses, watchlists, signal board, and run queue | API-ready composite |
 | `/research/new` | Launch a research run with symbol, market type, date, analyst set, provider profile | API-ready |
-| `/research/runs/:id` | Run status, event timeline, agent pipeline, and result shortcuts | API-ready base, richer data needs endpoints |
-| `/journal/runs/:id` | Full evidence workspace: snapshots, signals, debate, scenario, report, provenance | Needs endpoint |
+| `/research/runs/:id` | Run status, event timeline, agent pipeline, and result shortcuts | API-ready base, snapshots/debate implemented |
+| `/journal/runs/:id` | Full evidence workspace: snapshots, signals, debate, scenario, report, provenance | API-ready base |
 | `/theses` | Thesis inbox grouped by watch, accepted, rejected, needs review, degraded | API-ready |
-| `/theses/:id` | Thesis detail, evidence, scenario map, decision, outcome review | API-ready base, scenarios/evidence needs endpoints |
+| `/theses/:id` | Thesis detail, evidence, scenario map, decision, outcome review | API-ready base, scenarios implemented |
 | `/signals` | Signal explorer by symbol, type, direction, confidence, freshness | API-ready base |
-| `/watchlists` | Symbol/thesis/setup watchlists and alert rules | API-ready base, alert endpoints needed |
+| `/watchlists` | Symbol/thesis/setup watchlists and alert rules | API-ready base, alert list/read implemented |
 | `/briefs/daily` | Daily market brief list/detail | API-ready |
 | `/retrospective` | Evaluation analytics, factor reliability, agent calibration, confidence curve | Needs endpoint |
 | `/operations` | Provider health, data freshness, LLM calls, budget and failure audit | Needs endpoint |
@@ -191,7 +199,7 @@ because data/provider/model quality was degraded.
 
 ## Suggested API Additions
 
-High priority:
+Implemented high-priority API additions:
 
 ```text
 GET /research-runs/:id/workspace
@@ -201,6 +209,9 @@ GET /theses/:id/scenarios
 GET /alerts
 POST /alerts/:id/read
 ```
+
+Note: the public workspace route is `GET /journal/runs/:id/workspace`; the
+research-run service also exposes the same composite internally.
 
 Medium priority:
 
@@ -231,4 +242,3 @@ The UI should feel like a professional research terminal translated to web:
 - No marketing hero, no trading-game visuals, no fake PnL promise.
 - Use status color sparingly: green for constructive, red for invalidation/risk, amber for stale/degraded, blue for neutral/info.
 - Show provenance, freshness, and missing data near the decision surface.
-

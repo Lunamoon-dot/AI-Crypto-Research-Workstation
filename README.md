@@ -11,7 +11,7 @@ apps/
   web/             Future logged-in product app
   landing/         Future Next.js marketing and SEO site
 packages/
-  database/        Future shared database schema/client
+  database/        Prisma schema/client for local Postgres now, hosted later
   ui-shared/       Future shared UI components
   config/          Future shared TypeScript config
   types/           Future shared API/domain types
@@ -28,9 +28,27 @@ pnpm build:api
 pnpm lint
 pnpm test
 pnpm typecheck
+pnpm db:generate
+pnpm db:migrate
+pnpm db:push
 pnpm ai:install
 pnpm ai:test
 ```
+
+For now, database work targets local Postgres through Prisma while development
+focus stays on `apps/ai-service`. Start a local DB with:
+
+```bash
+docker compose --profile db up -d postgres
+pnpm db:generate
+pnpm db:push
+```
+
+The default local Prisma URL is
+`postgresql://postgres:postgres@localhost:5432/lunacrypto`. Hosted/NestJS
+deployments can provide `DATABASE_URL` later. The raw Postgres SQL file in
+`apps/api/src/database/postgres-schema.sql` is kept as compatibility/reference
+material for the Python journal migration boundary.
 
 Run a workspace command directly:
 

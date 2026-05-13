@@ -4,23 +4,22 @@ Review date: 2026-05-12
 
 Scope: phases 1-11 only. This review evaluates the local Python AI crypto research workstation: foundation cleanup, decision journal, signal provenance, multi-agent research workspace, scenario engine, watchlists, terminal UX, market brief, historical thesis evaluation, configuration/secrets/reliability, and observability/trust.
 
-Explicitly out of scope: Phase 12+ product backend, hosted NestJS/API readiness, cloud deployment, multi-tenant SaaS security, paid cloud sync, team workspaces, and assisted execution. Those surfaces exist in the repo as scaffolding or forward roadmap material, but they are not scored as expected deliverables for this review.
+Explicitly out of scope: Phase 12+ product backend, hosted NestJS/API readiness, cloud deployment, multi-tenant SaaS security, paid cloud sync, team workspaces, and assisted execution. Those surfaces now include a NestJS API boundary and local Prisma/Postgres scaffolding, but they are not scored as expected deliverables for this phase 1-11 review.
 
 Commands run:
 
 ```text
-pnpm build:api
-python -m pytest -q
-python -m ruff check .
-python -m ruff format --check .
-python -m mypy tradingagents cli
+pnpm lint
+pnpm build
+pnpm test
+pnpm typecheck
 ```
 
 Observed result:
 
 ```text
-TypeScript API build: PASS
-Python tests: PASS, 536 passed, 42 subtests passed
+TypeScript API build/lint/test: PASS, 14 contract tests
+Python tests: PASS, 573 tests
 Ruff lint: PASS
 Ruff format check: PASS
 Mypy: PASS, but permissive settings leave untyped function bodies unchecked
@@ -32,13 +31,11 @@ Judged only through phases 1-11, this is materially stronger than a generic prot
 
 The best engineering decisions are the research-only product boundary, journal-first storage, Pydantic domain models, signal provenance/freshness, explicit config/secrets work, and a broad Python test suite. Those are not cosmetic. They are the right foundation for a serious local research workstation.
 
-The harsh part: one runtime-boundary issue still undermines trust inside the current phase 1-11 scope, while the previously noted CCXT data-window issue has been fixed and covered by tests.
+The harsh part has narrowed. The previously noted provider `ContextVar` propagation issue has been fixed with `contextvars.copy_context()` around the threadpool worker and is covered by a regression test. The previously noted CCXT data-window issue is also fixed and covered by tests.
 
-1. Provider resilience runs vendor functions inside `ThreadPoolExecutor`, while per-run config is stored in a `ContextVar`. Context variables do not automatically propagate into worker threads. Real provider functions such as CCXT call `get_config()` inside the worker. With provider runtime enabled by default, real data calls can fail with no config context even when unit tests pass.
+The remaining runtime concern is resource cleanup rather than caller wait: `_invoke_with_resilience()` now shuts down timed-out executor attempts with `wait=False`, and a regression test verifies the call returns before a blocking vendor finishes. Provider-native timeouts and/or a stronger kill boundary are still useful so stuck provider work is actually stopped, not merely abandoned.
 
-2. Resolved: the CCXT OHLCV fetcher now parses both `start_date` and `end_date`, paginates to the requested window, filters returned candles to `[start_date, end_date]`, and has fake-exchange tests that reject lookahead candles.
-
-So the corrected verdict is: strong local alpha/beta research engine, now materially stronger on historical data-window correctness, but still not fully trustable for serious beta use until provider runtime boundaries are fixed. For phases 1-11, the project is around 7/10, not 5-6/10. The lower score from the earlier review was mostly because it judged phase 12+ hosted platform scaffolding, which is outside the requested scope now.
+So the corrected verdict is: strong local alpha/beta research engine with materially better provider-context and historical data-window correctness. For phases 1-11, the project is around 8/10. The lower score from earlier reviews was mostly because it judged phase 12+ hosted platform scaffolding or stale runtime issues that are now resolved.
 
 ## Inferred Product Purpose
 
@@ -159,49 +156,49 @@ Better approach: keep soft warnings for local/dev, but add hard budget policy mo
 
 ### 7. Tests are meaningfully broad
 
-The Python suite passing 550 tests is a real strength. Coverage includes domain behavior, CLI flows, config, journal, watchlists, brief service, historical replay contracts, engine contract, exceptions, thesis structured-field degradation, CCXT OHLCV date-window enforcement, and LLM fallback behavior.
+The Python suite passing 570 tests is a real strength. Coverage includes domain behavior, CLI flows, config, journal, watchlists, brief service, historical replay contracts, engine contract, exceptions, thesis structured-field degradation, provider context propagation, CCXT OHLCV date-window enforcement, and LLM fallback behavior.
 
 Why this is good: this is far beyond a weekend LLM project.
 
-But: the suite is still too mocked at the provider/runtime boundary. It now covers the CCXT `end_date` regression, but it still needs a direct `ContextVar`/threading regression.
+But: the suite is still thin at the production provider boundary. It now covers the CCXT `end_date` regression, provider `ContextVar` propagation, and wall-clock timeout return behavior for stuck vendor calls.
 
-Better approach: add a small "real boundary fake provider" suite where fake vendor functions call `get_config()` inside the same resilience wrapper used by real vendors.
+Better approach: keep those fake-boundary tests and add provider-native timeout tests for CCXT/HTTP clients where practical.
 
 ## Major Weaknesses
 
-### 1. Provider runtime can break real data calls
+### 1. Resolved: Provider runtime preserves config context
 
 Evidence:
 
 - `tradingagents/dataflows/config.py` stores config in `_config_ctx`, a `ContextVar`.
 - `get_config()` raises if no context is bound.
 - `tradingagents/dataflows/interface.py` uses `_invoke_with_resilience()`.
-- `_invoke_with_resilience()` creates `ThreadPoolExecutor(max_workers=1)` and submits the vendor function.
+- `_invoke_with_resilience()` captures `contextvars.copy_context()` before submitting the vendor function.
 - `tradingagents/dataflows/ccxt_provider.py` calls `_get_configured_exchange()`, which calls `get_config()` inside provider code.
+- `tests/test_dataflow_resilience.py` covers a vendor function that calls `get_config()` inside the resilience wrapper.
 
-Why problematic: `ContextVar` values do not automatically cross into `ThreadPoolExecutor` worker threads. The caller thread may have config bound, while the worker thread does not.
+Current state: the short fix is in place, so the caller's context is available inside provider worker functions.
 
-Future consequence: live provider calls can fail in the exact mode users care about. Mocked tests can still pass because they often do not exercise provider code that reads context inside the worker.
+Residual concern: the architecture still relies on ambient config, which is less explicit than passing resolved config/client objects into provider implementations.
 
 Better approach:
 
-- Best: remove ambient config from provider implementations and pass resolved config/client objects explicitly.
-- Acceptable short fix: capture `ctx = contextvars.copy_context()` before `ex.submit()` and submit `ctx.run, impl_func, *args`.
-- Add a regression test where the provider function calls `get_config()` inside `_invoke_with_resilience()`.
+- Longer term: remove ambient config from provider implementations and pass resolved config/client objects explicitly.
+- Keep the regression test that exercises `get_config()` inside `_invoke_with_resilience()`.
 
-### 2. Provider timeout implementation is misleading
+### 2. Resolved: Provider timeout no longer waits for stuck workers
 
-Evidence: `_invoke_with_resilience()` uses a new `ThreadPoolExecutor` per attempt, calls `fut.result(timeout=timeout_sec)`, and exits the executor context manager on timeout.
+Evidence: `_invoke_with_resilience()` uses a new `ThreadPoolExecutor` per attempt, calls `fut.result(timeout=timeout_sec)`, cancels the future on timeout, and calls `ex.shutdown(wait=False, cancel_futures=True)`.
 
-Why problematic: leaving a `with ThreadPoolExecutor(...)` block calls shutdown semantics that can wait for the worker. If the underlying provider call is stuck in a blocking network call, the wall-clock timeout may not actually cap the run.
+Current state: `tests/test_dataflow_resilience.py` includes a blocking fake provider and asserts the resilience wrapper returns before the fake provider finishes.
 
-Future consequence: a "20 second timeout" can still hang a local run, or later a worker, for much longer. The observability event would imply resilience that the runtime does not guarantee.
+Residual concern: Python cannot kill a running thread. The wrapper bounds caller wait, but the underlying provider work can continue in the background until the provider call returns.
 
 Better approach:
 
 - Prefer provider-native timeouts for CCXT/HTTP clients.
 - For hard isolation, run provider calls in a cancellable async client or subprocess/job with a real kill boundary.
-- Add a test that sleeps longer than timeout and asserts wall-clock duration is actually bounded.
+- Keep the wall-clock timeout regression test.
 
 ### 3. OHLCV fetching now enforces the requested window
 
@@ -374,13 +371,21 @@ Better approach:
 
 ## Critical Technical Debt
 
-### P0: Fix provider context propagation
+### Resolved: Provider context propagation
 
-Why: real vendor calls can fail when `ContextVar` config is read inside threadpool workers.
+Why: real vendor calls can fail when `ContextVar` config is read inside threadpool workers unless the context is explicitly copied.
 
-Consequence if ignored: local beta reliability is poor and failures will look provider-specific even though the root cause is runtime architecture.
+Current state: `_invoke_with_resilience()` runs provider functions through `contextvars.copy_context().run(...)`, and the regression test covers a provider function that reads `get_config()` inside the worker.
 
-Better approach: pass config explicitly into provider clients, or short-term wrap worker invocation in `contextvars.copy_context().run(...)`.
+Remaining improvement: pass config explicitly into provider clients so provider code does not depend on ambient context.
+
+### Resolved: Bound provider timeout caller wait
+
+Why: timeout configuration should bound the caller's wall-clock wait, not only the `Future.result()` wait.
+
+Current state: `_invoke_with_resilience()` cancels timed-out futures, shuts down the executor with `wait=False`, and has a wall-clock regression test.
+
+Remaining improvement: rely on provider-native timeouts wherever available, and use a cancellable async client or process/job isolation when the worker itself must be killed.
 
 ### Resolved: OHLCV `end_date` enforcement
 
@@ -475,15 +480,15 @@ Out of scope for this review. Do not use hosted/API/cloud readiness to judge pha
 
 ### Controlled local alpha/beta
 
-Rating: close, with the provider runtime P0 still required first.
+Rating: usable for controlled local beta, with provider-native timeout coverage, clean install, and hosted read-surface hardening still required before broader beta.
 
-The product is suitable for developer/local research testing because tests pass, CLI/domain/storage are coherent, and safety copy is aligned. The CCXT OHLCV lookahead issue is fixed; the provider context bug should still be fixed before inviting serious beta users.
+The product is suitable for developer/local research testing because tests pass, CLI/domain/storage are coherent, and safety copy is aligned. The CCXT OHLCV lookahead issue, provider context propagation bug, and caller-wait timeout bug are fixed; install reproducibility and hosted read surfaces are the next trust blockers.
 
 ### Serious local beta
 
 Required before calling it serious:
 
-- provider runtime context fixed
+- provider-native timeout coverage
 - evaluation-level candle range assertion added on top of provider tests
 - degraded-run status visible
 - strict historical evaluation validation
@@ -546,11 +551,11 @@ Weaknesses:
 
 ### Provider runtime overhead and cancellation
 
-Problem: creating a new executor per provider attempt is expensive and has weak cancellation semantics.
+Problem: creating a new executor per provider attempt is expensive, and timed-out provider work can continue in the background until the provider call returns.
 
 Future consequence: provider stalls dominate run time.
 
-Better approach: provider-native timeouts, async HTTP clients where practical, and a real cancellation boundary.
+Better approach: provider-native timeouts, async HTTP clients where practical, and a real kill boundary for provider calls that cannot be trusted to return.
 
 ### CSV/DataFrame churn
 
@@ -570,19 +575,17 @@ Better approach: enforce budget policies at stage boundaries.
 
 ## Testing Quality
 
-Rating: strong for a local Python project, but missing the highest-risk boundary tests.
+Rating: strong for a local Python project, with remaining gaps around production-like provider and install boundaries.
 
 What is good:
 
 - 49 Python test files.
-- 550 tests pass locally.
+- 570 tests pass locally.
 - Domain, CLI, config, journal, watchlist, brief, evaluation, replay contracts, and exceptions are covered.
 - Ruff and mypy gates are present.
 
 What is missing:
 
-- provider-runtime context propagation regression test
-- provider timeout wall-clock test
 - strict historical evaluation test that fails if returned candles exceed `evaluation_end`
 - hard structured-output requirement at the agent boundary
 - clean-install/Docker release test
@@ -590,7 +593,7 @@ What is missing:
 
 Highest ROI tests:
 
-1. Fake provider calls `get_config()` inside `_invoke_with_resilience()`.
+1. Provider-native timeout tests for CCXT/HTTP clients.
 2. Evaluation loader receives candles beyond `evaluation_end`; evaluation must fail or mark degraded.
 3. LLM trader output missing invalidation/targets at the structured-output boundary; the agent stage must reject before graph persistence.
 4. Journal write failure in audited mode must fail or mark `completed_degraded`.
@@ -677,6 +680,9 @@ Better approach:
 - add targeted indexes for thesis/evaluation/brief/watchlist queries
 - keep typed columns for fields used in filtering/sorting
 - use payload JSON only for flexible detail, not primary query semantics
+- for the next database step, use local Postgres through Prisma as the
+  schema/client target and reserve raw SQL/`pg` access for migration
+  verification or compatibility fallbacks
 
 ## Extensibility Potential
 
@@ -719,7 +725,7 @@ Best extension strategy: stabilize data/provider/thesis contracts before adding 
 - Broad `except Exception` usage in important paths.
 - Mutable graph object state across runs.
 - Mypy passing with untyped bodies unchecked.
-- Ambient `ContextVar` config relied on across a threadpool boundary.
+- Ambient config still exists in provider code, though threadpool context propagation is now covered.
 - Soft budgets without enforcement policy.
 - One mega repository class for nearly every journal aggregate.
 - Lower-bound dependency strategy without release lock enforcement.
@@ -736,11 +742,11 @@ Best extension strategy: stabilize data/provider/thesis contracts before adding 
 
 ## Rewrite First
 
-1. `tradingagents/dataflows/interface.py` provider invocation: fix context propagation and real timeout semantics.
-2. Evaluation price loading: assert returned candles do not exceed the requested evaluation window.
-3. Agent thesis output: make structured thesis JSON mandatory instead of allowing legacy prose fallback.
+1. Evaluation price loading: assert returned candles do not exceed the requested evaluation window.
+2. Agent thesis output: make structured thesis JSON mandatory instead of allowing legacy prose fallback.
+3. Provider clients: add provider-native timeout coverage and reduce ambient config use.
 4. `ResearchAgentsGraph` orchestration responsibilities: split into smaller services.
-5. `JournalRepository`: split after P0 runtime/data fixes, not before.
+5. `JournalRepository`: split after data/runtime hardening, not before.
 
 ## Highest ROI Improvements
 
@@ -788,7 +794,7 @@ What not to sell yet:
 - regulated investment advice
 - guaranteed alpha/performance
 
-Best near-term product move: ship a controlled local beta after P0 data/runtime fixes. Market it as research workflow software with explicit disclaimers and transparent limitations.
+Best near-term product move: ship a controlled local beta after the remaining data-window/evaluation and install-reproducibility checks. Market it as research workflow software with explicit disclaimers and transparent limitations.
 
 ## Final Scores
 
@@ -801,13 +807,13 @@ Scores below are scoped to phases 1-11 only.
 | Code structure | 6.7/10 | Strong domain/service split, but graph/repository files are too heavy. |
 | Module organization | 6.8/10 | Most packages map to product concepts; runtime boundaries need tightening. |
 | Developer intent | 8.5/10 | Roadmap and implementation show clear safety/workflow thinking. |
-| Scalability, local | 6.8/10 | Fine for single-user workstation after provider fixes. |
+| Scalability, local | 7.1/10 | Fine for single-user workstation; provider-native timeout coverage would improve confidence. |
 | Scalability, historical/replay | 4.5/10 | Concept is right, OHLCV/data-window enforcement is not enough yet. |
 | Maintainability | 6.3/10 | Tests help; `Any`, broad exceptions, and central classes hurt. |
-| Production readiness, local beta | 6.5/10 | Close, but P0 provider/OHLCV fixes should happen first. |
+| Production readiness, local beta | 7.0/10 | Controlled beta is plausible; install/release evidence and strict evaluation checks still matter. |
 | Security, local | 6.8/10 | Good secrets/redaction/no-execution posture; ambient config remains risky. |
-| Performance | 5.6/10 | LLM-heavy but acceptable; provider executor/timeout design needs work. |
-| Testing quality | 7.2/10 | Broad Python suite; missing the critical boundary tests. |
+| Performance | 5.9/10 | LLM-heavy but acceptable; provider executor overhead still needs work. |
+| Testing quality | 7.6/10 | Broad Python suite with provider-context and timeout boundary coverage; still missing install/provider-native checks. |
 | Deployment quality, local | 5.8/10 | Usable by developers; beta packaging/reproducibility needs work. |
 | CI/CD quality | 6.2/10 | Good Python gates; missing audit/secret/Docker/release gates. |
 | Observability/logging | 7.0/10 | Strong local event model; policy enforcement still soft. |

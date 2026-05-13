@@ -32,9 +32,7 @@ def test_load_config_file_rejects_unknown_extension(tmp_path: Path):
 def test_default_toml_keeps_root_keys_at_root():
     service_root = Path(__file__).resolve().parents[1]
 
-    loaded = load_config_file(
-        service_root / "config" / "default.toml", validate=False
-    )
+    loaded = load_config_file(service_root / "config" / "default.toml", validate=False)
 
     assert loaded["llm_provider"] == "deepseek"
     assert loaded["runtime_environment"] == "local"

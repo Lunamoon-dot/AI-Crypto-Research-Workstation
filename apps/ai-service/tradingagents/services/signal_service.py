@@ -60,7 +60,7 @@ class SignalService:
         snapshot = None
         if run.signal_snapshot_id:
             snapshot = self.journal.get_signal_snapshot(run.signal_snapshot_id)
-        if snapshot is None:
+        if snapshot is None and run.id:
             snapshot = self.journal.get_signal_snapshot_for_run(run.id)
         signals = self._signals_for_snapshot(snapshot)
         return run, snapshot, signals

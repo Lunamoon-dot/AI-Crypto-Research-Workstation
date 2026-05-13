@@ -38,9 +38,7 @@ from tradingagents.agents.planners.setup_planner import (
 @pytest.mark.unit
 class TestRenderSetupProposal:
     def test_minimal_required_fields(self):
-        p = SetupProposal(
-            action=SetupAction.HOLD, reasoning="Balanced setup; no edge."
-        )
+        p = SetupProposal(action=SetupAction.HOLD, reasoning="Balanced setup; no edge.")
         md = render_setup_proposal(p)
         assert "**Market Type**: spot" in md
         assert "**Setup Stance**: Hold" in md

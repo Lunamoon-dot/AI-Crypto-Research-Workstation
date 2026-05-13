@@ -47,6 +47,68 @@ export interface ResearchRunEventResponse {
   payload: JsonRecord;
 }
 
+export interface MarketSnapshotResponse {
+  id: string | null;
+  workspace_id: string;
+  research_run_id: string | null;
+  symbol: string;
+  captured_at: string | null;
+  current_price: number | null;
+  source: string;
+  source_timestamp: string | null;
+  payload: JsonRecord;
+}
+
+export interface SignalSnapshotResponse {
+  id: string | null;
+  workspace_id: string;
+  research_run_id: string | null;
+  symbol: string;
+  captured_at: string | null;
+  composite_signal_id: string | null;
+  signal_count: number | null;
+  bullish_count: number | null;
+  bearish_count: number | null;
+  neutral_count: number | null;
+  stale_count: number | null;
+  unknown_freshness_count: number | null;
+  payload: JsonRecord;
+}
+
+export interface ResearchRunSnapshotsResponse {
+  market_snapshot: MarketSnapshotResponse | null;
+  signal_snapshot: SignalSnapshotResponse | null;
+}
+
+export interface DebateResponse {
+  id: string | null;
+  workspace_id: string;
+  research_run_id: string | null;
+  symbol: string;
+  consensus_stance: string;
+  conflict_level: string;
+  created_at: string | null;
+  payload: JsonRecord;
+}
+
+export interface AgentOpinionResponse {
+  id: string | null;
+  workspace_id: string;
+  debate_id: string | null;
+  research_run_id: string | null;
+  agent_name: string;
+  agent_role: string;
+  stance: string;
+  confidence: number | null;
+  created_at: string | null;
+  payload: JsonRecord;
+}
+
+export interface ResearchRunDebateResponse {
+  debate: DebateResponse | null;
+  agent_opinions: AgentOpinionResponse[];
+}
+
 export interface ThesisSummaryResponse {
   rating: string;
   direction: string;
@@ -84,6 +146,17 @@ export interface ThesisResponse {
   contradicting_signal_ids: string[];
   stale_or_missing_data: string[];
   monitor_next: string[];
+}
+
+export interface ScenarioResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  probability_band: string;
+  suggested_user_action: string;
+  condition: string;
+  expected_behavior: string;
+  payload: JsonRecord;
 }
 
 export interface ThesisDecisionResponse {
@@ -152,6 +225,29 @@ export interface BriefResponse {
   signal_ids: string[];
 }
 
+export interface AlertResponse {
+  id: string | null;
+  workspace_id: string;
+  alert_type: string;
+  symbol: string;
+  thesis_id: string | null;
+  watchlist_item_id: string | null;
+  trigger_key: string | null;
+  created_at: string | null;
+  read_at: string | null;
+  message: string;
+  payload: JsonRecord;
+}
+
+export interface JournalRunWorkspaceResponse {
+  run: ResearchRunResponse;
+  events: ResearchRunEventResponse[];
+  snapshots: ResearchRunSnapshotsResponse;
+  debate: ResearchRunDebateResponse;
+  thesis: ThesisResponse | null;
+  scenarios: ScenarioResponse[];
+}
+
 export function toResearchRunResponse(run: JsonRecord): ResearchRunResponse {
   return {
     id: nullableString(run.id),
@@ -189,6 +285,72 @@ export function toResearchRunEventResponse(
   };
 }
 
+export function toMarketSnapshotResponse(
+  snapshot: JsonRecord,
+): MarketSnapshotResponse {
+  return {
+    id: nullableString(snapshot.id),
+    workspace_id: stringValue(snapshot.workspace_id, 'local'),
+    research_run_id: nullableString(snapshot.research_run_id),
+    symbol: stringValue(snapshot.symbol),
+    captured_at: nullableString(snapshot.captured_at),
+    current_price: nullableNumber(snapshot.current_price),
+    source: stringValue(snapshot.source),
+    source_timestamp: nullableString(snapshot.source_timestamp),
+    payload: recordValue(snapshot.payload ?? snapshot.payload_json),
+  };
+}
+
+export function toSignalSnapshotResponse(
+  snapshot: JsonRecord,
+): SignalSnapshotResponse {
+  return {
+    id: nullableString(snapshot.id),
+    workspace_id: stringValue(snapshot.workspace_id, 'local'),
+    research_run_id: nullableString(snapshot.research_run_id),
+    symbol: stringValue(snapshot.symbol),
+    captured_at: nullableString(snapshot.captured_at),
+    composite_signal_id: nullableString(snapshot.composite_signal_id),
+    signal_count: nullableNumber(snapshot.signal_count),
+    bullish_count: nullableNumber(snapshot.bullish_count),
+    bearish_count: nullableNumber(snapshot.bearish_count),
+    neutral_count: nullableNumber(snapshot.neutral_count),
+    stale_count: nullableNumber(snapshot.stale_count),
+    unknown_freshness_count: nullableNumber(snapshot.unknown_freshness_count),
+    payload: recordValue(snapshot.payload ?? snapshot.payload_json),
+  };
+}
+
+export function toDebateResponse(debate: JsonRecord): DebateResponse {
+  return {
+    id: nullableString(debate.id),
+    workspace_id: stringValue(debate.workspace_id, 'local'),
+    research_run_id: nullableString(debate.research_run_id),
+    symbol: stringValue(debate.symbol),
+    consensus_stance: stringValue(debate.consensus_stance),
+    conflict_level: stringValue(debate.conflict_level),
+    created_at: nullableString(debate.created_at),
+    payload: recordValue(debate.payload ?? debate.payload_json),
+  };
+}
+
+export function toAgentOpinionResponse(
+  opinion: JsonRecord,
+): AgentOpinionResponse {
+  return {
+    id: nullableString(opinion.id),
+    workspace_id: stringValue(opinion.workspace_id, 'local'),
+    debate_id: nullableString(opinion.debate_id),
+    research_run_id: nullableString(opinion.research_run_id),
+    agent_name: stringValue(opinion.agent_name),
+    agent_role: stringValue(opinion.agent_role),
+    stance: stringValue(opinion.stance),
+    confidence: nullableNumber(opinion.confidence),
+    created_at: nullableString(opinion.created_at),
+    payload: recordValue(opinion.payload ?? opinion.payload_json),
+  };
+}
+
 export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   const summary = recordValue(thesis.structured_summary);
   const entryZone = firstString(thesis.entry_zone, summary.entry_zone);
@@ -216,6 +378,22 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     contradicting_signal_ids: stringList(thesis.contradicting_signal_ids),
     stale_or_missing_data: stringList(thesis.stale_or_missing_data),
     monitor_next: stringList(thesis.monitor_next),
+  };
+}
+
+export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
+  const payload = recordValue(scenario.payload ?? scenario.payload_json);
+  return {
+    id: nullableString(scenario.id),
+    workspace_id: stringValue(scenario.workspace_id, 'local'),
+    thesis_id: stringValue(scenario.thesis_id),
+    probability_band: stringValue(scenario.probability_band),
+    suggested_user_action: stringValue(scenario.suggested_user_action),
+    condition: stringValue(scenario.condition ?? payload.condition),
+    expected_behavior: stringValue(
+      scenario.expected_behavior ?? payload.expected_behavior,
+    ),
+    payload,
   };
 }
 
@@ -299,6 +477,22 @@ export function toBriefResponse(brief: JsonRecord): BriefResponse {
     key_points: stringList(brief.key_points),
     thesis_ids: stringList(brief.thesis_ids),
     signal_ids: stringList(brief.signal_ids),
+  };
+}
+
+export function toAlertResponse(alert: JsonRecord): AlertResponse {
+  return {
+    id: nullableString(alert.id),
+    workspace_id: stringValue(alert.workspace_id, 'local'),
+    alert_type: stringValue(alert.alert_type),
+    symbol: stringValue(alert.symbol),
+    thesis_id: nullableString(alert.thesis_id),
+    watchlist_item_id: nullableString(alert.watchlist_item_id),
+    trigger_key: nullableString(alert.trigger_key),
+    created_at: nullableString(alert.created_at),
+    read_at: nullableString(alert.read_at),
+    message: stringValue(alert.message),
+    payload: recordValue(alert.payload ?? alert.payload_json),
   };
 }
 

@@ -610,9 +610,7 @@ def _parse_scenario_plan(
                 prob_lower = prob_raw.lower()
                 if any(w in prob_lower for w in ("high", "likely", "probable")):
                     prob_band = ScenarioProbabilityBand.HIGH
-                elif any(
-                    w in prob_lower for w in ("medium", "moderate", "possible")
-                ):
+                elif any(w in prob_lower for w in ("medium", "moderate", "possible")):
                     prob_band = ScenarioProbabilityBand.MEDIUM
                 elif any(w in prob_lower for w in ("low", "unlikely", "remote")):
                     prob_band = ScenarioProbabilityBand.LOW

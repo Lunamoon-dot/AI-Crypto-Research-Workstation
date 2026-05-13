@@ -6,6 +6,7 @@ import {
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
+  toScenarioResponse,
   toThesisDecisionResponse,
   toThesisResponse,
   toThesisReviewResponse,
@@ -33,6 +34,13 @@ export class ThesesService {
       throw new NotFoundException(`Thesis ${id} not found`);
     }
     return toThesisResponse(thesis);
+  }
+
+  async scenarios(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = this.resolveWorkspace(userId, workspaceHeader);
+    await this.get(id, userId, workspaceId);
+    const scenarios = await this.journal.listScenarios(id, workspaceId);
+    return scenarios.map(toScenarioResponse);
   }
 
   async decide(

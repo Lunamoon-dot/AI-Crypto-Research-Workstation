@@ -283,13 +283,15 @@ apps/web
   -> apps/api (NestJS)
   -> BullMQ/Redis or compatible job boundary
   -> tradingagents Python engine
-  -> Postgres for hosted mode / SQLite for local mode
+  -> local Prisma + Postgres target first / hosted DATABASE_URL later
 ```
 
 Python owns LangGraph agents, LLM orchestration, provider adapters, signal
 generation, thesis generation, and the worker contract. NestJS owns auth,
 users, workspaces, request validation, product API endpoints, job orchestration,
-permissions, and future billing/progress forwarding.
+permissions, Prisma-backed product persistence, and future billing/progress
+forwarding. Short-term implementation focus remains the Python AI service;
+backend database URLs can be supplied later when API work resumes.
 
 ## Implemented Boundary
 
@@ -304,6 +306,10 @@ apps/api/
   src/watchlists
   src/briefs
   src/jobs
+  src/database/prisma-journal.repository.ts
+
+packages/database/
+  prisma/schema.prisma
 ```
 
 Core endpoints:
@@ -320,7 +326,23 @@ GET  /signals?symbol=BTC
 GET  /watchlists
 POST /watchlists/:id/items
 GET  /briefs/daily
+GET  /journal/runs/:id/workspace
+GET  /research-runs/:id/snapshots
+GET  /research-runs/:id/debate
+GET  /theses/:id/scenarios
+GET  /alerts
+POST /alerts/:id/read
 ```
+
+Database rule:
+
+- Local Postgres is the temporary Prisma target while `apps/ai-service` remains
+  the active implementation focus.
+- `packages/database/prisma/schema.prisma` is the canonical schema/client
+  source.
+- Hosted/NestJS deployment URLs can be added later through `DATABASE_URL`.
+- `DATABASE_ACCESS=pg` keeps a raw Postgres repository fallback for migration
+  checks and compatibility work.
 
 ## Python Worker Contract
 
@@ -368,7 +390,8 @@ Result:
 - NestJS validates product requests and enqueues research work.
 - Python exposes a stable JSON engine/worker contract.
 - Progress events are persisted and can be forwarded by NestJS.
-- Hosted mode targets Postgres; local mode may keep SQLite.
+- Local Postgres migration target is available through Prisma; hosted
+  `DATABASE_URL` can be added later.
 - API shape reflects research workflow and product entities.
 
 ---

@@ -407,7 +407,9 @@ class ThesisBuilder:
         summary_payload = dict(payload)
         summary_payload["rating"] = rating
         summary_payload["direction"] = direction.value
-        summary_payload["market_type"] = summary_payload.get("market_type") or market_type
+        summary_payload["market_type"] = (
+            summary_payload.get("market_type") or market_type
+        )
         summary_payload["confidence"] = confidence
         executive_summary = extract_thesis_field(
             thesis_text, "research summary"
@@ -435,8 +437,8 @@ class ThesisBuilder:
             or contradictions[:3]
             or ["Manual review required before changing thesis stance."]
         )
-        summary_payload["missing_data"] = summary_payload.get("missing_data") or (
-            stale_or_missing_data[:3]
+        summary_payload["missing_data"] = (
+            summary_payload.get("missing_data") or (stale_or_missing_data[:3])
         )
         summary_payload["is_degraded"] = bool(contract_degradation_reasons)
         summary_payload["degradation_reasons"] = contract_degradation_reasons

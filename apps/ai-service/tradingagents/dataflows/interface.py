@@ -521,9 +521,20 @@ def _invoke_with_resilience(
         _apply_vendor_rate_limit(vendor, rate_limit)
         try:
             ctx = contextvars.copy_context()
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(ctx.run, impl_func, *args, **kwargs)
-                return fut.result(timeout=timeout_sec)
+            ex = ThreadPoolExecutor(max_workers=1)
+            fut = ex.submit(ctx.run, impl_func, *args, **kwargs)
+            try:
+                result = fut.result(timeout=timeout_sec)
+            except FuturesTimeoutError:
+                fut.cancel()
+                ex.shutdown(wait=False, cancel_futures=True)
+                raise
+            except Exception:
+                ex.shutdown(wait=True, cancel_futures=True)
+                raise
+            else:
+                ex.shutdown(wait=True, cancel_futures=True)
+                return result
         except FuturesTimeoutError:
             last_error = ProviderTimeoutError(
                 f"{vendor}.{method} timed out after {timeout_sec}s"

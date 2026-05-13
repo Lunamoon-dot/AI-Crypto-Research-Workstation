@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ResearchRun {
+  id                      String   @id
+  workspaceId             String   @default("local") @map("workspace_id")
+  symbol                  String
+  assetClass              String   @map("asset_class")
+  timeframe               String?
+  status                  String
+  startedAt               DateTime @map("started_at") @db.Timestamptz(6)
+  completedAt             DateTime? @map("completed_at") @db.Timestamptz(6)
+  deepThinkModel          String?  @map("deep_think_model")
+  quickThinkModel         String?  @map("quick_think_model")
+  llmProvider             String?  @map("llm_provider")
+  configHash              String?  @map("config_hash")
+  marketSnapshotId        String?  @map("market_snapshot_id")
+  signalSnapshotId        String?  @map("signal_snapshot_id")
+  debateId                String?  @map("debate_id")
+  thesisId                String?  @map("thesis_id")
+  decisionId              String?  @map("decision_id")
+  userDecisionId          String?  @map("user_decision_id")
+  outcomeReviewId         String?  @map("outcome_review_id")
+  degradationReasonsJson  Json     @default("[]") @map("degradation_reasons_json")
+  missingCoreDataJson     Json     @default("[]") @map("missing_core_data_json")
+  missingOptionalDataJson Json     @default("[]") @map("missing_optional_data_json")
+  payloadJson             Json     @map("payload_json")
+
+  marketSnapshots     MarketSnapshot[]
+  signalSnapshots     SignalSnapshot[]
+  debates             Debate[]
+  agentOpinions       AgentOpinion[]
+  runEvents           RunEvent[]
+  tradeTheses         TradeThesis[]
+  llmCalls            LlmCall[]
+  dataFreshnessChecks DataFreshnessCheck[]
+
+  @@index([status, startedAt(sort: Desc)], map: "idx_research_runs_status")
+  @@index([workspaceId, startedAt(sort: Desc)], map: "idx_research_runs_workspace_created")
+  @@map("research_runs")
+}
+
+model MarketSnapshot {
+  id              String    @id
+  workspaceId     String    @default("local") @map("workspace_id")
+  researchRunId   String?   @map("research_run_id")
+  symbol          String
+  capturedAt      DateTime  @map("captured_at") @db.Timestamptz(6)
+  currentPrice    Float?    @map("current_price")
+  source          String
+  sourceTimestamp DateTime? @map("source_timestamp") @db.Timestamptz(6)
+  payloadJson     Json      @map("payload_json")
+
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id])
+
+  @@index([workspaceId, researchRunId], map: "idx_market_snapshots_workspace_run")
+  @@index([workspaceId, symbol, capturedAt(sort: Desc)], map: "idx_market_snapshots_workspace_symbol")
+  @@map("market_snapshots")
+}
+
+model SignalSnapshot {
+  id                    String   @id
+  workspaceId           String   @default("local") @map("workspace_id")
+  researchRunId         String   @map("research_run_id")
+  symbol                String
+  capturedAt            DateTime @map("captured_at") @db.Timestamptz(6)
+  compositeSignalId     String?  @map("composite_signal_id")
+  signalCount           Int      @map("signal_count")
+  bullishCount          Int      @map("bullish_count")
+  bearishCount          Int      @map("bearish_count")
+  neutralCount          Int      @map("neutral_count")
+  staleCount            Int      @map("stale_count")
+  unknownFreshnessCount Int      @map("unknown_freshness_count")
+  payloadJson           Json     @map("payload_json")
+
+  researchRun ResearchRun @relation(fields: [researchRunId], references: [id])
+
+  @@index([workspaceId, researchRunId], map: "idx_signal_snapshots_workspace_run")
+  @@index([workspaceId, symbol, capturedAt(sort: Desc)], map: "idx_signal_snapshots_workspace_symbol")
+  @@map("signal_snapshots")
+}
+
+model Debate {
+  id              String   @id
+  workspaceId     String   @default("local") @map("workspace_id")
+  researchRunId   String?  @map("research_run_id")
+  symbol          String
+  consensusStance String   @map("consensus_stance")
+  conflictLevel   String   @map("conflict_level")
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson     Json     @map("payload_json")
+
+  researchRun   ResearchRun?   @relation(fields: [researchRunId], references: [id])
+  agentOpinions AgentOpinion[]
+
+  @@index([workspaceId, researchRunId], map: "idx_debates_workspace_run")
+  @@map("debates")
+}
+
+model AgentOpinion {
+  id            String   @id
+  workspaceId   String   @default("local") @map("workspace_id")
+  debateId      String?  @map("debate_id")
+  researchRunId String?  @map("research_run_id")
+  agentName     String   @map("agent_name")
+  agentRole     String   @map("agent_role")
+  stance        String
+  confidence    Float?
+  createdAt     DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson   Json     @map("payload_json")
+
+  debate      Debate?      @relation(fields: [debateId], references: [id])
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id])
+
+  @@index([workspaceId, debateId], map: "idx_agent_opinions_workspace_debate")
+  @@map("agent_opinions")
+}
+
+model RunEvent {
+  id            String   @id
+  workspaceId   String   @default("local") @map("workspace_id")
+  researchRunId String   @map("research_run_id")
+  thesisId      String?  @map("thesis_id")
+  eventType     String   @map("event_type")
+  createdAt     DateTime @map("created_at") @db.Timestamptz(6)
+  message       String
+  payloadJson   Json     @map("payload_json")
+
+  researchRun ResearchRun @relation(fields: [researchRunId], references: [id])
+
+  @@index([researchRunId, createdAt], map: "idx_run_events_run")
+  @@index([workspaceId, createdAt], map: "idx_run_events_workspace_created")
+  @@map("run_events")
+}
+
+model TradeThesis {
+  id            String   @id
+  workspaceId   String   @default("local") @map("workspace_id")
+  researchRunId String?  @map("research_run_id")
+  symbol        String
+  direction     String
+  setupType     String   @map("setup_type")
+  confidence    Float?
+  createdAt     DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson   Json     @map("payload_json")
+
+  researchRun    ResearchRun?    @relation(fields: [researchRunId], references: [id])
+  scenarios      Scenario[]
+  watchlistItems WatchlistItem[]
+  alerts         Alert[]
+  userDecisions  UserDecision[]
+  outcomeReviews OutcomeReview[]
+  llmCalls       LlmCall[]
+
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_trade_theses_workspace_created")
+  @@map("trade_theses")
+}
+
+model Scenario {
+  id                  String @id
+  workspaceId         String @default("local") @map("workspace_id")
+  thesisId            String @map("thesis_id")
+  probabilityBand     String @map("probability_band")
+  suggestedUserAction String @map("suggested_user_action")
+  payloadJson         Json   @map("payload_json")
+
+  thesis TradeThesis @relation(fields: [thesisId], references: [id])
+
+  @@index([workspaceId, thesisId], map: "idx_scenarios_workspace_thesis")
+  @@map("scenarios")
+}
+
+model Signal {
+  id              String    @id
+  workspaceId     String    @default("local") @map("workspace_id")
+  symbol          String
+  signalType      String    @map("signal_type")
+  direction       String
+  confidence      Float?
+  observedAt      DateTime  @map("observed_at") @db.Timestamptz(6)
+  source          String
+  sourceTimestamp DateTime? @map("source_timestamp") @db.Timestamptz(6)
+  payloadJson     Json      @map("payload_json")
+
+  @@index([workspaceId, observedAt(sort: Desc)], map: "idx_signals_workspace_observed")
+  @@map("signals")
+}
+
+model Watchlist {
+  id          String   @id
+  workspaceId String   @default("local") @map("workspace_id")
+  name        String
+  enabled     Int
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson Json     @map("payload_json")
+
+  items WatchlistItem[]
+
+  @@unique([workspaceId, name], map: "idx_watchlists_workspace_name")
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_watchlists_workspace_created")
+  @@map("watchlists")
+}
+
+model WatchlistItem {
+  id          String   @id
+  watchlistId String   @map("watchlist_id")
+  itemType    String   @map("item_type")
+  symbol      String?
+  thesisId    String?  @map("thesis_id")
+  setupType   String?  @map("setup_type")
+  enabled     Int
+  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson Json     @map("payload_json")
+
+  watchlist Watchlist    @relation(fields: [watchlistId], references: [id])
+  thesis    TradeThesis? @relation(fields: [thesisId], references: [id])
+  alerts    Alert[]
+
+  @@map("watchlist_items")
+}
+
+model Alert {
+  id              String    @id
+  workspaceId     String    @default("local") @map("workspace_id")
+  alertType       String    @map("alert_type")
+  symbol          String
+  thesisId        String?   @map("thesis_id")
+  watchlistItemId String?   @map("watchlist_item_id")
+  triggerKey      String?   @map("trigger_key")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  readAt          DateTime? @map("read_at") @db.Timestamptz(6)
+  message         String
+  payloadJson     Json      @map("payload_json")
+
+  thesis        TradeThesis?   @relation(fields: [thesisId], references: [id])
+  watchlistItem WatchlistItem? @relation(fields: [watchlistItemId], references: [id])
+
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_alerts_workspace_created")
+  @@index([workspaceId, symbol, createdAt(sort: Desc)], map: "idx_alerts_workspace_symbol")
+  @@index([workspaceId, thesisId, createdAt(sort: Desc)], map: "idx_alerts_workspace_thesis")
+  @@map("alerts")
+}
+
+model MarketBrief {
+  id              String   @id
+  workspaceId     String   @default("local") @map("workspace_id")
+  briefDate       DateTime @map("brief_date") @db.Date
+  watchlistName   String   @map("watchlist_name")
+  title           String
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+  previousBriefId String?  @map("previous_brief_id")
+  payloadJson     Json     @map("payload_json")
+
+  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_market_briefs_workspace_created")
+  @@map("market_briefs")
+}
+
+model UserDecision {
+  id          String   @id
+  thesisId    String   @map("thesis_id")
+  action      String
+  decidedAt   DateTime @map("decided_at") @db.Timestamptz(6)
+  userNotes   String   @map("user_notes")
+  payloadJson Json     @map("payload_json")
+
+  thesis TradeThesis @relation(fields: [thesisId], references: [id])
+
+  @@map("user_decisions")
+}
+
+model OutcomeReview {
+  id          String   @id
+  thesisId    String   @map("thesis_id")
+  result      String
+  reviewedAt  DateTime @map("reviewed_at") @db.Timestamptz(6)
+  invalidated Int
+  payloadJson Json     @map("payload_json")
+
+  thesis TradeThesis @relation(fields: [thesisId], references: [id])
+
+  @@map("outcome_reviews")
+}
+
+model ProviderHealth {
+  id           String   @id
+  provider     String
+  component    String?
+  status       String
+  checkedAt    DateTime @map("checked_at") @db.Timestamptz(6)
+  latencyMs    Float?   @map("latency_ms")
+  errorType    String?  @map("error_type")
+  errorMessage String?  @map("error_message")
+  payloadJson  Json     @map("payload_json")
+
+  @@map("provider_health")
+}
+
+model LlmCall {
+  id            String   @id
+  researchRunId String?  @map("research_run_id")
+  thesisId      String?  @map("thesis_id")
+  provider      String
+  model         String
+  stage         String?
+  agent         String?
+  inputTokens   Int      @default(0) @map("input_tokens")
+  outputTokens  Int      @default(0) @map("output_tokens")
+  latencyMs     Float?   @map("latency_ms")
+  status        String
+  errorType     String?  @map("error_type")
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @map("created_at") @db.Timestamptz(6)
+  payloadJson   Json     @map("payload_json")
+
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id])
+  thesis      TradeThesis? @relation(fields: [thesisId], references: [id])
+
+  @@map("llm_calls")
+}
+
+model DataFreshnessCheck {
+  id                String    @id
+  researchRunId     String?   @map("research_run_id")
+  symbol            String?
+  source            String
+  sourceTimestamp   DateTime? @map("source_timestamp") @db.Timestamptz(6)
+  observedTimestamp DateTime  @map("observed_timestamp") @db.Timestamptz(6)
+  ageSeconds        Int?      @map("age_seconds")
+  thresholdSeconds  Int?      @map("threshold_seconds")
+  status            String
+  payloadJson       Json      @map("payload_json")
+
+  researchRun ResearchRun? @relation(fields: [researchRunId], references: [id])
+
+  @@map("data_freshness_checks")
+}

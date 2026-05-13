@@ -1,6 +1,8 @@
 -- Product backend target schema.
--- Python local mode may keep SQLite; hosted/NestJS mode should use Postgres
--- with JSONB payload mirrors so both stacks can read normalized artifacts.
+-- Canonical local Postgres schema/client: packages/database/prisma/schema.prisma.
+-- Keep this raw SQL aligned as migration/reference material.
+-- Python ai-service remains the current focus; NestJS can use DATABASE_URL
+-- later when backend work resumes.
 
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
@@ -34,6 +36,76 @@ ON research_runs(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_runs_workspace_created
 ON research_runs(workspace_id, started_at DESC);
 
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    research_run_id TEXT REFERENCES research_runs(id),
+    symbol TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    current_price DOUBLE PRECISION,
+    source TEXT NOT NULL,
+    source_timestamp TIMESTAMPTZ,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_workspace_run
+ON market_snapshots(workspace_id, research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_workspace_symbol
+ON market_snapshots(workspace_id, symbol, captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_snapshots (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    research_run_id TEXT NOT NULL REFERENCES research_runs(id),
+    symbol TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    composite_signal_id TEXT,
+    signal_count INTEGER NOT NULL,
+    bullish_count INTEGER NOT NULL,
+    bearish_count INTEGER NOT NULL,
+    neutral_count INTEGER NOT NULL,
+    stale_count INTEGER NOT NULL,
+    unknown_freshness_count INTEGER NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_workspace_run
+ON signal_snapshots(workspace_id, research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_signal_snapshots_workspace_symbol
+ON signal_snapshots(workspace_id, symbol, captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS debates (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    research_run_id TEXT REFERENCES research_runs(id),
+    symbol TEXT NOT NULL,
+    consensus_stance TEXT NOT NULL,
+    conflict_level TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_debates_workspace_run
+ON debates(workspace_id, research_run_id);
+
+CREATE TABLE IF NOT EXISTS agent_opinions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    debate_id TEXT REFERENCES debates(id),
+    research_run_id TEXT REFERENCES research_runs(id),
+    agent_name TEXT NOT NULL,
+    agent_role TEXT NOT NULL,
+    stance TEXT NOT NULL,
+    confidence DOUBLE PRECISION,
+    created_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_opinions_workspace_debate
+ON agent_opinions(workspace_id, debate_id);
+
 CREATE TABLE IF NOT EXISTS run_events (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',
@@ -65,6 +137,18 @@ CREATE TABLE IF NOT EXISTS trade_theses (
 
 CREATE INDEX IF NOT EXISTS idx_trade_theses_workspace_created
 ON trade_theses(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS scenarios (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    thesis_id TEXT NOT NULL REFERENCES trade_theses(id),
+    probability_band TEXT NOT NULL,
+    suggested_user_action TEXT NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenarios_workspace_thesis
+ON scenarios(workspace_id, thesis_id);
 
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
@@ -108,6 +192,29 @@ CREATE TABLE IF NOT EXISTS watchlist_items (
     created_at TIMESTAMPTZ NOT NULL,
     payload_json JSONB NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    alert_type TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    thesis_id TEXT REFERENCES trade_theses(id),
+    watchlist_item_id TEXT REFERENCES watchlist_items(id),
+    trigger_key TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    read_at TIMESTAMPTZ,
+    message TEXT NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_workspace_created
+ON alerts(workspace_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_workspace_symbol
+ON alerts(workspace_id, symbol, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_workspace_thesis
+ON alerts(workspace_id, thesis_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS market_briefs (
     id TEXT PRIMARY KEY,

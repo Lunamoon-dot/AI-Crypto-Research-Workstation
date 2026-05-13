@@ -15,7 +15,7 @@ flowchart LR
     Config --> Vendors["Data vendors: CCXT, CoinGecko, CryptoPanic"]
     Vendors --> Signals["Deterministic SignalEngine"]
     Signals --> Graph["Agent graph"]
-    Graph --> Journal["SQLite/Postgres journal payloads"]
+    Graph --> Journal["AI-service journal + local Prisma Postgres mirror"]
     Journal --> ReadAPI["Web read APIs"]
     ReadAPI --> UI["Research UI"]
 ```
@@ -98,6 +98,17 @@ flowchart LR
 
 The user remains responsible for the final decision. The system tracks what was
 recommended, what the user decided, and how the thesis performed later.
+
+## Database Boundary
+
+Current focus is `apps/ai-service`. Its existing journal remains the working
+engine source while local Postgres becomes the Prisma target for product-schema
+work and migration checks. The canonical Prisma schema lives in
+`packages/database/prisma/schema.prisma` and defaults to
+`postgresql://postgres:postgres@localhost:5432/lunacrypto`; hosted/NestJS
+deployments can provide `DATABASE_URL` later. API repository code should prefer
+`PrismaJournalRepository` once the backend is resumed, unless
+`DATABASE_ACCESS=pg` is explicitly set for the raw `pg` fallback.
 
 ## Daily And Historical Flows
 

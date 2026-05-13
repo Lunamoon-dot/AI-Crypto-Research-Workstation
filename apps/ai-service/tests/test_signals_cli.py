@@ -100,7 +100,9 @@ def _legacy_signal_payload(
         "observed_at": "2026-05-12T18:43:28Z",
         "expires_at": None,
         "provenance": {
-            "source": "signal_engine" if signal_type == "composite_quant" else signal_type,
+            "source": "signal_engine"
+            if signal_type == "composite_quant"
+            else signal_type,
             "source_timestamp": "2026-05-12T18:43:28Z",
             "observed_at": "2026-05-12T18:43:28Z",
             "freshness": "fresh",
@@ -304,7 +306,9 @@ def test_signals_snapshot_is_scoped_to_one_run(tmp_path, monkeypatch):
 
 def test_signals_explain_surfaces_watch_conditions(tmp_path, monkeypatch):
     _run, signals, snapshot = _save_signal_run(tmp_path, monkeypatch)
-    funding_signal = next(signal for signal in signals if signal.signal_type == "funding_oi")
+    funding_signal = next(
+        signal for signal in signals if signal.signal_type == "funding_oi"
+    )
     runner = CliRunner()
 
     result = runner.invoke(

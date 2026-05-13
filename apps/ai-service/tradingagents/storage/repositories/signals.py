@@ -413,7 +413,9 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
 
 
 def _signal_from_json(payload_json: str) -> Signal:
-    return _model_from_payload(Signal, normalize_signal_payload(json.loads(payload_json)))
+    return _model_from_payload(
+        Signal, normalize_signal_payload(json.loads(payload_json))
+    )
 
 
 def _normalize_signal_model(signal: Signal) -> Signal:

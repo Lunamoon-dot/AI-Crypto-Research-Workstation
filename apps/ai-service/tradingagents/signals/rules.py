@@ -92,8 +92,7 @@ SIGNAL_RULES: dict[str, SignalRule] = {
             "confirmation levels."
         ),
         invalidation=(
-            "Invalidate if liquidation pressure clears without confirming the "
-            "thesis."
+            "Invalidate if liquidation pressure clears without confirming the thesis."
         ),
     ),
     "basis": SignalRule(
@@ -110,8 +109,7 @@ SIGNAL_RULES: dict[str, SignalRule] = {
         category="oi",
         metrics=("oi_current", "oi_delta_5d"),
         review_trigger=(
-            "Review if open interest expands while price fails to confirm the "
-            "thesis."
+            "Review if open interest expands while price fails to confirm the thesis."
         ),
         invalidation="Invalidate if open interest unwinds against the thesis.",
     ),
@@ -351,11 +349,16 @@ def normalize_signal_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     if data.get("evidence_lane") in (None, "", "unknown") or original_type != canonical:
         data["evidence_lane"] = lane
-    if data.get("evidence_category") in (None, "", "unknown") or original_type != canonical:
+    if (
+        data.get("evidence_category") in (None, "", "unknown")
+        or original_type != canonical
+    ):
         data["evidence_category"] = category
 
     watch = data.get("watch_conditions")
-    if not isinstance(watch, dict) or not any(str(v or "").strip() for v in watch.values()):
+    if not isinstance(watch, dict) or not any(
+        str(v or "").strip() for v in watch.values()
+    ):
         data["watch_conditions"] = build_watch_condition_payload(
             symbol=str(data.get("symbol") or ""),
             signal_type=canonical,
@@ -378,7 +381,9 @@ def normalize_signal_snapshot_payload(
     signal_ids = [str(item) for item in data.get("signal_ids") or [] if item]
     data["signal_ids"] = signal_ids
     if data.get("composite_signal_id") is None:
-        data["composite_signal_id"] = _first_quant_bias_id(signal_ids, signal_payloads_by_id)
+        data["composite_signal_id"] = _first_quant_bias_id(
+            signal_ids, signal_payloads_by_id
+        )
 
     nested = dict(data.get("payload") or {})
     nested["signal_types"] = [

@@ -1,0 +1,20 @@
+{
+  "name": "@lunaperception/database",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {
+    "build": "prisma generate --schema prisma/schema.prisma",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:push": "prisma db push --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "lint": "echo \"database package has no lintable sources\"",
+    "typecheck": "echo \"database package has no TypeScript sources\"",
+    "test": "echo \"database package has no tests\""
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0"
+  },
+  "devDependencies": {
+    "prisma": "^7.8.0"
+  }
+}

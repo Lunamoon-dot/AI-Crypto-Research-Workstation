@@ -9,5 +9,6 @@ import { ResearchRunsService } from './research-runs.service';
   imports: [AuthModule, WorkspacesModule, JobsModule],
   controllers: [ResearchRunsController],
   providers: [ResearchRunsService],
+  exports: [ResearchRunsService],
 })
 export class ResearchRunsModule {}

@@ -33,6 +33,15 @@ export class ThesesController {
     return this.theses.get(id, userId, workspaceId);
   }
 
+  @Get(':id/scenarios')
+  scenarios(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.theses.scenarios(id, userId, workspaceId);
+  }
+
   @Post(':id/decision')
   decide(
     @Param('id') id: string,

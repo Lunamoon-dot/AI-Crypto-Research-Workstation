@@ -1,27 +1,35 @@
-# SQLite to Postgres Migration Strategy
+# SQLite to Local Postgres Migration Strategy
 
-Phase 12 keeps SQLite as the local workstation store and targets Postgres for
-the NestJS/cloud boundary.
+Short term: keep product work focused on `apps/ai-service`, and use local
+Postgres as the Prisma target for schema/migration checks. Hosted/NestJS
+connection URLs can be added later when backend work resumes.
 
 ## Direction
 
-- Local Python CLI: continue using SQLite through `JournalService`.
-- Hosted backend: use Postgres with the schema in
-  `apps/api/src/database/postgres-schema.sql`.
+- Python AI service: keep the current journal implementation as the working
+  engine source while migration work is staged.
+- Local Postgres: use Prisma for the product schema mirror. The schema/client lives
+  in `packages/database/prisma/schema.prisma`.
+- Raw SQL reference: keep `apps/api/src/database/postgres-schema.sql` aligned
+  as migration evidence and compatibility documentation for Python journal
+  exports.
 - Python worker: receive JSON jobs from NestJS/BullMQ, run the engine, and write
-  normalized rows into the configured database.
-- NestJS API: read product entities from Postgres and expose REST/SSE/WebSocket
-  surfaces to frontend clients.
+  normalized rows into the configured database once that boundary is resumed.
+- NestJS API: add `DATABASE_URL` later. Until then, backend DB wiring is not the
+  main focus.
 
 ## Migration Steps
 
-1. Apply the Postgres schema.
-2. Export SQLite rows table-by-table, preserving IDs.
-3. Load JSON payload columns as `jsonb`.
-4. Validate row counts for research runs, theses, signals, watchlists, briefs,
+1. Start local Postgres with `docker compose --profile db up -d postgres`.
+2. Generate Prisma Client with `pnpm db:generate`.
+3. Apply the Postgres schema locally with `pnpm db:push` or
+   `pnpm db:migrate`.
+4. Export SQLite rows table-by-table, preserving IDs.
+5. Load JSON payload columns as `jsonb`.
+6. Validate row counts for research runs, theses, signals, watchlists, briefs,
    run events, LLM calls, provider health, and freshness checks.
-5. Run a Python worker smoke job with `tradingagents engine run --request`.
-6. Read that run through `GET /research-runs/:id` and
+7. Run a Python worker smoke job with `tradingagents engine run --request`.
+8. Read that run through `GET /research-runs/:id` and
    `GET /research-runs/:id/events`.
 
 ## Compatibility Rule
