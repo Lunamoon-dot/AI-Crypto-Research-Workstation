@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Query } from '@nestjs/common';
+import { Controller, Get, Headers, Param, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { SignalsService } from './signals.service';
 
@@ -13,6 +13,15 @@ export class SignalsController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.signals.count(symbol, userId, workspaceId);
+  }
+
+  @Get(':id')
+  get(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.signals.get(id, userId, workspaceId);
   }
 
   @Get()

@@ -735,6 +735,102 @@ a {
   outline: none;
 }
 
+.divider {
+  height: 1px;
+  background: var(--border);
+}
+
+.compact-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.compact-create .badge {
+  grid-column: 1 / -1;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-low);
+  padding: 4px;
+}
+
+.segment-button {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.segment-button.active,
+.segment-button:hover {
+  border-color: rgba(167, 139, 250, 0.36);
+  background: var(--accent-soft);
+  color: var(--foreground);
+}
+
+.symbol-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.symbol-chip {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-high);
+  color: var(--foreground);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.symbol-chip.active,
+.symbol-chip:hover {
+  border-color: rgba(167, 139, 250, 0.42);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.thesis-option-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.thesis-option {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-low);
+  color: var(--foreground);
+  padding: 10px;
+  text-align: left;
+}
+
+.thesis-option.active,
+.thesis-option:hover {
+  border-color: rgba(167, 139, 250, 0.44);
+  background: var(--accent-soft);
+}
+
+.thesis-option strong,
+.thesis-option span {
+  min-width: 0;
+}
+
 .callout {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1083,6 +1179,8 @@ a {
   .grid.two,
   .grid.three,
   .form-grid,
+  .compact-create,
+  .thesis-option-list,
   .bento-grid {
     grid-template-columns: 1fr;
   }

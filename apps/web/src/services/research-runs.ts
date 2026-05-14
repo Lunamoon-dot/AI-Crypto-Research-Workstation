@@ -8,6 +8,7 @@ import {
   ResearchRunResponse,
   ResearchRunQueuedResponse,
 } from '@/services/generated/api-client';
+import type { EvidenceBundleResponse } from '@/types';
 
 export function listResearchRuns(
   params: { symbol?: string; status?: string; limit?: number },
@@ -31,6 +32,20 @@ export function getJournalRunWorkspace(id: string, auth: WorkspaceRequestContext
   return generatedClient(auth).getJournalRunWorkspace(id);
 }
 
+export function getResearchRunEvidenceBundle(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getResearchRunEvidenceBundle(id);
+}
+
+export function getJournalRunEvidenceBundle(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getJournalRunEvidenceBundle(id);
+}
+
 export function getJobStatus(id: string, auth: WorkspaceRequestContext) {
   return generatedClient(auth).getJobStatus(id);
 }
@@ -47,6 +62,7 @@ function generatedClient(auth: WorkspaceRequestContext) {
 
 export type {
   CreateResearchRunRequest,
+  EvidenceBundleResponse,
   JobStatusResponse,
   JournalRunWorkspaceResponse,
   ResearchRunResponse,

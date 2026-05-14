@@ -8,6 +8,7 @@ import { ResearchRunFormPage } from '@/pages/ResearchRunFormPage';
 import { ResearchHistoryPage } from '@/pages/ResearchHistoryPage';
 import { ResearchRunWorkspacePage } from '@/pages/ResearchRunWorkspacePage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SignalDetailPage } from '@/pages/SignalDetailPage';
 import { SignalsPage } from '@/pages/SignalsPage';
 import { ThesisDetailPage } from '@/pages/ThesisDetailPage';
 import { ThesisLibraryPage } from '@/pages/ThesisLibraryPage';
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
       { path: 'theses', element: <ThesisLibraryPage /> },
       { path: 'theses/:id', element: <ThesisDetailPage /> },
       { path: 'signals', element: <SignalsPage /> },
+      { path: 'signals/:id', element: <SignalDetailPage /> },
       { path: 'alerts', element: <AlertsPage /> },
       { path: 'watchlists', element: <WatchlistsPage /> },
       { path: 'briefs/daily', element: <DailyBriefsPage /> },

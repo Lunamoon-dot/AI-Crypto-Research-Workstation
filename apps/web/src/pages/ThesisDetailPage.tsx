@@ -1,7 +1,8 @@
 import { Link, useParams } from 'react-router-dom';
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FileText, GitBranch, ShieldAlert, Target } from 'lucide-react';
+import { CheckCircle2, Download, FileText, GitBranch, ShieldAlert, Target } from 'lucide-react';
+import { getResearchRunEvidenceBundle } from '@/services/research-runs';
 import {
   getThesis,
   getThesisScenarios,
@@ -41,14 +42,29 @@ export function ThesisDetailPage() {
 
   const [decisionAction, setDecisionAction] = useState('watched');
   const [decisionNotes, setDecisionNotes] = useState('');
+  const [decisionEntry, setDecisionEntry] = useState('');
+  const [decisionStopLoss, setDecisionStopLoss] = useState('');
+  const [decisionTakeProfit, setDecisionTakeProfit] = useState('');
+  const [positionIntent, setPositionIntent] = useState('watch_only');
   const [reviewResult, setReviewResult] = useState('unknown');
   const [reviewNotes, setReviewNotes] = useState('');
+  const [reviewMfe, setReviewMfe] = useState('');
+  const [reviewMae, setReviewMae] = useState('');
+  const [exportingBundle, setExportingBundle] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   const decisionMutation = useMutation({
     mutationFn: () =>
       recordThesisDecision(
         thesisId,
-        { action: decisionAction, notes: decisionNotes },
+        {
+          action: decisionAction,
+          notes: decisionNotes,
+          entry: optionalString(decisionEntry),
+          stop_loss: optionalString(decisionStopLoss),
+          take_profit: optionalString(decisionTakeProfit),
+          position_intent: optionalString(positionIntent),
+        },
         auth,
       ),
     onSuccess: () => {
@@ -62,11 +78,18 @@ export function ThesisDetailPage() {
     mutationFn: () =>
       recordThesisReview(
         thesisId,
-        { result: reviewResult, notes: reviewNotes },
+        {
+          result: reviewResult,
+          notes: reviewNotes,
+          max_favorable_excursion: optionalNumber(reviewMfe),
+          max_adverse_excursion: optionalNumber(reviewMae),
+        },
         auth,
       ),
     onSuccess: () => {
       setReviewNotes('');
+      setReviewMfe('');
+      setReviewMae('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesis(thesisId) });
     },
   });
@@ -103,6 +126,27 @@ export function ThesisDetailPage() {
   function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     reviewMutation.mutate();
+  }
+
+  async function exportEvidenceBundle() {
+    const currentThesis = thesis;
+    if (!currentThesis?.research_run_id) {
+      return;
+    }
+    const runId = currentThesis.research_run_id;
+    setExportingBundle(true);
+    setExportError('');
+    try {
+      const bundle = await getResearchRunEvidenceBundle(runId, auth);
+      downloadJson(
+        bundle,
+        `evidence-bundle-${safeFileName(runId)}.json`,
+      );
+    } catch (error) {
+      setExportError(errorMessage(error));
+    } finally {
+      setExportingBundle(false);
+    }
   }
 
   return (
@@ -166,6 +210,17 @@ export function ThesisDetailPage() {
                   Open run
                 </Link>
               ) : null}
+              {thesis.research_run_id ? (
+                <button
+                  className="button"
+                  disabled={exportingBundle}
+                  onClick={exportEvidenceBundle}
+                  type="button"
+                >
+                  <Download aria-hidden size={15} />
+                  {exportingBundle ? 'Exporting' : 'Export evidence'}
+                </button>
+              ) : null}
               {thesis.id ? (
                 <Link
                   className="button primary"
@@ -175,6 +230,7 @@ export function ThesisDetailPage() {
                 </Link>
               ) : null}
             </div>
+            {exportError ? <span className="badge risk">{exportError}</span> : null}
           </div>
         </Panel>
 
@@ -240,6 +296,50 @@ export function ThesisDetailPage() {
                   onChange={(event) => setDecisionNotes(event.target.value)}
                 />
               </label>
+              <div className="grid three">
+                <label className="label">
+                  Entry
+                  <input
+                    className="input"
+                    onChange={(event) => setDecisionEntry(event.target.value)}
+                    placeholder={thesis.entry_zone || '100000-101500'}
+                    value={decisionEntry}
+                  />
+                </label>
+                <label className="label">
+                  SL
+                  <input
+                    className="input"
+                    onChange={(event) => setDecisionStopLoss(event.target.value)}
+                    placeholder={thesis.invalidation_level || '95000'}
+                    value={decisionStopLoss}
+                  />
+                </label>
+                <label className="label">
+                  TP
+                  <input
+                    className="input"
+                    onChange={(event) => setDecisionTakeProfit(event.target.value)}
+                    placeholder={thesis.target_zones[0] || '110000'}
+                    value={decisionTakeProfit}
+                  />
+                </label>
+              </div>
+              <label className="label">
+                Position intent
+                <select
+                  className="select"
+                  onChange={(event) => setPositionIntent(event.target.value)}
+                  value={positionIntent}
+                >
+                  <option value="watch_only">watch_only</option>
+                  <option value="spot_accumulation">spot_accumulation</option>
+                  <option value="long_perp">long_perp</option>
+                  <option value="short_perp">short_perp</option>
+                  <option value="hedge_or_reduce">hedge_or_reduce</option>
+                  <option value="no_trade">no_trade</option>
+                </select>
+              </label>
               {decisionMutation.isError ? <span className="badge risk">{errorMessage(decisionMutation.error)}</span> : null}
               {decisionMutation.isSuccess ? <span className="badge constructive">decision recorded</span> : null}
               <button className="button primary" disabled={decisionMutation.isPending} type="submit">
@@ -272,6 +372,32 @@ export function ThesisDetailPage() {
                   onChange={(event) => setReviewNotes(event.target.value)}
                 />
               </label>
+              <div className="grid two">
+                <label className="label">
+                  MFE
+                  <input
+                    className="input"
+                    inputMode="decimal"
+                    onChange={(event) => setReviewMfe(event.target.value)}
+                    placeholder="0.12"
+                    type="number"
+                    step="0.0001"
+                    value={reviewMfe}
+                  />
+                </label>
+                <label className="label">
+                  MAE
+                  <input
+                    className="input"
+                    inputMode="decimal"
+                    onChange={(event) => setReviewMae(event.target.value)}
+                    placeholder="-0.05"
+                    type="number"
+                    step="0.0001"
+                    value={reviewMae}
+                  />
+                </label>
+              </div>
               {reviewMutation.isError ? <span className="badge risk">{errorMessage(reviewMutation.error)}</span> : null}
               {reviewMutation.isSuccess ? <span className="badge constructive">review recorded</span> : null}
               <button className="button" disabled={reviewMutation.isPending} type="submit">
@@ -295,6 +421,36 @@ export function ThesisDetailPage() {
       </BentoGrid>
     </main>
   );
+}
+
+function optionalString(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function optionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function downloadJson(value: unknown, fileName: string) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeFileName(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-');
 }
 
 function stabilityGuardSummary(guard: JsonRecord) {

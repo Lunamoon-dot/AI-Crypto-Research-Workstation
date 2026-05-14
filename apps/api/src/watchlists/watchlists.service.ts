@@ -2,7 +2,10 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -11,6 +14,7 @@ import {
   JsonRecord,
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
+import { normalizeCryptoSymbol } from '../common/market-symbols';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   AlertResponse,
@@ -22,6 +26,10 @@ import { AddWatchlistItemDto } from './dto/add-watchlist-item.dto';
 import { CheckWatchlistDto } from './dto/check-watchlist.dto';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
 import { UpdateWatchlistDto } from './dto/update-watchlist.dto';
+import {
+  MarketPriceService,
+  PriceResolution,
+} from '../market-data/market-price.service';
 
 export interface WatchlistCheckResponse {
   workspace_id: string;
@@ -31,14 +39,45 @@ export interface WatchlistCheckResponse {
   skipped_items: string[];
 }
 
+export interface WatchlistPollResponse {
+  checked_watchlists: number;
+  alerts_created: number;
+  skipped_items: string[];
+}
+
 @Injectable()
-export class WatchlistsService {
+export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(WatchlistsService.name);
+  private alertPollTimer: ReturnType<typeof setInterval> | null = null;
+  private alertPollRunning = false;
+
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
+    private readonly marketPrices: MarketPriceService,
   ) {}
+
+  onModuleInit(): void {
+    if (!envFlag('WATCHLIST_ALERT_POLL_ENABLED', false)) {
+      return;
+    }
+    const intervalMs = numberEnv('WATCHLIST_ALERT_POLL_INTERVAL_MS', 60_000);
+    if (envFlag('WATCHLIST_ALERT_POLL_ON_START', true)) {
+      void this.runAlertPoll();
+    }
+    this.alertPollTimer = setInterval(() => {
+      void this.runAlertPoll();
+    }, intervalMs);
+  }
+
+  onModuleDestroy(): void {
+    if (this.alertPollTimer) {
+      clearInterval(this.alertPollTimer);
+      this.alertPollTimer = null;
+    }
+  }
 
   async list(limit = 50, userId?: string, workspaceHeader?: string) {
     const workspaceId = await this.resolveWorkspace(
@@ -160,6 +199,48 @@ export class WatchlistsService {
       workspaceHeader,
       'editor',
     );
+    return this.checkWorkspaceWatchlist(id, dto, workspaceId);
+  }
+
+  async pollAlerts(): Promise<WatchlistPollResponse> {
+    const watchlists = await this.journal.listEnabledWatchlists(
+      numberEnv('WATCHLIST_ALERT_POLL_LIMIT', 100),
+    );
+    const skipped: string[] = [];
+    let checkedWatchlists = 0;
+    let alertsCreated = 0;
+
+    for (const watchlist of watchlists) {
+      const id = nullableString(watchlist.id);
+      const workspaceId = nullableString(watchlist.workspace_id);
+      if (!id || !workspaceId) {
+        skipped.push('watchlist: missing id or workspace');
+        continue;
+      }
+      try {
+        const result = await this.checkWorkspaceWatchlist(id, {}, workspaceId);
+        checkedWatchlists += 1;
+        alertsCreated += result.alerts_created.length;
+        for (const item of result.skipped_items) {
+          skipped.push(`${id}: ${item}`);
+        }
+      } catch (error) {
+        skipped.push(`${id}: ${errorMessage(error)}`);
+      }
+    }
+
+    return {
+      checked_watchlists: checkedWatchlists,
+      alerts_created: alertsCreated,
+      skipped_items: skipped,
+    };
+  }
+
+  async checkWorkspaceWatchlist(
+    id: string,
+    dto: CheckWatchlistDto,
+    workspaceId: string,
+  ): Promise<WatchlistCheckResponse> {
     const watchlist = await this.journal.getWatchlist(id, workspaceId);
     if (!watchlist) {
       throw new NotFoundException(`Watchlist ${id} not found`);
@@ -168,13 +249,34 @@ export class WatchlistsService {
     const items = await this.journal.listWatchlistItems(id, workspaceId);
     const alerts: JsonRecord[] = [];
     const skipped: string[] = [];
+    const priceCache = new Map<string, PriceResolution>();
 
     for (const item of items) {
       if (!booleanValue(item.enabled, true)) {
         skipped.push(`${stringValue(item.id, 'item')}: disabled`);
         continue;
       }
-      if (stringValue(item.item_type, 'symbol') !== 'thesis') {
+      const itemType = stringValue(item.item_type, 'symbol');
+      if (itemType !== 'thesis') {
+        if (itemType === 'symbol') {
+          const symbol = stringValue(item.symbol);
+          if (symbol) {
+            const price = await this.resolveWatchlistPrice(
+              symbol,
+              workspaceId,
+              prices,
+              priceCache,
+            );
+            if (price.warning) {
+              skipped.push(`${stringValue(item.id, 'item')}: ${price.warning}`);
+            }
+            if (price.price === null) {
+              skipped.push(
+                `${stringValue(item.id, 'item')}: no current price for ${symbol}`,
+              );
+            }
+          }
+        }
         skipped.push(`${stringValue(item.id, 'item')}: no thesis monitoring rule`);
         continue;
       }
@@ -189,13 +291,21 @@ export class WatchlistsService {
         continue;
       }
       const symbol = stringValue(thesis.symbol ?? item.symbol);
-      const price = await this.resolveCurrentPrice(symbol, prices, workspaceId);
-      if (price === null) {
+      const price = await this.resolveWatchlistPrice(
+        symbol,
+        workspaceId,
+        prices,
+        priceCache,
+      );
+      if (price.warning) {
+        skipped.push(`${stringValue(item.id, 'item')}: ${price.warning}`);
+      }
+      if (price.price === null) {
         skipped.push(`${stringValue(item.id, 'item')}: no current price for ${symbol}`);
         continue;
       }
       alerts.push(
-        ...(await this.evaluateThesisItem(item, thesis, price, workspaceId)),
+        ...(await this.evaluateThesisItem(item, thesis, price.price, workspaceId)),
       );
     }
 
@@ -208,6 +318,45 @@ export class WatchlistsService {
     };
   }
 
+  private async runAlertPoll(): Promise<void> {
+    if (this.alertPollRunning) {
+      return;
+    }
+    this.alertPollRunning = true;
+    try {
+      const result = await this.pollAlerts();
+      if (result.alerts_created > 0 || result.skipped_items.length > 0) {
+        this.logger.log(
+          `Watchlist alert poll checked ${result.checked_watchlists} watchlist(s), created ${result.alerts_created} alert(s), skipped ${result.skipped_items.length} item(s).`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Watchlist alert poll failed: ${errorMessage(error)}`);
+    } finally {
+      this.alertPollRunning = false;
+    }
+  }
+
+  private async resolveWatchlistPrice(
+    symbol: string,
+    workspaceId: string,
+    prices: Record<string, number>,
+    priceCache: Map<string, PriceResolution>,
+  ): Promise<PriceResolution> {
+    const priceKey = symbol.trim().toUpperCase();
+    const cached = priceCache.get(priceKey);
+    if (cached) {
+      return cached;
+    }
+    const price = await this.marketPrices.resolveFreshPrice(
+      symbol,
+      workspaceId,
+      prices,
+    );
+    priceCache.set(priceKey, price);
+    return price;
+  }
+
   private async resolveWorkspace(
     userId?: string,
     workspaceHeader?: string,
@@ -217,22 +366,6 @@ export class WatchlistsService {
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
-  }
-
-  private async resolveCurrentPrice(
-    symbol: string,
-    prices: Record<string, number>,
-    workspaceId: string,
-  ): Promise<number | null> {
-    if (Number.isFinite(prices[symbol])) {
-      return prices[symbol];
-    }
-    const snapshot = await this.journal.getLatestMarketSnapshot(
-      symbol,
-      workspaceId,
-    );
-    const price = numberValue(snapshot?.current_price);
-    return price;
   }
 
   private async evaluateThesisItem(
@@ -303,7 +436,7 @@ export class WatchlistsService {
       }
       return {
         item_type: 'symbol',
-        symbol,
+        symbol: normalizeCryptoSymbol(symbol),
         thesis_id: null,
         setup_type: null,
       };
@@ -482,12 +615,21 @@ function booleanValue(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-function numberValue(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
+function envFlag(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined) {
+    return fallback;
   }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function numberEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function stringList(value: unknown): string[] {

@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class ThesisReviewDto {
   @IsString()
@@ -8,4 +9,14 @@ export class ThesisReviewDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  max_favorable_excursion?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  max_adverse_excursion?: number;
 }

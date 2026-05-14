@@ -110,6 +110,7 @@ export function SignalsPage() {
                   <th>Confidence</th>
                   <th>Source</th>
                   <th>Summary</th>
+                  <th>Detail</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,6 +126,15 @@ export function SignalsPage() {
                       <div className="small muted">{formatDateTime(signal.source_timestamp)}</div>
                     </td>
                     <td>{signal.summary || 'n/a'}</td>
+                    <td>
+                      {signal.id ? (
+                        <Link className="badge primary" to={routes.signal(signal.id)}>
+                          open
+                        </Link>
+                      ) : (
+                        <span className="badge">n/a</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -6,6 +6,8 @@ import {
   JsonRecord,
   ResearchRunFailure,
   SignalSummary,
+  ThesisDecisionIntent,
+  ThesisReviewMetrics,
 } from './journal.types';
 
 type PayloadRow = {
@@ -276,6 +278,68 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async saveMarketSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(snapshot.id, `market_${randomUUID().replaceAll('-', '')}`);
+    const symbol = stringValue(snapshot.symbol, '');
+    const capturedAt = stringValue(snapshot.captured_at, new Date().toISOString());
+    const source = stringValue(snapshot.source, 'api_price_feed');
+    const sourceTimestamp = nullableString(snapshot.source_timestamp) ?? capturedAt;
+    const payload = {
+      ...snapshot,
+      id,
+      workspace_id: workspaceId,
+      research_run_id: nullableString(snapshot.research_run_id),
+      symbol,
+      captured_at: capturedAt,
+      current_price: numberValue(snapshot.current_price),
+      source,
+      source_timestamp: sourceTimestamp,
+    };
+    const saved = await this.one(
+      `INSERT INTO market_snapshots
+       (id, workspace_id, research_run_id, symbol, captured_at, current_price, source, source_timestamp, payload_json)
+       VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7, $8::timestamptz, $9::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
+         research_run_id = EXCLUDED.research_run_id,
+         symbol = EXCLUDED.symbol,
+         captured_at = EXCLUDED.captured_at,
+         current_price = EXCLUDED.current_price,
+         source = EXCLUDED.source,
+         source_timestamp = EXCLUDED.source_timestamp,
+         payload_json = EXCLUDED.payload_json
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'captured_at', captured_at,
+         'current_price', current_price,
+         'source', source,
+         'source_timestamp', source_timestamp,
+         'payload', payload_json
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        payload.research_run_id,
+        symbol,
+        capturedAt,
+        payload.current_price,
+        source,
+        sourceTimestamp,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Market snapshot ${id} not found`);
+    }
+    return saved;
+  }
+
   async getSignalSnapshot(
     id: string,
     workspaceId: string,
@@ -386,6 +450,7 @@ export class PostgresJournalRepository implements JournalRepository {
     action: string,
     notes: string,
     workspaceId: string,
+    intent: ThesisDecisionIntent = {},
   ): Promise<JsonRecord> {
     await this.assertThesisInWorkspace(thesisId, workspaceId);
     const id = `decision_${randomUUID().replaceAll('-', '')}`;
@@ -395,6 +460,10 @@ export class PostgresJournalRepository implements JournalRepository {
       thesis_id: thesisId,
       action,
       user_notes: notes,
+      entry: stringValue(intent.entry, ''),
+      stop_loss: stringValue(intent.stop_loss, ''),
+      take_profit: stringValue(intent.take_profit, ''),
+      position_intent: stringValue(intent.position_intent, ''),
       decided_at: new Date().toISOString(),
     };
     await this.exec(
@@ -411,6 +480,7 @@ export class PostgresJournalRepository implements JournalRepository {
     result: string,
     notes: string,
     workspaceId: string,
+    metrics: ThesisReviewMetrics = {},
   ): Promise<JsonRecord> {
     await this.assertThesisInWorkspace(thesisId, workspaceId);
     const id = `outcome_${randomUUID().replaceAll('-', '')}`;
@@ -420,6 +490,8 @@ export class PostgresJournalRepository implements JournalRepository {
       thesis_id: thesisId,
       result,
       lessons: notes,
+      max_favorable_excursion: numberValue(metrics.max_favorable_excursion),
+      max_adverse_excursion: numberValue(metrics.max_adverse_excursion),
       reviewed_at: new Date().toISOString(),
       invalidated: result === 'invalidated',
     };
@@ -439,6 +511,29 @@ export class PostgresJournalRepository implements JournalRepository {
     return payload;
   }
 
+  async getSignal(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'signal_type', signal_type,
+         'direction', direction,
+         'confidence', confidence,
+         'observed_at', observed_at,
+         'source', source,
+         'source_timestamp', source_timestamp,
+         'payload', payload_json
+       ) AS payload_json
+       FROM signals
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
   async listSignals(
     symbol: string | undefined,
     limit: number,
@@ -446,7 +541,18 @@ export class PostgresJournalRepository implements JournalRepository {
   ): Promise<JsonRecord[]> {
     if (symbol) {
       return this.many(
-        `SELECT payload_json FROM signals
+        `SELECT payload_json || jsonb_build_object(
+           'id', id,
+           'workspace_id', workspace_id,
+           'symbol', symbol,
+           'signal_type', signal_type,
+           'direction', direction,
+           'confidence', confidence,
+           'observed_at', observed_at,
+           'source', source,
+           'source_timestamp', source_timestamp
+         ) AS payload_json
+         FROM signals
          WHERE workspace_id = $1 AND symbol = $2
          ORDER BY observed_at DESC
          LIMIT $3`,
@@ -454,7 +560,18 @@ export class PostgresJournalRepository implements JournalRepository {
       );
     }
     return this.many(
-      `SELECT payload_json FROM signals
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'signal_type', signal_type,
+         'direction', direction,
+         'confidence', confidence,
+         'observed_at', observed_at,
+         'source', source,
+         'source_timestamp', source_timestamp
+       ) AS payload_json
+       FROM signals
        WHERE workspace_id = $1
        ORDER BY observed_at DESC
        LIMIT $2`,
@@ -522,6 +639,23 @@ export class PostgresJournalRepository implements JournalRepository {
        ORDER BY created_at DESC
        LIMIT $2`,
       [workspaceId, limit],
+    );
+  }
+
+  async listEnabledWatchlists(limit: number): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json
+       FROM watchlists
+       WHERE enabled <> 0
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit],
     );
   }
 
@@ -1046,6 +1180,14 @@ function nullableString(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+function numberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function rollbackQuietly(client: PoolClient): Promise<void> {

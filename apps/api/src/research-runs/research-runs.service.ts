@@ -19,17 +19,21 @@ import { JobsService } from '../jobs/jobs.service';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
+  EvidenceBundleResponse,
   JournalRunWorkspaceResponse,
   ResearchRunArtifactsResponse,
   ResearchRunDebateResponse,
   ResearchRunQueuedResponse,
   ResearchRunSnapshotsResponse,
+  SignalDetailResponse,
   toAgentOpinionResponse,
   toDebateResponse,
+  toEvidenceBundleResponse,
   toMarketSnapshotResponse,
   toResearchRunEventResponse,
   toResearchRunResponse,
   toScenarioResponse,
+  toSignalDetailResponse,
   toSignalSnapshotResponse,
   toThesisResponse,
 } from '../contracts/frontend-contract';
@@ -234,6 +238,16 @@ export class ResearchRunsService {
       }
       throw error;
     }
+  }
+
+  async evidenceBundle(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<EvidenceBundleResponse> {
+    const workspace = await this.workspace(id, userId, workspaceHeader);
+    const signalDetails = await this.signalDetailsForBundle(workspace, id);
+    return toEvidenceBundleResponse(workspace, signalDetails);
   }
 
   private async resolveWorkspaceAccess(
@@ -475,6 +489,49 @@ export class ResearchRunsService {
       scenarios: scenarios.map(toScenarioResponse),
       artifacts: buildResearchRunArtifacts(run),
     };
+  }
+
+  private async signalDetailsForBundle(
+    workspace: JournalRunWorkspaceResponse,
+    runId: string,
+  ): Promise<SignalDetailResponse[]> {
+    const ids = uniqueStrings([
+      ...(workspace.thesis?.supporting_signal_ids ?? []),
+      ...(workspace.thesis?.contradicting_signal_ids ?? []),
+    ]);
+    if (ids.length === 0) {
+      return [];
+    }
+    const signals = await Promise.all(
+      ids.map(async (signalId) => {
+        try {
+          return await this.journal.getSignal(signalId, workspace.run.workspace_id);
+        } catch (error) {
+          if (canUseSqliteFallback(error)) {
+            return null;
+          }
+          throw error;
+        }
+      }),
+    );
+    const details = signals
+      .filter((signal): signal is JsonRecord => Boolean(signal))
+      .map(toSignalDetailResponse);
+    if (details.length === ids.length) {
+      return details;
+    }
+    const existingIds = new Set(details.map((signal) => signal.id).filter(Boolean));
+    const sqliteExport = await this.sqliteSync?.exportRun(runId);
+    if (!sqliteExport) {
+      return details;
+    }
+    const sqliteSignals = rows(sqliteExport, 'signals')
+      .filter((signal) => {
+        const id = stringField(signal.id);
+        return id && ids.includes(id) && !existingIds.has(id);
+      })
+      .map(toSignalDetailResponse);
+    return [...details, ...sqliteSignals];
   }
 }
 
@@ -802,6 +859,10 @@ function appendString(value: unknown, item: string): string[] {
     ? value.map((entry) => stringField(entry)).filter((entry): entry is string => !!entry)
     : [];
   return current.includes(item) ? current : [...current, item];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function appendRecoveredFailureEvent(

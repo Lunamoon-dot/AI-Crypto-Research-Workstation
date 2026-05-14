@@ -51,6 +51,8 @@ import type { ThesisResponse, WatchlistItemResponse } from '@/types';
 
 type TrackMode = 'symbol' | 'thesis';
 
+const QUICK_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
+
 export function WatchlistsPage() {
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
@@ -95,6 +97,7 @@ export function WatchlistsPage() {
     requestedThesisId ? 'thesis' : 'symbol',
   );
   const [symbol, setSymbol] = useState('BTC/USDT');
+  const normalizedSymbol = useMemo(() => normalizeSymbolInput(symbol), [symbol]);
   const [selectedThesisId, setSelectedThesisId] = useState(requestedThesisId);
   const [thesisSearch, setThesisSearch] = useState('');
   const today = todayIsoDate();
@@ -147,6 +150,7 @@ export function WatchlistsPage() {
       return thesisSelectLabel(thesis).toLowerCase().includes(search);
     });
   }, [thesesQuery.data, thesisSearch]);
+  const visibleThesisOptions = thesisOptions.slice(0, 8);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -177,7 +181,7 @@ export function WatchlistsPage() {
         trackMode === 'symbol'
           ? {
               item_type: 'symbol',
-              symbol,
+              symbol: normalizedSymbol,
             }
           : {
               item_type: 'thesis',
@@ -190,6 +194,9 @@ export function WatchlistsPage() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.watchlistItems(watchlistId),
       });
+      if (trackMode === 'symbol') {
+        setSymbol(normalizedSymbol || 'BTC/USDT');
+      }
     },
   });
 
@@ -261,7 +268,7 @@ export function WatchlistsPage() {
     rename.trim() !== selectedWatchlist?.name;
   const canTrack =
     Boolean(watchlistId) &&
-    (trackMode === 'symbol' ? Boolean(symbol.trim()) : Boolean(selectedThesisId));
+    (trackMode === 'symbol' ? Boolean(normalizedSymbol) : Boolean(selectedThesisId));
   const selectedDisabled = selectedWatchlist && !selectedWatchlist.enabled;
 
   return (
@@ -340,10 +347,153 @@ export function WatchlistsPage() {
               </button>
             ))}
           </div>
+          <div className="divider" />
+          <form className="compact-create" onSubmit={submitCreate}>
+            <label className="label">
+              New watchlist
+              <input
+                className="input"
+                value={newWatchlistName}
+                onChange={(event) => setNewWatchlistName(event.target.value)}
+                required
+              />
+            </label>
+            {createMutation.isError ? <span className="badge risk">{errorMessage(createMutation.error)}</span> : null}
+            {createMutation.isSuccess ? <span className="badge constructive">watchlist created</span> : null}
+            <button className="button primary" disabled={createMutation.isPending} type="submit">
+              <Plus aria-hidden size={16} />
+              {createMutation.isPending ? 'Creating' : 'Create'}
+            </button>
+          </form>
         </Panel>
 
         <Panel
-          className="span-4"
+          className="span-8 emphasis"
+          title="Add track"
+          description={selectedWatchlist ? `Destination: ${selectedWatchlist.name}` : 'Select a destination watchlist'}
+        >
+          <form className="stack lg" onSubmit={submitItem}>
+            <label className="label">
+              Add to watchlist
+              <select
+                className="select"
+                disabled={query.isLoading || query.isError || query.data?.length === 0}
+                value={watchlistId}
+                onChange={(event) => setWatchlistId(event.target.value)}
+              >
+                <option value="">Select watchlist</option>
+                {query.data?.map((watchlist) => (
+                  <option key={watchlist.id ?? watchlist.name} value={watchlist.id ?? ''}>
+                    {watchlist.name}{watchlist.enabled ? '' : ' (paused)'}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="segmented-control" aria-label="Track type">
+              <button
+                aria-pressed={trackMode === 'symbol'}
+                className={`segment-button${trackMode === 'symbol' ? ' active' : ''}`}
+                onClick={() => setTrackMode('symbol')}
+                type="button"
+              >
+                Symbol
+              </button>
+              <button
+                aria-pressed={trackMode === 'thesis'}
+                className={`segment-button${trackMode === 'thesis' ? ' active' : ''}`}
+                onClick={() => setTrackMode('thesis')}
+                type="button"
+              >
+                Thesis
+              </button>
+            </div>
+
+            {trackMode === 'symbol' ? (
+              <div className="stack">
+                <label className="label">
+                  Symbol
+                  <input
+                    className="input"
+                    value={symbol}
+                    onBlur={() => setSymbol(normalizedSymbol || symbol.trim())}
+                    onChange={(event) => setSymbol(event.target.value)}
+                    placeholder="ETH/USDT"
+                  />
+                </label>
+                <div className="symbol-chip-row" aria-label="Quick symbols">
+                  {QUICK_SYMBOLS.map((quickSymbol) => (
+                    <button
+                      className={`symbol-chip${normalizedSymbol === quickSymbol ? ' active' : ''}`}
+                      key={quickSymbol}
+                      onClick={() => setSymbol(quickSymbol)}
+                      type="button"
+                    >
+                      {quickSymbol.replace('/USDT', '')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {trackMode === 'thesis' ? (
+              <div className="stack">
+                <label className="label">
+                  Search thesis
+                  <div className="input-with-icon">
+                    <Search aria-hidden size={16} />
+                    <input
+                      value={thesisSearch}
+                      onChange={(event) => setThesisSearch(event.target.value)}
+                      placeholder="ETH, long, run_b97..."
+                    />
+                  </div>
+                </label>
+                {thesesQuery.isLoading ? <LoadingState label="Loading theses..." /> : null}
+                {thesesQuery.isError ? <ErrorState error={thesesQuery.error} /> : null}
+                {!thesesQuery.isLoading && visibleThesisOptions.length === 0 ? (
+                  <EmptyState label="No thesis matches this search." />
+                ) : null}
+                <div className="thesis-option-list">
+                  {visibleThesisOptions.map((thesis) => (
+                    <button
+                      className={`thesis-option${thesis.id === selectedThesisId ? ' active' : ''}`}
+                      key={thesis.id ?? thesis.symbol}
+                      onClick={() => setSelectedThesisId(thesis.id ?? '')}
+                      type="button"
+                    >
+                      <span className="row">
+                        <strong>{thesis.symbol}</strong>
+                        <DirectionBadge value={thesis.direction} />
+                      </span>
+                      <span className="row small muted">
+                        <span>{thesis.setup_type || invalidationText(thesis)}</span>
+                        <ConfidenceBadge value={thesis.confidence} />
+                      </span>
+                      <span className="small muted">{shortId(thesis.research_run_id || thesis.id || 'manual')}</span>
+                    </button>
+                  ))}
+                </div>
+                {requestedThesisId && !selectedThesis && !thesesQuery.isLoading ? (
+                  <span className="badge warning">Requested thesis is not in this workspace.</span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {selectedWatchlist && !selectedWatchlist.enabled ? (
+              <div className="callout warning">This watchlist is paused. Tracks can be added, but checks stay paused.</div>
+            ) : null}
+            {addMutation.isError ? <span className="badge risk">{errorMessage(addMutation.error)}</span> : null}
+            {addMutation.isSuccess ? <span className="badge constructive">tracking added</span> : null}
+            <button className="button primary" disabled={addMutation.isPending || !canTrack} type="submit">
+              <Plus aria-hidden size={16} />
+              {trackMode === 'thesis' ? 'Add selected thesis' : `Add ${normalizedSymbol || 'symbol'}`}
+            </button>
+          </form>
+        </Panel>
+
+        <Panel
+          className="span-5"
           title="Selected watchlist"
           description="Alert checks and brief creation run only when this watchlist is active."
         >
@@ -443,26 +593,6 @@ export function WatchlistsPage() {
           )}
         </Panel>
 
-        <Panel className="span-4" title="Create watchlist">
-          <form className="stack" onSubmit={submitCreate}>
-            <label className="label">
-              Name
-              <input
-                className="input"
-                value={newWatchlistName}
-                onChange={(event) => setNewWatchlistName(event.target.value)}
-                required
-              />
-            </label>
-            {createMutation.isError ? <span className="badge risk">{errorMessage(createMutation.error)}</span> : null}
-            {createMutation.isSuccess ? <span className="badge constructive">watchlist created</span> : null}
-            <button className="button primary" disabled={createMutation.isPending} type="submit">
-              <Plus aria-hidden size={16} />
-              {createMutation.isPending ? 'Creating watchlist' : 'Create watchlist'}
-            </button>
-          </form>
-        </Panel>
-
         <Panel
           className="span-7"
           title={selectedWatchlist ? `${selectedWatchlist.name} tracks` : 'Watchlist tracks'}
@@ -483,95 +613,6 @@ export function WatchlistsPage() {
               />
             ))}
           </div>
-        </Panel>
-
-        <Panel
-          className="span-5"
-          title={selectedWatchlist ? `Track in ${selectedWatchlist.name}` : 'Track in watchlist'}
-          description="Add a symbol for market context or a research thesis for condition checks."
-        >
-          <form className="stack" onSubmit={submitItem}>
-            <label className="label">
-              Track
-              <select
-                className="select"
-                value={trackMode}
-                onChange={(event) => setTrackMode(event.target.value as TrackMode)}
-              >
-                <option value="symbol">Track a symbol only</option>
-                <option value="thesis">Track a research thesis</option>
-              </select>
-            </label>
-            {trackMode === 'symbol' ? (
-              <label className="label">
-                Symbol
-                <input
-                  className="input"
-                  value={symbol}
-                  onChange={(event) => setSymbol(event.target.value)}
-                  placeholder="ETH/USDT"
-                />
-              </label>
-            ) : null}
-            {trackMode === 'thesis' ? (
-              <div className="stack">
-                <label className="label">
-                  Search thesis
-                  <div className="input-with-icon">
-                    <Search aria-hidden size={16} />
-                    <input
-                      value={thesisSearch}
-                      onChange={(event) => setThesisSearch(event.target.value)}
-                      placeholder="ETH, long, run_b97..."
-                    />
-                  </div>
-                </label>
-                <label className="label">
-                  Select thesis
-                  <select
-                    className="select"
-                    value={selectedThesisId}
-                    onChange={(event) => setSelectedThesisId(event.target.value)}
-                  >
-                    <option value="">Select thesis</option>
-                    {thesisOptions.map((thesis) => (
-                      <option key={thesis.id ?? thesis.symbol} value={thesis.id ?? ''}>
-                        {thesisSelectLabel(thesis)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {thesesQuery.isLoading ? <LoadingState label="Loading theses..." /> : null}
-                {thesesQuery.isError ? <ErrorState error={thesesQuery.error} /> : null}
-                {requestedThesisId && !selectedThesis && !thesesQuery.isLoading ? (
-                  <span className="badge warning">Requested thesis is not in this workspace.</span>
-                ) : null}
-                {selectedThesis ? (
-                  <div className="state-card">
-                    <div className="row">
-                      <strong>{selectedThesis.symbol}</strong>
-                      <DirectionBadge value={selectedThesis.direction} />
-                    </div>
-                    <DataPair
-                      label="Invalidation"
-                      value={invalidationText(selectedThesis)}
-                    />
-                    <DataPair
-                      label="Source run"
-                      value={<IdChip value={selectedThesis.research_run_id} />}
-                    />
-                    <ConfidenceBadge value={selectedThesis.confidence} />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {addMutation.isError ? <span className="badge risk">{errorMessage(addMutation.error)}</span> : null}
-            {addMutation.isSuccess ? <span className="badge constructive">tracking added</span> : null}
-            <button className="button primary" disabled={addMutation.isPending || !canTrack} type="submit">
-              <Plus aria-hidden size={16} />
-              {trackMode === 'thesis' ? 'Track this thesis' : 'Track symbol'}
-            </button>
-          </form>
         </Panel>
 
         <Panel className="span-12" title="Brief archive" description="Review saved briefs without mixing scopes by default.">
@@ -716,6 +757,35 @@ function invalidationText(thesis: ThesisResponse): string {
   const direction = thesis.direction.toLowerCase();
   const prefix = direction.includes('short') || direction.includes('bear') ? 'above' : 'below';
   return `${prefix} ${invalidation}`;
+}
+
+function normalizeSymbolInput(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.includes('/')) {
+    return normalized;
+  }
+  for (const delimiter of ['-', '_', ':']) {
+    if (normalized.includes(delimiter)) {
+      const [base, quote] = normalized.split(delimiter, 2);
+      return base && quote ? `${base}/${normalizeQuote(quote)}` : normalized;
+    }
+  }
+  for (const quote of ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH']) {
+    if (normalized.endsWith(quote) && normalized.length > quote.length) {
+      return `${normalized.slice(0, -quote.length)}/${normalizeQuote(quote)}`;
+    }
+  }
+  if (normalized.endsWith('DT') && normalized.length > 2) {
+    return `${normalized.slice(0, -2)}/USDT`;
+  }
+  return `${normalized}/USDT`;
+}
+
+function normalizeQuote(quote: string): string {
+  return quote === 'USD' ? 'USDT' : quote;
 }
 
 function shortId(value: string): string {

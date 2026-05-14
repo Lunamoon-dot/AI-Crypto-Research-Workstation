@@ -29,6 +29,7 @@ export const queryKeys = {
   signalsRoot: () => scopedResource('signals'),
   signals: (filters: Record<string, unknown>) =>
     scopedFilters('signals', filters),
+  signal: (id: string) => ['signal', queryIdentity(), id] as const,
   signalsCountRoot: () => scopedResource('signals-count'),
   signalsCount: (filters: Record<string, unknown>) =>
     scopedFilters('signals-count', filters),

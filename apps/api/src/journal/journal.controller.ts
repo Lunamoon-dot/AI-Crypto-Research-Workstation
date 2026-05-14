@@ -13,4 +13,13 @@ export class JournalController {
   ) {
     return this.researchRuns.workspace(id, userId, workspaceId);
   }
+
+  @Get('runs/:id/evidence-bundle')
+  runEvidenceBundle(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.evidenceBundle(id, userId, workspaceId);
+  }
 }

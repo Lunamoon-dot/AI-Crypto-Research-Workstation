@@ -199,6 +199,10 @@ export interface ThesisDecisionResponse {
   thesis_id: string;
   action: string;
   user_notes: string;
+  entry: string;
+  stop_loss: string;
+  take_profit: string;
+  position_intent: string;
   decided_at: string | null;
 }
 
@@ -208,6 +212,8 @@ export interface ThesisReviewResponse {
   thesis_id: string;
   result: string;
   lessons: string;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
   reviewed_at: string | null;
   invalidated: boolean;
 }
@@ -223,6 +229,28 @@ export interface SignalResponse {
   source: string;
   source_timestamp: string | null;
   summary: string;
+}
+
+export interface SignalDetailResponse extends SignalResponse {
+  expires_at: string | null;
+  evidence_lane: string;
+  evidence_category: string;
+  strength: number | null;
+  heuristic_confidence: number | null;
+  empirical_confidence: number | null;
+  empirical_confidence_sample_size: number | null;
+  empirical_confidence_oos_sample_size: number | null;
+  confidence_version: string;
+  freshness_status: string;
+  is_stale: boolean;
+  age_seconds: number | null;
+  staleness_reason: string;
+  research_run_id: string | null;
+  signal_snapshot_id: string | null;
+  provenance: JsonRecord;
+  evidence: JsonRecord;
+  watch_conditions: JsonRecord;
+  payload: JsonRecord;
 }
 
 export interface SignalCountResponse {
@@ -328,6 +356,23 @@ export interface JournalRunWorkspaceResponse {
   artifacts: ResearchRunArtifactsResponse;
 }
 
+export interface EvidenceBundleResponse {
+  schema_version: 'evidence_bundle.v1';
+  exported_at: string;
+  workspace_id: string;
+  research_run_id: string;
+  symbol: string;
+  source: 'api';
+  run: ResearchRunResponse;
+  events: ResearchRunEventResponse[];
+  snapshots: ResearchRunSnapshotsResponse;
+  debate: ResearchRunDebateResponse;
+  thesis: ThesisResponse | null;
+  scenarios: ScenarioResponse[];
+  signal_details: SignalDetailResponse[];
+  artifacts: ResearchRunArtifactsResponse;
+}
+
 export type CreateResearchRunRequest = {
   run_id?: string;
   workspace_id: string;
@@ -345,11 +390,17 @@ export type CreateResearchRunRequest = {
 export type RecordThesisDecisionRequest = {
   action: string;
   notes?: string;
+  entry?: string;
+  stop_loss?: string;
+  take_profit?: string;
+  position_intent?: string;
 };
 
 export type RecordThesisReviewRequest = {
   result: string;
   notes?: string;
+  max_favorable_excursion?: number;
+  max_adverse_excursion?: number;
 };
 
 export type AddWatchlistItemRequest = {

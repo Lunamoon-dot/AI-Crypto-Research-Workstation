@@ -7,6 +7,18 @@ export interface SignalSummary {
   neutral: number;
 }
 
+export interface ThesisDecisionIntent {
+  entry?: string;
+  stop_loss?: string;
+  take_profit?: string;
+  position_intent?: string;
+}
+
+export interface ThesisReviewMetrics {
+  max_favorable_excursion?: number | null;
+  max_adverse_excursion?: number | null;
+}
+
 export interface EngineRunRequest {
   run_id: string;
   workspace_id: string;
@@ -48,6 +60,10 @@ export interface JournalRepository {
     symbol: string,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
+  saveMarketSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
   getSignalSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
   getDebate(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listAgentOpinions(
@@ -62,13 +78,16 @@ export interface JournalRepository {
     action: string,
     notes: string,
     workspaceId: string,
+    intent?: ThesisDecisionIntent,
   ): Promise<JsonRecord>;
   recordThesisReview(
     thesisId: string,
     result: string,
     notes: string,
     workspaceId: string,
+    metrics?: ThesisReviewMetrics,
   ): Promise<JsonRecord>;
+  getSignal(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listSignals(
     symbol: string | undefined,
     limit: number,
@@ -79,6 +98,7 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<SignalSummary>;
   listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  listEnabledWatchlists(limit: number): Promise<JsonRecord[]>;
   createWatchlist(
     input: { name: string; enabled?: boolean },
     workspaceId: string,

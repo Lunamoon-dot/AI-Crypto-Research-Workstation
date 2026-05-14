@@ -118,6 +118,18 @@ PYTHON_ENGINE_COMMAND=lunacrypto
 PYTHON_ENGINE_ARGS="engine run --request"
 ```
 
+Watchlist alert checks refresh exchange prices before evaluating thesis rules.
+The live price feed defaults to Binance public ticker and can be configured with:
+
+```text
+PRICE_REFRESH_ON_CHECK=true
+PRICE_FEED_BASE_URL=https://api.binance.com
+PRICE_FEED_TIMEOUT_MS=2500
+WATCHLIST_ALERT_POLL_ENABLED=false
+WATCHLIST_ALERT_POLL_INTERVAL_MS=60000
+WATCHLIST_ALERT_POLL_LIMIT=100
+```
+
 ## Docker
 
 Docker Compose remains at the repo root and now starts the product stack by

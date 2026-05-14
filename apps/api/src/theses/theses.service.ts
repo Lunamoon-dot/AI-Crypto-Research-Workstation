@@ -3,6 +3,8 @@ import {
   JOURNAL_REPOSITORY,
   JournalRepository,
   JsonRecord,
+  ThesisDecisionIntent,
+  ThesisReviewMetrics,
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
@@ -76,6 +78,7 @@ export class ThesesService {
     notes = '',
     userId?: string,
     workspaceHeader?: string,
+    intent?: ThesisDecisionIntent,
   ) {
     const workspaceId = await this.resolveWorkspace(
       userId,
@@ -88,6 +91,7 @@ export class ThesesService {
       action,
       notes,
       workspaceId,
+      intent,
     );
     return toThesisDecisionResponse(decision);
   }
@@ -98,6 +102,7 @@ export class ThesesService {
     notes = '',
     userId?: string,
     workspaceHeader?: string,
+    metrics?: ThesisReviewMetrics,
   ) {
     const workspaceId = await this.resolveWorkspace(
       userId,
@@ -110,6 +115,7 @@ export class ThesesService {
       result,
       notes,
       workspaceId,
+      metrics,
     );
     return toThesisReviewResponse(review);
   }

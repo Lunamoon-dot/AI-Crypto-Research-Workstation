@@ -1,6 +1,6 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
-import { SignalCountResponse, SignalResponse } from '@/types';
+import { SignalCountResponse, SignalDetailResponse, SignalResponse } from '@/types';
 
 export function listSignals(
   params: { symbol?: string; limit?: number },
@@ -20,6 +20,14 @@ export function countSignals(
   return apiRequest<SignalCountResponse>(
     '/signals/count',
     { query: { symbol: params.symbol } },
+    auth,
+  );
+}
+
+export function getSignal(id: string, auth: WorkspaceRequestContext) {
+  return apiRequest<SignalDetailResponse>(
+    `/signals/${encodeURIComponent(id)}`,
+    {},
     auth,
   );
 }

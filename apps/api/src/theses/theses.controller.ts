@@ -54,7 +54,19 @@ export class ThesesController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.theses.decide(id, dto.action, dto.notes ?? '', userId, workspaceId);
+    return this.theses.decide(
+      id,
+      dto.action,
+      dto.notes ?? '',
+      userId,
+      workspaceId,
+      {
+        entry: dto.entry,
+        stop_loss: dto.stop_loss,
+        take_profit: dto.take_profit,
+        position_intent: dto.position_intent,
+      },
+    );
   }
 
   @Post(':id/review')
@@ -64,6 +76,16 @@ export class ThesesController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.theses.review(id, dto.result, dto.notes ?? '', userId, workspaceId);
+    return this.theses.review(
+      id,
+      dto.result,
+      dto.notes ?? '',
+      userId,
+      workspaceId,
+      {
+        max_favorable_excursion: dto.max_favorable_excursion,
+        max_adverse_excursion: dto.max_adverse_excursion,
+      },
+    );
   }
 }

@@ -79,4 +79,13 @@ export class ResearchRunsController {
   ) {
     return this.researchRuns.workspace(id, userId, workspaceId);
   }
+
+  @Get(':id/evidence-bundle')
+  evidenceBundle(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.evidenceBundle(id, userId, workspaceId);
+  }
 }

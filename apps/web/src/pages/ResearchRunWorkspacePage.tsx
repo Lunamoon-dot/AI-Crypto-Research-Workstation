@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clipboard,
   Database,
+  Download,
   FileText,
   Newspaper,
   ShieldAlert,
@@ -15,9 +16,12 @@ import {
 } from 'lucide-react';
 import {
   getJobStatus,
+  getJournalRunEvidenceBundle,
   getJournalRunWorkspace,
+  getResearchRunEvidenceBundle,
   getResearchRunWorkspace,
 } from '@/services/research-runs';
+import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import {
@@ -141,6 +145,8 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const [searchParams] = useSearchParams();
   const auth = useWorkspaceStore();
   const runId = id ?? '';
+  const [exportingBundle, setExportingBundle] = useState(false);
+  const [exportError, setExportError] = useState('');
   const jobId = searchParams.get('job_id') ?? searchParams.get('job') ?? runId;
   const jobQuery = useQuery({
     queryKey: queryKeys.jobStatus(jobId),
@@ -263,14 +269,43 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         selectedAnalysts.has(stage.key)),
   );
 
+  async function exportEvidenceBundle() {
+    setExportingBundle(true);
+    setExportError('');
+    try {
+      const bundle = journal
+        ? await getJournalRunEvidenceBundle(runId, auth)
+        : await getResearchRunEvidenceBundle(runId, auth);
+      downloadJson(bundle, `evidence-bundle-${safeFileName(runId)}.json`);
+    } catch (error) {
+      setExportError(errorMessage(error));
+    } finally {
+      setExportingBundle(false);
+    }
+  }
+
   return (
     <main className="page">
       <PageHeader
         eyebrow="03 Research Workspace"
         title={`${workspace.run.symbol} research run`}
         description={`Run ${workspace.run.run_id ?? workspace.run.id ?? runId}`}
-        action={<StatusBadge value={workspace.run.status} />}
+        action={
+          <div className="top-strip-actions">
+            <StatusBadge value={workspace.run.status} />
+            <button
+              className="button"
+              disabled={exportingBundle}
+              onClick={exportEvidenceBundle}
+              type="button"
+            >
+              <Download aria-hidden size={15} />
+              {exportingBundle ? 'Exporting' : 'Export evidence'}
+            </button>
+          </div>
+        }
       />
+      {exportError ? <div className="badge risk">{exportError}</div> : null}
 
       <BentoGrid>
         <MetricTile
@@ -614,6 +649,22 @@ function emptyArtifact(
     size_bytes: null,
     modified_at: null,
   };
+}
+
+function downloadJson(value: unknown, fileName: string) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeFileName(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-');
 }
 
 function isActiveJobStatus(status: string | undefined): boolean {

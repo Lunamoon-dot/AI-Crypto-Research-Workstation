@@ -1,11 +1,14 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   JOURNAL_REPOSITORY,
   JournalRepository,
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
-import { toSignalResponse } from '../contracts/frontend-contract';
+import {
+  toSignalDetailResponse,
+  toSignalResponse,
+} from '../contracts/frontend-contract';
 import { normalizeOptionalCryptoSymbol } from '../common/market-symbols';
 import { clampListLimit } from '../common/query-limit';
 
@@ -43,5 +46,16 @@ export class SignalsService {
       normalizeOptionalCryptoSymbol(symbol),
       workspaceId,
     );
+  }
+
+  async get(id: string, userId?: string, workspaceHeader?: string) {
+    const user = this.auth.resolveUser(userId);
+    const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
+    await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    const signal = await this.journal.getSignal(id, workspaceId);
+    if (!signal) {
+      throw new NotFoundException(`Signal ${id} not found`);
+    }
+    return toSignalDetailResponse(signal);
   }
 }

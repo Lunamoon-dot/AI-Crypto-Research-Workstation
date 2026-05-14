@@ -184,6 +184,10 @@ export interface ThesisDecisionResponse {
   thesis_id: string;
   action: string;
   user_notes: string;
+  entry: string;
+  stop_loss: string;
+  take_profit: string;
+  position_intent: string;
   decided_at: string | null;
 }
 
@@ -193,6 +197,8 @@ export interface ThesisReviewResponse {
   thesis_id: string;
   result: string;
   lessons: string;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
   reviewed_at: string | null;
   invalidated: boolean;
 }
@@ -208,6 +214,28 @@ export interface SignalResponse {
   source: string;
   source_timestamp: string | null;
   summary: string;
+}
+
+export interface SignalDetailResponse extends SignalResponse {
+  expires_at: string | null;
+  evidence_lane: string;
+  evidence_category: string;
+  strength: number | null;
+  heuristic_confidence: number | null;
+  empirical_confidence: number | null;
+  empirical_confidence_sample_size: number | null;
+  empirical_confidence_oos_sample_size: number | null;
+  confidence_version: string;
+  freshness_status: string;
+  is_stale: boolean;
+  age_seconds: number | null;
+  staleness_reason: string;
+  research_run_id: string | null;
+  signal_snapshot_id: string | null;
+  provenance: JsonRecord;
+  evidence: JsonRecord;
+  watch_conditions: JsonRecord;
+  payload: JsonRecord;
 }
 
 export interface WatchlistResponse {
@@ -295,6 +323,23 @@ export interface JournalRunWorkspaceResponse {
   debate: ResearchRunDebateResponse;
   thesis: ThesisResponse | null;
   scenarios: ScenarioResponse[];
+  artifacts: ResearchRunArtifactsResponse;
+}
+
+export interface EvidenceBundleResponse {
+  schema_version: 'evidence_bundle.v1';
+  exported_at: string;
+  workspace_id: string;
+  research_run_id: string;
+  symbol: string;
+  source: 'api';
+  run: ResearchRunResponse;
+  events: ResearchRunEventResponse[];
+  snapshots: ResearchRunSnapshotsResponse;
+  debate: ResearchRunDebateResponse;
+  thesis: ThesisResponse | null;
+  scenarios: ScenarioResponse[];
+  signal_details: SignalDetailResponse[];
   artifacts: ResearchRunArtifactsResponse;
 }
 
@@ -462,6 +507,10 @@ export function toThesisDecisionResponse(
     thesis_id: stringValue(decision.thesis_id),
     action: stringValue(decision.action),
     user_notes: stringValue(decision.user_notes),
+    entry: stringValue(decision.entry),
+    stop_loss: stringValue(decision.stop_loss),
+    take_profit: stringValue(decision.take_profit),
+    position_intent: stringValue(decision.position_intent),
     decided_at: nullableString(decision.decided_at),
   };
 }
@@ -473,24 +522,131 @@ export function toThesisReviewResponse(review: JsonRecord): ThesisReviewResponse
     thesis_id: stringValue(review.thesis_id),
     result: stringValue(review.result),
     lessons: stringValue(review.lessons),
+    max_favorable_excursion: nullableNumber(review.max_favorable_excursion),
+    max_adverse_excursion: nullableNumber(review.max_adverse_excursion),
     reviewed_at: nullableString(review.reviewed_at),
     invalidated: booleanValue(review.invalidated),
   };
 }
 
 export function toSignalResponse(signal: JsonRecord): SignalResponse {
-  const provenance = recordValue(signal.provenance);
+  const payload = recordValue(signal.payload ?? signal.payload_json);
+  const provenance = recordValue(signal.provenance ?? payload.provenance);
   return {
     id: nullableString(signal.id),
     workspace_id: stringValue(signal.workspace_id, 'local'),
-    symbol: stringValue(signal.symbol),
-    signal_type: stringValue(signal.signal_type),
-    direction: stringValue(signal.direction),
-    confidence: nullableNumber(signal.confidence),
-    observed_at: nullableString(signal.observed_at),
-    source: stringValue(signal.source ?? provenance.source),
-    source_timestamp: nullableString(signal.source_timestamp),
-    summary: stringValue(signal.summary),
+    symbol: stringValue(signal.symbol ?? payload.symbol),
+    signal_type: stringValue(signal.signal_type ?? payload.signal_type),
+    direction: stringValue(signal.direction ?? payload.direction),
+    confidence: nullableNumber(signal.confidence ?? payload.confidence),
+    observed_at: nullableString(
+      signal.observed_at ?? payload.observed_at ?? provenance.observed_at,
+    ),
+    source: stringValue(signal.source ?? payload.source ?? provenance.source),
+    source_timestamp: nullableString(
+      signal.source_timestamp ??
+        payload.source_timestamp ??
+        provenance.source_timestamp,
+    ),
+    summary: stringValue(signal.summary ?? payload.summary),
+  };
+}
+
+export function toSignalDetailResponse(signal: JsonRecord): SignalDetailResponse {
+  const base = toSignalResponse(signal);
+  const payload = recordValue(signal.payload ?? signal.payload_json);
+  const provenance = recordValue(signal.provenance ?? payload.provenance);
+  const provenanceMetadata = recordValue(provenance.metadata);
+  const evidence = recordValue(signal.evidence ?? payload.evidence);
+  const watchConditions = recordValue(
+    signal.watch_conditions ?? payload.watch_conditions,
+  );
+  const expiresAt = nullableString(signal.expires_at ?? payload.expires_at);
+  const provenanceFreshness = stringValue(provenance.freshness);
+  const inferredStale =
+    provenanceFreshness === 'stale' ||
+    (expiresAt ? Date.parse(expiresAt) < Date.now() : false);
+  return {
+    ...base,
+    expires_at: expiresAt,
+    evidence_lane: stringValue(signal.evidence_lane ?? payload.evidence_lane),
+    evidence_category: stringValue(
+      signal.evidence_category ?? payload.evidence_category,
+    ),
+    strength: nullableNumber(signal.strength ?? payload.strength),
+    heuristic_confidence: nullableNumber(
+      signal.heuristic_confidence ?? payload.heuristic_confidence,
+    ),
+    empirical_confidence: nullableNumber(
+      signal.empirical_confidence ?? payload.empirical_confidence,
+    ),
+    empirical_confidence_sample_size: nullableNumber(
+      signal.empirical_confidence_sample_size ??
+        payload.empirical_confidence_sample_size,
+    ),
+    empirical_confidence_oos_sample_size: nullableNumber(
+      signal.empirical_confidence_oos_sample_size ??
+        payload.empirical_confidence_oos_sample_size,
+    ),
+    confidence_version: stringValue(
+      signal.confidence_version ?? payload.confidence_version,
+      'unknown',
+    ),
+    freshness_status: stringValue(
+      signal.freshness_status ??
+        payload.freshness_status ??
+        provenance.freshness_status ??
+        provenance.freshness,
+      inferredStale ? 'stale' : 'unknown',
+    ),
+    is_stale: booleanValue(
+      signal.is_stale ?? payload.is_stale ?? provenance.is_stale,
+      inferredStale,
+    ),
+    age_seconds: nullableNumber(
+      signal.age_seconds ??
+        payload.age_seconds ??
+        provenance.age_seconds ??
+        provenance.freshness_seconds,
+    ),
+    staleness_reason: stringValue(
+      signal.staleness_reason ??
+        payload.staleness_reason ??
+        provenance.staleness_reason ??
+        provenanceMetadata.staleness_reason,
+    ),
+    research_run_id: nullableString(
+      signal.research_run_id ?? payload.research_run_id,
+    ),
+    signal_snapshot_id: nullableString(
+      signal.signal_snapshot_id ?? payload.signal_snapshot_id,
+    ),
+    provenance,
+    evidence,
+    watch_conditions: watchConditions,
+    payload,
+  };
+}
+
+export function toEvidenceBundleResponse(
+  workspace: JournalRunWorkspaceResponse,
+  signalDetails: SignalDetailResponse[],
+): EvidenceBundleResponse {
+  return {
+    schema_version: 'evidence_bundle.v1',
+    exported_at: new Date().toISOString(),
+    workspace_id: workspace.run.workspace_id,
+    research_run_id: workspace.run.run_id ?? workspace.run.id ?? '',
+    symbol: workspace.run.symbol,
+    source: 'api',
+    run: workspace.run,
+    events: workspace.events,
+    snapshots: workspace.snapshots,
+    debate: workspace.debate,
+    thesis: workspace.thesis,
+    scenarios: workspace.scenarios,
+    signal_details: signalDetails,
+    artifacts: workspace.artifacts,
   };
 }
 

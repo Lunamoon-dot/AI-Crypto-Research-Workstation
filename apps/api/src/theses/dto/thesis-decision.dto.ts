@@ -8,4 +8,20 @@ export class ThesisDecisionDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  entry?: string;
+
+  @IsOptional()
+  @IsString()
+  stop_loss?: string;
+
+  @IsOptional()
+  @IsString()
+  take_profit?: string;
+
+  @IsOptional()
+  @IsString()
+  position_intent?: string;
 }

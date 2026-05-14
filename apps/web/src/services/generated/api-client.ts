@@ -7,10 +7,12 @@ import type {
   CheckWatchlistRequest,
   CreateDailyBriefRequest,
   CreateWatchlistRequest,
+  EvidenceBundleResponse,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
   RemoveWatchlistItemResponse,
   SignalCountResponse,
+  SignalDetailResponse,
   SignalResponse,
   ThesisDecisionResponse,
   ThesisReviewResponse,
@@ -302,9 +304,19 @@ export function createApiClient(request: ApiTransport) {
         `/research-runs/${encodeURIComponent(id)}/workspace`,
         {},
       ),
+    getResearchRunEvidenceBundle: (id: string) =>
+      request<EvidenceBundleResponse>(
+        `/research-runs/${encodeURIComponent(id)}/evidence-bundle`,
+        {},
+      ),
     getJournalRunWorkspace: (id: string) =>
       request<JournalRunWorkspaceResponse>(
         `/journal/runs/${encodeURIComponent(id)}/workspace`,
+        {},
+      ),
+    getJournalRunEvidenceBundle: (id: string) =>
+      request<EvidenceBundleResponse>(
+        `/journal/runs/${encodeURIComponent(id)}/evidence-bundle`,
         {},
       ),
     getResearchRun: (id: string) =>
@@ -331,6 +343,8 @@ export function createApiClient(request: ApiTransport) {
           limit: params.limit ?? 50,
         },
       }),
+    getSignal: (id: string) =>
+      request<SignalDetailResponse>(`/signals/${encodeURIComponent(id)}`, {}),
     countSignals: (params: { symbol?: string }) =>
       request<SignalCountResponse>('/signals/count', {
         query: { symbol: params.symbol },
