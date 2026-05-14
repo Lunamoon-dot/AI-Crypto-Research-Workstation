@@ -6,7 +6,10 @@ from datetime import date
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+_ANALYST_KEYS = ("market", "news", "social", "onchain")
+_ANALYST_KEY_SET = set(_ANALYST_KEYS)
 
 
 class EngineRunRequest(BaseModel):
@@ -45,10 +48,14 @@ class EngineRunRequest(BaseModel):
     @field_validator("analysts")
     @classmethod
     def _analysts_not_empty(cls, value: list[str]) -> list[str]:
-        cleaned = [item.strip() for item in value if item.strip()]
+        cleaned = [
+            item.strip().lower()
+            for item in value
+            if item.strip().lower() in _ANALYST_KEY_SET
+        ]
         if not cleaned:
             raise ValueError("at least one analyst is required")
-        return cleaned
+        return list(dict.fromkeys(cleaned))
 
     @field_validator("metadata")
     @classmethod
@@ -58,6 +65,12 @@ class EngineRunRequest(BaseModel):
         except TypeError as exc:
             raise ValueError("metadata must be JSON-serializable") from exc
         return value
+
+    @model_validator(mode="after")
+    def _normalize_crypto_symbol(self) -> "EngineRunRequest":
+        if str(self.asset_class or "").strip().lower() == "crypto":
+            self.symbol = normalize_crypto_symbol(self.symbol)
+        return self
 
 
 class EngineRunResult(BaseModel):
@@ -71,3 +84,29 @@ class EngineRunResult(BaseModel):
     events_written: int = 0
     error_type: str | None = None
     error: str | None = None
+
+
+def normalize_crypto_symbol(symbol: str) -> str:
+    """Normalize common crypto pair inputs to canonical BASE/QUOTE form."""
+    upper = symbol.strip().upper()
+    if "/" in upper:
+        return upper
+
+    for delimiter in ("-", "_", ":"):
+        if delimiter in upper:
+            base, quote = upper.split(delimiter, 1)
+            if base and quote:
+                return f"{base}/{_map_crypto_quote(quote)}"
+
+    for quote in ("USDT", "USDC", "BUSD", "USD", "BTC", "ETH"):
+        if upper.endswith(quote) and len(upper) > len(quote):
+            return f"{upper[: -len(quote)]}/{_map_crypto_quote(quote)}"
+
+    if upper.endswith("DT") and len(upper) > 2:
+        return f"{upper[:-2]}/USDT"
+
+    return f"{upper}/USDT"
+
+
+def _map_crypto_quote(quote: str) -> str:
+    return "USDT" if quote == "USD" else quote

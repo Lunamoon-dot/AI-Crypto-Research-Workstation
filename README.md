@@ -112,7 +112,7 @@ Postgres memberships or the `WORKSPACE_MEMBERSHIPS` environment variable.
 Queue behavior is controlled by:
 
 ```text
-JOBS_EXECUTION_MODE=inline
+JOBS_EXECUTION_MODE=memory
 REDIS_URL=redis://...
 PYTHON_ENGINE_COMMAND=lunacrypto
 PYTHON_ENGINE_ARGS="engine run --request"
@@ -120,12 +120,16 @@ PYTHON_ENGINE_ARGS="engine run --request"
 
 ## Docker
 
-Docker Compose remains at the repo root and builds the AI service from `apps/ai-service`.
+Docker Compose remains at the repo root and now starts the product stack by
+default: Postgres, Redis, NestJS API, BullMQ worker, and the web app.
 
 ```bash
 docker compose config
-docker compose build ai-service
-docker compose run --rm ai-service
+docker compose up --build
 ```
+
+The API publishes `GET /health` and `GET /openapi.json`. The web app listens on
+`http://localhost:3001` and proxies `/backend` to the API container. The Python
+AI CLI image remains available with `docker compose --profile ai run --rm ai-service`.
 
 For local secrets, copy `apps/ai-service/.env.example` to `.env` at the repo root when using Docker Compose.

@@ -274,6 +274,76 @@ class TestBudgetTracker:
             "scenario_planner",
         ]
 
+    def test_parallel_analysts_join_before_debate(self, monkeypatch):
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.quick_thinking_llm = object()
+        setup.deep_thinking_llm = object()
+        setup.tool_nodes = {
+            definition.tool_key: object()
+            for definition in graph_setup_module.ANALYST_DEFINITIONS
+        }
+        setup.conditional_logic = SimpleNamespace(
+            should_continue_debate=lambda _state: (
+                graph_setup_module.DebateNode.RESEARCH_MANAGER
+            ),
+            should_continue_risk_analysis=lambda _state: (
+                graph_setup_module.PipelineNode.PORTFOLIO_MANAGER
+            ),
+        )
+        setup.config = {}
+        setup.budget_tracker = None
+        setup.llm_orchestrator = None
+
+        def node_factory(*_args, **_kwargs):
+            return lambda state: state
+
+        def analyst_runner(*_args, **_kwargs):
+            return lambda state: state
+
+        monkeypatch.setattr(graph_setup_module, "create_market_analyst", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_social_media_analyst", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_news_analyst", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_onchain_analyst", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bull_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bear_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_research_manager", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_setup_planner", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_aggressive_debator", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_neutral_debator", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_conservative_debator", node_factory
+        )
+        monkeypatch.setattr(
+            graph_setup_module, "create_portfolio_manager", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_scenario_planner", node_factory)
+        monkeypatch.setattr(graph_setup_module, "make_analyst_runner", analyst_runner)
+        monkeypatch.setattr(
+            graph_setup_module,
+            "create_analyst_opinion_builder",
+            lambda **_kwargs: lambda state, report: None,
+        )
+
+        workflow = setup.setup_graph(["market", "social", "news", "onchain"])
+
+        analysts = (
+            graph_setup_module.AnalystNode.MARKET,
+            graph_setup_module.AnalystNode.SOCIAL,
+            graph_setup_module.AnalystNode.NEWS,
+            graph_setup_module.AnalystNode.ONCHAIN,
+        )
+        assert (analysts, graph_setup_module.DebateNode.BULL_RESEARCHER) in (
+            workflow.waiting_edges
+        )
+        for analyst in analysts:
+            assert (analyst, graph_setup_module.DebateNode.BULL_RESEARCHER) not in (
+                workflow.edges
+            )
+
     def test_research_graph_propagate_wraps_total_budget_stage(self):
         tracker = BudgetTracker()
         graph = ResearchAgentsGraph.__new__(ResearchAgentsGraph)

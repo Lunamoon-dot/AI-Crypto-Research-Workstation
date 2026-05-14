@@ -1,9 +1,21 @@
-import { Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  OnModuleDestroy,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { EngineRunRequest, JsonRecord } from '../database/journal.types';
+import {
+  JobLifecycleRecord,
+  JobLifecycleService,
+} from './job-lifecycle.service';
 import { PythonEngineClient } from './python-engine.client';
+import { ResearchJobProcessor } from './research-job.processor';
+import { SqliteJournalSyncService } from './sqlite-journal-sync.service';
 
 export interface EnqueuedJob {
   id: string;
@@ -23,22 +35,43 @@ export interface JobStatusResponse {
   error_code: string | null;
   error_message: string | null;
   retry_count: number;
+  attempts: number;
+  max_attempts: number;
+  progress: JsonRecord;
+  heartbeat_at: string | null;
+  cancellation_requested_at: string | null;
+  timeout_at: string | null;
+  result_summary?: JsonRecord;
+  result?: JsonRecord;
 }
-
-type StoredJob = JobStatusResponse & {
-  request: EngineRunRequest;
-};
 
 @Injectable()
 export class JobsService implements OnModuleDestroy {
   private readonly memoryJobs: EngineRunRequest[] = [];
-  private readonly jobStatuses = new Map<string, StoredJob>();
   private readonly connection?: IORedis;
   private readonly queue?: Queue<EngineRunRequest>;
+  private readonly processor: ResearchJobProcessor;
+  private readonly lifecycle: JobLifecycleService;
+  private readonly ownsLifecycle: boolean;
+  private memoryProcessing = false;
+  private destroyed = false;
 
-  constructor(private readonly pythonEngine: PythonEngineClient) {
+  constructor(
+    private readonly pythonEngine: PythonEngineClient,
+    @Optional()
+    private readonly sqliteSync?: SqliteJournalSyncService,
+    @Optional()
+    lifecycle?: JobLifecycleService,
+  ) {
+    this.lifecycle = lifecycle ?? new JobLifecycleService();
+    this.ownsLifecycle = !lifecycle;
+    this.processor = new ResearchJobProcessor(
+      this.pythonEngine,
+      this.lifecycle,
+      this.sqliteSync,
+    );
     const redisUrl = process.env.REDIS_URL;
-    if (redisUrl) {
+    if (redisUrl && resolveExecutionMode() === 'bullmq') {
       this.connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
       this.queue = new Queue<EngineRunRequest>('research-runs', {
         connection: this.connection,
@@ -47,63 +80,86 @@ export class JobsService implements OnModuleDestroy {
   }
 
   async enqueueResearchRun(request: EngineRunRequest): Promise<EnqueuedJob> {
-    const now = new Date().toISOString();
-    if (process.env.JOBS_EXECUTION_MODE === 'inline') {
+    const executionMode = resolveExecutionMode();
+    const timeoutMs = resolveJobTimeoutMs();
+    if (executionMode === 'inline') {
       const id = `inline_${randomUUID()}`;
-      const status = this.setStatus(id, request, 'inline', {
-        status: 'running',
-        created_at: now,
-        started_at: now,
+      await this.lifecycle.create({
+        id,
+        request,
+        backend: 'inline',
+        maxAttempts: 1,
       });
       try {
-        const result = await this.pythonEngine.runInline(request);
-        const resultStatus =
-          typeof result.status === 'string' ? result.status : 'completed';
-        this.setStatus(id, request, 'inline', {
-          ...status,
-          status: resultStatus,
-          completed_at: new Date().toISOString(),
+        const syncedResult = await this.processor.process(request, {
+          jobId: id,
+          backend: 'inline',
+          attempt: 1,
+          maxAttempts: 1,
+          timeoutMs,
         });
         return {
           id,
           backend: 'inline',
-          result,
+          result: syncedResult,
         };
       } catch (error) {
-        this.setStatus(id, request, 'inline', {
-          ...status,
-          status: 'failed',
-          completed_at: new Date().toISOString(),
-          error_code: 'engine_failed',
-          error_message:
-            error instanceof Error ? error.message : 'Inline engine failed.',
-        });
         throw error;
       }
     }
-    const baseStatus = {
-      status: 'queued',
-      created_at: now,
-      started_at: null,
-      completed_at: null,
-      error_code: null,
-      error_message: null,
-      retry_count: 0,
-    };
-    if (this.queue) {
-      const job = await this.queue.add('research.run', request, {
-        jobId: request.run_id,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
+    if (executionMode === 'bullmq' && !this.queue) {
+      throw new ServiceUnavailableException(
+        'REDIS_URL is required when JOBS_EXECUTION_MODE=bullmq.',
+      );
+    }
+    if (executionMode === 'bullmq' && this.queue) {
+      const attempts = resolveJobAttempts();
+      await this.lifecycle.create({
+        id: request.run_id,
+        request,
+        backend: 'bullmq',
+        queueName: 'research-runs',
+        queueJobId: request.run_id,
+        maxAttempts: attempts,
       });
-      this.setStatus(String(job.id), request, 'bullmq', baseStatus);
+      try {
+        const job = await this.queue.add('research.run', request, {
+          jobId: request.run_id,
+          attempts,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+        });
+        if (String(job.id) !== request.run_id) {
+          await this.lifecycle.create({
+            id: request.run_id,
+            request,
+            backend: 'bullmq',
+            queueName: 'research-runs',
+            queueJobId: String(job.id),
+            maxAttempts: attempts,
+          });
+        }
+      } catch (error) {
+        await this.lifecycle.markFailed(request.run_id, {
+          code: 'enqueue_failed',
+          message:
+            error instanceof Error ? error.message : 'Failed to enqueue job.',
+        });
+        throw error;
+      }
       return {
-        id: String(job.id),
+        id: request.run_id,
         backend: 'bullmq',
       };
     }
+    await this.lifecycle.create({
+      id: request.run_id,
+      request,
+      backend: 'memory',
+      maxAttempts: 1,
+    });
     this.memoryJobs.push(request);
-    this.setStatus(request.run_id, request, 'memory', baseStatus);
+    this.scheduleMemoryProcessing();
     return { id: request.run_id, backend: 'memory' };
   }
 
@@ -112,86 +168,220 @@ export class JobsService implements OnModuleDestroy {
   }
 
   async getJobStatus(id: string): Promise<JobStatusResponse> {
-    const stored = this.jobStatuses.get(id);
+    const lifecycleRecord = await this.lifecycle.get(id);
+    if (lifecycleRecord) {
+      const reconciled = await this.reconcileLifecycleStatus(lifecycleRecord);
+      return this.toLifecycleStatus(reconciled);
+    }
     if (this.queue) {
       const queueJob = await this.queue.getJob(id);
       if (queueJob) {
-        return this.toBullMqStatus(queueJob, stored);
+        return this.toBullMqStatus(queueJob);
       }
     }
-    if (!stored) {
+    throw new NotFoundException(`Job ${id} not found`);
+  }
+
+  async getJobRequest(id: string): Promise<EngineRunRequest | null> {
+    const lifecycleRecord = await this.lifecycle.get(id);
+    if (lifecycleRecord) {
+      return lifecycleRecord.request;
+    }
+    const queueJob = await this.queue?.getJob(id);
+    return queueJob?.data ?? null;
+  }
+
+  async listJobStatuses(
+    workspaceId: string,
+    limit = 50,
+  ): Promise<JobStatusResponse[]> {
+    const records = await this.lifecycle.list(workspaceId, limit);
+    const reconciled = await Promise.all(
+      records.map((record) => this.reconcileLifecycleStatus(record)),
+    );
+    return reconciled
+      .map((record) => this.toLifecycleStatus(record))
+      .sort((left, right) => right.created_at.localeCompare(left.created_at));
+  }
+
+  async cancelJob(id: string): Promise<JobStatusResponse> {
+    const record = await this.lifecycle.get(id);
+    if (!record) {
       throw new NotFoundException(`Job ${id} not found`);
     }
-    return {
-      id: stored.id,
-      run_id: stored.run_id,
-      workspace_id: stored.workspace_id,
-      backend: stored.backend,
-      status: stored.status,
-      created_at: stored.created_at,
-      started_at: stored.started_at,
-      completed_at: stored.completed_at,
-      error_code: stored.error_code,
-      error_message: stored.error_message,
-      retry_count: stored.retry_count,
-    };
+    if (record.status === 'queued') {
+      this.removeMemoryJob(record.run_id);
+      const queueJob = await this.queue?.getJob(record.queue_job_id ?? record.id);
+      try {
+        await queueJob?.remove();
+        const cancelled = await this.lifecycle.markCancelled(record.id);
+        return this.toLifecycleStatus(cancelled ?? record);
+      } catch {
+        const requested = await this.lifecycle.requestCancellation(record.id);
+        return this.toLifecycleStatus(requested ?? record);
+      }
+    }
+    const cancelled = await this.lifecycle.requestCancellation(record.id);
+    return this.toLifecycleStatus(cancelled ?? record);
   }
 
   async onModuleDestroy() {
+    this.destroyed = true;
+    this.memoryJobs.length = 0;
     await this.queue?.close();
     await this.connection?.quit();
+    if (this.ownsLifecycle) {
+      await this.lifecycle.onModuleDestroy();
+    }
   }
 
-  private setStatus(
-    id: string,
-    request: EngineRunRequest,
-    backend: 'bullmq' | 'memory' | 'inline',
-    status: Partial<JobStatusResponse>,
-  ): StoredJob {
-    const previous = this.jobStatuses.get(id);
-    const next: StoredJob = {
-      id,
-      run_id: request.run_id,
-      workspace_id: request.workspace_id,
-      backend,
-      status: status.status ?? previous?.status ?? 'queued',
-      created_at:
-        status.created_at ?? previous?.created_at ?? new Date().toISOString(),
-      started_at: status.started_at ?? previous?.started_at ?? null,
-      completed_at: status.completed_at ?? previous?.completed_at ?? null,
-      error_code: status.error_code ?? previous?.error_code ?? null,
-      error_message: status.error_message ?? previous?.error_message ?? null,
-      retry_count: status.retry_count ?? previous?.retry_count ?? 0,
-      request,
+  private scheduleMemoryProcessing(): void {
+    if (this.destroyed || this.memoryProcessing) {
+      return;
+    }
+    setTimeout(() => {
+      void this.processMemoryJobs();
+    }, 0);
+  }
+
+  private async processMemoryJobs(): Promise<void> {
+    if (this.destroyed || this.memoryProcessing) {
+      return;
+    }
+    this.memoryProcessing = true;
+    try {
+      while (!this.destroyed) {
+        const request = this.memoryJobs.shift();
+        if (!request) {
+          return;
+        }
+        try {
+          await this.processor.process(request, {
+            jobId: request.run_id,
+            backend: 'memory',
+            attempt: 1,
+            maxAttempts: 1,
+            timeoutMs: resolveJobTimeoutMs(),
+          });
+        } catch {
+          // The processor has already persisted failure details.
+        }
+      }
+    } finally {
+      this.memoryProcessing = false;
+      if (!this.destroyed && this.memoryJobs.length > 0) {
+        this.scheduleMemoryProcessing();
+      }
+    }
+  }
+
+  private removeMemoryJob(runId: string): void {
+    const index = this.memoryJobs.findIndex((job) => job.run_id === runId);
+    if (index !== -1) {
+      this.memoryJobs.splice(index, 1);
+    }
+  }
+
+  private async reconcileLifecycleStatus(
+    record: JobLifecycleRecord,
+  ): Promise<JobLifecycleRecord> {
+    if (record.status !== 'running') {
+      return record;
+    }
+
+    const staleHeartbeat = isHeartbeatStale(record.heartbeat_at);
+    const orphanedMemoryJob =
+      record.backend === 'memory' &&
+      !this.memoryProcessing &&
+      !this.memoryJobs.some((job) => job.run_id === record.run_id);
+
+    if (!staleHeartbeat && !orphanedMemoryJob) {
+      return record;
+    }
+
+    const message = orphanedMemoryJob
+      ? 'Memory research job stopped before completion; the API process is no longer running the engine for this run.'
+      : 'Research job heartbeat expired before completion.';
+    const timedOut = await this.lifecycle.markTimedOut(record.id, {
+      message,
+      resultSummary: {
+        status: 'timed_out',
+        run_id: record.run_id,
+        workspace_id: record.workspace_id,
+        error: message,
+      },
+    });
+    return timedOut ?? record;
+  }
+
+  private toLifecycleStatus(record: JobLifecycleRecord): JobStatusResponse {
+    return {
+      id: record.id,
+      run_id: record.run_id,
+      workspace_id: record.workspace_id,
+      backend: record.backend,
+      status: record.status,
+      created_at: record.created_at,
+      started_at: record.started_at,
+      completed_at: record.completed_at,
+      error_code: record.error_code,
+      error_message: record.error_message,
+      retry_count: Math.max(record.attempts - 1, 0),
+      attempts: record.attempts,
+      max_attempts: record.max_attempts,
+      progress: record.progress,
+      heartbeat_at: record.heartbeat_at,
+      cancellation_requested_at: record.cancellation_requested_at,
+      timeout_at: record.timeout_at,
+      result_summary: record.result_summary ?? undefined,
+      result: record.result_summary ?? undefined,
     };
-    this.jobStatuses.set(id, next);
-    return next;
   }
 
   private async toBullMqStatus(
     job: Job<EngineRunRequest>,
-    stored: StoredJob | undefined,
   ): Promise<JobStatusResponse> {
     const state = await job.getState();
+    const status = mapBullMqState(state);
     return {
       id: String(job.id),
       run_id: job.data.run_id,
       workspace_id: job.data.workspace_id,
       backend: 'bullmq',
-      status: mapBullMqState(state),
-      created_at:
-        stored?.created_at ?? new Date(job.timestamp).toISOString(),
+      status,
+      created_at: new Date(job.timestamp).toISOString(),
       started_at: job.processedOn
         ? new Date(job.processedOn).toISOString()
-        : stored?.started_at ?? null,
+        : null,
       completed_at: job.finishedOn
         ? new Date(job.finishedOn).toISOString()
-        : stored?.completed_at ?? null,
-      error_code: job.failedReason ? 'job_failed' : stored?.error_code ?? null,
-      error_message: job.failedReason ?? stored?.error_message ?? null,
+        : null,
+      error_code: job.failedReason ? 'job_failed' : null,
+      error_message: job.failedReason ?? null,
       retry_count: job.attemptsMade,
+      attempts: job.attemptsMade,
+      max_attempts: Number(job.opts.attempts ?? 1),
+      progress: progressRecord(job.progress),
+      heartbeat_at: null,
+      cancellation_requested_at: null,
+      timeout_at: null,
+      result_summary: resultRecord(job.returnvalue),
+      result: resultRecord(job.returnvalue),
     };
   }
+}
+
+function resolveExecutionMode(): 'inline' | 'bullmq' | 'memory' {
+  const raw = (process.env.JOBS_EXECUTION_MODE ?? 'memory')
+    .trim()
+    .toLowerCase();
+  if (['bullmq', 'queue', 'redis'].includes(raw)) {
+    return 'bullmq';
+  }
+  if (['memory', 'in-memory', 'noop'].includes(raw)) {
+    return 'memory';
+  }
+  return 'inline';
 }
 
 function mapBullMqState(state: string): string {
@@ -208,4 +398,53 @@ function mapBullMqState(state: string): string {
     return 'queued';
   }
   return state;
+}
+
+function progressRecord(progress: Job['progress']): JsonRecord {
+  if (progress && typeof progress === 'object') {
+    return progress as JsonRecord;
+  }
+  if (typeof progress === 'number') {
+    return { value: progress };
+  }
+  return {};
+}
+
+function resultRecord(value: unknown): JsonRecord | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as JsonRecord;
+  }
+  return undefined;
+}
+
+function isHeartbeatStale(heartbeatAt: string | null): boolean {
+  const heartbeatMs = heartbeatAt ? Date.parse(heartbeatAt) : NaN;
+  if (!Number.isFinite(heartbeatMs)) {
+    return true;
+  }
+  return Date.now() - heartbeatMs > resolveJobStaleHeartbeatMs();
+}
+
+function resolveJobStaleHeartbeatMs(): number {
+  const raw = Number(process.env.JOB_STALE_HEARTBEAT_MS ?? 120_000);
+  if (!Number.isFinite(raw) || raw < 30_000) {
+    return 120_000;
+  }
+  return Math.trunc(raw);
+}
+
+function resolveJobAttempts(): number {
+  const raw = Number(process.env.JOB_MAX_ATTEMPTS ?? 3);
+  if (!Number.isFinite(raw) || raw < 1) {
+    return 3;
+  }
+  return Math.min(Math.trunc(raw), 10);
+}
+
+function resolveJobTimeoutMs(): number | undefined {
+  const raw = Number(process.env.JOB_TIMEOUT_MS ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return undefined;
+  }
+  return Math.trunc(raw);
 }

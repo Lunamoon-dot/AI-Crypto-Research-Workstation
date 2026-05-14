@@ -107,7 +107,7 @@ TRADE_THESIS_JSON:
 {{
   "rating": "Buy | Overweight | Hold | Underweight | Sell",
   "direction": "long | short | watch | avoid | neutral",
-  "confidence": null,
+  "confidence": 0.0,
   "market_type": "spot | perp",
   "action_summary": "one short UI research stance summary",
   "upside_catalyst": "specific condition that improves the thesis",
@@ -119,7 +119,7 @@ TRADE_THESIS_JSON:
   "missing_data": ["missing data item"]
 }}
 ```
-Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""
+Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing debate consensus, quant baseline, missing data, conflict, and risk; do not copy the quant confidence mechanically. Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""
 
         rendered_trade_decision = invoke_structured_or_freetext(
             structured_llm,

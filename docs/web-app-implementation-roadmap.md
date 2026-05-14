@@ -812,7 +812,7 @@ Backend local env expected:
 ```text
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/lunacrypto
 WORKSPACE_MEMBERSHIPS=local:local-user:owner
-JOBS_EXECUTION_MODE=inline
+JOBS_EXECUTION_MODE=memory
 ```
 
 Done when:

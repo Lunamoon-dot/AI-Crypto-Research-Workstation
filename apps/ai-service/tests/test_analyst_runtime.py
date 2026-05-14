@@ -161,6 +161,50 @@ def test_opinion_from_text_extracts_bullets_and_pipe_separated_fields():
     assert opinion.missing_data == ["missing: on-chain data unavailable"]
 
 
+def test_opinion_from_text_does_not_invent_confidence():
+    report = "\n".join(
+        [
+            "- signal: Trend breakout confirmed because volume expanded.",
+            "- evidence: Spot demand improved and market structure held support.",
+            "- risk: Funding is overheated and liquidation risk increased.",
+            "- invalidation: Break below support invalidates the setup.",
+        ]
+    )
+
+    opinion = opinion_from_text(
+        "Market Analyst",
+        report,
+        research_run_id="run_1",
+        role="market_analyst",
+        source_report_type="market",
+    )
+
+    assert opinion is not None
+    assert opinion.confidence is None
+
+
+def test_opinion_from_text_uses_declared_confidence_only():
+    percent_opinion = opinion_from_text(
+        "Market Analyst",
+        "Confidence: 72%. Trend breakout confirmed because volume expanded.",
+        research_run_id="run_1",
+        role="market_analyst",
+        source_report_type="market",
+    )
+    decimal_opinion = opinion_from_text(
+        "News Analyst",
+        "Conviction score = 0.64. News flow is positive but not decisive.",
+        research_run_id="run_1",
+        role="news_analyst",
+        source_report_type="news",
+    )
+
+    assert percent_opinion is not None
+    assert percent_opinion.confidence == 0.72
+    assert decimal_opinion is not None
+    assert decimal_opinion.confidence == 0.64
+
+
 def test_default_analyst_definitions_match_default_selection_order():
     assert tuple(definition.selection_key for definition in ANALYST_DEFINITIONS) == (
         DEFAULT_ANALYSTS

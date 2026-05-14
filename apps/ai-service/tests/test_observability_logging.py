@@ -437,6 +437,17 @@ def test_timeline_message_budget_events():
     assert "Budget summary" in summary
 
 
+def test_timeline_message_agent_node_events():
+    from tradingagents.observability.logging import _timeline_message
+
+    msg = _timeline_message(
+        "agent.node.completed",
+        {"graph_node": "Market Analyst", "status": "completed"},
+    )
+    assert "Market Analyst" in msg
+    assert "completed" in msg
+
+
 def test_log_event_data_fetched(caplog):
     logger = logging.getLogger("tests.observability")
     with caplog.at_level(logging.INFO, logger=logger.name):
@@ -575,6 +586,9 @@ def test_all_new_timeline_event_types_are_mapped():
         "decision_created",
         "risk_checked",
         "plan_recorded",
+        "agent_node_started",
+        "agent_node_completed",
+        "agent_node_failed",
         "budget_exceeded",
         "budget_summary",
         "data_freshness_check",

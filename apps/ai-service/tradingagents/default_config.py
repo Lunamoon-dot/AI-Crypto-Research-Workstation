@@ -106,6 +106,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "default_setup": "agent_debate",
     },
+    # Thesis stability guard: short-horizon reruns should update evidence, not
+    # flip the canonical stance unless the new run has strong override evidence.
+    "thesis_stability": {
+        "enabled": True,
+        "cooldown_minutes": 60,
+        "max_confidence_delta": 0.20,
+        "flip_override_confidence": 0.75,
+        "memory_limit": 50,
+    },
     # Output language for analyst reports and final decision
     # Internal agent debate stays in English for reasoning quality
     "output_language": "English",

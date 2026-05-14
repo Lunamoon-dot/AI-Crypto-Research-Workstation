@@ -397,6 +397,67 @@ def engine_run(
         raise typer.Exit(1)
 
 
+@engine_app.command("schema")
+def engine_schema() -> None:
+    """Emit the JSON schemas used by the worker engine contract."""
+    from tradingagents.engine import EngineRunRequest, EngineRunResult
+
+    console.print_json(
+        data={
+            "request": EngineRunRequest.model_json_schema(),
+            "result": EngineRunResult.model_json_schema(),
+        }
+    )
+
+
+@engine_app.command("validate-market")
+def engine_validate_market(
+    symbol: str = typer.Option(
+        ...,
+        "--symbol",
+        help="Crypto pair to validate, e.g. BTC/USDT.",
+    ),
+    analysis_date: str = typer.Option(
+        ...,
+        "--analysis-date",
+        help="Analysis date in YYYY-MM-DD format.",
+    ),
+    asset_class: str = typer.Option(
+        "crypto",
+        "--asset-class",
+        help="Asset class for the request.",
+    ),
+    market_type: str = typer.Option(
+        "spot",
+        "--market-type",
+        help="Research market type: spot or perp.",
+    ),
+    exchange: Optional[str] = typer.Option(
+        None,
+        "--exchange",
+        help="Crypto exchange id for market data.",
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help="Configuration profile to load.",
+    ),
+) -> None:
+    """Validate that core market data exists before queuing research."""
+    from tradingagents.engine.market_validation import validate_market_data
+
+    console.print_json(
+        data=validate_market_data(
+            symbol=symbol,
+            analysis_date=analysis_date,
+            asset_class=asset_class,
+            market_type=market_type,
+            exchange=exchange,
+            profile=profile,
+        )
+    )
+
+
 app.add_typer(engine_app, name="engine")
 
 

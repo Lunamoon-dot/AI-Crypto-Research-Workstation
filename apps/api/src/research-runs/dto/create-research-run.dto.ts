@@ -1,13 +1,16 @@
 import {
   ArrayNotEmpty,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
   MinLength,
 } from 'class-validator';
+import { JsonRecord } from '../../database/journal.types';
 
 export class CreateResearchRunDto {
   @IsOptional()
@@ -44,4 +47,16 @@ export class CreateResearchRunDto {
   @IsOptional()
   @IsString()
   config_profile?: string;
+
+  @IsOptional()
+  @IsString()
+  exchange?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  dry_run?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: JsonRecord;
 }

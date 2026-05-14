@@ -239,6 +239,7 @@ class ResearchRunOrchestrator:
         init_agent_state = host.propagator.create_initial_state(
             company_name,
             trade_date,
+            past_context=self._build_symbol_past_context(host, company_name),
             market_type=host.config.get("market_type", "spot"),
         )
         init_agent_state["quant_signal"] = quant_signal_text
@@ -312,3 +313,59 @@ class ResearchRunOrchestrator:
         final_state["run_quality"] = run_quality_payload(host.current_research_run)
         host._log_state(trade_date, final_state)
         return final_state, final_signal
+
+    def _build_symbol_past_context(self, host: Any, symbol: str) -> str:
+        cfg = (getattr(host, "config", None) or {}).get("thesis_stability", {})
+        if not cfg.get("enabled", True):
+            return ""
+
+        bridge = getattr(host, "journal_bridge", None)
+        service = getattr(bridge, "service", None) if bridge is not None else None
+        if service is None:
+            return ""
+
+        try:
+            theses = service.list_theses(
+                limit=max(int(cfg.get("memory_limit", 50)), 1)
+            )
+        except Exception as exc:
+            logger.debug("Could not load previous thesis context: %s", exc)
+            return ""
+
+        wanted = str(symbol or "").strip().upper()
+        latest = next(
+            (
+                thesis
+                for thesis in theses
+                if str(thesis.symbol or "").strip().upper() == wanted
+            ),
+            None,
+        )
+        if latest is None:
+            return ""
+
+        rating = (
+            latest.structured_summary.rating if latest.structured_summary else "Hold"
+        )
+        confidence = (
+            f"{latest.confidence:.0%}" if latest.confidence is not None else "unknown"
+        )
+        invalidation = latest.invalidation_level or latest.invalidation or "n/a"
+        action_summary = (
+            latest.structured_summary.action_summary
+            if latest.structured_summary
+            else latest.why_this_thesis
+        )
+        return (
+            f"Latest same-symbol thesis: id={latest.id}, "
+            f"created_at={latest.created_at.isoformat()}, "
+            f"direction={latest.direction.value}, rating={rating}, "
+            f"confidence={confidence}, invalidation={invalidation}. "
+            f"Summary: {action_summary}. "
+            f"Stability policy: for reruns within "
+            f"{float(cfg.get('cooldown_minutes', 60)):.0f} minutes, treat new "
+            "evidence as an update to the prior thesis. Do not change rating, "
+            "direction, or confidence materially unless the prior thesis "
+            "invalidation/confirmation condition has actually occurred or the "
+            "new evidence is strong enough to override the cooldown."
+        )

@@ -83,6 +83,11 @@ def _normalize_symbol(symbol: str, exchange) -> str:
             if candidate in exchange.markets:
                 return candidate
 
+    # Common typo: missing the "US" in a USDT quote, e.g. "ETHDT".
+    typo_candidate = _missing_usdt_candidate(symbol)
+    if typo_candidate and typo_candidate in exchange.markets:
+        return typo_candidate
+
     # Dash/underscore/colon-delimited form: "BTC-USD"
     for delim, replacement in _DELIMITERS.items():
         if delim in symbol:
@@ -125,6 +130,13 @@ def _map_quote(quote: str) -> str:
         "ETH": "ETH",
     }
     return alias_map.get(quote.upper(), quote.upper())
+
+
+def _missing_usdt_candidate(symbol: str) -> str | None:
+    upper = symbol.upper()
+    if upper.endswith("DT") and not upper.endswith("USDT") and len(upper) > 2:
+        return f"{upper[:-2]}/USDT"
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,11 @@
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
-import { JournalRepository, JsonRecord } from './journal.types';
+import {
+  JournalRepository,
+  JsonRecord,
+  ResearchRunFailure,
+} from './journal.types';
 
 type PayloadRow = {
   payload_json: string | JsonRecord;
@@ -95,6 +99,117 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async markResearchRunFailed(
+    id: string,
+    workspaceId: string,
+    failure: ResearchRunFailure,
+  ): Promise<JsonRecord | null> {
+    const pool = this.requirePool();
+    const client = await pool.connect();
+    const completedAt = failure.completedAt ?? new Date().toISOString();
+    const reason = stringValue(failure.reason, 'run_failed');
+    const message = stringValue(failure.message, 'Research run failed.');
+    const eventId = `event_${randomUUID().replaceAll('-', '')}`;
+    const eventPayload = {
+      event: 'research_run_failed',
+      failure_reason: reason,
+      message,
+      run_id: id,
+      workspace_id: workspaceId,
+      source: 'api',
+      timeline_event_type: 'run.failed',
+      timeline_schema: 'v1',
+    };
+
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<PayloadRow>(
+        `UPDATE research_runs
+         SET status = 'failed',
+             completed_at = COALESCE(completed_at, $3::timestamptz),
+             degradation_reasons_json =
+               CASE
+                 WHEN COALESCE(degradation_reasons_json, '[]'::jsonb) ? $4
+                   THEN COALESCE(degradation_reasons_json, '[]'::jsonb)
+                 ELSE COALESCE(degradation_reasons_json, '[]'::jsonb) || jsonb_build_array($4::text)
+               END,
+             missing_core_data_json =
+               CASE
+                 WHEN COALESCE(missing_core_data_json, '[]'::jsonb) ? $4
+                   THEN COALESCE(missing_core_data_json, '[]'::jsonb)
+                 ELSE COALESCE(missing_core_data_json, '[]'::jsonb) || jsonb_build_array($4::text)
+               END,
+             payload_json = COALESCE(payload_json, '{}'::jsonb) || jsonb_build_object(
+               'status', 'failed',
+               'completed_at', $3::timestamptz,
+               'degradation_reasons',
+                 CASE
+                   WHEN COALESCE(degradation_reasons_json, '[]'::jsonb) ? $4
+                     THEN COALESCE(degradation_reasons_json, '[]'::jsonb)
+                   ELSE COALESCE(degradation_reasons_json, '[]'::jsonb) || jsonb_build_array($4::text)
+                 END,
+               'missing_core_data',
+                 CASE
+                   WHEN COALESCE(missing_core_data_json, '[]'::jsonb) ? $4
+                     THEN COALESCE(missing_core_data_json, '[]'::jsonb)
+                   ELSE COALESCE(missing_core_data_json, '[]'::jsonb) || jsonb_build_array($4::text)
+                 END
+             )
+         WHERE id = $1
+           AND workspace_id = $2
+           AND status IN ('created', 'queued', 'running')
+         RETURNING payload_json || jsonb_build_object(
+           'id', id,
+           'workspace_id', workspace_id,
+           'symbol', symbol,
+           'asset_class', asset_class,
+           'timeframe', timeframe,
+           'status', status,
+           'started_at', started_at,
+           'completed_at', completed_at,
+           'market_snapshot_id', market_snapshot_id,
+           'signal_snapshot_id', signal_snapshot_id,
+           'debate_id', debate_id,
+           'thesis_id', thesis_id,
+           'decision_id', decision_id,
+           'user_decision_id', user_decision_id,
+           'outcome_review_id', outcome_review_id,
+           'degradation_reasons', degradation_reasons_json,
+           'missing_core_data', missing_core_data_json,
+           'missing_optional_data', missing_optional_data_json
+         ) AS payload_json`,
+        [id, workspaceId, completedAt, reason],
+      );
+
+      const updated = result.rows[0]
+        ? parsePayload(result.rows[0].payload_json)
+        : null;
+      if (updated) {
+        await client.query(
+          `INSERT INTO run_events
+           (id, workspace_id, research_run_id, thesis_id, event_type, created_at, message, payload_json)
+           VALUES ($1, $2, $3, NULL, 'run.failed', $4::timestamptz, $5, $6::jsonb)`,
+          [
+            eventId,
+            workspaceId,
+            id,
+            completedAt,
+            message,
+            JSON.stringify(eventPayload),
+          ],
+        );
+      }
+
+      await client.query('COMMIT');
+      return updated ?? this.getResearchRun(id, workspaceId);
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT jsonb_build_object(
@@ -133,6 +248,30 @@ export class PostgresJournalRepository implements JournalRepository {
        FROM market_snapshots
        WHERE id = $1 AND workspace_id = $2`,
       [id, workspaceId],
+    );
+  }
+
+  async getLatestMarketSnapshot(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'captured_at', captured_at,
+         'current_price', current_price,
+         'source', source,
+         'source_timestamp', source_timestamp,
+         'payload', payload_json
+       ) AS payload_json
+       FROM market_snapshots
+       WHERE workspace_id = $1 AND symbol = $2
+       ORDER BY captured_at DESC
+       LIMIT 1`,
+      [workspaceId, symbol],
     );
   }
 
@@ -396,6 +535,24 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async getWatchlistByName(
+    name: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'name', name,
+         'enabled', enabled,
+         'created_at', created_at
+       ) AS payload_json
+       FROM watchlists
+       WHERE name = $1 AND workspace_id = $2`,
+      [name, workspaceId],
+    );
+  }
+
   async listWatchlistItems(
     watchlistId: string,
     workspaceId: string,
@@ -528,23 +685,103 @@ export class PostgresJournalRepository implements JournalRepository {
     date: string | undefined,
     limit: number,
     workspaceId: string,
+    watchlistName?: string,
   ): Promise<JsonRecord[]> {
+    const filters = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
     if (date) {
-      return this.many(
-        `SELECT payload_json FROM market_briefs
-         WHERE workspace_id = $1 AND brief_date = $2
-         ORDER BY created_at DESC
-         LIMIT $3`,
-        [workspaceId, date, limit],
-      );
+      params.push(date);
+      filters.push(`brief_date = $${params.length}`);
     }
+    if (watchlistName) {
+      params.push(watchlistName);
+      filters.push(`watchlist_name = $${params.length}`);
+    }
+    params.push(limit);
     return this.many(
       `SELECT payload_json FROM market_briefs
-       WHERE workspace_id = $1
+       WHERE ${filters.join(' AND ')}
        ORDER BY brief_date DESC, created_at DESC
-       LIMIT $2`,
-      [workspaceId, limit],
+       LIMIT $${params.length}`,
+      params,
     );
+  }
+
+  async getLatestMarketBrief(
+    watchlistName: string | undefined,
+    beforeDate: string | undefined,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const filters = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (watchlistName) {
+      params.push(watchlistName);
+      filters.push(`watchlist_name = $${params.length}`);
+    }
+    if (beforeDate) {
+      params.push(beforeDate);
+      filters.push(`brief_date < $${params.length}`);
+    }
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'brief_date', brief_date,
+         'watchlist_name', watchlist_name,
+         'title', title,
+         'created_at', created_at,
+         'previous_brief_id', previous_brief_id,
+         'payload', payload_json
+       ) AS payload_json
+       FROM market_briefs
+       WHERE ${filters.join(' AND ')}
+       ORDER BY brief_date DESC, created_at DESC
+       LIMIT 1`,
+      params,
+    );
+  }
+
+  async saveMarketBrief(
+    brief: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved = await this.one(
+      `INSERT INTO market_briefs
+       (id, workspace_id, brief_date, watchlist_name, title, created_at, previous_brief_id, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
+         brief_date = EXCLUDED.brief_date,
+         watchlist_name = EXCLUDED.watchlist_name,
+         title = EXCLUDED.title,
+         created_at = EXCLUDED.created_at,
+         previous_brief_id = EXCLUDED.previous_brief_id,
+         payload_json = EXCLUDED.payload_json
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'brief_date', brief_date,
+         'watchlist_name', watchlist_name,
+         'title', title,
+         'created_at', created_at,
+         'previous_brief_id', previous_brief_id,
+         'payload', payload_json
+       ) AS payload_json`,
+      [
+        stringValue(brief.id, ''),
+        workspaceId,
+        stringValue(brief.brief_date, new Date().toISOString().slice(0, 10)),
+        stringValue(brief.watchlist_name, 'default'),
+        stringValue(brief.title, 'Market Brief'),
+        stringValue(brief.created_at, new Date().toISOString()),
+        nullableString(brief.previous_brief_id),
+        JSON.stringify(brief),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Market brief ${brief.id} not found`);
+    }
+    return saved;
   }
 
   async listAlerts(
@@ -618,6 +855,82 @@ export class PostgresJournalRepository implements JournalRepository {
     return alert;
   }
 
+  async findAlert(
+    alertType: string,
+    thesisId: string | undefined,
+    watchlistItemId: string | undefined,
+    triggerKey: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'alert_type', alert_type,
+         'symbol', symbol,
+         'thesis_id', thesis_id,
+         'watchlist_item_id', watchlist_item_id,
+         'trigger_key', trigger_key,
+         'created_at', created_at,
+         'read_at', read_at,
+         'message', message,
+         'payload', payload_json
+       ) AS payload_json
+       FROM alerts
+       WHERE workspace_id = $1
+         AND alert_type = $2
+         AND trigger_key = $3
+         AND COALESCE(thesis_id, '') = COALESCE($4, '')
+         AND COALESCE(watchlist_item_id, '') = COALESCE($5, '')
+       LIMIT 1`,
+      [
+        workspaceId,
+        alertType,
+        triggerKey,
+        thesisId ?? null,
+        watchlistItemId ?? null,
+      ],
+    );
+  }
+
+  async createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord> {
+    const saved = await this.one(
+      `INSERT INTO alerts
+       (id, workspace_id, alert_type, symbol, thesis_id, watchlist_item_id, trigger_key, created_at, read_at, message, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'alert_type', alert_type,
+         'symbol', symbol,
+         'thesis_id', thesis_id,
+         'watchlist_item_id', watchlist_item_id,
+         'trigger_key', trigger_key,
+         'created_at', created_at,
+         'read_at', read_at,
+         'message', message,
+         'payload', payload_json
+       ) AS payload_json`,
+      [
+        stringValue(alert.id, ''),
+        workspaceId,
+        stringValue(alert.alert_type, ''),
+        stringValue(alert.symbol, ''),
+        nullableString(alert.thesis_id),
+        nullableString(alert.watchlist_item_id),
+        nullableString(alert.trigger_key),
+        stringValue(alert.created_at, new Date().toISOString()),
+        nullableString(alert.read_at),
+        stringValue(alert.message, ''),
+        JSON.stringify(alert),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Alert ${alert.id} not found`);
+    }
+    return saved;
+  }
+
   private async one(sql: string, params: unknown[]): Promise<JsonRecord | null> {
     const pool = this.requirePool();
     const result = await pool.query<PayloadRow>(sql, params);
@@ -674,6 +987,21 @@ function stringValue(value: unknown, fallback: string): string {
     return fallback;
   }
   return String(value);
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
+}
+
+async function rollbackQuietly(client: PoolClient): Promise<void> {
+  try {
+    await client.query('ROLLBACK');
+  } catch {
+    // Keep the original database error visible to the caller.
+  }
 }
 
 function booleanValue(value: unknown, fallback: boolean): boolean {

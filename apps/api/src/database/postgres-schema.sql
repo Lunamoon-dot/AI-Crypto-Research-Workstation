@@ -63,6 +63,41 @@ ON research_runs(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_runs_workspace_created
 ON research_runs(workspace_id, started_at DESC);
 
+CREATE TABLE IF NOT EXISTS research_jobs (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    queue_backend TEXT NOT NULL,
+    queue_name TEXT,
+    queue_job_id TEXT,
+    status TEXT NOT NULL CHECK (
+        status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'timed_out')
+    ),
+    request_json JSONB NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 1,
+    progress_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    heartbeat_at TIMESTAMPTZ,
+    cancellation_requested_at TIMESTAMPTZ,
+    timeout_at TIMESTAMPTZ,
+    result_summary_json JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_jobs_run_created
+ON research_jobs(run_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_jobs_workspace_status
+ON research_jobs(workspace_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_jobs_heartbeat
+ON research_jobs(status, heartbeat_at);
+
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

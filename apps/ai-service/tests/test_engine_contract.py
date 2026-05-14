@@ -23,6 +23,8 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
             "analysts": ["market", "news", "social", "onchain"],
             "config_profile": "default",
             "dry_run": True,
+            "exchange": "binance",
+            "metadata": {"source": "contract-test"},
         }
     )
 
@@ -52,6 +54,9 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
     assert run.status.value == "completed"
     assert [event.event_type for event in events] == ["run.started", "run.completed"]
     assert events[0].payload["market_type"] == "spot"
+    assert events[0].payload["exchange"] == "binance"
+    assert events[0].payload["metadata"] == {"source": "contract-test"}
+    assert events[1].payload["metadata"] == {"source": "contract-test"}
 
 
 def test_engine_request_accepts_perp_market_type():
@@ -69,6 +74,36 @@ def test_engine_request_accepts_perp_market_type():
     )
 
     assert request.market_type == "perp"
+
+
+def test_engine_request_normalizes_common_crypto_symbols():
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_symbol_normalized",
+            "workspace_id": "workspace_1",
+            "symbol": " ethdt ",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market"],
+        }
+    )
+
+    assert request.symbol == "ETH/USDT"
+
+
+def test_engine_request_keeps_only_graph_analyst_lanes():
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_analyst_lanes",
+            "workspace_id": "workspace_1",
+            "symbol": "ETH/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market", "quant", "risk", "social"],
+        }
+    )
+
+    assert request.analysts == ["market", "social"]
 
 
 def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):

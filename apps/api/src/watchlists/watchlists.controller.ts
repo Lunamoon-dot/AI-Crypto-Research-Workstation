@@ -10,6 +10,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { AddWatchlistItemDto } from './dto/add-watchlist-item.dto';
+import { CheckWatchlistDto } from './dto/check-watchlist.dto';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
 import { UpdateWatchlistDto } from './dto/update-watchlist.dto';
 import { WatchlistsService } from './watchlists.service';
@@ -72,6 +73,16 @@ export class WatchlistsController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.watchlists.addItem(id, dto, userId, workspaceId);
+  }
+
+  @Post(':id/check')
+  check(
+    @Param('id') id: string,
+    @Body() dto: CheckWatchlistDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.watchlists.check(id, dto, userId, workspaceId);
   }
 
   @Delete(':id/items/:itemId')

@@ -2,6 +2,8 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+import logging
+import time
 from typing import Any, Dict
 
 from langgraph.graph import END, START, StateGraph
@@ -25,6 +27,7 @@ from tradingagents.agents import (
 )
 from tradingagents.agents.utils.agent_states import AgentState
 from tradingagents.agents.utils.agent_utils import create_analyst_opinion_builder
+from tradingagents.observability import log_event
 
 from .analyst_runtime import make_analyst_runner
 from .conditional_logic import ConditionalLogic
@@ -39,6 +42,7 @@ from .node_names import (
 
 
 DEFAULT_ANALYSTS = ("market", "social", "news", "onchain")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -226,10 +230,6 @@ class GraphSetup:
             {name: name for name in analyst_names},
         )
 
-        # Every analyst terminates at Bull Researcher.
-        for name in analyst_names:
-            workflow.add_edge(name, DebateNode.BULL_RESEARCHER)
-
         # Debate/risk pipeline
         workflow.add_node(
             DebateNode.BULL_RESEARCHER,
@@ -303,6 +303,13 @@ class GraphSetup:
                 graph_node=str(PipelineNode.SCENARIO_PLANNER),
             ),
         )
+
+        # Wait for every selected analyst before the bull/bear debate starts.
+        # Adding one edge from the analyst set creates a LangGraph barrier;
+        # adding one edge per analyst would let the fastest analyst trigger
+        # debate while slower analyst lanes are still running.
+        workflow.add_edge(list(analyst_names), DebateNode.BULL_RESEARCHER)
+
         workflow.add_conditional_edges(
             DebateNode.BULL_RESEARCHER,
             self.conditional_logic.should_continue_debate,
@@ -355,6 +362,10 @@ class GraphSetup:
         tracker = self.budget_tracker
 
         def _run(state: dict) -> dict:
+            event_ctx = {"stage": stage, **ctx}
+            log_event(logger, "agent_node_started", status="running", **event_ctx)
+            started_at = time.perf_counter()
+
             def _execute() -> dict:
                 llm_orchestrator = getattr(self, "llm_orchestrator", None)
                 if llm_orchestrator is None:
@@ -364,9 +375,32 @@ class GraphSetup:
                     stage=stage,
                 )
 
-            if tracker is None:
-                return _execute()
-            with tracker.stage(stage, **ctx):
-                return _execute()
+            try:
+                if tracker is None:
+                    result = _execute()
+                else:
+                    with tracker.stage(stage, **ctx):
+                        result = _execute()
+                log_event(
+                    logger,
+                    "agent_node_completed",
+                    status="completed",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                    output_keys=sorted(str(key) for key in result.keys()),
+                    **event_ctx,
+                )
+                return result
+            except Exception as exc:
+                log_event(
+                    logger,
+                    "agent_node_failed",
+                    level=logging.ERROR,
+                    status="failed",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:500],
+                    **event_ctx,
+                )
+                raise
 
         return _run

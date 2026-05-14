@@ -49,6 +49,9 @@ _TIMELINE_EVENT_TYPES = {
     "decision_created": "decision.created",
     "risk_checked": "risk.checked",
     "plan_recorded": "plan.recorded",
+    "agent_node_started": "agent.node.started",
+    "agent_node_completed": "agent.node.completed",
+    "agent_node_failed": "agent.node.failed",
     "budget_exceeded": "budget.exceeded",
     "budget_summary": "budget.summary",
 }
@@ -338,6 +341,14 @@ def _timeline_message(event_name: str, payload: Mapping[str, Any]) -> str:
     if event_name == "plan.recorded":
         action = payload.get("action", "?")
         return f"Plan recorded → {action}"
+    if event_name in {
+        "agent.node.started",
+        "agent.node.completed",
+        "agent.node.failed",
+    }:
+        node = payload.get("graph_node") or payload.get("analyst_name") or "agent"
+        status = payload.get("status", event_name.rsplit(".", 1)[-1])
+        return f"Agent node {node} {status}"
     if event_name == "budget.exceeded":
         stage = payload.get("stage", "?")
         return f"Budget exceeded [{stage}]"

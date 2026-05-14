@@ -1,8 +1,48 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "VITE_API_BASE_URL",
+    "VITE_API_PROXY_BASE",
+    "VITE_AUTH_MODE",
+    "VITE_LOCAL_USER_ID",
+    "VITE_LOCAL_WORKSPACE_ID"
+  ],
+  "globalPassThroughEnv": [
+    "API_BASE_URL",
+    "DATABASE_ACCESS",
+    "DATABASE_REPOSITORY",
+    "DATABASE_URL",
+    "JOB_HEARTBEAT_MS",
+    "JOB_MAX_ATTEMPTS",
+    "JOB_TIMEOUT_MS",
+    "JOB_WORKER_CONCURRENCY",
+    "JOBS_EXECUTION_MODE",
+    "REDIS_URL",
+    "PORT",
+    "WORKSPACE_MEMBERSHIPS"
+  ],
   "tasks": {
     "dev": {
       "cache": false,
+      "passThroughEnv": [
+        "API_BASE_URL",
+        "DATABASE_ACCESS",
+        "DATABASE_REPOSITORY",
+        "DATABASE_URL",
+        "JOB_HEARTBEAT_MS",
+        "JOB_MAX_ATTEMPTS",
+        "JOB_TIMEOUT_MS",
+        "JOB_WORKER_CONCURRENCY",
+        "JOBS_EXECUTION_MODE",
+        "PORT",
+        "REDIS_URL",
+        "VITE_API_BASE_URL",
+        "VITE_API_PROXY_BASE",
+        "VITE_AUTH_MODE",
+        "VITE_LOCAL_USER_ID",
+        "VITE_LOCAL_WORKSPACE_ID",
+        "WORKSPACE_MEMBERSHIPS"
+      ],
       "persistent": true
     },
     "build": {

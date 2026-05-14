@@ -31,7 +31,7 @@ The system must preserve auditability: every thesis should be traceable back to 
 | AI service | `apps/ai-service` | LangGraph research orchestration, signal generation, thesis generation, local SQLite journal persistence |
 | Database package | `packages/database` | Prisma schema and local Postgres client generation |
 | Postgres schema reference | `apps/api/src/database/postgres-schema.sql` | Compatibility/reference SQL for product API boundary |
-| Docker Compose | `docker-compose.yml` | Local Postgres and AI service runtime |
+| Docker Compose | `docker-compose.yml` | Local Postgres, Redis, API, worker, web, and optional AI/Ollama utility runtimes |
 
 ## High-Level Architecture
 
@@ -69,8 +69,8 @@ The current jobs layer supports three modes:
 | Mode | Trigger | Behavior | Use case |
 | --- | --- | --- | --- |
 | Inline | `JOBS_EXECUTION_MODE=inline` | API spawns the Python engine and waits for JSON output; the Python engine writes the configured SQLite journal | Local smoke tests and simple demos |
-| BullMQ | `REDIS_URL` configured | API enqueues `research.run` jobs; a separate worker process must consume and persist results | Production or hosted workers |
-| Memory | no Redis and not inline | API stores requests in memory | Development placeholder only |
+| BullMQ | `REDIS_URL` configured | API enqueues `research.run` jobs; `apps/api/src/jobs/research-worker.ts` consumes and persists results | Production or hosted workers |
+| Memory | default, or `JOBS_EXECUTION_MODE=memory` | API stores requests in memory and processes them in-process FIFO | Local development and private demos |
 
 Production should use BullMQ with dedicated Python workers. Inline mode is useful but should not be the default for hosted traffic because research runs are long-running and provider-dependent.
 

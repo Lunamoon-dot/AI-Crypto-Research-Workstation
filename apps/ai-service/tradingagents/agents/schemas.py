@@ -315,6 +315,17 @@ class PortfolioDecision(BaseModel):
         default=MarketType.SPOT,
         description="Market structure for the final thesis. Exactly spot or perp.",
     )
+    confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Final thesis confidence on a 0.0-1.0 scale. This is the Portfolio "
+            "Manager's conviction in the final research stance after weighing "
+            "debate consensus, quant baseline, missing data, conflict, and risk. "
+            "Do not copy the quant confidence mechanically."
+        ),
+    )
     action_summary: str = Field(
         default="",
         description=(
@@ -369,6 +380,24 @@ class PortfolioDecision(BaseModel):
         if normalized in {"perp", "perpetual", "futures", "future"}:
             return MarketType.PERP
         return MarketType.SPOT
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            raw = value.strip()
+            is_percent = raw.endswith("%")
+            raw = raw.rstrip("%").strip()
+            try:
+                number = float(raw)
+            except ValueError:
+                return None
+            if is_percent or number > 1:
+                number = number / 100
+            return max(min(number, 1.0), 0.0)
+        return value
 
     @field_validator("missing_data", mode="before")
     @classmethod
@@ -429,7 +458,7 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
     return {
         "rating": decision.rating.value,
         "direction": direction_by_rating[decision.rating],
-        "confidence": None,
+        "confidence": decision.confidence,
         "market_type": decision.market_type.value,
         "action_summary": decision.action_summary or decision.executive_summary,
         "upside_catalyst": decision.upside_catalyst,

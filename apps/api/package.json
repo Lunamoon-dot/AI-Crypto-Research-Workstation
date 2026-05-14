@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @lunaperception/database db:generate && tsc -p tsconfig.app.json",
+    "dev": "pnpm build && node --watch ../../dist/apps/api/src/main.js",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "node ../../dist/apps/api/src/main.js",
+    "start:worker": "node ../../dist/apps/api/src/jobs/research-worker.js",
     "typecheck": "pnpm --filter @lunaperception/database db:generate && tsc -p tsconfig.app.json --noEmit",
     "test": "npm run build && node --test ../../dist/apps/api/test/*.test.js"
   },

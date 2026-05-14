@@ -16,10 +16,10 @@ def _ms(day: str) -> int:
 
 class _FakeExchange:
     id = "fake"
-    markets = {"BTC/USDT": {}}
 
-    def __init__(self, candles):
+    def __init__(self, candles, markets=None):
         self.candles = candles
+        self.markets = markets or {"BTC/USDT": {}}
         self.calls = []
 
     def fetch_ohlcv(self, symbol, timeframe="1d", since=None, limit=None):
@@ -84,3 +84,16 @@ def test_ccxt_ohlcv_accepts_iso_timezone_dates(monkeypatch):
         "2026-01-02",
         "2026-01-03",
     ]
+
+
+def test_ccxt_symbol_normalization_repairs_missing_usdt_prefix(monkeypatch):
+    candles = [
+        [_ms("2026-01-01"), 1, 2, 0.5, 1.5, 10],
+        [_ms("2026-01-02"), 2, 3, 1.5, 2.5, 11],
+    ]
+    exchange = _FakeExchange(candles, markets={"ETH/USDT": {}})
+    monkeypatch.setattr(ccxt_provider, "_get_configured_exchange", lambda: exchange)
+
+    ccxt_provider.get_crypto_ohlcv("ETHDT", "2026-01-01", "2026-01-02")
+
+    assert exchange.calls[0]["symbol"] == "ETH/USDT"

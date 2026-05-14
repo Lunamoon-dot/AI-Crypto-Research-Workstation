@@ -81,6 +81,17 @@ EVIDENCE_TERMS = (
 _BULLET_BOUNDARY_RE = re.compile(r"(?:^|\n)\s*[-*]\s+")
 _SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+")
 _INLINE_WHITESPACE_RE = re.compile(r"[ \t\r\f\v]+")
+_DECLARED_CONFIDENCE_RE = re.compile(
+    r"""
+    (?:
+        confidence\s+score|conviction\s+score|confidence|conviction
+    )
+    \s*(?:[:=]|\bis\b|\bat\b)?\s*
+    (?P<value>\d+(?:\.\d+)?)
+    \s*(?P<percent>%|percent|pct)?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def build_agent_opinions(
@@ -298,7 +309,7 @@ def _text_opinion(
         agent_name=agent_name,
         role=role,
         stance=stance,
-        confidence=_infer_confidence(text, stance),
+        confidence=_extract_declared_confidence(text),
         key_evidence=_extract_evidence(text, limit=4),
         risks=_extract_sentences(text, terms=RISK_TERMS, limit=4),
         invalidation_conditions=_extract_sentences(
@@ -371,11 +382,14 @@ def _infer_stance(text: str) -> AgentStance:
     return AgentStance.BULLISH if bullish > bearish else AgentStance.BEARISH
 
 
-def _infer_confidence(text: str, stance: AgentStance) -> float:
-    base = 0.4 if stance == AgentStance.UNCERTAIN else 0.55
-    length_bonus = min(len(text) / 5000, 0.2)
-    evidence_bonus = min(len(_extract_sentences(text, terms=(), limit=6)) * 0.03, 0.18)
-    return min(base + length_bonus + evidence_bonus, 0.85)
+def _extract_declared_confidence(text: str) -> float | None:
+    match = _DECLARED_CONFIDENCE_RE.search(text)
+    if not match:
+        return None
+    value = float(match.group("value"))
+    if match.group("percent") or value > 1:
+        value /= 100
+    return max(min(value, 1.0), 0.0)
 
 
 def _extract_evidence(text: str, *, limit: int) -> list[str]:

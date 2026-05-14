@@ -1,10 +1,15 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   JOURNAL_REPOSITORY,
   JournalRepository,
+  JsonRecord,
 } from '../database/journal.types';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import {
+  ExportedJournal,
+  SqliteJournalSyncService,
+} from '../jobs/sqlite-journal-sync.service';
 import {
   toScenarioResponse,
   toThesisDecisionResponse,
@@ -19,6 +24,8 @@ export class ThesesService {
     private readonly journal: JournalRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
+    @Optional()
+    private readonly sqliteSync?: SqliteJournalSyncService,
   ) {}
 
   async list(limit = 50, userId?: string, workspaceHeader?: string) {
@@ -34,17 +41,29 @@ export class ThesesService {
   async get(id: string, userId?: string, workspaceHeader?: string) {
     const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
     const thesis = await this.journal.getThesis(id, workspaceId);
-    if (!thesis) {
-      throw new NotFoundException(`Thesis ${id} not found`);
+    if (thesis) {
+      return toThesisResponse(thesis);
     }
-    return toThesisResponse(thesis);
+    const sqliteThesis = await this.thesisFromSqlite(id, workspaceId);
+    if (sqliteThesis) {
+      return toThesisResponse(sqliteThesis);
+    }
+    throw new NotFoundException(`Thesis ${id} not found`);
   }
 
   async scenarios(id: string, userId?: string, workspaceHeader?: string) {
     const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
-    await this.get(id, userId, workspaceId);
-    const scenarios = await this.journal.listScenarios(id, workspaceId);
-    return scenarios.map(toScenarioResponse);
+    const thesis = await this.journal.getThesis(id, workspaceId);
+    if (thesis) {
+      const scenarios = await this.journal.listScenarios(id, workspaceId);
+      return scenarios.map(toScenarioResponse);
+    }
+    const sqlite = await this.sqliteSync?.exportThesis(id);
+    const sqliteThesis = sqlite ? thesisFromExport(sqlite, id, workspaceId) : null;
+    if (!sqliteThesis) {
+      throw new NotFoundException(`Thesis ${id} not found`);
+    }
+    return scenariosFromExport(sqlite!, id, workspaceId).map(toScenarioResponse);
   }
 
   async decide(
@@ -101,4 +120,84 @@ export class ThesesService {
     await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
+
+  private async thesisFromSqlite(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const exported = await this.sqliteSync?.exportThesis(id);
+    return exported ? thesisFromExport(exported, id, workspaceId) : null;
+  }
+}
+
+function thesisFromExport(
+  exported: ExportedJournal,
+  id: string,
+  workspaceId: string,
+): JsonRecord | null {
+  return (
+    rows(exported, 'trade_theses').find(
+      (thesis) =>
+        stringField(thesis.id) === id &&
+        stringField(thesis.workspace_id ?? 'local') === workspaceId,
+    ) ?? null
+  );
+}
+
+function scenariosFromExport(
+  exported: ExportedJournal,
+  thesisId: string,
+  workspaceId: string,
+): JsonRecord[] {
+  return rows(exported, 'scenarios').filter(
+    (scenario) =>
+      stringField(scenario.thesis_id) === thesisId &&
+      stringField(scenario.workspace_id ?? workspaceId) === workspaceId,
+  );
+}
+
+function rows(exported: ExportedJournal, table: string): JsonRecord[] {
+  return (exported[table] ?? []).map(normalizeSqliteRow);
+}
+
+function normalizeSqliteRow(row: JsonRecord): JsonRecord {
+  const normalized: JsonRecord = {};
+  for (const [key, value] of Object.entries(row)) {
+    normalized[key] = key.endsWith('_json') ? parseJsonValue(value) : value;
+  }
+  const payload = recordFromValue(normalized.payload_json);
+  if (payload) {
+    const columns = { ...normalized };
+    Object.assign(normalized, payload, columns, {
+      payload,
+      payload_json: payload,
+    });
+  }
+  return normalized;
+}
+
+function recordFromValue(value: unknown): JsonRecord | null {
+  const parsed = parseJsonValue(value);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as JsonRecord;
+  }
+  return null;
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function stringField(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
 }

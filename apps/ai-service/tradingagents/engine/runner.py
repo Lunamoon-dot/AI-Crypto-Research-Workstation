@@ -137,6 +137,7 @@ class EngineRunner:
                 "run_id": request.run_id,
                 "workspace_id": request.workspace_id,
                 "contract_version": "v1",
+                "metadata": request.metadata,
             },
         }
         if request.exchange:
@@ -184,6 +185,9 @@ class EngineRunner:
                 "analysis_date": request.analysis_date.isoformat(),
                 "analysts": request.analysts,
                 "config_profile": request.config_profile,
+                "exchange": request.exchange,
+                "dry_run": request.dry_run,
+                "metadata": request.metadata,
                 "engine_contract": "v1",
             },
         )
@@ -210,6 +214,7 @@ class EngineRunner:
                 "workspace_id": request.workspace_id,
                 "dry_run": True,
                 "market_type": request.market_type,
+                "metadata": request.metadata,
                 "engine_contract": "v1",
             },
         )

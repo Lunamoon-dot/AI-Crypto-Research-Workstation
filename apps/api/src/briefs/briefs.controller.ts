@@ -1,4 +1,5 @@
-import { Controller, Get, Headers, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { CreateDailyBriefDto } from './dto/create-daily-brief.dto';
 import { BriefsService } from './briefs.service';
 
 @Controller('briefs')
@@ -9,9 +10,27 @@ export class BriefsController {
   daily(
     @Query('date') date?: string,
     @Query('limit') limit?: string,
+    @Query('watchlist_id') watchlistId?: string,
+    @Query('watchlist_name') watchlistName?: string,
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.briefs.daily(date, Number(limit ?? 20), userId, workspaceId);
+    return this.briefs.daily(
+      date,
+      Number(limit ?? 20),
+      userId,
+      workspaceId,
+      watchlistId,
+      watchlistName,
+    );
+  }
+
+  @Post('daily')
+  createDaily(
+    @Body() dto: CreateDailyBriefDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.briefs.createDaily(dto, userId, workspaceId);
   }
 }

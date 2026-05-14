@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from tradingagents.domain import (
@@ -6,8 +7,19 @@ from tradingagents.domain import (
     Signal,
     SignalDirection,
     SignalProvenance,
+    ThesisDirection,
+    TradeThesis,
+    TradeThesisStructuredSummary,
 )
 from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+
+
+class _ThesisMemoryService:
+    def __init__(self, theses):
+        self._theses = theses
+
+    def list_theses(self, *, limit=20):
+        return self._theses[:limit]
 
 
 def test_graph_builds_explicit_thesis_explainability_fields():
@@ -173,3 +185,125 @@ def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
         "Trim 25-50%; do not open new longs"
     )
     assert thesis.structured_summary.risks == ["Missing liquidation data"]
+
+
+def test_graph_uses_debate_confidence_when_pm_confidence_missing():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "SOL/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(
+        confidence=0.08,
+        score=SimpleNamespace(value="neutral"),
+    )
+    graph.current_debate = SimpleNamespace(consensus_confidence=0.62)
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_3", symbol="SOL/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "final_trade_decision": "**Rating**: Underweight\n\nAvoid fresh longs.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Underweight",
+              "direction": "avoid",
+              "confidence": null,
+              "action_summary": "Avoid fresh longs",
+              "entry_zone": "No new entry",
+              "invalidation": "Close above 110",
+              "target_zones": ["92", "84"],
+              "risks": ["Positive catalyst risk"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.confidence == 0.57
+    assert thesis.heuristic_confidence == 0.57
+    assert thesis.evidence["confidence_source"] == "debate_consensus"
+    assert thesis.evidence["quant_confidence"] == 0.08
+    assert thesis.evidence["quant_bias"] == "neutral"
+    assert "source=debate_consensus" in thesis.confidence_rationale
+    assert "quant confidence=0.08" in thesis.confidence_rationale
+
+
+def test_graph_stability_guard_holds_recent_same_symbol_flip():
+    now = datetime.now(timezone.utc)
+    previous = TradeThesis(
+        id="thesis_prev",
+        research_run_id="run_prev",
+        workspace_id="local",
+        symbol="SOL/USDT",
+        direction=ThesisDirection.LONG,
+        confidence=0.60,
+        heuristic_confidence=0.60,
+        thesis_text="Long while flag support holds.",
+        entry_zone="$92-$94",
+        invalidation_level="Daily close below $87.50",
+        invalidation="Daily close below $87.50",
+        target_zones=["$100", "$108"],
+        monitor_next=["invalidation: Daily close below $87.50"],
+        structured_summary=TradeThesisStructuredSummary(
+            rating="Overweight",
+            direction="long",
+            confidence=0.60,
+            action_summary="Long while flag support holds.",
+            entry_zone="$92-$94",
+            invalidation="Daily close below $87.50",
+            target_zones=["$100", "$108"],
+        ),
+        created_at=now - timedelta(minutes=16),
+    )
+
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "SOL/USDT"
+    graph.config = {
+        "thesis_stability": {
+            "enabled": True,
+            "cooldown_minutes": 60,
+            "max_confidence_delta": 0.20,
+            "flip_override_confidence": 0.75,
+            "memory_limit": 10,
+        }
+    }
+    graph.journal_bridge = SimpleNamespace(
+        service=_ThesisMemoryService([previous])
+    )
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.25)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_new",
+        symbol="SOL/USDT",
+        workspace_id="local",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "final_trade_decision": "Hold; wait for confirmation.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Hold",
+              "direction": "watch",
+              "confidence": 0.25,
+              "action_summary": "Wait; bullish follow-through faded",
+              "invalidation": "Structural bearish break below $81",
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.direction == ThesisDirection.LONG
+    assert thesis.confidence == 0.60
+    assert thesis.structured_summary.rating == "Overweight"
+    assert thesis.structured_summary.action_summary == "Long while flag support holds."
+    assert thesis.invalidation_level == "Daily close below $87.50"
+    assert thesis.evidence["stability_guard"]["applied"] is True
+    assert thesis.evidence["stability_guard"]["proposed"]["direction"] == "watch"
+    assert thesis.evidence["stability_guard"]["proposed"]["confidence"] == 0.25

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import ValidationError
@@ -24,6 +25,21 @@ from tradingagents.domain import (
 from tradingagents.observability import log_event
 
 logger = logging.getLogger(__name__)
+
+_BULLISH_RATINGS = {"Buy", "Overweight"}
+_BEARISH_RATINGS = {"Underweight", "Sell"}
+_STABILITY_OVERRIDE_TERMS = (
+    "confirmed invalidation",
+    "invalidation triggered",
+    "invalidated by",
+    "structural break confirmed",
+    "daily close below",
+    "daily close above",
+    "closed below",
+    "closed above",
+    "broke below",
+    "broke above",
+)
 
 
 def extract_thesis_field(text: str, field: str) -> str | None:
@@ -147,6 +163,91 @@ def structured_list(payload: dict[str, Any], *keys: str) -> list[str]:
     return []
 
 
+def normalize_confidence_value(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        is_percent = raw.endswith("%")
+        raw = raw.rstrip("%").strip()
+        try:
+            number = float(raw)
+        except ValueError:
+            return None
+        if is_percent or number > 1:
+            number = number / 100
+        return max(min(number, 1.0), 0.0)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(min(number, 1.0), 0.0)
+
+
+def quant_bias_from_score(score: Any) -> str:
+    value = getattr(score, "value", score)
+    normalized = str(value or "").strip().lower()
+    if "buy" in normalized:
+        return "bullish"
+    if "sell" in normalized:
+        return "bearish"
+    if "neutral" in normalized:
+        return "neutral"
+    return "unknown"
+
+
+def thesis_bias_from_direction(direction: ThesisDirection) -> str:
+    if direction == ThesisDirection.LONG:
+        return "bullish"
+    if direction in {ThesisDirection.SHORT, ThesisDirection.AVOID}:
+        return "bearish"
+    if direction in {ThesisDirection.WATCH, ThesisDirection.NEUTRAL}:
+        return "neutral"
+    return "unknown"
+
+
+def rating_bias(rating: str | None) -> str:
+    normalized = summary_rating({"rating": rating}) if rating is not None else None
+    if normalized in _BULLISH_RATINGS:
+        return "bullish"
+    if normalized in _BEARISH_RATINGS:
+        return "bearish"
+    if normalized == "Hold":
+        return "neutral"
+    return "unknown"
+
+
+def direction_from_rating(rating: str | None) -> ThesisDirection:
+    normalized = summary_rating({"rating": rating}) if rating is not None else None
+    if normalized in _BULLISH_RATINGS:
+        return ThesisDirection.LONG
+    if normalized == "Sell":
+        return ThesisDirection.SHORT
+    if normalized == "Underweight":
+        return ThesisDirection.AVOID
+    return ThesisDirection.WATCH
+
+
+def thesis_rating(thesis: TradeThesis) -> str:
+    if thesis.structured_summary is not None:
+        return thesis.structured_summary.rating
+    return {
+        ThesisDirection.LONG: "Overweight",
+        ThesisDirection.SHORT: "Underweight",
+        ThesisDirection.AVOID: "Underweight",
+        ThesisDirection.NEUTRAL: "Hold",
+        ThesisDirection.WATCH: "Hold",
+    }.get(thesis.direction, "Hold")
+
+
+def utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class ThesisBuilder:
     """Builds journal ``TradeThesis`` artifacts from graph output."""
 
@@ -181,21 +282,12 @@ class ThesisBuilder:
         )
 
         quant = getattr(self.host, "quant_signal_result", None)
-        confidence = structured_payload.get("confidence")
-        if confidence is None and quant is not None and hasattr(quant, "confidence"):
-            confidence = quant.confidence
-        if isinstance(confidence, str):
-            raw_confidence = confidence.strip()
-            is_percent = raw_confidence.endswith("%")
-            raw_confidence = raw_confidence.rstrip("%").strip()
-            try:
-                confidence = float(raw_confidence)
-            except ValueError:
-                confidence = None
-            else:
-                if is_percent or confidence > 1:
-                    confidence = confidence / 100
-        heuristic_confidence = confidence
+        structured_confidence = normalize_confidence_value(
+            structured_payload.get("confidence")
+        )
+        quant_confidence = normalize_confidence_value(
+            getattr(quant, "confidence", None) if quant is not None else None
+        )
         empirical_confidence = (
             getattr(quant, "empirical_confidence", None) if quant is not None else None
         )
@@ -216,7 +308,7 @@ class ThesisBuilder:
         )
 
         debate = getattr(self.host, "current_debate", None)
-        debate_id = debate.id if debate else None
+        debate_id = getattr(debate, "id", None) if debate else None
         supporting_ids, contradicting_ids = self.host._classify_thesis_signals(
             direction
         )
@@ -296,8 +388,24 @@ class ThesisBuilder:
             ]
             if item
         ]
+        confidence, confidence_source = self._derive_final_confidence(
+            structured_confidence=structured_confidence,
+            quant_confidence=quant_confidence,
+            quant_score=getattr(quant, "score", None) if quant is not None else None,
+            debate=debate,
+            opinions=opinions,
+            direction=direction,
+            stale_or_missing_count=len(stale_or_missing_data),
+            contract_degradation_count=len(contract_degradation_reasons),
+        )
+        heuristic_confidence = confidence
+        if confidence_source != "quant_only":
+            confidence_version = "thesis_heuristic:v1"
         confidence_rationale = self._confidence_rationale(
             confidence,
+            confidence_source,
+            quant_confidence,
+            quant_bias_from_score(getattr(quant, "score", None) if quant is not None else None),
             supporting_ids,
             contradicting_ids,
         )
@@ -351,6 +459,11 @@ class ThesisBuilder:
                 "structured_summary": bool(structured_payload),
                 "contract_degraded": bool(contract_degradation_reasons),
                 "contract_degradation_reasons": contract_degradation_reasons,
+                "confidence_source": confidence_source,
+                "quant_confidence": quant_confidence,
+                "quant_bias": quant_bias_from_score(
+                    getattr(quant, "score", None) if quant is not None else None
+                ),
             },
             why_this_thesis=why_this_thesis,
             supporting_evidence=supporting_evidence,
@@ -362,6 +475,8 @@ class ThesisBuilder:
             risk_notes=structured_summary.risks
             or ["Manual review required before changing thesis stance."],
         )
+
+        thesis = self._apply_stability_guard(thesis)
 
         if run and not run.decision_id:
             run.decision_id = str(uuid.uuid4())
@@ -399,22 +514,299 @@ class ThesisBuilder:
         )
         return thesis
 
+    def _apply_stability_guard(self, thesis: TradeThesis) -> TradeThesis:
+        cfg = (getattr(self.host, "config", None) or {}).get("thesis_stability", {})
+        if not cfg.get("enabled", True):
+            return thesis
+
+        previous = self._latest_previous_thesis(thesis, cfg)
+        if previous is None:
+            return thesis
+
+        previous_time = utc_datetime(previous.created_at)
+        current_time = utc_datetime(thesis.created_at)
+        if previous_time is None or current_time is None:
+            return thesis
+
+        age_minutes = (current_time - previous_time).total_seconds() / 60.0
+        cooldown_minutes = max(float(cfg.get("cooldown_minutes", 60)), 0.0)
+        if age_minutes < 0 or age_minutes > cooldown_minutes:
+            return thesis
+
+        previous_rating = thesis_rating(previous)
+        proposed_rating = thesis_rating(thesis)
+        previous_bias = thesis_bias_from_direction(previous.direction)
+        proposed_bias = thesis_bias_from_direction(thesis.direction)
+        rating_changed = rating_bias(previous_rating) != rating_bias(proposed_rating)
+        direction_changed = previous_bias != proposed_bias
+
+        previous_conf = normalize_confidence_value(previous.confidence)
+        proposed_conf = normalize_confidence_value(thesis.confidence)
+        max_delta = max(float(cfg.get("max_confidence_delta", 0.20)), 0.0)
+        confidence_delta = (
+            abs(previous_conf - proposed_conf)
+            if previous_conf is not None and proposed_conf is not None
+            else 0.0
+        )
+
+        if not direction_changed and not rating_changed and confidence_delta <= max_delta:
+            return thesis
+
+        if self._has_stability_override(thesis, cfg):
+            thesis.evidence["stability_guard"] = {
+                "applied": False,
+                "reason": "override_evidence_present",
+                "previous_thesis_id": previous.id,
+                "previous_direction": previous.direction.value,
+                "previous_rating": previous_rating,
+                "previous_confidence": previous.confidence,
+                "age_minutes": round(age_minutes, 1),
+            }
+            return thesis
+
+        proposed = {
+            "direction": thesis.direction.value,
+            "rating": proposed_rating,
+            "confidence": thesis.confidence,
+            "entry_zone": thesis.entry_zone,
+            "invalidation_level": thesis.invalidation_level,
+            "target_zones": list(thesis.target_zones),
+            "action_summary": (
+                thesis.structured_summary.action_summary
+                if thesis.structured_summary
+                else ""
+            ),
+        }
+        reason = (
+            f"Stability guard retained previous {previous.direction.value}/"
+            f"{previous_rating} thesis from {previous.id} because this rerun "
+            f"arrived {age_minutes:.1f} minutes later without override evidence."
+        )
+
+        thesis.direction = previous.direction
+        thesis.confidence = previous.confidence
+        thesis.heuristic_confidence = previous.heuristic_confidence
+        thesis.entry_zone = previous.entry_zone
+        thesis.invalidation_level = previous.invalidation_level
+        thesis.invalidation = previous.invalidation
+        thesis.target_zones = list(previous.target_zones)
+        thesis.monitor_next = list(previous.monitor_next)
+
+        if previous.structured_summary is not None:
+            thesis.structured_summary = previous.structured_summary.model_copy(
+                update={
+                    "rating": previous_rating,
+                    "direction": previous.direction,
+                    "confidence": previous.confidence,
+                    "is_degraded": bool(
+                        getattr(previous.structured_summary, "is_degraded", False)
+                    ),
+                    "degradation_reasons": list(
+                        getattr(
+                            previous.structured_summary,
+                            "degradation_reasons",
+                            [],
+                        )
+                    ),
+                }
+            )
+        elif thesis.structured_summary is not None:
+            thesis.structured_summary = thesis.structured_summary.model_copy(
+                update={
+                    "rating": previous_rating,
+                    "direction": previous.direction,
+                    "confidence": previous.confidence,
+                    "entry_zone": previous.entry_zone or "",
+                    "invalidation": previous.invalidation or "",
+                    "target_zones": list(previous.target_zones),
+                }
+            )
+
+        supporting_ids, contradicting_ids = self.host._classify_thesis_signals(
+            thesis.direction
+        )
+        signals = getattr(self.host, "current_signals", []) or []
+        thesis.supporting_signal_ids = supporting_ids
+        thesis.contradicting_signal_ids = contradicting_ids
+        thesis.supporting_evidence = signal_evidence(signals, supporting_ids)
+        thesis.contradicting_evidence = signal_evidence(signals, contradicting_ids)
+        thesis.evidence.update(
+            {
+                "signals_supporting": len(supporting_ids),
+                "signals_contradicting": len(contradicting_ids),
+                "stability_guard": {
+                    "applied": True,
+                    "reason": "cooldown_without_override",
+                    "previous_thesis_id": previous.id,
+                    "previous_direction": previous.direction.value,
+                    "previous_rating": previous_rating,
+                    "previous_confidence": previous.confidence,
+                    "proposed": proposed,
+                    "age_minutes": round(age_minutes, 1),
+                    "cooldown_minutes": cooldown_minutes,
+                    "max_confidence_delta": max_delta,
+                },
+            }
+        )
+        thesis.confidence_rationale = (
+            f"{thesis.confidence_rationale} Stability guard: {reason}"
+        ).strip()
+        if reason not in thesis.risk_notes:
+            thesis.risk_notes = [reason, *thesis.risk_notes]
+        return thesis
+
+    def _latest_previous_thesis(
+        self,
+        thesis: TradeThesis,
+        cfg: dict[str, Any],
+    ) -> TradeThesis | None:
+        bridge = getattr(self.host, "journal_bridge", None)
+        service = getattr(bridge, "service", None) if bridge is not None else None
+        if service is None:
+            return None
+        try:
+            candidates = service.list_theses(
+                limit=max(int(cfg.get("memory_limit", 50)), 1)
+            )
+        except Exception as exc:
+            logger.debug("Could not load thesis stability memory: %s", exc)
+            return None
+
+        current_symbol = str(thesis.symbol or "").strip().upper()
+        current_workspace = str(thesis.workspace_id or "local").strip()
+        for candidate in candidates:
+            if not candidate or candidate.id == thesis.id:
+                continue
+            if candidate.research_run_id and candidate.research_run_id == thesis.research_run_id:
+                continue
+            if str(candidate.symbol or "").strip().upper() != current_symbol:
+                continue
+            if str(candidate.workspace_id or "local").strip() != current_workspace:
+                continue
+            return candidate
+        return None
+
+    def _has_stability_override(
+        self,
+        thesis: TradeThesis,
+        cfg: dict[str, Any],
+    ) -> bool:
+        confidence = normalize_confidence_value(thesis.confidence)
+        min_confidence = max(float(cfg.get("flip_override_confidence", 0.75)), 0.0)
+        if confidence is None or confidence < min_confidence:
+            return False
+
+        text_parts = [
+            thesis.thesis_text,
+            thesis.invalidation,
+            thesis.invalidation_level,
+            thesis.why_this_thesis,
+            thesis.confidence_rationale,
+        ]
+        if thesis.structured_summary is not None:
+            text_parts.extend(
+                [
+                    thesis.structured_summary.action_summary,
+                    thesis.structured_summary.invalidation,
+                    thesis.structured_summary.upside_catalyst,
+                    *thesis.structured_summary.key_reasons,
+                    *thesis.structured_summary.risks,
+                ]
+            )
+        text = "\n".join(str(part or "") for part in text_parts).lower()
+        return any(term in text for term in _STABILITY_OVERRIDE_TERMS)
+
+    @staticmethod
+    def _derive_final_confidence(
+        *,
+        structured_confidence: float | None,
+        quant_confidence: float | None,
+        quant_score: Any,
+        debate: Any,
+        opinions: list[Any],
+        direction: ThesisDirection,
+        stale_or_missing_count: int,
+        contract_degradation_count: int,
+    ) -> tuple[float | None, str]:
+        if structured_confidence is not None:
+            return round(structured_confidence, 2), "portfolio_manager"
+
+        debate_confidence = normalize_confidence_value(
+            getattr(debate, "consensus_confidence", None) if debate else None
+        )
+        if debate_confidence is not None:
+            base = debate_confidence
+            source = "debate_consensus"
+        else:
+            opinion_confidences = [
+                confidence
+                for confidence in (
+                    normalize_confidence_value(getattr(opinion, "confidence", None))
+                    for opinion in opinions
+                )
+                if confidence is not None
+            ]
+            if opinion_confidences:
+                base = sum(opinion_confidences) / len(opinion_confidences)
+                source = "opinion_average"
+            elif quant_confidence is not None:
+                return round(quant_confidence, 2), "quant_only"
+            else:
+                return None, "unavailable"
+
+        adjusted = base + ThesisBuilder._quant_alignment_adjustment(
+            quant_score=quant_score,
+            quant_confidence=quant_confidence,
+            direction=direction,
+        )
+        adjusted -= min(stale_or_missing_count * 0.02, 0.10)
+        adjusted -= min(contract_degradation_count * 0.02, 0.10)
+        return round(max(min(adjusted, 1.0), 0.0), 2), source
+
+    @staticmethod
+    def _quant_alignment_adjustment(
+        *,
+        quant_score: Any,
+        quant_confidence: float | None,
+        direction: ThesisDirection,
+    ) -> float:
+        if quant_confidence is None:
+            return 0.0
+        quant_bias = quant_bias_from_score(quant_score)
+        thesis_bias = thesis_bias_from_direction(direction)
+        if quant_bias == "unknown" or thesis_bias == "unknown":
+            return 0.0
+        if quant_bias == "neutral":
+            if thesis_bias == "neutral":
+                return min(quant_confidence * 0.05, 0.03)
+            return -min((1.0 - quant_confidence) * 0.05, 0.05)
+        if quant_bias == thesis_bias:
+            return min(quant_confidence * 0.08, 0.06)
+        return -min(quant_confidence * 0.18, 0.15)
+
     @staticmethod
     def _confidence_rationale(
         confidence: float | None,
+        confidence_source: str,
+        quant_confidence: float | None,
+        quant_bias: str,
         supporting_ids: list[str],
         contradicting_ids: list[str],
     ) -> str:
-        if confidence is not None:
-            return (
-                f"Quant confidence={confidence:.2f}; "
-                f"{len(supporting_ids)} supporting signal(s), "
-                f"{len(contradicting_ids)} contradicting signal(s)."
-            )
+        final_part = (
+            f"Final confidence={confidence:.2f} (source={confidence_source})"
+            if confidence is not None
+            else f"Final confidence unavailable (source={confidence_source})"
+        )
+        quant_part = (
+            f"quant confidence={quant_confidence:.2f}, quant bias={quant_bias}"
+            if quant_confidence is not None
+            else "quant confidence unavailable"
+        )
         return (
+            f"{final_part}; {quant_part}; "
             f"{len(supporting_ids)} supporting signal(s), "
-            f"{len(contradicting_ids)} contradicting signal(s); "
-            "quant confidence unavailable."
+            f"{len(contradicting_ids)} contradicting signal(s)."
         )
 
     @staticmethod

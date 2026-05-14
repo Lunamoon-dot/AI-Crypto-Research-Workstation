@@ -9,6 +9,15 @@ export interface EngineRunRequest {
   analysis_date: string;
   analysts: string[];
   config_profile: string;
+  exchange?: string | null;
+  dry_run: boolean;
+  metadata: JsonRecord;
+}
+
+export interface ResearchRunFailure {
+  reason: string;
+  message: string;
+  completedAt?: string;
 }
 
 export interface JournalRepository {
@@ -21,8 +30,17 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   getResearchRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  markResearchRunFailed(
+    id: string,
+    workspaceId: string,
+    failure: ResearchRunFailure,
+  ): Promise<JsonRecord | null>;
   listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]>;
   getMarketSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getLatestMarketSnapshot(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   getSignalSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
   getDebate(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listAgentOpinions(
@@ -55,6 +73,10 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord>;
   getWatchlist(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getWatchlistByName(
+    name: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   listWatchlistItems(
     watchlistId: string,
     workspaceId: string,
@@ -78,7 +100,14 @@ export interface JournalRepository {
     date: string | undefined,
     limit: number,
     workspaceId: string,
+    watchlistName?: string,
   ): Promise<JsonRecord[]>;
+  getLatestMarketBrief(
+    watchlistName: string | undefined,
+    beforeDate: string | undefined,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveMarketBrief(brief: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   listAlerts(
     symbol: string | undefined,
     thesisId: string | undefined,
@@ -86,6 +115,14 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
+  findAlert(
+    alertType: string,
+    thesisId: string | undefined,
+    watchlistItemId: string | undefined,
+    triggerKey: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   markAlertRead(id: string, workspaceId: string): Promise<JsonRecord>;
 }
 

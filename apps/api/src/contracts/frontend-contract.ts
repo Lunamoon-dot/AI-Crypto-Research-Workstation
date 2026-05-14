@@ -80,6 +80,20 @@ export interface ResearchRunSnapshotsResponse {
   signal_snapshot: SignalSnapshotResponse | null;
 }
 
+export interface ResearchRunArtifactResponse {
+  kind: 'full_report' | 'full_state';
+  label: string;
+  path: string | null;
+  exists: boolean;
+  size_bytes: number | null;
+  modified_at: string | null;
+}
+
+export interface ResearchRunArtifactsResponse {
+  full_report: ResearchRunArtifactResponse;
+  full_state: ResearchRunArtifactResponse;
+}
+
 export interface DebateResponse {
   id: string | null;
   workspace_id: string;
@@ -136,6 +150,11 @@ export interface ThesisResponse {
   direction: string;
   setup_type: string;
   confidence: number | null;
+  confidence_source: string;
+  confidence_rationale: string;
+  quant_confidence: number | null;
+  quant_bias: string;
+  stability_guard: JsonRecord;
   created_at: string | null;
   entry_zone: string;
   invalidation_level: string;
@@ -211,6 +230,30 @@ export interface WatchlistItemResponse {
   created_at: string | null;
 }
 
+export interface BriefAssetSummaryResponse {
+  symbol: string;
+  current_price: number | null;
+  market_regime: string;
+  trend_direction: string;
+  volatility_regime: string;
+  source: string | null;
+  source_timestamp: string | null;
+  summary: string;
+  change_from_previous: string | null;
+}
+
+export interface BriefThesisUpdateResponse {
+  thesis_id: string;
+  symbol: string;
+  direction: string;
+  setup_type: string;
+  confidence: number | null;
+  status: string;
+  update: string;
+  invalidation_level: string | null;
+  recent_alerts: string[];
+}
+
 export interface BriefResponse {
   id: string | null;
   workspace_id: string;
@@ -223,6 +266,12 @@ export interface BriefResponse {
   key_points: string[];
   thesis_ids: string[];
   signal_ids: string[];
+  asset_summaries: BriefAssetSummaryResponse[];
+  thesis_updates: BriefThesisUpdateResponse[];
+  watchlist_changes: string[];
+  top_setups: string[];
+  top_risks: string[];
+  memory_notes: string[];
 }
 
 export interface AlertResponse {
@@ -246,6 +295,7 @@ export interface JournalRunWorkspaceResponse {
   debate: ResearchRunDebateResponse;
   thesis: ThesisResponse | null;
   scenarios: ScenarioResponse[];
+  artifacts: ResearchRunArtifactsResponse;
 }
 
 export function toResearchRunResponse(run: JsonRecord): ResearchRunResponse {
@@ -353,6 +403,7 @@ export function toAgentOpinionResponse(
 
 export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   const summary = recordValue(thesis.structured_summary);
+  const evidence = recordValue(thesis.evidence);
   const entryZone = firstString(thesis.entry_zone, summary.entry_zone);
   const invalidation = firstString(
     thesis.invalidation_level,
@@ -368,6 +419,11 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     direction: stringValue(thesis.direction, 'watch'),
     setup_type: stringValue(thesis.setup_type, 'unspecified'),
     confidence: nullableNumber(thesis.confidence),
+    confidence_source: stringValue(evidence.confidence_source),
+    confidence_rationale: stringValue(thesis.confidence_rationale),
+    quant_confidence: nullableNumber(evidence.quant_confidence),
+    quant_bias: stringValue(evidence.quant_bias),
+    stability_guard: recordValue(evidence.stability_guard),
     created_at: nullableString(thesis.created_at),
     entry_zone: entryZone,
     invalidation_level: invalidation,
@@ -465,6 +521,20 @@ export function toWatchlistItemResponse(
 }
 
 export function toBriefResponse(brief: JsonRecord): BriefResponse {
+  const payload = recordValue(brief.payload ?? brief.payload_json);
+  const assetSummaries = toBriefAssetSummaryResponses(
+    brief.asset_summaries ?? payload.asset_summaries,
+  );
+  const thesisUpdates = toBriefThesisUpdateResponses(
+    brief.thesis_updates ?? payload.thesis_updates,
+  );
+  const watchlistChanges = firstStringList(
+    brief.watchlist_changes,
+    payload.watchlist_changes,
+  );
+  const topSetups = firstStringList(brief.top_setups, payload.top_setups);
+  const topRisks = firstStringList(brief.top_risks, payload.top_risks);
+  const memoryNotes = firstStringList(brief.memory_notes, payload.memory_notes);
   return {
     id: nullableString(brief.id),
     workspace_id: stringValue(brief.workspace_id, 'local'),
@@ -473,10 +543,26 @@ export function toBriefResponse(brief: JsonRecord): BriefResponse {
     title: stringValue(brief.title),
     created_at: nullableString(brief.created_at),
     previous_brief_id: nullableString(brief.previous_brief_id),
-    summary: stringValue(brief.summary ?? brief.action_summary),
-    key_points: stringList(brief.key_points),
-    thesis_ids: stringList(brief.thesis_ids),
-    signal_ids: stringList(brief.signal_ids),
+    summary: stringValue(
+      brief.summary ?? brief.action_summary ?? brief.regime_summary,
+    ),
+    key_points: firstStringList(
+      brief.key_points,
+      payload.key_points,
+      [...watchlistChanges, ...topSetups, ...topRisks].slice(0, 8),
+    ),
+    thesis_ids: firstStringList(
+      brief.thesis_ids,
+      payload.thesis_ids,
+      thesisUpdates.map((update) => update.thesis_id),
+    ),
+    signal_ids: firstStringList(brief.signal_ids, payload.signal_ids),
+    asset_summaries: assetSummaries,
+    thesis_updates: thesisUpdates,
+    watchlist_changes: watchlistChanges,
+    top_setups: topSetups,
+    top_risks: topRisks,
+    memory_notes: memoryNotes,
   };
 }
 
@@ -520,6 +606,46 @@ function toThesisSummaryResponse(
     is_degraded: booleanValue(summary.is_degraded),
     degradation_reasons: stringList(summary.degradation_reasons),
   };
+}
+
+function toBriefAssetSummaryResponses(value: unknown): BriefAssetSummaryResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const asset = recordValue(item);
+    return {
+      symbol: stringValue(asset.symbol),
+      current_price: nullableNumber(asset.current_price),
+      market_regime: stringValue(asset.market_regime, 'unknown'),
+      trend_direction: stringValue(asset.trend_direction, 'unknown'),
+      volatility_regime: stringValue(asset.volatility_regime, 'unknown'),
+      source: nullableString(asset.source),
+      source_timestamp: nullableString(asset.source_timestamp),
+      summary: stringValue(asset.summary),
+      change_from_previous: nullableString(asset.change_from_previous),
+    };
+  });
+}
+
+function toBriefThesisUpdateResponses(value: unknown): BriefThesisUpdateResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const update = recordValue(item);
+    return {
+      thesis_id: stringValue(update.thesis_id),
+      symbol: stringValue(update.symbol),
+      direction: stringValue(update.direction, 'watch'),
+      setup_type: stringValue(update.setup_type, 'unspecified'),
+      confidence: nullableNumber(update.confidence),
+      status: stringValue(update.status, 'review'),
+      update: stringValue(update.update),
+      invalidation_level: nullableString(update.invalidation_level),
+      recent_alerts: stringList(update.recent_alerts),
+    };
+  });
 }
 
 function recordValue(value: unknown): JsonRecord {

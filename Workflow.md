@@ -35,8 +35,9 @@ flowchart LR
 ```mermaid
 flowchart TD
     Start["ResearchRun start"] --> Quant["Precompute quant signals"]
-    Quant --> Analysts["Analysts in parallel: market, social, news, onchain"]
-    Analysts --> Debate["Bull/Bear debate"]
+    Quant --> Analysts["Selected analyst modules in parallel: market, news, social, onchain"]
+    Analysts --> Barrier["Wait for every selected analyst"]
+    Barrier --> Debate["Debate agents: Bull Researcher + Contrarian Analyst"]
     Debate --> RM["Research Manager: investment_plan"]
     RM --> Setup["Setup Planner: SetupProposal"]
     Setup --> Risk["Risk debate: aggressive, conservative, neutral"]
@@ -44,6 +45,22 @@ flowchart TD
     PM --> Scenarios["Scenario Planner"]
     Scenarios --> Thesis["TradeThesis + scenarios + journal events"]
 ```
+
+Only four analyst modules are user-selectable: `market`, `news`, `social`, and
+`onchain`. A run may use any non-empty subset of those four lanes. If `social`
+is not selected, the Sentiment/Social Analyst should not run and should not be
+shown as a selected analyst lane in the run pipeline.
+
+`Quant`, `Bull Researcher`, `Contrarian Analyst`, `Research Manager`, `Setup
+Planner`, risk debaters, `Portfolio Manager`, and `Scenario Planner` are system
+pipeline stages, not user-selectable analyst modules. `Contrarian Analyst` is
+the bear-side debate agent; it can appear in saved opinions even when the
+Social Analyst was not selected.
+
+Pipeline status is event-driven. Analyst lanes can move to running/ready as
+their own graph node lifecycle events arrive; the UI should not wait for every
+agent to finish before marking completed lanes ready. Debate starts only after
+every selected analyst lane has completed.
 
 The Setup Planner is the canonical business role for the old internal
 `Trader` step. The legacy state key `trader_investment_plan` remains for

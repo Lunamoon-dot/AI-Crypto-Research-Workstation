@@ -132,7 +132,7 @@ export class WorkspacesService implements OnModuleDestroy {
 function envMemberships(): WorkspaceMembership[] {
   const raw = process.env.WORKSPACE_MEMBERSHIPS;
   if (!raw?.trim()) {
-    return [];
+    return defaultLocalMemberships();
   }
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -154,6 +154,26 @@ function envMemberships(): WorkspaceMembership[] {
       });
   }
   return [];
+}
+
+function defaultLocalMemberships(): WorkspaceMembership[] {
+  if (process.env.LOCAL_WORKSPACE_MEMBERSHIP === '0') {
+    return [];
+  }
+  if (process.env.DATABASE_URL && process.env.LOCAL_WORKSPACE_MEMBERSHIP !== '1') {
+    return [];
+  }
+  return [
+    {
+      user_id:
+        process.env.LOCAL_USER_ID ?? process.env.VITE_LOCAL_USER_ID ?? 'local-user',
+      workspace_id:
+        process.env.LOCAL_WORKSPACE_ID ??
+        process.env.VITE_LOCAL_WORKSPACE_ID ??
+        'local',
+      role: 'owner',
+    },
+  ];
 }
 
 function membershipFromRow(row: unknown): WorkspaceMembership {

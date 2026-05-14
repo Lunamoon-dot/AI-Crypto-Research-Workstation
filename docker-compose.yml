@@ -9,8 +9,109 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    profiles:
-      - db
+      - ./apps/api/src/database/postgres-schema.sql:/docker-entrypoint-initdb.d/001-lunacrypto-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lunacrypto"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lunacrypto
+      DATABASE_ACCESS: pg
+      REDIS_URL: redis://redis:6379
+      JOBS_EXECUTION_MODE: bullmq
+      PYTHON_ENGINE_COMMAND: lunacrypto
+      PYTHON_ENGINE_ARGS: engine run --request
+      WORKSPACE_MEMBERSHIPS: local:local-user:owner
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["pnpm", "--filter", "@lunaperception/api", "start:worker"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lunacrypto
+      DATABASE_ACCESS: pg
+      REDIS_URL: redis://redis:6379
+      JOBS_EXECUTION_MODE: bullmq
+      PYTHON_ENGINE_COMMAND: lunacrypto
+      PYTHON_ENGINE_ARGS: engine run --request
+      WORKER_HEALTH_FILE: /tmp/lunacrypto-worker-health
+      WORKSPACE_MEMBERSHIPS: local:local-user:owner
+    volumes:
+      - tradingagents_data:/root/.tradingagents
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const fs=require('node:fs');const p=process.env.WORKER_HEALTH_FILE||'/tmp/lunacrypto-worker-health';const age=Date.now()-fs.statSync(p).mtimeMs;process.exit(age<30000?0:1)\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: /backend
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   ai-service:
     build:
@@ -22,6 +123,8 @@ services:
       - tradingagents_data:/home/appuser/.tradingagents
     tty: true
     stdin_open: true
+    profiles:
+      - ai
 
   ollama:
     image: ollama/ollama:latest
@@ -37,7 +140,7 @@ services:
     env_file:
       - .env
     environment:
-      - LLM_PROVIDER=ollama
+      LLM_PROVIDER: ollama
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
     depends_on:
@@ -49,5 +152,6 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   tradingagents_data:
   ollama_data:

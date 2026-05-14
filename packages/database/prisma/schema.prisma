@@ -81,6 +81,35 @@ model ResearchRun {
   @@map("research_runs")
 }
 
+model ResearchJob {
+  id                      String    @id
+  runId                   String    @map("run_id")
+  workspaceId             String    @map("workspace_id")
+  queueBackend            String    @map("queue_backend")
+  queueName               String?   @map("queue_name")
+  queueJobId              String?   @map("queue_job_id")
+  status                  String
+  requestJson             Json      @map("request_json")
+  attempts                Int       @default(0)
+  maxAttempts             Int       @default(1) @map("max_attempts")
+  progressJson            Json      @default("{}") @map("progress_json")
+  heartbeatAt             DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  cancellationRequestedAt DateTime? @map("cancellation_requested_at") @db.Timestamptz(6)
+  timeoutAt               DateTime? @map("timeout_at") @db.Timestamptz(6)
+  resultSummaryJson       Json?     @map("result_summary_json")
+  errorCode               String?   @map("error_code")
+  errorMessage            String?   @map("error_message")
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt               DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt             DateTime? @map("completed_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([runId, createdAt(sort: Desc)], map: "idx_research_jobs_run_created")
+  @@index([workspaceId, status, createdAt(sort: Desc)], map: "idx_research_jobs_workspace_status")
+  @@index([status, heartbeatAt], map: "idx_research_jobs_heartbeat")
+  @@map("research_jobs")
+}
+
 model MarketSnapshot {
   id              String    @id
   workspaceId     String    @default("local") @map("workspace_id")

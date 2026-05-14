@@ -104,6 +104,13 @@ hold = 0.0
 underweight = -0.10
 sell = -1.0
 
+[thesis_stability]
+enabled = true
+cooldown_minutes = 60
+max_confidence_delta = 0.20
+flip_override_confidence = 0.75
+memory_limit = 50
+
 [stale_data]
 mode = "warn"
 max_age_hours = 24.0
