@@ -4,6 +4,9 @@ import { AlertsPage } from '@/pages/AlertsPage';
 import { DailyBriefsPage } from '@/pages/DailyBriefsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OperationsPage } from '@/pages/OperationsPage';
+import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
+import { RunComparisonPage } from '@/pages/RunComparisonPage';
+import { ScenarioMonitorPage } from '@/pages/ScenarioMonitorPage';
 import { ResearchRunFormPage } from '@/pages/ResearchRunFormPage';
 import { ResearchHistoryPage } from '@/pages/ResearchHistoryPage';
 import { ResearchRunWorkspacePage } from '@/pages/ResearchRunWorkspacePage';
@@ -23,12 +26,15 @@ export const router = createBrowserRouter([
       { path: 'workbench', element: <WorkbenchPage /> },
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
+      { path: 'performance', element: <PerformanceAnalyticsPage /> },
+      { path: 'compare', element: <RunComparisonPage /> },
       { path: 'research/runs/:id', element: <ResearchRunWorkspacePage /> },
       { path: 'journal/runs/:id', element: <ResearchRunWorkspacePage journal /> },
       { path: 'theses', element: <ThesisLibraryPage /> },
       { path: 'theses/:id', element: <ThesisDetailPage /> },
       { path: 'signals', element: <SignalsPage /> },
       { path: 'signals/:id', element: <SignalDetailPage /> },
+      { path: 'scenarios', element: <ScenarioMonitorPage /> },
       { path: 'alerts', element: <AlertsPage /> },
       { path: 'watchlists', element: <WatchlistsPage /> },
       { path: 'briefs/daily', element: <DailyBriefsPage /> },

@@ -1,9 +1,15 @@
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { listAlerts, markAlertRead } from '@/services/alerts';
+import {
+  getAlertSchedulerStatus,
+  listAlerts,
+  markAlertRead,
+  runAlertScheduler,
+} from '@/services/alerts';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import { DataPair } from '@/components/research/bento';
 import { IdChip } from '@/components/research/badges';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
@@ -20,9 +26,20 @@ export function AlertsPage() {
     queryKey: queryKeys.alerts({ unread: unreadOnly, limit: 100 }),
     queryFn: () => listAlerts({ unread: unreadOnly, limit: 100 }, auth),
   });
+  const scheduler = useQuery({
+    queryKey: queryKeys.alertScheduler(),
+    queryFn: () => getAlertSchedulerStatus(auth),
+  });
   const mutation = useMutation({
     mutationFn: (id: string) => markAlertRead(id, auth),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.alertsRoot() });
+    },
+  });
+  const runSchedulerMutation = useMutation({
+    mutationFn: () => runAlertScheduler(auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.alertScheduler() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.alertsRoot() });
     },
   });
@@ -30,16 +47,57 @@ export function AlertsPage() {
   return (
     <main className="page">
       <PageHeader title="Alerts" description="Research alerts and watchlist changes." />
-      <Panel title="Filters">
-        <label className="badge">
-          <input
-            checked={unreadOnly}
-            onChange={(event) => setUnreadOnly(event.target.checked)}
-            type="checkbox"
-          />
-          unread only
-        </label>
-      </Panel>
+      <div className="grid two">
+        <Panel title="Filters">
+          <label className="badge">
+            <input
+              checked={unreadOnly}
+              onChange={(event) => setUnreadOnly(event.target.checked)}
+              type="checkbox"
+            />
+            unread only
+          </label>
+        </Panel>
+        <Panel
+          title="Scheduler"
+          description="Workspace alert polling status and manual check."
+          action={
+            <button
+              className="button"
+              disabled={runSchedulerMutation.isPending}
+              onClick={() => runSchedulerMutation.mutate()}
+              type="button"
+            >
+              {runSchedulerMutation.isPending ? 'Checking' : 'Run check'}
+            </button>
+          }
+        >
+          {scheduler.isLoading ? <LoadingState /> : null}
+          {scheduler.isError ? <ErrorState error={scheduler.error} /> : null}
+          <div className="stack">
+            <DataPair
+              label="Status"
+              value={
+                <span className={scheduler.data?.enabled ? 'badge constructive' : 'badge'}>
+                  {scheduler.data?.enabled ? 'enabled' : 'manual'}
+                </span>
+              }
+            />
+            <DataPair label="Interval" value={`${scheduler.data?.interval_ms ?? 0} ms`} />
+            <DataPair label="Enabled lists" value={scheduler.data?.workspace_enabled_watchlists ?? 0} />
+            <DataPair label="Last run" value={formatDateTime(scheduler.data?.last_run_at)} />
+            {runSchedulerMutation.data ? (
+              <div className="callout">
+                Checked {runSchedulerMutation.data.checked_watchlists} list(s), created{' '}
+                {runSchedulerMutation.data.alerts_created} alert(s).
+              </div>
+            ) : null}
+            {scheduler.data?.last_error ? (
+              <div className="callout warning">{scheduler.data.last_error}</div>
+            ) : null}
+          </div>
+        </Panel>
+      </div>
       <div style={{ height: 14 }} />
       <Panel title="Inbox">
         {query.isLoading ? <LoadingState /> : null}

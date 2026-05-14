@@ -18,6 +18,17 @@ export const queryKeys = {
   researchRunsRoot: () => scopedResource('research-runs'),
   researchRuns: (filters: Record<string, unknown>) =>
     scopedFilters('research-runs', filters),
+  performanceRoot: () => scopedResource('performance'),
+  performanceAnalytics: (filters: Record<string, unknown>) =>
+    scopedFilters('performance-analytics', filters),
+  performanceOutcomes: (filters: Record<string, unknown>) =>
+    scopedFilters('performance-outcomes', filters),
+  performanceTrend: (filters: Record<string, unknown>) =>
+    scopedFilters('performance-trend', filters),
+  performanceHealth: (filters: Record<string, unknown>) =>
+    scopedFilters('performance-health', filters),
+  comparison: (filters: Record<string, unknown>) =>
+    scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>
     ['research-run-workspace', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,
@@ -26,6 +37,8 @@ export const queryKeys = {
   thesis: (id: string) => ['thesis', queryIdentity(), id] as const,
   thesisScenarios: (id: string) =>
     ['thesis-scenarios', queryIdentity(), id] as const,
+  scenarioMonitor: (filters: Record<string, unknown>) =>
+    scopedFilters('scenario-monitor', filters),
   signalsRoot: () => scopedResource('signals'),
   signals: (filters: Record<string, unknown>) =>
     scopedFilters('signals', filters),
@@ -43,4 +56,7 @@ export const queryKeys = {
     scopedFilters('daily-briefs', filters),
   alertsRoot: () => scopedResource('alerts'),
   alerts: (filters: Record<string, unknown>) => scopedFilters('alerts', filters),
+  alertScheduler: () => scopedResource('alert-scheduler'),
+  operationsHealth: (filters: Record<string, unknown>) =>
+    scopedFilters('operations-health', filters),
 };

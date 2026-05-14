@@ -18,6 +18,7 @@ import { normalizeCryptoSymbol } from '../common/market-symbols';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   AlertResponse,
+  AlertSchedulerStatusResponse,
   toAlertResponse,
   toWatchlistItemResponse,
   toWatchlistResponse,
@@ -50,6 +51,9 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WatchlistsService.name);
   private alertPollTimer: ReturnType<typeof setInterval> | null = null;
   private alertPollRunning = false;
+  private lastAlertPollAt: string | null = null;
+  private lastAlertPollError: string | null = null;
+  private lastAlertPollResult: WatchlistPollResponse | null = null;
 
   constructor(
     @Inject(JOURNAL_REPOSITORY)
@@ -236,6 +240,74 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async schedulerStatus(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<AlertSchedulerStatusResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const watchlists = await this.listWatchlistsForScheduler(workspaceId);
+    return {
+      enabled: envFlag('WATCHLIST_ALERT_POLL_ENABLED', false),
+      configured_by_env: process.env.WATCHLIST_ALERT_POLL_ENABLED !== undefined,
+      interval_ms: numberEnv('WATCHLIST_ALERT_POLL_INTERVAL_MS', 60_000),
+      poll_on_start: envFlag('WATCHLIST_ALERT_POLL_ON_START', true),
+      limit: numberEnv('WATCHLIST_ALERT_POLL_LIMIT', 100),
+      running: this.alertPollRunning,
+      last_run_at: this.lastAlertPollAt,
+      last_error: this.lastAlertPollError,
+      last_result: this.lastAlertPollResult,
+      workspace_enabled_watchlists: watchlists.filter((watchlist) =>
+        booleanValue(watchlist.enabled, true),
+      ).length,
+    };
+  }
+
+  async runWorkspaceAlertPoll(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<WatchlistPollResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const watchlists = await this.listWatchlistsForScheduler(workspaceId);
+    const skipped: string[] = [];
+    let checkedWatchlists = 0;
+    let alertsCreated = 0;
+    for (const watchlist of watchlists) {
+      if (!booleanValue(watchlist.enabled, true)) {
+        continue;
+      }
+      const id = nullableString(watchlist.id);
+      if (!id) {
+        skipped.push('watchlist: missing id');
+        continue;
+      }
+      try {
+        const result = await this.checkWorkspaceWatchlist(id, {}, workspaceId);
+        checkedWatchlists += 1;
+        alertsCreated += result.alerts_created.length;
+        skipped.push(...result.skipped_items.map((item) => `${id}: ${item}`));
+      } catch (error) {
+        skipped.push(`${id}: ${errorMessage(error)}`);
+      }
+    }
+    const result = {
+      checked_watchlists: checkedWatchlists,
+      alerts_created: alertsCreated,
+      skipped_items: skipped,
+    };
+    this.lastAlertPollAt = new Date().toISOString();
+    this.lastAlertPollError = null;
+    this.lastAlertPollResult = result;
+    return result;
+  }
+
   async checkWorkspaceWatchlist(
     id: string,
     dto: CheckWatchlistDto,
@@ -325,15 +397,37 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
     this.alertPollRunning = true;
     try {
       const result = await this.pollAlerts();
+      this.lastAlertPollAt = new Date().toISOString();
+      this.lastAlertPollError = null;
+      this.lastAlertPollResult = result;
       if (result.alerts_created > 0 || result.skipped_items.length > 0) {
         this.logger.log(
           `Watchlist alert poll checked ${result.checked_watchlists} watchlist(s), created ${result.alerts_created} alert(s), skipped ${result.skipped_items.length} item(s).`,
         );
       }
     } catch (error) {
+      this.lastAlertPollAt = new Date().toISOString();
+      this.lastAlertPollError = errorMessage(error);
       this.logger.warn(`Watchlist alert poll failed: ${errorMessage(error)}`);
     } finally {
       this.alertPollRunning = false;
+    }
+  }
+
+  private async listWatchlistsForScheduler(
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    try {
+      return await this.journal.listWatchlists(
+        numberEnv('WATCHLIST_ALERT_POLL_LIMIT', 100),
+        workspaceId,
+      );
+    } catch (error) {
+      if (!isRepositoryUnavailable(error)) {
+        throw error;
+      }
+      this.lastAlertPollError = errorMessage(error);
+      return [];
     }
   }
 
@@ -630,6 +724,14 @@ function numberEnv(name: string, fallback: number): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRepositoryUnavailable(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'ServiceUnavailableException') {
+    return true;
+  }
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 503;
 }
 
 function stringList(value: unknown): string[] {

@@ -87,6 +87,11 @@ export interface JournalRepository {
     workspaceId: string,
     metrics?: ThesisReviewMetrics,
   ): Promise<JsonRecord>;
+  listOutcomeReviews(
+    symbol: string | undefined,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   getSignal(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listSignals(
     symbol: string | undefined,
@@ -156,6 +161,12 @@ export interface JournalRepository {
   ): Promise<JsonRecord | null>;
   createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   markAlertRead(id: string, workspaceId: string): Promise<JsonRecord>;
+  listProviderHealth(limit: number): Promise<JsonRecord[]>;
+  listLlmCalls(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  listDataFreshnessChecks(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
 }
 
 export const JOURNAL_REPOSITORY = Symbol('JOURNAL_REPOSITORY');

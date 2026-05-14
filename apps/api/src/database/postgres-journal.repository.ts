@@ -511,6 +511,42 @@ export class PostgresJournalRepository implements JournalRepository {
     return payload;
   }
 
+  async listOutcomeReviews(
+    symbol: string | undefined,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const filters = ['t.workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (symbol) {
+      params.push(symbol);
+      filters.push(`t.symbol = $${params.length}`);
+    }
+    params.push(limit);
+    return this.many(
+      `SELECT o.payload_json || jsonb_build_object(
+         'id', o.id,
+         'workspace_id', t.workspace_id,
+         'thesis_id', o.thesis_id,
+         'result', o.result,
+         'reviewed_at', o.reviewed_at,
+         'invalidated', o.invalidated,
+         'symbol', t.symbol,
+         'direction', t.direction,
+         'setup_type', t.setup_type,
+         'confidence', t.confidence,
+         'thesis_created_at', t.created_at,
+         'thesis_payload', t.payload_json
+       ) AS payload_json
+       FROM outcome_reviews o
+       JOIN trade_theses t ON t.id = o.thesis_id
+       WHERE ${filters.join(' AND ')}
+       ORDER BY o.reviewed_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
   async getSignal(
     id: string,
     workspaceId: string,
@@ -1115,6 +1151,86 @@ export class PostgresJournalRepository implements JournalRepository {
       throw new NotFoundException(`Alert ${alert.id} not found`);
     }
     return saved;
+  }
+
+  async listProviderHealth(limit: number): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'provider', provider,
+         'component', component,
+         'status', status,
+         'checked_at', checked_at,
+         'latency_ms', latency_ms,
+         'error_type', error_type,
+         'error_message', error_message,
+         'payload', payload_json
+       ) AS payload_json
+       FROM provider_health
+       ORDER BY checked_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+  }
+
+  async listLlmCalls(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT c.payload_json || jsonb_build_object(
+         'id', c.id,
+         'workspace_id', COALESCE(r.workspace_id, t.workspace_id),
+         'research_run_id', c.research_run_id,
+         'thesis_id', c.thesis_id,
+         'provider', c.provider,
+         'model', c.model,
+         'stage', c.stage,
+         'agent', c.agent,
+         'input_tokens', c.input_tokens,
+         'output_tokens', c.output_tokens,
+         'latency_ms', c.latency_ms,
+         'status', c.status,
+         'error_type', c.error_type,
+         'error_message', c.error_message,
+         'created_at', c.created_at,
+         'payload', c.payload_json
+       ) AS payload_json
+       FROM llm_calls c
+       LEFT JOIN research_runs r ON r.id = c.research_run_id
+       LEFT JOIN trade_theses t ON t.id = c.thesis_id
+       WHERE COALESCE(r.workspace_id, t.workspace_id, $1) = $1
+       ORDER BY c.created_at DESC
+       LIMIT $2`,
+      [workspaceId, limit],
+    );
+  }
+
+  async listDataFreshnessChecks(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT f.payload_json || jsonb_build_object(
+         'id', f.id,
+         'workspace_id', r.workspace_id,
+         'research_run_id', f.research_run_id,
+         'symbol', f.symbol,
+         'source', f.source,
+         'source_timestamp', f.source_timestamp,
+         'observed_timestamp', f.observed_timestamp,
+         'age_seconds', f.age_seconds,
+         'threshold_seconds', f.threshold_seconds,
+         'status', f.status,
+         'payload', f.payload_json
+       ) AS payload_json
+       FROM data_freshness_checks f
+       LEFT JOIN research_runs r ON r.id = f.research_run_id
+       WHERE COALESCE(r.workspace_id, $1) = $1
+       ORDER BY f.observed_timestamp DESC
+       LIMIT $2`,
+      [workspaceId, limit],
+    );
   }
 
   private async one(sql: string, params: unknown[]): Promise<JsonRecord | null> {

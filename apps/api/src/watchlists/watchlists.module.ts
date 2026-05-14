@@ -9,5 +9,6 @@ import { WatchlistsService } from './watchlists.service';
   imports: [AuthModule, WorkspacesModule],
   controllers: [WatchlistsController],
   providers: [WatchlistsService, MarketPriceService],
+  exports: [WatchlistsService],
 })
 export class WatchlistsModule {}

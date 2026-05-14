@@ -218,6 +218,186 @@ export interface ThesisReviewResponse {
   invalidated: boolean;
 }
 
+export interface PerformanceOutcomeReviewResponse extends ThesisReviewResponse {
+  symbol: string;
+  direction: string;
+  setup_type: string;
+  confidence: number | null;
+  thesis_created_at: string | null;
+}
+
+export interface RetrospectiveInsightResponse {
+  insight_type: string;
+  message: string;
+  thesis_ids: string[];
+  evidence_count: number;
+}
+
+export interface PerformanceAnalyticsResponse {
+  sample_size: number;
+  symbol: string | null;
+  result_counts: Record<string, number>;
+  hit_rate: number | null;
+  invalidation_rate: number | null;
+  mixed_rate: number | null;
+  average_mfe: number | null;
+  average_mae: number | null;
+  reviewed_thesis_ids: string[];
+  recent_lessons: string[];
+  insights: RetrospectiveInsightResponse[];
+}
+
+export interface PerformanceTrendPointResponse {
+  week_start: string;
+  sample_size: number;
+  hit_rate: number | null;
+  average_mfe: number | null;
+  average_mae: number | null;
+  calibration_quality: string;
+}
+
+export interface PerformanceHealthResponse {
+  overall_status: string;
+  recent_sample_size: number;
+  baseline_sample_size: number;
+  recent_hit_rate: number | null;
+  baseline_hit_rate: number | null;
+  alerts: string[];
+  recommendation: string;
+}
+
+export interface DiffFieldResponse {
+  a?: unknown;
+  b?: unknown;
+  common?: string[];
+  only_a?: string[];
+  only_b?: string[];
+  changed: boolean;
+  [key: string]: unknown;
+}
+
+export interface ComparisonResponse {
+  kind: 'thesis_diff' | 'run_diff';
+  id_a: string;
+  id_b: string;
+  cross_symbol?: boolean;
+  direction_flip: boolean;
+  changed_fields: string[];
+  changed_count: number;
+  change_severity: string;
+  severity_reasons: string[];
+  fields: Record<string, DiffFieldResponse>;
+  thesis_diff?: ComparisonResponse | null;
+}
+
+export interface ScenarioMonitorItemResponse {
+  status: string;
+  status_reason: string;
+  trigger_summary: string;
+  risk_count: number;
+  scenario: ScenarioResponse;
+  thesis: ThesisResponse;
+  latest_market_snapshot: MarketSnapshotResponse | null;
+  latest_alert: AlertResponse | null;
+}
+
+export interface ScenarioMonitorResponse {
+  workspace_id: string;
+  generated_at: string;
+  total_scenarios: number;
+  status_counts: Record<string, number>;
+  items: ScenarioMonitorItemResponse[];
+}
+
+export interface WatchlistPollResponse {
+  checked_watchlists: number;
+  alerts_created: number;
+  skipped_items: string[];
+}
+
+export interface AlertSchedulerStatusResponse {
+  enabled: boolean;
+  configured_by_env: boolean;
+  interval_ms: number;
+  poll_on_start: boolean;
+  limit: number;
+  running: boolean;
+  last_run_at: string | null;
+  last_error: string | null;
+  last_result: WatchlistPollResponse | null;
+  workspace_enabled_watchlists: number;
+}
+
+export interface ProviderHealthResponse {
+  id: string | null;
+  provider: string;
+  component: string | null;
+  status: string;
+  checked_at: string | null;
+  latency_ms: number | null;
+  error_type: string | null;
+  error_message: string | null;
+  payload: JsonRecord;
+}
+
+export interface LlmCallResponse {
+  id: string | null;
+  workspace_id: string | null;
+  research_run_id: string | null;
+  thesis_id: string | null;
+  provider: string;
+  model: string;
+  stage: string | null;
+  agent: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number | null;
+  status: string;
+  error_type: string | null;
+  error_message: string | null;
+  created_at: string | null;
+  payload: JsonRecord;
+}
+
+export interface DataFreshnessResponse {
+  id: string | null;
+  workspace_id: string | null;
+  research_run_id: string | null;
+  symbol: string | null;
+  source: string;
+  source_timestamp: string | null;
+  observed_timestamp: string | null;
+  age_seconds: number | null;
+  threshold_seconds: number | null;
+  status: string;
+  payload: JsonRecord;
+}
+
+export interface LlmHealthSummaryResponse {
+  total_calls: number;
+  success_rate: number | null;
+  total_tokens: number;
+  average_latency_ms: number | null;
+  recent_errors: number;
+  by_provider: Record<string, { calls: number; errors: number; tokens: number }>;
+}
+
+export interface OperationsHealthResponse {
+  generated_at: string;
+  providers: ProviderHealthResponse[];
+  llm: LlmHealthSummaryResponse;
+  freshness: {
+    total_checks: number;
+    stale_checks: number;
+    status_counts: Record<string, number>;
+    rows: DataFreshnessResponse[];
+  };
+  queue: {
+    backend: string;
+    redis_configured: boolean;
+  };
+}
+
 export interface SignalResponse {
   id: string | null;
   workspace_id: string;

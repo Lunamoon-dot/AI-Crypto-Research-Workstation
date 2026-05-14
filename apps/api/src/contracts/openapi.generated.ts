@@ -443,6 +443,158 @@ export const openApiDocument = {
         responses: jsonResponse('Marked alert.', 'AlertResponse', '201'),
       },
     },
+    '/alerts/scheduler': {
+      get: {
+        operationId: 'getAlertSchedulerStatus',
+        tags: ['alerts'],
+        responses: jsonResponse(
+          'Alert scheduler status for the active workspace.',
+          'AlertSchedulerStatusResponse',
+        ),
+      },
+    },
+    '/alerts/scheduler/run': {
+      post: {
+        operationId: 'runAlertScheduler',
+        tags: ['alerts'],
+        responses: jsonResponse(
+          'Manual alert scheduler run result.',
+          'WatchlistPollResponse',
+          '201',
+        ),
+      },
+    },
+    '/performance/outcomes': {
+      get: {
+        operationId: 'listPerformanceOutcomes',
+        tags: ['performance'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          limitParameter(100, 500),
+        ],
+        responses: jsonArrayResponse(
+          'Outcome reviews with thesis metadata.',
+          'PerformanceOutcomeReviewResponse',
+        ),
+      },
+    },
+    '/performance/analytics': {
+      get: {
+        operationId: 'getPerformanceAnalytics',
+        tags: ['performance'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          limitParameter(200, 500),
+        ],
+        responses: jsonResponse(
+          'Aggregate performance analytics.',
+          'PerformanceAnalyticsResponse',
+        ),
+      },
+    },
+    '/performance/trend': {
+      get: {
+        operationId: 'getPerformanceTrend',
+        tags: ['performance'],
+        parameters: [queryParameter('days', { type: 'integer', default: 90 })],
+        responses: jsonArrayResponse(
+          'Weekly performance trend.',
+          'PerformanceTrendPointResponse',
+        ),
+      },
+    },
+    '/performance/health': {
+      get: {
+        operationId: 'getPerformanceHealth',
+        tags: ['performance'],
+        parameters: [
+          queryParameter('recent_days', { type: 'integer', default: 14 }),
+          queryParameter('baseline_days', { type: 'integer', default: 60 }),
+        ],
+        responses: jsonResponse(
+          'Performance degradation health check.',
+          'PerformanceHealthResponse',
+        ),
+      },
+    },
+    '/comparisons/theses': {
+      get: {
+        operationId: 'compareTheses',
+        tags: ['comparisons'],
+        parameters: [
+          queryParameter('left_id', { type: 'string' }),
+          queryParameter('right_id', { type: 'string' }),
+        ],
+        responses: jsonResponse('Thesis diff.', 'ComparisonResponse'),
+      },
+    },
+    '/comparisons/runs': {
+      get: {
+        operationId: 'compareRuns',
+        tags: ['comparisons'],
+        parameters: [
+          queryParameter('left_id', { type: 'string' }),
+          queryParameter('right_id', { type: 'string' }),
+        ],
+        responses: jsonResponse('Run diff.', 'ComparisonResponse'),
+      },
+    },
+    '/scenarios/monitor': {
+      get: {
+        operationId: 'getScenarioMonitor',
+        tags: ['scenarios'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('status', { type: 'string' }),
+          limitParameter(100, 300),
+        ],
+        responses: jsonResponse(
+          'Scenario monitoring radar.',
+          'ScenarioMonitorResponse',
+        ),
+      },
+    },
+    '/operations/health': {
+      get: {
+        operationId: 'getOperationsHealth',
+        tags: ['operations'],
+        parameters: [limitParameter(50, 200)],
+        responses: jsonResponse(
+          'Provider, LLM, and freshness health.',
+          'OperationsHealthResponse',
+        ),
+      },
+    },
+    '/operations/provider-health': {
+      get: {
+        operationId: 'listProviderHealth',
+        tags: ['operations'],
+        parameters: [limitParameter(50, 200)],
+        responses: jsonArrayResponse(
+          'Provider health rows.',
+          'ProviderHealthResponse',
+        ),
+      },
+    },
+    '/operations/llm-calls': {
+      get: {
+        operationId: 'listLlmCalls',
+        tags: ['operations'],
+        parameters: [limitParameter(50, 200)],
+        responses: jsonArrayResponse('LLM call rows.', 'LlmCallResponse'),
+      },
+    },
+    '/operations/data-freshness': {
+      get: {
+        operationId: 'listDataFreshness',
+        tags: ['operations'],
+        parameters: [limitParameter(50, 200)],
+        responses: jsonArrayResponse(
+          'Data freshness checks.',
+          'DataFreshnessResponse',
+        ),
+      },
+    },
     '/jobs/{id}': {
       get: {
         operationId: 'getJobStatus',
@@ -939,6 +1091,106 @@ export const openApiDocument = {
           invalidated: { type: 'boolean' },
         },
       },
+      PerformanceOutcomeReviewResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'thesis_id', 'result', 'lessons', 'max_favorable_excursion', 'max_adverse_excursion', 'reviewed_at', 'invalidated', 'symbol', 'direction', 'setup_type', 'confidence', 'thesis_created_at'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          result: { type: 'string' },
+          lessons: { type: 'string' },
+          max_favorable_excursion: { type: ['number', 'null'] },
+          max_adverse_excursion: { type: ['number', 'null'] },
+          reviewed_at: { type: ['string', 'null'] },
+          invalidated: { type: 'boolean' },
+          symbol: { type: 'string' },
+          direction: { type: 'string' },
+          setup_type: { type: 'string' },
+          confidence: { type: ['number', 'null'] },
+          thesis_created_at: { type: ['string', 'null'] },
+        },
+      },
+      RetrospectiveInsightResponse: {
+        type: 'object',
+        required: ['insight_type', 'message', 'thesis_ids', 'evidence_count'],
+        properties: {
+          insight_type: { type: 'string' },
+          message: { type: 'string' },
+          thesis_ids: { type: 'array', items: { type: 'string' } },
+          evidence_count: { type: 'integer' },
+        },
+      },
+      PerformanceAnalyticsResponse: {
+        type: 'object',
+        required: ['sample_size', 'symbol', 'result_counts', 'hit_rate', 'invalidation_rate', 'mixed_rate', 'average_mfe', 'average_mae', 'reviewed_thesis_ids', 'recent_lessons', 'insights'],
+        properties: {
+          sample_size: { type: 'integer' },
+          symbol: { type: ['string', 'null'] },
+          result_counts: { type: 'object', additionalProperties: { type: 'integer' } },
+          hit_rate: { type: ['number', 'null'] },
+          invalidation_rate: { type: ['number', 'null'] },
+          mixed_rate: { type: ['number', 'null'] },
+          average_mfe: { type: ['number', 'null'] },
+          average_mae: { type: ['number', 'null'] },
+          reviewed_thesis_ids: { type: 'array', items: { type: 'string' } },
+          recent_lessons: { type: 'array', items: { type: 'string' } },
+          insights: { type: 'array', items: { $ref: '#/components/schemas/RetrospectiveInsightResponse' } },
+        },
+      },
+      PerformanceTrendPointResponse: {
+        type: 'object',
+        required: ['week_start', 'sample_size', 'hit_rate', 'average_mfe', 'average_mae', 'calibration_quality'],
+        properties: {
+          week_start: { type: 'string', format: 'date' },
+          sample_size: { type: 'integer' },
+          hit_rate: { type: ['number', 'null'] },
+          average_mfe: { type: ['number', 'null'] },
+          average_mae: { type: ['number', 'null'] },
+          calibration_quality: { type: 'string' },
+        },
+      },
+      PerformanceHealthResponse: {
+        type: 'object',
+        required: ['overall_status', 'recent_sample_size', 'baseline_sample_size', 'recent_hit_rate', 'baseline_hit_rate', 'alerts', 'recommendation'],
+        properties: {
+          overall_status: { type: 'string' },
+          recent_sample_size: { type: 'integer' },
+          baseline_sample_size: { type: 'integer' },
+          recent_hit_rate: { type: ['number', 'null'] },
+          baseline_hit_rate: { type: ['number', 'null'] },
+          alerts: { type: 'array', items: { type: 'string' } },
+          recommendation: { type: 'string' },
+        },
+      },
+      DiffFieldResponse: {
+        type: 'object',
+        required: ['changed'],
+        additionalProperties: true,
+        properties: {
+          changed: { type: 'boolean' },
+        },
+      },
+      ComparisonResponse: {
+        type: 'object',
+        required: ['kind', 'id_a', 'id_b', 'direction_flip', 'changed_fields', 'changed_count', 'change_severity', 'severity_reasons', 'fields'],
+        properties: {
+          kind: { type: 'string', enum: ['thesis_diff', 'run_diff'] },
+          id_a: { type: 'string' },
+          id_b: { type: 'string' },
+          cross_symbol: { type: 'boolean' },
+          direction_flip: { type: 'boolean' },
+          changed_fields: { type: 'array', items: { type: 'string' } },
+          changed_count: { type: 'integer' },
+          change_severity: { type: 'string' },
+          severity_reasons: { type: 'array', items: { type: 'string' } },
+          fields: {
+            type: 'object',
+            additionalProperties: { $ref: '#/components/schemas/DiffFieldResponse' },
+          },
+          thesis_diff: { anyOf: [{ $ref: '#/components/schemas/ComparisonResponse' }, { type: 'null' }] },
+        },
+      },
       RecordThesisDecisionRequest: {
         type: 'object',
         required: ['action'],
@@ -1220,6 +1472,133 @@ export const openApiDocument = {
           read_at: { type: ['string', 'null'] },
           message: { type: 'string' },
           payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      WatchlistPollResponse: {
+        type: 'object',
+        required: ['checked_watchlists', 'alerts_created', 'skipped_items'],
+        properties: {
+          checked_watchlists: { type: 'integer' },
+          alerts_created: { type: 'integer' },
+          skipped_items: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      AlertSchedulerStatusResponse: {
+        type: 'object',
+        required: ['enabled', 'configured_by_env', 'interval_ms', 'poll_on_start', 'limit', 'running', 'last_run_at', 'last_error', 'last_result', 'workspace_enabled_watchlists'],
+        properties: {
+          enabled: { type: 'boolean' },
+          configured_by_env: { type: 'boolean' },
+          interval_ms: { type: 'integer' },
+          poll_on_start: { type: 'boolean' },
+          limit: { type: 'integer' },
+          running: { type: 'boolean' },
+          last_run_at: { type: ['string', 'null'] },
+          last_error: { type: ['string', 'null'] },
+          last_result: { anyOf: [{ $ref: '#/components/schemas/WatchlistPollResponse' }, { type: 'null' }] },
+          workspace_enabled_watchlists: { type: 'integer' },
+        },
+      },
+      ScenarioMonitorItemResponse: {
+        type: 'object',
+        required: ['status', 'status_reason', 'trigger_summary', 'risk_count', 'scenario', 'thesis', 'latest_market_snapshot', 'latest_alert'],
+        properties: {
+          status: { type: 'string' },
+          status_reason: { type: 'string' },
+          trigger_summary: { type: 'string' },
+          risk_count: { type: 'integer' },
+          scenario: { $ref: '#/components/schemas/ScenarioResponse' },
+          thesis: { $ref: '#/components/schemas/ThesisResponse' },
+          latest_market_snapshot: { anyOf: [{ $ref: '#/components/schemas/MarketSnapshotResponse' }, { type: 'null' }] },
+          latest_alert: { anyOf: [{ $ref: '#/components/schemas/AlertResponse' }, { type: 'null' }] },
+        },
+      },
+      ScenarioMonitorResponse: {
+        type: 'object',
+        required: ['workspace_id', 'generated_at', 'total_scenarios', 'status_counts', 'items'],
+        properties: {
+          workspace_id: { type: 'string' },
+          generated_at: { type: 'string' },
+          total_scenarios: { type: 'integer' },
+          status_counts: { type: 'object', additionalProperties: { type: 'integer' } },
+          items: { type: 'array', items: { $ref: '#/components/schemas/ScenarioMonitorItemResponse' } },
+        },
+      },
+      ProviderHealthResponse: {
+        type: 'object',
+        required: ['id', 'provider', 'component', 'status', 'checked_at', 'latency_ms', 'error_type', 'error_message', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          provider: { type: 'string' },
+          component: { type: ['string', 'null'] },
+          status: { type: 'string' },
+          checked_at: { type: ['string', 'null'] },
+          latency_ms: { type: ['number', 'null'] },
+          error_type: { type: ['string', 'null'] },
+          error_message: { type: ['string', 'null'] },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      LlmCallResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'research_run_id', 'thesis_id', 'provider', 'model', 'stage', 'agent', 'input_tokens', 'output_tokens', 'latency_ms', 'status', 'error_type', 'error_message', 'created_at', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: ['string', 'null'] },
+          research_run_id: { type: ['string', 'null'] },
+          thesis_id: { type: ['string', 'null'] },
+          provider: { type: 'string' },
+          model: { type: 'string' },
+          stage: { type: ['string', 'null'] },
+          agent: { type: ['string', 'null'] },
+          input_tokens: { type: 'integer' },
+          output_tokens: { type: 'integer' },
+          latency_ms: { type: ['number', 'null'] },
+          status: { type: 'string' },
+          error_type: { type: ['string', 'null'] },
+          error_message: { type: ['string', 'null'] },
+          created_at: { type: ['string', 'null'] },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      DataFreshnessResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'research_run_id', 'symbol', 'source', 'source_timestamp', 'observed_timestamp', 'age_seconds', 'threshold_seconds', 'status', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: ['string', 'null'] },
+          research_run_id: { type: ['string', 'null'] },
+          symbol: { type: ['string', 'null'] },
+          source: { type: 'string' },
+          source_timestamp: { type: ['string', 'null'] },
+          observed_timestamp: { type: ['string', 'null'] },
+          age_seconds: { type: ['number', 'null'] },
+          threshold_seconds: { type: ['number', 'null'] },
+          status: { type: 'string' },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      LlmHealthSummaryResponse: {
+        type: 'object',
+        required: ['total_calls', 'success_rate', 'total_tokens', 'average_latency_ms', 'recent_errors', 'by_provider'],
+        properties: {
+          total_calls: { type: 'integer' },
+          success_rate: { type: ['number', 'null'] },
+          total_tokens: { type: 'integer' },
+          average_latency_ms: { type: ['number', 'null'] },
+          recent_errors: { type: 'integer' },
+          by_provider: { type: 'object', additionalProperties: true },
+        },
+      },
+      OperationsHealthResponse: {
+        type: 'object',
+        required: ['generated_at', 'providers', 'llm', 'freshness', 'queue'],
+        properties: {
+          generated_at: { type: 'string' },
+          providers: { type: 'array', items: { $ref: '#/components/schemas/ProviderHealthResponse' } },
+          llm: { $ref: '#/components/schemas/LlmHealthSummaryResponse' },
+          freshness: { type: 'object', additionalProperties: true },
+          queue: { type: 'object', additionalProperties: true },
         },
       },
       JournalRunWorkspaceResponse: {

@@ -2,11 +2,15 @@ import { Module } from '@nestjs/common';
 import { AlertsModule } from './alerts/alerts.module';
 import { AuthModule } from './auth/auth.module';
 import { BriefsModule } from './briefs/briefs.module';
+import { ComparisonsModule } from './comparisons/comparisons.module';
 import { DatabaseModule } from './database/database.module';
 import { JobsController } from './jobs/jobs.controller';
 import { JobsModule } from './jobs/jobs.module';
 import { JournalModule } from './journal/journal.module';
+import { OperationsModule } from './operations/operations.module';
+import { PerformanceModule } from './performance/performance.module';
 import { ResearchRunsModule } from './research-runs/research-runs.module';
+import { ScenariosModule } from './scenarios/scenarios.module';
 import { SignalsModule } from './signals/signals.module';
 import { SystemController } from './system.controller';
 import { ThesesModule } from './theses/theses.module';
@@ -28,6 +32,10 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WatchlistsModule,
     BriefsModule,
     AlertsModule,
+    PerformanceModule,
+    ComparisonsModule,
+    ScenariosModule,
+    OperationsModule,
   ],
   controllers: [JobsController, SystemController],
 })

@@ -1,10 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Activity,
+  BarChart3,
   Bell,
   ClipboardList,
   FileText,
   FlaskConical,
+  GitCompare,
   History,
   Radar,
   ScrollText,
@@ -17,8 +19,11 @@ const navItems = [
   { href: routes.workbench, label: 'Workbench', icon: Radar },
   { href: routes.researchNew, label: 'Research', icon: FlaskConical },
   { href: routes.researchHistory, label: 'History', icon: History },
+  { href: routes.performance, label: 'Performance', icon: BarChart3 },
+  { href: routes.compare, label: 'Compare', icon: GitCompare },
   { href: routes.theses, label: 'Theses', icon: ScrollText },
   { href: routes.signals, label: 'Signals', icon: Signal },
+  { href: routes.scenarios, label: 'Scenarios', icon: Radar },
   { href: routes.alerts, label: 'Alerts', icon: Bell },
   { href: routes.watchlists, label: 'Watchlists', icon: ClipboardList },
   { href: routes.briefsDaily, label: 'Briefs', icon: FileText },
@@ -68,8 +73,8 @@ export function MobileBottomNav() {
     navItems[0],
     navItems[1],
     navItems[2],
-    navItems[3],
-    navItems[6],
+    navItems[5],
+    navItems[9],
   ];
   return (
     <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
