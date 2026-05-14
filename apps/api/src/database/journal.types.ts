@@ -1,5 +1,12 @@
 export type JsonRecord = Record<string, unknown>;
 
+export interface SignalSummary {
+  total: number;
+  bullish: number;
+  bearish: number;
+  neutral: number;
+}
+
 export interface EngineRunRequest {
   run_id: string;
   workspace_id: string;
@@ -67,6 +74,10 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
+  summarizeSignals(
+    symbol: string | undefined,
+    workspaceId: string,
+  ): Promise<SignalSummary>;
   listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]>;
   createWatchlist(
     input: { name: string; enabled?: boolean },
@@ -101,6 +112,7 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
     watchlistName?: string,
+    throughDate?: string,
   ): Promise<JsonRecord[]>;
   getLatestMarketBrief(
     watchlistName: string | undefined,

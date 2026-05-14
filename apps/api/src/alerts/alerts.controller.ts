@@ -1,4 +1,5 @@
 import { Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { parseListLimit } from '../common/query-limit';
 import { AlertsService } from './alerts.service';
 
 @Controller('alerts')
@@ -19,7 +20,7 @@ export class AlertsController {
         symbol,
         thesisId,
         unreadOnly: unread === 'true' || unread === '1',
-        limit: Number(limit ?? 50),
+        limit: parseListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
       },
       userId,
       workspaceId,

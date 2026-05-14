@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, Filter, Signal, Table2 } from 'lucide-react';
 import { listAlerts } from '@/services/alerts';
-import { listSignals } from '@/services/signals';
+import { countSignals, listSignals } from '@/services/signals';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, MetricTile } from '@/components/research/bento';
@@ -21,28 +21,22 @@ export function SignalsPage() {
     queryKey: queryKeys.signals({ symbol, limit: 100 }),
     queryFn: () => listSignals({ symbol: symbol || undefined, limit: 100 }, auth),
   });
+  const countQuery = useQuery({
+    queryKey: queryKeys.signalsCount({ symbol }),
+    queryFn: () => countSignals({ symbol: symbol || undefined }, auth),
+  });
   const alertsQuery = useQuery({
     queryKey: queryKeys.alerts({ unread: true, limit: 10 }),
     queryFn: () => listAlerts({ unread: true, limit: 10 }, auth),
   });
 
-  const directionCounts = useMemo(() => {
-    return (query.data ?? []).reduce(
-      (counts, signal) => {
-        const direction = signal.direction.toLowerCase();
-        if (direction.includes('bull') || direction.includes('long')) {
-          counts.bullish += 1;
-        } else if (direction.includes('bear') || direction.includes('short')) {
-          counts.bearish += 1;
-        } else {
-          counts.neutral += 1;
-        }
-        return counts;
-      },
-      { bullish: 0, bearish: 0, neutral: 0 },
-    );
-  }, [query.data]);
-  const totalSignals = query.data?.length ?? 0;
+  const directionCounts = countQuery.data ?? {
+    total: 0,
+    bullish: 0,
+    bearish: 0,
+    neutral: 0,
+  };
+  const loadedRows = query.data?.length ?? 0;
 
   return (
     <main className="page">
@@ -59,7 +53,7 @@ export function SignalsPage() {
           label="Total signals"
           meta={`${directionCounts.bullish} bullish + ${directionCounts.bearish} bearish + ${directionCounts.neutral} neutral/other`}
           tone="primary"
-          value={query.isLoading ? '...' : totalSignals}
+          value={countQuery.isLoading ? '...' : directionCounts.total}
         />
         <MetricTile
           className="span-2"
@@ -165,7 +159,7 @@ export function SignalsPage() {
           <div className="top-strip-meta">
             <span className="badge">
               <Table2 aria-hidden size={14} />
-              {query.data?.length ?? 0} rows
+              {loadedRows} of {directionCounts.total} loaded
             </span>
             <span className="badge primary">{symbol || 'all symbols'}</span>
             <span className="badge">API backed</span>

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { CreateDailyBriefDto } from './dto/create-daily-brief.dto';
 import { BriefsService } from './briefs.service';
+import { parseListLimit } from '../common/query-limit';
 
 @Controller('briefs')
 export class BriefsController {
@@ -17,7 +18,7 @@ export class BriefsController {
   ) {
     return this.briefs.daily(
       date,
-      Number(limit ?? 20),
+      parseListLimit(limit, { defaultLimit: 20, maxLimit: 100 }),
       userId,
       workspaceId,
       watchlistId,

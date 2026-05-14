@@ -5,11 +5,15 @@ import {
   Activity,
   Archive,
   ClipboardList,
+  Edit3,
   FileText,
+  PauseCircle,
+  PlayCircle,
   Plus,
   RadioTower,
   RefreshCw,
   Search,
+  Trash2,
 } from 'lucide-react';
 import { createDailyBrief, listDailyBriefs } from '@/services/briefs';
 import { listTheses } from '@/services/theses';
@@ -30,11 +34,18 @@ import {
   DirectionBadge,
   IdChip,
 } from '@/components/research/badges';
+import { BriefCard } from '@/components/research/brief-card';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { formatConfidence, formatDate, formatDateTime } from '@/lib/format';
+import {
+  formatConfidence,
+  formatDate,
+  formatDateTime,
+  isPastOrTodayIsoDate,
+  todayIsoDate,
+} from '@/lib/format';
 import { routes } from '@/lib/routes';
 import type { ThesisResponse, WatchlistItemResponse } from '@/types';
 
@@ -79,12 +90,14 @@ export function WatchlistsPage() {
   });
   const [newWatchlistName, setNewWatchlistName] = useState('Core watchlist');
   const [rename, setRename] = useState('');
+  const [watchlistSearch, setWatchlistSearch] = useState('');
   const [trackMode, setTrackMode] = useState<TrackMode>(
     requestedThesisId ? 'thesis' : 'symbol',
   );
   const [symbol, setSymbol] = useState('BTC/USDT');
   const [selectedThesisId, setSelectedThesisId] = useState(requestedThesisId);
   const [thesisSearch, setThesisSearch] = useState('');
+  const today = todayIsoDate();
 
   useEffect(() => {
     if (!watchlistId && query.data?.[0]?.id) {
@@ -115,6 +128,16 @@ export function WatchlistsPage() {
     ? thesesById.get(selectedThesisId) ?? null
     : null;
 
+  const filteredWatchlists = useMemo(() => {
+    const search = watchlistSearch.trim().toLowerCase();
+    if (!search) {
+      return query.data ?? [];
+    }
+    return (query.data ?? []).filter((watchlist) =>
+      `${watchlist.name} ${watchlist.id ?? ''}`.toLowerCase().includes(search),
+    );
+  }, [query.data, watchlistSearch]);
+
   const thesisOptions = useMemo(() => {
     const search = thesisSearch.trim().toLowerCase();
     return (thesesQuery.data ?? []).filter((thesis) => {
@@ -131,7 +154,7 @@ export function WatchlistsPage() {
     onSuccess: (watchlist) => {
       setNewWatchlistName('');
       setWatchlistId(watchlist.id ?? '');
-      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlists({}) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlistsRoot() });
     },
   });
 
@@ -141,9 +164,9 @@ export function WatchlistsPage() {
         request.id,
         { name: request.name, enabled: request.enabled },
         auth,
-      ),
+    ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlists({}) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlistsRoot() });
     },
   });
 
@@ -183,7 +206,7 @@ export function WatchlistsPage() {
   const checkMutation = useMutation({
     mutationFn: () => checkWatchlist(watchlistId, {}, auth),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.alertsRoot() });
     },
   });
 
@@ -198,7 +221,8 @@ export function WatchlistsPage() {
         auth,
     ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['daily-briefs'] });
+      setBriefsSelectedOnly(true);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dailyBriefsRoot() });
     },
   });
 
@@ -223,7 +247,18 @@ export function WatchlistsPage() {
   }
 
   const enabledCount = query.data?.filter((watchlist) => watchlist.enabled).length ?? 0;
-  const latestBrief = briefsQuery.data?.[0];
+  const visibleBriefs = useMemo(
+    () =>
+      (briefsQuery.data ?? []).filter((brief) =>
+        isPastOrTodayIsoDate(brief.brief_date, today),
+      ),
+    [briefsQuery.data, today],
+  );
+  const latestBrief = visibleBriefs[0];
+  const canRename =
+    Boolean(selectedWatchlist?.id) &&
+    Boolean(rename.trim()) &&
+    rename.trim() !== selectedWatchlist?.name;
   const canTrack =
     Boolean(watchlistId) &&
     (trackMode === 'symbol' ? Boolean(symbol.trim()) : Boolean(selectedThesisId));
@@ -262,15 +297,31 @@ export function WatchlistsPage() {
           icon={<FileText size={18} />}
           label={briefsSelectedOnly ? 'Selected briefs' : 'Workspace briefs'}
           tone="warning"
-          value={briefsQuery.isLoading ? '...' : briefsQuery.data?.length ?? 0}
+          value={briefsQuery.isLoading ? '...' : visibleBriefs.length}
         />
 
         <Panel className="span-4 emphasis" title="Watchlists" description="Select the monitoring scope">
           {query.isLoading ? <LoadingState /> : null}
           {query.isError ? <ErrorState error={query.error} /> : null}
           {query.data?.length === 0 ? <EmptyState label="No watchlists found." /> : null}
+          {query.data && query.data.length > 0 ? (
+            <label className="label">
+              Search
+              <div className="input-with-icon">
+                <Search aria-hidden size={16} />
+                <input
+                  value={watchlistSearch}
+                  onChange={(event) => setWatchlistSearch(event.target.value)}
+                  placeholder="Core, alt, watch_..."
+                />
+              </div>
+            </label>
+          ) : null}
+          {query.data && query.data.length > 0 && filteredWatchlists.length === 0 ? (
+            <EmptyState label="No watchlist matches this search." />
+          ) : null}
           <div className="stack">
-            {query.data?.map((watchlist) => (
+            {filteredWatchlists.map((watchlist) => (
               <button
                 className={`list-row${watchlist.id === watchlistId ? ' active' : ''}`}
                 key={watchlist.id ?? watchlist.name}
@@ -309,6 +360,11 @@ export function WatchlistsPage() {
                   This watchlist is paused, so alert checks and brief creation are disabled.
                 </div>
               ) : null}
+              <div className="stack small">
+                <DataPair label="Tracks" value={itemsQuery.isLoading ? '...' : itemsQuery.data?.length ?? 0} />
+                <DataPair label="Latest brief" value={latestBrief?.brief_date ? formatDate(latestBrief.brief_date) : 'n/a'} />
+                <DataPair label="Created" value={formatDateTime(selectedWatchlist.created_at)} />
+              </div>
               <form className="stack" onSubmit={submitRename}>
                 <label className="label">
                   Rename
@@ -320,7 +376,8 @@ export function WatchlistsPage() {
                   />
                 </label>
                 <div className="top-strip-meta">
-                  <button className="button" disabled={updateMutation.isPending} type="submit">
+                  <button className="button" disabled={updateMutation.isPending || !canRename} type="submit">
+                    <Edit3 aria-hidden size={16} />
                     Rename
                   </button>
                   <button
@@ -334,6 +391,11 @@ export function WatchlistsPage() {
                     }
                     type="button"
                   >
+                    {selectedWatchlist.enabled ? (
+                      <PauseCircle aria-hidden size={16} />
+                    ) : (
+                      <PlayCircle aria-hidden size={16} />
+                    )}
                     {selectedWatchlist.enabled ? 'Pause watchlist' : 'Resume watchlist'}
                   </button>
                 </div>
@@ -347,7 +409,7 @@ export function WatchlistsPage() {
                   type="button"
                 >
                   <Activity aria-hidden size={16} />
-                  Check alerts
+                  {checkMutation.isPending ? 'Checking alerts' : 'Check alerts'}
                 </button>
                 <button
                   className="button"
@@ -356,14 +418,20 @@ export function WatchlistsPage() {
                   type="button"
                 >
                   <RefreshCw aria-hidden size={16} />
-                  Create brief from this watchlist
+                  {briefMutation.isPending ? 'Creating brief' : 'Create brief'}
                 </button>
               </div>
               {checkMutation.isError ? <span className="badge risk">{errorMessage(checkMutation.error)}</span> : null}
               {briefMutation.isError ? <span className="badge risk">{errorMessage(briefMutation.error)}</span> : null}
               {checkMutation.data ? (
-                <div className="small muted">
-                  Checked {checkMutation.data.checked_items} track(s) | {checkMutation.data.alerts_created.length} alert(s)
+                <div className="callout">
+                  Checked {checkMutation.data.checked_items} track(s) and created{' '}
+                  {checkMutation.data.alerts_created.length} alert(s).
+                  {checkMutation.data.skipped_items.length > 0 ? (
+                    <div className="small muted">
+                      Skipped: {checkMutation.data.skipped_items.join(', ')}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {briefMutation.data ? (
@@ -390,7 +458,7 @@ export function WatchlistsPage() {
             {createMutation.isSuccess ? <span className="badge constructive">watchlist created</span> : null}
             <button className="button primary" disabled={createMutation.isPending} type="submit">
               <Plus aria-hidden size={16} />
-              Create watchlist
+              {createMutation.isPending ? 'Creating watchlist' : 'Create watchlist'}
             </button>
           </form>
         </Panel>
@@ -525,27 +593,14 @@ export function WatchlistsPage() {
           </div>
           {briefsQuery.isLoading ? <LoadingState /> : null}
           {briefsQuery.isError ? <ErrorState error={briefsQuery.error} /> : null}
-          {briefsQuery.data?.length === 0 ? <EmptyState label="No briefs found." /> : null}
-          {latestBrief ? (
-            <div className="state-card" style={{ marginBottom: 12 }}>
-              <div className="row">
-                <strong>{latestBrief.title || 'Untitled brief'}</strong>
-                <span className="badge primary">{formatDate(latestBrief.brief_date)}</span>
-              </div>
-              <p className="small muted">{latestBrief.summary || 'No summary.'}</p>
-              <span className="badge">{latestBrief.watchlist_name || 'watchlist'}</span>
-            </div>
-          ) : null}
+          {!briefsQuery.isLoading && visibleBriefs.length === 0 ? <EmptyState label="No briefs found." /> : null}
+          {latestBrief ? <BriefCard brief={latestBrief} featured /> : null}
           <div className="grid two">
-            {briefsQuery.data?.slice(1).map((brief) => (
-              <div className="list-row" key={brief.id ?? `${brief.title}-${brief.created_at}`}>
-                <div className="row">
-                  <strong>{brief.title || 'Untitled brief'}</strong>
-                  <span className="badge">{formatDate(brief.brief_date)}</span>
-                </div>
-                <p className="small muted">{brief.summary || 'No summary.'}</p>
-                <span className="badge">{brief.watchlist_name || 'watchlist'}</span>
-              </div>
+            {visibleBriefs.slice(1).map((brief) => (
+              <BriefCard
+                brief={brief}
+                key={brief.id ?? `${brief.title}-${brief.created_at}`}
+              />
             ))}
           </div>
         </Panel>
@@ -637,6 +692,7 @@ function ItemFooter({
       onClick={() => onRemove(item.id as string)}
       type="button"
     >
+      <Trash2 aria-hidden size={16} />
       Remove
     </button>
   ) : null;

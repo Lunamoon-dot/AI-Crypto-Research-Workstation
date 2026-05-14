@@ -16,6 +16,7 @@ import {
   toThesisResponse,
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
+import { clampListLimit } from '../common/query-limit';
 
 @Injectable()
 export class ThesesService {
@@ -34,7 +35,10 @@ export class ThesesService {
       workspaceHeader,
       'viewer',
     );
-    const theses = await this.journal.listTheses(limit, workspaceId);
+    const theses = await this.journal.listTheses(
+      clampListLimit(limit, { defaultLimit: 50, maxLimit: 100 }),
+      workspaceId,
+    );
     return theses.map(toThesisResponse);
   }
 

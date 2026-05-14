@@ -1,17 +1,45 @@
+import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+
+function queryIdentity() {
+  const { mode, userId, workspaceId } = useWorkspaceStore.getState();
+  return { authMode: mode, userId, workspaceId } as const;
+}
+
+function scopedResource(resource: string) {
+  return [resource, queryIdentity()] as const;
+}
+
+function scopedFilters(resource: string, filters: Record<string, unknown>) {
+  return [...scopedResource(resource), filters] as const;
+}
+
 export const queryKeys = {
-  workbench: ['workbench'] as const,
+  workbench: () => scopedResource('workbench'),
+  researchRunsRoot: () => scopedResource('research-runs'),
   researchRuns: (filters: Record<string, unknown>) =>
-    ['research-runs', filters] as const,
-  researchRunWorkspace: (id: string) => ['research-run-workspace', id] as const,
-  jobStatus: (id: string) => ['job-status', id] as const,
-  theses: (filters: Record<string, unknown>) => ['theses', filters] as const,
-  thesis: (id: string) => ['thesis', id] as const,
-  thesisScenarios: (id: string) => ['thesis-scenarios', id] as const,
-  signals: (filters: Record<string, unknown>) => ['signals', filters] as const,
+    scopedFilters('research-runs', filters),
+  researchRunWorkspace: (id: string) =>
+    ['research-run-workspace', queryIdentity(), id] as const,
+  jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,
+  thesesRoot: () => scopedResource('theses'),
+  theses: (filters: Record<string, unknown>) => scopedFilters('theses', filters),
+  thesis: (id: string) => ['thesis', queryIdentity(), id] as const,
+  thesisScenarios: (id: string) =>
+    ['thesis-scenarios', queryIdentity(), id] as const,
+  signalsRoot: () => scopedResource('signals'),
+  signals: (filters: Record<string, unknown>) =>
+    scopedFilters('signals', filters),
+  signalsCountRoot: () => scopedResource('signals-count'),
+  signalsCount: (filters: Record<string, unknown>) =>
+    scopedFilters('signals-count', filters),
+  watchlistsRoot: () => scopedResource('watchlists'),
   watchlists: (filters: Record<string, unknown>) =>
-    ['watchlists', filters] as const,
-  watchlistItems: (id: string) => ['watchlist-items', id] as const,
+    scopedFilters('watchlists', filters),
+  watchlistItems: (id: string) =>
+    ['watchlist-items', queryIdentity(), id] as const,
+  dailyBriefsRoot: () => scopedResource('daily-briefs'),
   dailyBriefs: (filters: Record<string, unknown>) =>
-    ['daily-briefs', filters] as const,
-  alerts: (filters: Record<string, unknown>) => ['alerts', filters] as const,
+    scopedFilters('daily-briefs', filters),
+  alertsRoot: () => scopedResource('alerts'),
+  alerts: (filters: Record<string, unknown>) => scopedFilters('alerts', filters),
 };

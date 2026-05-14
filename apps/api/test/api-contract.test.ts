@@ -18,6 +18,7 @@ import {
   EngineRunRequest,
   JournalRepository,
   JsonRecord,
+  SignalSummary,
 } from '../src/database/journal.types';
 import { AuthService } from '../src/auth/auth.service';
 import { WorkspacesService } from '../src/workspaces/workspaces.service';
@@ -31,7 +32,9 @@ import { ResearchRunsController } from '../src/research-runs/research-runs.contr
 import { CreateResearchRunDto } from '../src/research-runs/dto/create-research-run.dto';
 import { MarketDataGuardService } from '../src/research-runs/market-data-guard.service';
 import { ResearchRunsService } from '../src/research-runs/research-runs.service';
+import { SignalsController } from '../src/signals/signals.controller';
 import { SignalsService } from '../src/signals/signals.service';
+import { ThesesController } from '../src/theses/theses.controller';
 import { ThesesService } from '../src/theses/theses.service';
 import { WatchlistsService } from '../src/watchlists/watchlists.service';
 import { BriefsService } from '../src/briefs/briefs.service';
@@ -231,6 +234,30 @@ class FakeJournalRepository implements JournalRepository {
       .slice(0, limit);
   }
 
+  async summarizeSignals(
+    symbol: string | undefined,
+    workspaceId: string,
+  ): Promise<SignalSummary> {
+    return this.signals
+      .filter((signal) => signal.workspace_id === workspaceId)
+      .filter((signal) => !symbol || signal.symbol === symbol)
+      .reduce<SignalSummary>(
+        (summary, signal) => {
+          const direction = String(signal.direction ?? '').toLowerCase();
+          summary.total += 1;
+          if (direction.includes('bull') || direction.includes('long')) {
+            summary.bullish += 1;
+          } else if (direction.includes('bear') || direction.includes('short')) {
+            summary.bearish += 1;
+          } else {
+            summary.neutral += 1;
+          }
+          return summary;
+        },
+        { total: 0, bullish: 0, bearish: 0, neutral: 0 },
+      );
+  }
+
   async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.watchlists
       .filter((watchlist) => watchlist.workspace_id === workspaceId)
@@ -356,10 +383,12 @@ class FakeJournalRepository implements JournalRepository {
     limit: number,
     workspaceId: string,
     watchlistName?: string,
+    throughDate?: string,
   ): Promise<JsonRecord[]> {
     return this.briefs
       .filter((brief) => brief.workspace_id === workspaceId)
       .filter((brief) => !date || brief.brief_date === date)
+      .filter((brief) => !throughDate || String(brief.brief_date) <= throughDate)
       .filter((brief) => !watchlistName || brief.watchlist_name === watchlistName)
       .slice(0, limit);
   }
@@ -839,6 +868,43 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
   }
   assert.deepEqual(engineProperties.market_type.enum, ['spot', 'perp']);
   assert.deepEqual(createProperties.market_type.enum, ['spot', 'perp']);
+});
+
+test('OpenAPI contract covers the frontend-facing controller routes', () => {
+  const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
+  const expectedRoutes: Array<[string, string[]]> = [
+    ['/research-runs', ['get', 'post']],
+    ['/research-runs/{id}', ['get']],
+    ['/research-runs/{id}/events', ['get']],
+    ['/research-runs/{id}/snapshots', ['get']],
+    ['/research-runs/{id}/debate', ['get']],
+    ['/research-runs/{id}/workspace', ['get']],
+    ['/journal/runs/{id}/workspace', ['get']],
+    ['/signals', ['get']],
+    ['/signals/count', ['get']],
+    ['/theses', ['get']],
+    ['/theses/{id}', ['get']],
+    ['/theses/{id}/scenarios', ['get']],
+    ['/theses/{id}/decision', ['post']],
+    ['/theses/{id}/review', ['post']],
+    ['/watchlists', ['get', 'post']],
+    ['/watchlists/{id}', ['get', 'patch']],
+    ['/watchlists/{id}/items', ['get', 'post']],
+    ['/watchlists/{id}/items/{itemId}', ['delete']],
+    ['/watchlists/{id}/check', ['post']],
+    ['/briefs/daily', ['get', 'post']],
+    ['/alerts', ['get']],
+    ['/alerts/{id}/read', ['post']],
+    ['/jobs/{id}', ['get']],
+    ['/jobs/{id}/cancel', ['post']],
+  ];
+
+  for (const [path, methods] of expectedRoutes) {
+    assert.ok(paths[path], `OpenAPI missing ${path}`);
+    for (const method of methods) {
+      assert.ok(paths[path]?.[method], `OpenAPI missing ${method.toUpperCase()} ${path}`);
+    }
+  }
 });
 
 test('JobsService inline mode returns engine result without memory queue', async () => {
@@ -1755,7 +1821,7 @@ test('read APIs scope research runs and signals to the request workspace', async
   );
 
   const workspaceSignals = await signals.list(
-    'BTC/USDT',
+    'BTC',
     50,
     'user_1',
     'workspace_b',
@@ -1764,6 +1830,65 @@ test('read APIs scope research runs and signals to the request workspace', async
     workspaceSignals.map((signal) => signal.id),
     ['sig_b'],
   );
+  assert.deepEqual(await signals.count('BTC/USDT', 'user_1', 'workspace_b'), {
+    total: 1,
+    bullish: 0,
+    bearish: 1,
+    neutral: 0,
+  });
+  assert.deepEqual(await signals.count('BTC', 'user_1', 'workspace_b'), {
+    total: 1,
+    bullish: 0,
+    bearish: 1,
+    neutral: 0,
+  });
+});
+
+test('signals and theses limits reject invalid values before repository reads', async () => {
+  const { journal, signals, theses } = buildHarness();
+  const signalsController = new SignalsController(signals);
+  const thesesController = new ThesesController(theses);
+
+  for (let index = 0; index < 150; index += 1) {
+    journal.signals.push({
+      id: `sig_${index}`,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      signal_type: 'regime',
+      direction: 'neutral',
+    });
+    journal.theses.set(key(`thesis_${index}`, 'workspace_a'), {
+      id: `thesis_${index}`,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      direction: 'watch',
+    });
+  }
+
+  await assert.rejects(
+    async () =>
+      signalsController.list(undefined, 'not-a-number', 'user_1', 'workspace_a'),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    async () => thesesController.list('not-a-number', 'user_1', 'workspace_a'),
+    isException(BadRequestException),
+  );
+
+  const limitedSignals = await signalsController.list(
+    undefined,
+    '1000',
+    'user_1',
+    'workspace_a',
+  );
+  const limitedTheses = await thesesController.list(
+    '1000',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(limitedSignals.length, 100);
+  assert.equal(limitedTheses.length, 100);
 });
 
 test('thesis decision and review verify workspace before writing', async () => {
@@ -2091,6 +2216,13 @@ test('daily brief archive can be scoped to a selected watchlist and rejects futu
       watchlist_name: 'Alt',
       title: 'Alt brief',
     },
+    {
+      id: 'brief_future',
+      workspace_id: 'workspace_a',
+      brief_date: '2999-01-01',
+      watchlist_name: 'Core',
+      title: 'Future brief',
+    },
   );
 
   const scoped = await briefs.daily(
@@ -2104,6 +2236,10 @@ test('daily brief archive can be scoped to a selected watchlist and rejects futu
   assert.deepEqual(
     scoped.map((brief) => brief.id),
     ['brief_core'],
+  );
+  await assert.rejects(
+    () => briefs.daily('2999-01-01', 20, 'user_1', 'workspace_a', 'watch_1'),
+    isException(BadRequestException),
   );
   await assert.rejects(
     () =>

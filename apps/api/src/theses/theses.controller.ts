@@ -10,6 +10,7 @@ import {
 import { ThesisDecisionDto } from './dto/thesis-decision.dto';
 import { ThesisReviewDto } from './dto/thesis-review.dto';
 import { ThesesService } from './theses.service';
+import { parseListLimit } from '../common/query-limit';
 
 @Controller('theses')
 export class ThesesController {
@@ -21,7 +22,11 @@ export class ThesesController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.theses.list(Number(limit ?? 50), userId, workspaceId);
+    return this.theses.list(
+      parseListLimit(limit, { defaultLimit: 50, maxLimit: 100 }),
+      userId,
+      workspaceId,
+    );
   }
 
   @Get(':id')

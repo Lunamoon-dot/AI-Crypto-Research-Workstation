@@ -42,11 +42,14 @@ export class BriefsService {
       watchlistName,
       workspaceId,
     );
+    const today = currentBriefDate();
+    const briefDate = normalizeOptionalBriefDate(date, today);
     const briefs = await this.journal.listDailyBriefs(
-      date,
+      briefDate,
       normalizeLimit(limit),
       workspaceId,
       scopedWatchlistName,
+      today,
     );
     return briefs.map(toBriefResponse);
   }
@@ -289,21 +292,42 @@ export class BriefsService {
 }
 
 function normalizeBriefDate(value: string | undefined): string {
-  const today = localDateString(new Date());
+  const today = currentBriefDate();
   if (!value) {
     return today;
   }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+  return normalizeRequiredBriefDate(value, today);
+}
+
+function normalizeOptionalBriefDate(
+  value: string | undefined,
+  today: string,
+): string | undefined {
+  return value ? normalizeRequiredBriefDate(value, today) : undefined;
+}
+
+function normalizeRequiredBriefDate(value: string, today: string): string {
+  const briefDate = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(briefDate)) {
     throw new BadRequestException('date must be a valid ISO date');
   }
-  const briefDate = value.slice(0, 10);
+  const parsed = new Date(`${briefDate}T00:00:00.000Z`);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== briefDate
+  ) {
+    throw new BadRequestException('date must be a valid ISO date');
+  }
   if (briefDate > today) {
     throw new BadRequestException(
       'Brief date cannot be in the future. Choose today or an earlier date.',
     );
   }
   return briefDate;
+}
+
+function currentBriefDate(): string {
+  return localDateString(new Date());
 }
 
 function localDateString(date: Date): string {

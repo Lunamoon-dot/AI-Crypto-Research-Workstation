@@ -1,17 +1,19 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, CalendarDays, FileText, RefreshCw } from 'lucide-react';
+import { Archive, CalendarDays, FileText, RefreshCw, RotateCcw } from 'lucide-react';
 import { createDailyBrief, listDailyBriefs } from '@/services/briefs';
 import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
 import { listWatchlists } from '@/services/watchlists';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { IdChip } from '@/components/research/badges';
+import { BriefCard } from '@/components/research/brief-card';
 import { BentoGrid, MetricTile } from '@/components/research/bento';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { formatDate, formatDateTime, todayIsoDate } from '@/lib/format';
+import { isPastOrTodayIsoDate, todayIsoDate } from '@/lib/format';
+import { routes } from '@/lib/routes';
 
 export function DailyBriefsPage() {
   const auth = useWorkspaceStore();
@@ -53,12 +55,20 @@ export function DailyBriefsPage() {
           save: true,
         },
         auth,
-      ),
+    ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['daily-briefs'] });
+      setSelectedOnly(true);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dailyBriefsRoot() });
     },
   });
-  const latest = query.data?.[0];
+  const visibleBriefs = useMemo(
+    () =>
+      (query.data ?? []).filter((brief) =>
+        isPastOrTodayIsoDate(brief.brief_date, today),
+      ),
+    [query.data, today],
+  );
+  const latest = visibleBriefs[0];
 
   useEffect(() => {
     if (!watchlistId && watchlists.data?.[0]?.id) {
@@ -74,6 +84,11 @@ export function DailyBriefsPage() {
     generateMutation.mutate();
   }
 
+  function resetFilters() {
+    setDate('');
+    setSelectedOnly(true);
+  }
+
   return (
     <main className="page">
       <PageHeader
@@ -87,7 +102,7 @@ export function DailyBriefsPage() {
           icon={<Archive size={18} />}
           label={selectedOnly ? 'Selected briefs' : 'Workspace briefs'}
           tone="primary"
-          value={query.isLoading ? '...' : query.data?.length ?? 0}
+          value={query.isLoading ? '...' : visibleBriefs.length}
         />
         <MetricTile
           className="span-4"
@@ -104,7 +119,11 @@ export function DailyBriefsPage() {
           value={latest ? 'Ready' : 'None'}
         />
 
-        <Panel className="span-4 emphasis" title="Brief filters">
+        <Panel
+          action={<Link className="button ghost" to={routes.watchlists}>Watchlists</Link>}
+          className="span-4 emphasis"
+          title="Brief filters"
+        >
           <form className="stack" onSubmit={submitGenerate}>
             <label className="label">
               Date
@@ -125,6 +144,7 @@ export function DailyBriefsPage() {
               Watchlist
               <select
                 className="select"
+                disabled={watchlists.isLoading || watchlists.isError}
                 value={watchlistId}
                 onChange={(event) => setWatchlistId(event.target.value)}
               >
@@ -135,6 +155,8 @@ export function DailyBriefsPage() {
                 ))}
               </select>
             </label>
+            {watchlists.isLoading ? <LoadingState label="Loading watchlists..." /> : null}
+            {watchlists.isError ? <ErrorState error={watchlists.error} /> : null}
             <label className="inline-check">
               <input
                 checked={selectedOnly}
@@ -147,14 +169,20 @@ export function DailyBriefsPage() {
             {watchlists.data?.length === 0 ? <span className="badge warning">no watchlists</span> : null}
             {generateMutation.isError ? <span className="badge risk">{errorMessage(generateMutation.error)}</span> : null}
             {generateMutation.data ? <span className="badge constructive">brief saved</span> : null}
-            <button
-              className="button primary"
-              disabled={generateMutation.isPending || !watchlistId || futureDate}
-              type="submit"
-            >
-              <RefreshCw aria-hidden size={16} />
-              Create brief from this watchlist
-            </button>
+            <div className="top-strip-meta">
+              <button
+                className="button primary"
+                disabled={generateMutation.isPending || !watchlistId || futureDate}
+                type="submit"
+              >
+                <RefreshCw aria-hidden size={16} />
+                {generateMutation.isPending ? 'Creating brief' : 'Create brief'}
+              </button>
+              <button className="button" onClick={resetFilters} type="button">
+                <RotateCcw aria-hidden size={16} />
+                Reset filters
+              </button>
+            </div>
           </form>
         </Panel>
 
@@ -164,28 +192,14 @@ export function DailyBriefsPage() {
         >
           {query.isLoading ? <LoadingState /> : null}
           {query.isError ? <ErrorState error={query.error} /> : null}
-          {query.data?.length === 0 ? <EmptyState label="No briefs found." /> : null}
+          {!query.isLoading && visibleBriefs.length === 0 ? <EmptyState label="No briefs found." /> : null}
           <div className="stack">
-            {query.data?.map((brief, index) => (
-              <div className={index === 0 ? 'state-card' : 'list-row'} key={brief.id ?? `${brief.title}-${brief.created_at}`}>
-                <div className="row">
-                  <strong>{brief.title || 'Untitled brief'}</strong>
-                  <span className={index === 0 ? 'badge primary' : 'badge'}>{formatDate(brief.brief_date)}</span>
-                </div>
-                <p className="muted">{brief.summary || 'No summary.'}</p>
-                <div className="small muted">
-                  {brief.watchlist_name || 'default'} | {formatDateTime(brief.created_at)}
-                </div>
-                <div className="top-strip-meta">
-                  {brief.thesis_ids.map((id) => <IdChip key={`thesis-${id}`} value={id} />)}
-                  {brief.signal_ids.map((id) => <IdChip key={`signal-${id}`} value={id} />)}
-                </div>
-                <div className="stack">
-                  {brief.key_points.map((point) => (
-                    <div className="small" key={point}>{point}</div>
-                  ))}
-                </div>
-              </div>
+            {visibleBriefs.map((brief, index) => (
+              <BriefCard
+                brief={brief}
+                featured={index === 0}
+                key={brief.id ?? `${brief.title}-${brief.created_at}`}
+              />
             ))}
           </div>
         </Panel>

@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { KeyRound, ServerCog, UserRound } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
@@ -7,6 +8,16 @@ import { env } from '@/lib/env';
 
 export function SettingsPage() {
   const auth = useWorkspaceStore();
+  const queryClient = useQueryClient();
+  function updateLocalUserId(userId: string) {
+    auth.setLocalUserId(userId);
+    queryClient.clear();
+  }
+  function updateLocalWorkspaceId(workspaceId: string) {
+    auth.setLocalWorkspaceId(workspaceId);
+    queryClient.clear();
+  }
+
   return (
     <main className="page">
       <PageHeader
@@ -44,7 +55,7 @@ export function SettingsPage() {
               <input
                 className="input"
                 value={auth.userId}
-                onChange={(event) => auth.setLocalUserId(event.target.value)}
+                onChange={(event) => updateLocalUserId(event.target.value)}
               />
             </label>
             <label className="label">
@@ -52,7 +63,7 @@ export function SettingsPage() {
               <input
                 className="input"
                 value={auth.workspaceId}
-                onChange={(event) => auth.setLocalWorkspaceId(event.target.value)}
+                onChange={(event) => updateLocalWorkspaceId(event.target.value)}
               />
             </label>
             <p className="small muted">

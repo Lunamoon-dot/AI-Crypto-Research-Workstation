@@ -268,9 +268,7 @@ def test_graph_stability_guard_holds_recent_same_symbol_flip():
             "memory_limit": 10,
         }
     }
-    graph.journal_bridge = SimpleNamespace(
-        service=_ThesisMemoryService([previous])
-    )
+    graph.journal_bridge = SimpleNamespace(service=_ThesisMemoryService([previous]))
     graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
     graph.quant_signal_result = SimpleNamespace(confidence=0.25)
     graph.current_debate = None

@@ -405,7 +405,9 @@ class ThesisBuilder:
             confidence,
             confidence_source,
             quant_confidence,
-            quant_bias_from_score(getattr(quant, "score", None) if quant is not None else None),
+            quant_bias_from_score(
+                getattr(quant, "score", None) if quant is not None else None
+            ),
             supporting_ids,
             contradicting_ids,
         )
@@ -549,7 +551,11 @@ class ThesisBuilder:
             else 0.0
         )
 
-        if not direction_changed and not rating_changed and confidence_delta <= max_delta:
+        if (
+            not direction_changed
+            and not rating_changed
+            and confidence_delta <= max_delta
+        ):
             return thesis
 
         if self._has_stability_override(thesis, cfg):
@@ -677,7 +683,10 @@ class ThesisBuilder:
         for candidate in candidates:
             if not candidate or candidate.id == thesis.id:
                 continue
-            if candidate.research_run_id and candidate.research_run_id == thesis.research_run_id:
+            if (
+                candidate.research_run_id
+                and candidate.research_run_id == thesis.research_run_id
+            ):
                 continue
             if str(candidate.symbol or "").strip().upper() != current_symbol:
                 continue

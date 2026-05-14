@@ -39,6 +39,7 @@ import {
   SqliteJournalSyncService,
 } from '../jobs/sqlite-journal-sync.service';
 import { MarketDataGuardService } from './market-data-guard.service';
+import { normalizeCryptoSymbol } from '../common/market-symbols';
 
 const ORPHANED_JOB_REASON = 'orphaned_job_state';
 const ANALYST_KEYS = ['market', 'news', 'social', 'onchain'] as const;
@@ -759,38 +760,6 @@ function normalizeResearchSymbol(symbol: string, assetClass: string): string {
     return trimmed;
   }
   return normalizeCryptoSymbol(trimmed);
-}
-
-function normalizeCryptoSymbol(symbol: string): string {
-  const upper = symbol.toUpperCase();
-  if (upper.includes('/')) {
-    return upper;
-  }
-
-  for (const delimiter of ['-', '_', ':']) {
-    if (upper.includes(delimiter)) {
-      const [base, quote] = upper.split(delimiter, 2);
-      if (base && quote) {
-        return `${base}/${mapCryptoQuote(quote)}`;
-      }
-    }
-  }
-
-  for (const quote of ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH']) {
-    if (upper.endsWith(quote) && upper.length > quote.length) {
-      return `${upper.slice(0, -quote.length)}/${mapCryptoQuote(quote)}`;
-    }
-  }
-
-  if (upper.endsWith('DT') && upper.length > 2) {
-    return `${upper.slice(0, -2)}/USDT`;
-  }
-
-  return `${upper}/USDT`;
-}
-
-function mapCryptoQuote(quote: string): string {
-  return quote === 'USD' ? 'USDT' : quote;
 }
 
 function normalizeLimit(value: number | undefined): number {

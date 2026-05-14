@@ -5,6 +5,7 @@ import {
   JournalRepository,
   JsonRecord,
   ResearchRunFailure,
+  SignalSummary,
 } from './journal.types';
 
 type PayloadRow = {
@@ -461,6 +462,52 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async summarizeSignals(
+    symbol: string | undefined,
+    workspaceId: string,
+  ): Promise<SignalSummary> {
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (symbol) {
+      params.push(symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    const pool = this.requirePool();
+    const result = await pool.query<
+      Record<keyof SignalSummary, number | string>
+    >(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (
+           WHERE normalized_direction LIKE '%bull%' OR normalized_direction LIKE '%long%'
+         )::int AS bullish,
+         COUNT(*) FILTER (
+           WHERE normalized_direction LIKE '%bear%' OR normalized_direction LIKE '%short%'
+         )::int AS bearish,
+         COUNT(*) FILTER (
+           WHERE NOT (
+             normalized_direction LIKE '%bull%' OR
+             normalized_direction LIKE '%long%' OR
+             normalized_direction LIKE '%bear%' OR
+             normalized_direction LIKE '%short%'
+           )
+         )::int AS neutral
+       FROM (
+         SELECT LOWER(COALESCE(direction, '')) AS normalized_direction
+         FROM signals
+         WHERE ${where.join(' AND ')}
+       ) scoped_signals`,
+      params,
+    );
+    const row = result.rows[0];
+    return {
+      total: Number(row?.total ?? 0),
+      bullish: Number(row?.bullish ?? 0),
+      bearish: Number(row?.bearish ?? 0),
+      neutral: Number(row?.neutral ?? 0),
+    };
+  }
+
   async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
     return this.many(
       `SELECT payload_json || jsonb_build_object(
@@ -686,12 +733,17 @@ export class PostgresJournalRepository implements JournalRepository {
     limit: number,
     workspaceId: string,
     watchlistName?: string,
+    throughDate?: string,
   ): Promise<JsonRecord[]> {
     const filters = ['workspace_id = $1'];
     const params: unknown[] = [workspaceId];
     if (date) {
       params.push(date);
       filters.push(`brief_date = $${params.length}`);
+    }
+    if (throughDate) {
+      params.push(throughDate);
+      filters.push(`brief_date <= $${params.length}`);
     }
     if (watchlistName) {
       params.push(watchlistName);

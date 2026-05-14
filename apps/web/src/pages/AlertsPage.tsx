@@ -23,7 +23,7 @@ export function AlertsPage() {
   const mutation = useMutation({
     mutationFn: (id: string) => markAlertRead(id, auth),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.alerts({}) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.alertsRoot() });
     },
   });
 

@@ -1,5 +1,25 @@
 /* Generated from the API OpenAPI contract. Do not edit by hand. */
 
+import type {
+  AddWatchlistItemRequest,
+  AlertResponse,
+  BriefResponse,
+  CheckWatchlistRequest,
+  CreateDailyBriefRequest,
+  CreateWatchlistRequest,
+  RecordThesisDecisionRequest,
+  RecordThesisReviewRequest,
+  RemoveWatchlistItemResponse,
+  SignalCountResponse,
+  SignalResponse,
+  ThesisDecisionResponse,
+  ThesisReviewResponse,
+  UpdateWatchlistRequest,
+  WatchlistCheckResponse,
+  WatchlistItemResponse,
+  WatchlistResponse,
+} from '@/types';
+
 export type JsonRecord = Record<string, unknown>;
 
 export interface HealthResponse {
@@ -287,6 +307,125 @@ export function createApiClient(request: ApiTransport) {
         `/journal/runs/${encodeURIComponent(id)}/workspace`,
         {},
       ),
+    getResearchRun: (id: string) =>
+      request<ResearchRunResponse>(`/research-runs/${encodeURIComponent(id)}`, {}),
+    listResearchRunEvents: (id: string) =>
+      request<ResearchRunEventResponse[]>(
+        `/research-runs/${encodeURIComponent(id)}/events`,
+        {},
+      ),
+    getResearchRunSnapshots: (id: string) =>
+      request<ResearchRunSnapshotsResponse>(
+        `/research-runs/${encodeURIComponent(id)}/snapshots`,
+        {},
+      ),
+    getResearchRunDebate: (id: string) =>
+      request<ResearchRunDebateResponse>(
+        `/research-runs/${encodeURIComponent(id)}/debate`,
+        {},
+      ),
+    listSignals: (params: { symbol?: string; limit?: number }) =>
+      request<SignalResponse[]>('/signals', {
+        query: {
+          symbol: params.symbol,
+          limit: params.limit ?? 50,
+        },
+      }),
+    countSignals: (params: { symbol?: string }) =>
+      request<SignalCountResponse>('/signals/count', {
+        query: { symbol: params.symbol },
+      }),
+    listTheses: (params: { limit?: number }) =>
+      request<ThesisResponse[]>('/theses', {
+        query: { limit: params.limit ?? 50 },
+      }),
+    getThesis: (id: string) =>
+      request<ThesisResponse>(`/theses/${encodeURIComponent(id)}`, {}),
+    getThesisScenarios: (id: string) =>
+      request<ScenarioResponse[]>(
+        `/theses/${encodeURIComponent(id)}/scenarios`,
+        {},
+      ),
+    recordThesisDecision: (
+      id: string,
+      body: RecordThesisDecisionRequest,
+    ) =>
+      request<ThesisDecisionResponse>(
+        `/theses/${encodeURIComponent(id)}/decision`,
+        { method: 'POST', body },
+      ),
+    recordThesisReview: (id: string, body: RecordThesisReviewRequest) =>
+      request<ThesisReviewResponse>(
+        `/theses/${encodeURIComponent(id)}/review`,
+        { method: 'POST', body },
+      ),
+    listWatchlists: (params: { limit?: number }) =>
+      request<WatchlistResponse[]>('/watchlists', {
+        query: { limit: params.limit ?? 50 },
+      }),
+    createWatchlist: (body: CreateWatchlistRequest) =>
+      request<WatchlistResponse>('/watchlists', { method: 'POST', body }),
+    getWatchlist: (id: string) =>
+      request<WatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {}),
+    updateWatchlist: (id: string, body: UpdateWatchlistRequest) =>
+      request<WatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body,
+      }),
+    getWatchlistItems: (id: string) =>
+      request<WatchlistItemResponse[]>(
+        `/watchlists/${encodeURIComponent(id)}/items`,
+        {},
+      ),
+    addWatchlistItem: (id: string, body: AddWatchlistItemRequest) =>
+      request<WatchlistItemResponse>(
+        `/watchlists/${encodeURIComponent(id)}/items`,
+        { method: 'POST', body },
+      ),
+    removeWatchlistItem: (watchlistId: string, itemId: string) =>
+      request<RemoveWatchlistItemResponse>(
+        `/watchlists/${encodeURIComponent(watchlistId)}/items/${encodeURIComponent(itemId)}`,
+        { method: 'DELETE' },
+      ),
+    checkWatchlist: (id: string, body: CheckWatchlistRequest) =>
+      request<WatchlistCheckResponse>(
+        `/watchlists/${encodeURIComponent(id)}/check`,
+        { method: 'POST', body },
+      ),
+    listDailyBriefs: (params: {
+      date?: string;
+      limit?: number;
+      watchlist_id?: string;
+      watchlist_name?: string;
+    }) =>
+      request<BriefResponse[]>('/briefs/daily', {
+        query: {
+          date: params.date,
+          limit: params.limit ?? 20,
+          watchlist_id: params.watchlist_id,
+          watchlist_name: params.watchlist_name,
+        },
+      }),
+    createDailyBrief: (body: CreateDailyBriefRequest) =>
+      request<BriefResponse>('/briefs/daily', { method: 'POST', body }),
+    listAlerts: (params: {
+      symbol?: string;
+      thesis_id?: string;
+      unread?: boolean;
+      limit?: number;
+    }) =>
+      request<AlertResponse[]>('/alerts', {
+        query: {
+          symbol: params.symbol,
+          thesis_id: params.thesis_id,
+          unread: params.unread,
+          limit: params.limit ?? 50,
+        },
+      }),
+    markAlertRead: (id: string) =>
+      request<AlertResponse>(`/alerts/${encodeURIComponent(id)}/read`, {
+        method: 'POST',
+      }),
     getJobStatus: (id: string) =>
       request<JobStatusResponse>(`/jobs/${encodeURIComponent(id)}`, {}),
     cancelJob: (id: string) =>

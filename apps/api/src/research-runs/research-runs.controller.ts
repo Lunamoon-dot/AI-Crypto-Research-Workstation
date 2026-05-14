@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { parseListLimit } from '../common/query-limit';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 import { ResearchRunsService } from './research-runs.service';
 
@@ -18,7 +19,7 @@ export class ResearchRunsController {
       {
         symbol,
         status,
-        limit: Number(limit ?? 50),
+        limit: parseListLimit(limit, { defaultLimit: 50, maxLimit: 100 }),
       },
       userId,
       workspaceId,

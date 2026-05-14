@@ -121,6 +121,50 @@ export const openApiDocument = {
         },
       },
     },
+    '/research-runs/{id}': {
+      get: {
+        operationId: 'getResearchRun',
+        tags: ['research-runs'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped research run.',
+          'ResearchRunResponse',
+        ),
+      },
+    },
+    '/research-runs/{id}/events': {
+      get: {
+        operationId: 'listResearchRunEvents',
+        tags: ['research-runs'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Timeline events for a research run.',
+          'ResearchRunEventResponse',
+        ),
+      },
+    },
+    '/research-runs/{id}/snapshots': {
+      get: {
+        operationId: 'getResearchRunSnapshots',
+        tags: ['research-runs'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Market and signal snapshots for a research run.',
+          'ResearchRunSnapshotsResponse',
+        ),
+      },
+    },
+    '/research-runs/{id}/debate': {
+      get: {
+        operationId: 'getResearchRunDebate',
+        tags: ['research-runs'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Debate and agent opinions for a research run.',
+          'ResearchRunDebateResponse',
+        ),
+      },
+    },
     '/journal/runs/{id}/workspace': {
       get: {
         operationId: 'getJournalRunWorkspace',
@@ -145,6 +189,225 @@ export const openApiDocument = {
             },
           },
         },
+      },
+    },
+    '/signals': {
+      get: {
+        operationId: 'listSignals',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          limitParameter(50, 100),
+        ],
+        responses: jsonArrayResponse(
+          'Signals for the active workspace.',
+          'SignalResponse',
+        ),
+      },
+    },
+    '/signals/count': {
+      get: {
+        operationId: 'countSignals',
+        tags: ['signals'],
+        parameters: [queryParameter('symbol', { type: 'string' })],
+        responses: jsonResponse(
+          'Signal direction counts for the active workspace.',
+          'SignalCountResponse',
+        ),
+      },
+    },
+    '/theses': {
+      get: {
+        operationId: 'listTheses',
+        tags: ['theses'],
+        parameters: [limitParameter(50, 100)],
+        responses: jsonArrayResponse(
+          'Trade theses for the active workspace.',
+          'ThesisResponse',
+        ),
+      },
+    },
+    '/theses/{id}': {
+      get: {
+        operationId: 'getThesis',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped trade thesis.',
+          'ThesisResponse',
+        ),
+      },
+    },
+    '/theses/{id}/scenarios': {
+      get: {
+        operationId: 'getThesisScenarios',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Scenarios for a trade thesis.',
+          'ScenarioResponse',
+        ),
+      },
+    },
+    '/theses/{id}/decision': {
+      post: {
+        operationId: 'recordThesisDecision',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('RecordThesisDecisionRequest'),
+        responses: jsonResponse(
+          'Recorded thesis decision.',
+          'ThesisDecisionResponse',
+          '201',
+        ),
+      },
+    },
+    '/theses/{id}/review': {
+      post: {
+        operationId: 'recordThesisReview',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('RecordThesisReviewRequest'),
+        responses: jsonResponse(
+          'Recorded thesis outcome review.',
+          'ThesisReviewResponse',
+          '201',
+        ),
+      },
+    },
+    '/watchlists': {
+      get: {
+        operationId: 'listWatchlists',
+        tags: ['watchlists'],
+        parameters: [limitParameter(50, 100)],
+        responses: jsonArrayResponse(
+          'Watchlists for the active workspace.',
+          'WatchlistResponse',
+        ),
+      },
+      post: {
+        operationId: 'createWatchlist',
+        tags: ['watchlists'],
+        requestBody: jsonRequest('CreateWatchlistRequest'),
+        responses: jsonResponse(
+          'Created watchlist.',
+          'WatchlistResponse',
+          '201',
+        ),
+      },
+    },
+    '/watchlists/{id}': {
+      get: {
+        operationId: 'getWatchlist',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped watchlist.',
+          'WatchlistResponse',
+        ),
+      },
+      patch: {
+        operationId: 'updateWatchlist',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('UpdateWatchlistRequest'),
+        responses: jsonResponse('Updated watchlist.', 'WatchlistResponse'),
+      },
+    },
+    '/watchlists/{id}/items': {
+      get: {
+        operationId: 'getWatchlistItems',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Items in a watchlist.',
+          'WatchlistItemResponse',
+        ),
+      },
+      post: {
+        operationId: 'addWatchlistItem',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('AddWatchlistItemRequest'),
+        responses: jsonResponse(
+          'Created watchlist item.',
+          'WatchlistItemResponse',
+          '201',
+        ),
+      },
+    },
+    '/watchlists/{id}/items/{itemId}': {
+      delete: {
+        operationId: 'removeWatchlistItem',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id'), pathParameter('itemId')],
+        responses: jsonResponse(
+          'Removed watchlist item.',
+          'RemoveWatchlistItemResponse',
+        ),
+      },
+    },
+    '/watchlists/{id}/check': {
+      post: {
+        operationId: 'checkWatchlist',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('CheckWatchlistRequest'),
+        responses: jsonResponse(
+          'Watchlist alert check result.',
+          'WatchlistCheckResponse',
+          '201',
+        ),
+      },
+    },
+    '/briefs/daily': {
+      get: {
+        operationId: 'listDailyBriefs',
+        tags: ['briefs'],
+        parameters: [
+          queryParameter('date', { type: 'string', format: 'date' }),
+          limitParameter(20, 100),
+          queryParameter('watchlist_id', { type: 'string' }),
+          queryParameter('watchlist_name', { type: 'string' }),
+        ],
+        responses: jsonArrayResponse(
+          'Daily market briefs for the active workspace.',
+          'BriefResponse',
+        ),
+      },
+      post: {
+        operationId: 'createDailyBrief',
+        tags: ['briefs'],
+        requestBody: jsonRequest('CreateDailyBriefRequest'),
+        responses: jsonResponse(
+          'Created daily market brief.',
+          'BriefResponse',
+          '201',
+        ),
+      },
+    },
+    '/alerts': {
+      get: {
+        operationId: 'listAlerts',
+        tags: ['alerts'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('thesis_id', { type: 'string' }),
+          queryParameter('unread', { type: 'boolean' }),
+          limitParameter(50, 200),
+        ],
+        responses: jsonArrayResponse(
+          'Alerts for the active workspace.',
+          'AlertResponse',
+        ),
+      },
+    },
+    '/alerts/{id}/read': {
+      post: {
+        operationId: 'markAlertRead',
+        tags: ['alerts'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse('Marked alert.', 'AlertResponse', '201'),
       },
     },
     '/jobs/{id}': {
@@ -612,6 +875,243 @@ export const openApiDocument = {
           payload: { $ref: '#/components/schemas/JsonRecord' },
         },
       },
+      ThesisDecisionResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'thesis_id', 'action', 'user_notes', 'decided_at'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          action: { type: 'string' },
+          user_notes: { type: 'string' },
+          decided_at: { type: ['string', 'null'] },
+        },
+      },
+      ThesisReviewResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'thesis_id', 'result', 'lessons', 'reviewed_at', 'invalidated'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          result: { type: 'string' },
+          lessons: { type: 'string' },
+          reviewed_at: { type: ['string', 'null'] },
+          invalidated: { type: 'boolean' },
+        },
+      },
+      RecordThesisDecisionRequest: {
+        type: 'object',
+        required: ['action'],
+        properties: {
+          action: { type: 'string', minLength: 1 },
+          notes: { type: 'string' },
+        },
+      },
+      RecordThesisReviewRequest: {
+        type: 'object',
+        required: ['result'],
+        properties: {
+          result: { type: 'string', minLength: 1 },
+          notes: { type: 'string' },
+        },
+      },
+      SignalResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'symbol', 'signal_type', 'direction', 'confidence', 'observed_at', 'source', 'source_timestamp', 'summary'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          symbol: { type: 'string' },
+          signal_type: { type: 'string' },
+          direction: { type: 'string' },
+          confidence: { type: ['number', 'null'] },
+          observed_at: { type: ['string', 'null'] },
+          source: { type: 'string' },
+          source_timestamp: { type: ['string', 'null'] },
+          summary: { type: 'string' },
+        },
+      },
+      SignalCountResponse: {
+        type: 'object',
+        required: ['total', 'bullish', 'bearish', 'neutral'],
+        properties: {
+          total: { type: 'integer' },
+          bullish: { type: 'integer' },
+          bearish: { type: 'integer' },
+          neutral: { type: 'integer' },
+        },
+      },
+      WatchlistResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'name', 'enabled', 'created_at'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          name: { type: 'string' },
+          enabled: { type: 'boolean' },
+          created_at: { type: ['string', 'null'] },
+        },
+      },
+      WatchlistItemResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'watchlist_id', 'item_type', 'symbol', 'thesis_id', 'setup_type', 'enabled', 'created_at'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          watchlist_id: { type: 'string' },
+          item_type: { type: 'string' },
+          symbol: { type: ['string', 'null'] },
+          thesis_id: { type: ['string', 'null'] },
+          setup_type: { type: ['string', 'null'] },
+          enabled: { type: 'boolean' },
+          created_at: { type: ['string', 'null'] },
+        },
+      },
+      WatchlistCheckResponse: {
+        type: 'object',
+        required: ['workspace_id', 'watchlist_id', 'checked_items', 'alerts_created', 'skipped_items'],
+        properties: {
+          workspace_id: { type: 'string' },
+          watchlist_id: { type: 'string' },
+          checked_items: { type: 'integer' },
+          alerts_created: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AlertResponse' },
+          },
+          skipped_items: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      CreateWatchlistRequest: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1 },
+          enabled: { type: 'boolean' },
+        },
+      },
+      UpdateWatchlistRequest: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1 },
+          enabled: { type: 'boolean' },
+        },
+      },
+      AddWatchlistItemRequest: {
+        type: 'object',
+        properties: {
+          item_type: { type: 'string' },
+          symbol: { type: 'string' },
+          thesis_id: { type: 'string' },
+          setup_type: { type: 'string' },
+        },
+      },
+      CheckWatchlistRequest: {
+        type: 'object',
+        properties: {
+          prices: {
+            type: 'object',
+            additionalProperties: { type: 'number' },
+          },
+        },
+      },
+      RemoveWatchlistItemResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'watchlist_id', 'removed'],
+        properties: {
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          watchlist_id: { type: 'string' },
+          removed: { type: 'boolean' },
+        },
+      },
+      BriefAssetSummaryResponse: {
+        type: 'object',
+        required: ['symbol', 'current_price', 'market_regime', 'trend_direction', 'volatility_regime', 'source', 'source_timestamp', 'summary', 'change_from_previous'],
+        properties: {
+          symbol: { type: 'string' },
+          current_price: { type: ['number', 'null'] },
+          market_regime: { type: 'string' },
+          trend_direction: { type: 'string' },
+          volatility_regime: { type: 'string' },
+          source: { type: ['string', 'null'] },
+          source_timestamp: { type: ['string', 'null'] },
+          summary: { type: 'string' },
+          change_from_previous: { type: ['string', 'null'] },
+        },
+      },
+      BriefThesisUpdateResponse: {
+        type: 'object',
+        required: ['thesis_id', 'symbol', 'direction', 'setup_type', 'confidence', 'status', 'update', 'invalidation_level', 'recent_alerts'],
+        properties: {
+          thesis_id: { type: 'string' },
+          symbol: { type: 'string' },
+          direction: { type: 'string' },
+          setup_type: { type: 'string' },
+          confidence: { type: ['number', 'null'] },
+          status: { type: 'string' },
+          update: { type: 'string' },
+          invalidation_level: { type: ['string', 'null'] },
+          recent_alerts: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      BriefResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'brief_date', 'watchlist_name', 'title', 'created_at', 'previous_brief_id', 'summary', 'key_points', 'thesis_ids', 'signal_ids', 'asset_summaries', 'thesis_updates', 'watchlist_changes', 'top_setups', 'top_risks', 'memory_notes'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          brief_date: { type: ['string', 'null'] },
+          watchlist_name: { type: ['string', 'null'] },
+          title: { type: 'string' },
+          created_at: { type: ['string', 'null'] },
+          previous_brief_id: { type: ['string', 'null'] },
+          summary: { type: 'string' },
+          key_points: { type: 'array', items: { type: 'string' } },
+          thesis_ids: { type: 'array', items: { type: 'string' } },
+          signal_ids: { type: 'array', items: { type: 'string' } },
+          asset_summaries: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BriefAssetSummaryResponse' },
+          },
+          thesis_updates: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BriefThesisUpdateResponse' },
+          },
+          watchlist_changes: { type: 'array', items: { type: 'string' } },
+          top_setups: { type: 'array', items: { type: 'string' } },
+          top_risks: { type: 'array', items: { type: 'string' } },
+          memory_notes: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      CreateDailyBriefRequest: {
+        type: 'object',
+        properties: {
+          watchlist_id: { type: 'string' },
+          watchlist_name: { type: 'string' },
+          date: { type: 'string', format: 'date' },
+          alerts_limit: { type: 'integer', minimum: 1 },
+          evaluate_snapshots: { type: 'boolean' },
+          save: { type: 'boolean' },
+        },
+      },
+      AlertResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'alert_type', 'symbol', 'thesis_id', 'watchlist_item_id', 'trigger_key', 'created_at', 'read_at', 'message', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          alert_type: { type: 'string' },
+          symbol: { type: 'string' },
+          thesis_id: { type: ['string', 'null'] },
+          watchlist_item_id: { type: ['string', 'null'] },
+          trigger_key: { type: ['string', 'null'] },
+          created_at: { type: ['string', 'null'] },
+          read_at: { type: ['string', 'null'] },
+          message: { type: 'string' },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
       JournalRunWorkspaceResponse: {
         type: 'object',
         required: [
@@ -644,3 +1144,77 @@ export const openApiDocument = {
     },
   },
 } as const;
+
+function pathParameter(name: string) {
+  return {
+    name,
+    in: 'path',
+    required: true,
+    schema: { type: 'string' },
+  } as const;
+}
+
+function queryParameter(
+  name: string,
+  schema: Record<string, unknown>,
+) {
+  return {
+    name,
+    in: 'query',
+    required: false,
+    schema,
+  } as const;
+}
+
+function limitParameter(defaultValue: number, maxValue: number) {
+  return queryParameter('limit', {
+    type: 'integer',
+    minimum: 1,
+    maximum: maxValue,
+    default: defaultValue,
+  });
+}
+
+function jsonRequest(schemaName: string) {
+  return {
+    required: true,
+    content: {
+      'application/json': {
+        schema: { $ref: `#/components/schemas/${schemaName}` },
+      },
+    },
+  } as const;
+}
+
+function jsonResponse(
+  description: string,
+  schemaName: string,
+  status = '200',
+) {
+  return {
+    [status]: {
+      description,
+      content: {
+        'application/json': {
+          schema: { $ref: `#/components/schemas/${schemaName}` },
+        },
+      },
+    },
+  } as const;
+}
+
+function jsonArrayResponse(description: string, schemaName: string) {
+  return {
+    '200': {
+      description,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'array',
+            items: { $ref: `#/components/schemas/${schemaName}` },
+          },
+        },
+      },
+    },
+  } as const;
+}

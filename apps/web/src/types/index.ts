@@ -225,6 +225,13 @@ export interface SignalResponse {
   summary: string;
 }
 
+export interface SignalCountResponse {
+  total: number;
+  bullish: number;
+  bearish: number;
+  neutral: number;
+}
+
 export interface WatchlistResponse {
   id: string | null;
   workspace_id: string;

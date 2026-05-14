@@ -325,9 +325,7 @@ class ResearchRunOrchestrator:
             return ""
 
         try:
-            theses = service.list_theses(
-                limit=max(int(cfg.get("memory_limit", 50)), 1)
-            )
+            theses = service.list_theses(limit=max(int(cfg.get("memory_limit", 50)), 1))
         except Exception as exc:
             logger.debug("Could not load previous thesis context: %s", exc)
             return ""

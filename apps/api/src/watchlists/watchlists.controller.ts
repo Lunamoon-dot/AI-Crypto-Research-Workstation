@@ -14,6 +14,7 @@ import { CheckWatchlistDto } from './dto/check-watchlist.dto';
 import { CreateWatchlistDto } from './dto/create-watchlist.dto';
 import { UpdateWatchlistDto } from './dto/update-watchlist.dto';
 import { WatchlistsService } from './watchlists.service';
+import { parseListLimit } from '../common/query-limit';
 
 @Controller('watchlists')
 export class WatchlistsController {
@@ -25,7 +26,11 @@ export class WatchlistsController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.watchlists.list(Number(limit ?? 50), userId, workspaceId);
+    return this.watchlists.list(
+      parseListLimit(limit, { defaultLimit: 50, maxLimit: 100 }),
+      userId,
+      workspaceId,
+    );
   }
 
   @Post()

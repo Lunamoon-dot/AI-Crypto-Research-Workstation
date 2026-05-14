@@ -1,9 +1,19 @@
 import { Controller, Get, Headers, Query } from '@nestjs/common';
+import { parseListLimit } from '../common/query-limit';
 import { SignalsService } from './signals.service';
 
 @Controller('signals')
 export class SignalsController {
   constructor(private readonly signals: SignalsService) {}
+
+  @Get('count')
+  count(
+    @Query('symbol') symbol?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.signals.count(symbol, userId, workspaceId);
+  }
 
   @Get()
   list(
@@ -12,6 +22,11 @@ export class SignalsController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
-    return this.signals.list(symbol, Number(limit ?? 50), userId, workspaceId);
+    return this.signals.list(
+      symbol,
+      parseListLimit(limit, { defaultLimit: 50, maxLimit: 100 }),
+      userId,
+      workspaceId,
+    );
   }
 }

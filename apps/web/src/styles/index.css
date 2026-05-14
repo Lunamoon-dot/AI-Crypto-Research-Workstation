@@ -855,6 +855,48 @@ a {
     var(--surface);
 }
 
+.brief-card {
+  min-width: 0;
+}
+
+.brief-card-section {
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.brief-point {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.brief-point > span:first-child {
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.brief-asset-row,
+.brief-thesis-row {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-low);
+  padding: 10px;
+}
+
+.brief-asset-row {
+  grid-template-columns: minmax(0, 1.3fr) minmax(150px, 0.7fr);
+  align-items: start;
+}
+
 .loading-line {
   overflow: hidden;
   position: relative;
@@ -1007,7 +1049,7 @@ a {
     justify-content: flex-start;
   }
 
-  .top-strip-meta {
+  .top-strip > .top-strip-meta {
     display: none;
   }
 
@@ -1042,6 +1084,10 @@ a {
   .grid.three,
   .form-grid,
   .bento-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brief-asset-row {
     grid-template-columns: 1fr;
   }
 

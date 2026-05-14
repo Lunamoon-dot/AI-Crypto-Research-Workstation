@@ -54,7 +54,7 @@ export function ThesisDetailPage() {
     onSuccess: () => {
       setDecisionNotes('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesis(thesisId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.theses({}) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.thesesRoot() });
     },
   });
 
