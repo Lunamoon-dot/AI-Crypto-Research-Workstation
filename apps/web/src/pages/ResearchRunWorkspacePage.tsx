@@ -26,8 +26,10 @@ import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import {
   ConfidenceBadge,
+  DataQualityBadge,
   DirectionBadge,
   IdChip,
+  RatingBadge,
   StatusBadge,
 } from '@/components/research/badges';
 import { BentoGrid, DataPair, MetricTile, TimelineRow } from '@/components/research/bento';
@@ -426,6 +428,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
             <div className="stack">
               <div className="row">
                 <strong>{workspace.thesis.symbol}</strong>
+                <RatingBadge value={workspace.thesis.summary.rating || 'Hold'} />
                 <DirectionBadge value={workspace.thesis.direction} />
               </div>
               <p className="muted">{workspace.thesis.summary.action_summary || workspace.thesis.thesis_text}</p>
@@ -437,6 +440,10 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
               <div className="row small">
                 <span>Invalidation: {workspace.thesis.invalidation_level || 'n/a'}</span>
                 <ConfidenceBadge value={workspace.thesis.confidence} />
+                <DataQualityBadge
+                  label={workspace.thesis.summary.data_quality_label}
+                  value={workspace.thesis.summary.data_quality}
+                />
               </div>
               <div className="top-strip-meta">
                 <Link className="button primary" to={routes.thesis(workspace.thesis.id ?? '')}>
@@ -514,6 +521,10 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                   <div className="row">
                     <strong>{opinion.agent_name}</strong>
                     <ConfidenceBadge value={opinion.confidence} />
+                    <DataQualityBadge
+                      label={opinion.data_quality_label}
+                      value={opinion.data_quality}
+                    />
                   </div>
                   <div className="small muted">{opinion.agent_role} | {opinion.stance}</div>
                   <JsonView value={opinion.payload} />

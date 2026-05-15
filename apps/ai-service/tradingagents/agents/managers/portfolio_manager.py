@@ -82,7 +82,7 @@ Market type: {market_type}
 - **Buy**: Strong bullish thesis; prioritize bullish setup review
 - **Overweight**: Favorable outlook; increase attention as confirmation improves
 - **Hold**: Balanced thesis; keep on watch and reassess new evidence
-- **Underweight**: Cautious thesis; reduce conviction and reassess exposure
+- **Underweight**: Cautious thesis; reduce or avoid exposure; do not imply a short unless the rating is Sell
 - **Sell**: Strong bearish thesis; prefer bearish or avoid-setup review
 
 **Context:**
@@ -100,7 +100,7 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
 This is a research stance for manual review, not an exchange order or automated execution instruction.
 For spot, include accumulation/DCA/allocation-risk notes where relevant. For perp, include funding, OI, liquidation, leverage cap, invalidation distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
 
-For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block:
+For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block. Keep rating and direction consistent: Buy/Overweight = long, Hold = watch or neutral, Underweight = avoid, Sell = short.
 
 TRADE_THESIS_JSON:
 ```json

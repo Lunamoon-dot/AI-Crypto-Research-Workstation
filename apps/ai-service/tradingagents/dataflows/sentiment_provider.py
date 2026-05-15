@@ -1,7 +1,7 @@
-"""Real sentiment data sources for market mood analysis.
+"""Sentiment data sources for market mood analysis.
 
-Provides Fear & Greed indices (stock + crypto), social volume tracking,
-and news sentiment aggregation from free/accessible endpoints.
+Provides broad crypto Fear & Greed context, social volume tracking, and
+sample-size-gated news headline sentiment from free/accessible endpoints.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _cache: dict[str, tuple[float, str]] = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL = 120  # seconds
+MIN_HEADLINES_FOR_DIRECTIONAL_NEWS_SENTIMENT = 10
 
 
 def _cached(key: str) -> Optional[str]:
@@ -40,7 +41,7 @@ def _set_cache(key: str, val: str) -> None:
 
 
 def fetch_crypto_fear_greed() -> str:
-    """Fetch the Crypto Fear & Greed Index (0-100) from alternative.me.
+    """Fetch the market-wide Crypto Fear & Greed Index from alternative.me.
 
     Values: 0-24 = Extreme Fear, 25-49 = Fear, 50 = Neutral,
             51-74 = Greed, 75-100 = Extreme Greed.
@@ -53,26 +54,41 @@ def fetch_crypto_fear_greed() -> str:
     if data is None or "data" not in data:
         return "Crypto Fear & Greed Index: unavailable (API error)."
 
-    lines = ["Crypto Fear & Greed Index", "=" * 40, ""]
+    lines = [
+        "Crypto Fear & Greed Index (market-wide macro sentiment)",
+        "=" * 55,
+        "Coverage: broad crypto market mood, not a coin-specific signal.",
+        "",
+    ]
     for entry in data["data"][:3]:
         val = int(entry.get("value", 50))
         classification = entry.get("value_classification", "Neutral")
         ts = datetime.fromtimestamp(int(entry.get("timestamp", 0)), tz=timezone.utc)
-        lines.append(f"  {ts.strftime('%Y-%m-%d')}: {val}/100 — {classification}")
+        lines.append(f"  {ts.strftime('%Y-%m-%d')}: {val}/100 - {classification}")
 
     lines.append("")
     latest_val = int(data["data"][0]["value"])
     if latest_val <= 25:
-        lines.append("🔴 Extreme Fear — historically a buying opportunity.")
+        lines.append(
+            "Extreme Fear: broad crypto risk appetite is very weak; use only as "
+            "macro context and require asset-specific confirmation."
+        )
     elif latest_val <= 45:
-        lines.append("🟠 Fear — cautious sentiment, potential contrarian entry.")
+        lines.append(
+            "Fear: cautious market-wide sentiment; not enough for a coin-specific "
+            "entry signal."
+        )
     elif latest_val <= 55:
-        lines.append("🟡 Neutral — no strong directional bias.")
+        lines.append("Neutral: no strong market-wide sentiment bias.")
     elif latest_val <= 75:
-        lines.append("🟢 Greed — bullish sentiment, consider taking partial profits.")
+        lines.append(
+            "Greed: broad crypto risk appetite is elevated; treat as macro context, "
+            "not proof of asset-specific demand."
+        )
     else:
         lines.append(
-            "🟣 Extreme Greed — overheated market, heightened correction risk."
+            "Extreme Greed: broad market crowding/correction risk is elevated; "
+            "not a standalone coin-specific signal."
         )
 
     result = "\n".join(lines)
@@ -128,11 +144,11 @@ def _fetch_coingecko_trending(base: str) -> str:
         lines.append("")
         score = found.get("score", 0)
         if score > 500:
-            lines.append("🟢 High social interest — strong retail attention.")
+            lines.append("High social interest - strong retail attention.")
         elif score > 100:
-            lines.append("🟡 Moderate social interest.")
+            lines.append("Moderate social interest.")
         else:
-            lines.append("⚪ Low social interest — flying under the radar.")
+            lines.append("Low social interest - flying under the radar.")
     else:
         lines.append("  Not in CoinGecko Top Trending (15 coins).")
         lines.append(
@@ -239,14 +255,26 @@ def aggregate_news_sentiment(headlines_csv: str) -> str:
         f"  Headlines analyzed: {headline_count}",
         f"  Bullish signals: {bull_hits}",
         f"  Bearish signals: {bear_hits}",
-        f"  Sentiment score: {score}/100 — {lean}",
+        f"  Sentiment score: {score}/100 - {lean}",
         "",
     ]
+    if headline_count < MIN_HEADLINES_FOR_DIRECTIONAL_NEWS_SENTIMENT:
+        lines.append(
+            "Sample-size gate: only "
+            f"{headline_count} headline(s), below the "
+            f"{MIN_HEADLINES_FOR_DIRECTIONAL_NEWS_SENTIMENT}-headline minimum. "
+            "Use this as weak context/warning only, not strong evidence."
+        )
+        lines.append(
+            "Do not treat this headline score as a primary coin-specific signal."
+        )
+        return "\n".join(lines)
+
     if lean == "bullish":
-        lines.append("🟢 News flow is predominantly positive.")
+        lines.append("News flow is predominantly positive.")
     elif lean == "bearish":
-        lines.append("🔴 News flow is predominantly negative.")
+        lines.append("News flow is predominantly negative.")
     else:
-        lines.append("🟡 News flow is mixed — no strong directional bias.")
+        lines.append("News flow is mixed - no strong directional bias.")
 
     return "\n".join(lines)

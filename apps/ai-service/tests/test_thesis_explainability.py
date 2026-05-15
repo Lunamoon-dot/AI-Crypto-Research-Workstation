@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
+from tradingagents.agents.utils.rating import DecisionConsistencyError
 from tradingagents.domain import (
     DataFreshness,
     ResearchRun,
@@ -103,7 +106,7 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
         graph,
         {
             "company_of_interest": "BTC/USDT",
-            "final_trade_decision": "**Rating**: Hold\n\n**Investment Thesis**: Wait.",
+            "final_trade_decision": "**Rating**: Sell\n\n**Investment Thesis**: Wait.",
             "final_trade_summary_json": """
             {
               "rating": "Sell",
@@ -124,20 +127,21 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
 
     assert thesis.workspace_id == "workspace_1"
     assert thesis.direction.value == "short"
-    assert thesis.confidence == 0.81
+    assert thesis.confidence == 0.45
     assert thesis.structured_summary.rating == "Sell"
     assert thesis.structured_summary.action_summary == "Fade failed reclaim"
     assert thesis.entry_zone == "Failed reclaim near 100000"
     assert thesis.target_zones == ["92000", "88000"]
     assert thesis.invalidation == "Close above 105000"
     assert thesis.structured_summary is not None
-    assert thesis.structured_summary.is_degraded is False
+    assert thesis.structured_summary.is_degraded is True
     assert thesis.structured_summary.market_type == "perp"
     assert (
         thesis.structured_summary.perp_notes
         == "Funding is elevated; cap leverage at 2x."
     )
     assert thesis.structured_summary.missing_data == ["liquidation heatmap"]
+    assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
 
 
 def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
@@ -154,7 +158,7 @@ def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
         graph,
         {
             "final_trade_decision": (
-                "**Rating**: Hold\n\n"
+                "**Rating**: Underweight\n\n"
                 "**Executive Summary**: Wait for confirmation.\n\n"
                 "TRADE_THESIS_JSON:\n"
                 "```json\n"
@@ -173,18 +177,38 @@ def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
         },
     )
 
-    assert thesis.direction == "short"
+    assert thesis.direction == ThesisDirection.AVOID
     assert thesis.thesis_text == (
-        "**Rating**: Hold\n\n**Executive Summary**: Wait for confirmation."
+        "**Rating**: Underweight\n\n**Executive Summary**: Wait for confirmation."
     )
     assert thesis.structured_summary is not None
     assert thesis.structured_summary.rating == "Underweight"
-    assert thesis.structured_summary.direction == "short"
+    assert thesis.structured_summary.direction == ThesisDirection.AVOID
     assert thesis.structured_summary.confidence == 0.24
     assert thesis.structured_summary.action_summary == (
         "Trim 25-50%; do not open new longs"
     )
     assert thesis.structured_summary.risks == ["Missing liquidation data"]
+
+
+def test_graph_rejects_mismatched_official_rating_fields():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "SOL/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.24)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_bad", symbol="SOL/USDT")
+    graph.current_signals = []
+
+    with pytest.raises(DecisionConsistencyError):
+        ResearchAgentsGraph._build_trade_thesis(
+            graph,
+            {
+                "final_trade_decision": "**Rating**: Overweight\n\nAvoid.",
+                "final_trade_summary_json": '{"rating": "Underweight"}',
+            },
+        )
 
 
 def test_graph_uses_debate_confidence_when_pm_confidence_missing():
@@ -227,6 +251,178 @@ def test_graph_uses_debate_confidence_when_pm_confidence_missing():
     assert thesis.evidence["quant_bias"] == "neutral"
     assert "source=debate_consensus" in thesis.confidence_rationale
     assert "quant confidence=0.08" in thesis.confidence_rationale
+    assert thesis.structured_summary.data_quality_label == "clean"
+
+
+def test_degraded_run_caps_pm_confidence_and_surfaces_reason_codes():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_degraded",
+        symbol="BTC/USDT",
+        status="completed_degraded",
+        degradation_reasons=["missing_news"],
+        missing_optional_data=["missing liquidation heatmap"],
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if flows hold.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive, but missing data weakens confidence",
+              "entry_zone": "Pullback near 100000",
+              "invalidation": "Close below 95000",
+              "target_zones": ["110000"],
+              "missing_data": ["missing liquidation heatmap"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.direction == ThesisDirection.LONG
+    assert thesis.confidence == 0.45
+    assert thesis.structured_summary.is_degraded is True
+    assert thesis.structured_summary.data_quality_label == "degraded"
+    assert "missing_news_feed" in thesis.structured_summary.missing_data_reason_codes
+    assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
+
+
+def test_low_quant_confidence_caps_high_pm_confidence_as_watch_memo():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "ETH/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(
+        confidence=0.15,
+        current_price=3200.0,
+        score=SimpleNamespace(value="Neutral"),
+    )
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_low_quant", symbol="ETH/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "ETH/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if flows hold.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive, but quant confidence is weak",
+              "entry_zone": "Pullback near 3150",
+              "invalidation": "Close below 3000",
+              "target_zones": ["3500"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.confidence == 0.25
+    assert thesis.evidence["confidence_source"] == "portfolio_manager_low_quant_capped"
+    assert "watch/risk memo" in thesis.confidence_rationale
+    assert any("watch/risk memo" in risk for risk in thesis.risk_notes)
+
+
+def test_mtf_alignment_conflict_penalizes_final_confidence():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(
+        confidence=0.8,
+        current_price=100000.0,
+        score=SimpleNamespace(value="Buy"),
+    )
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_mtf", symbol="BTC/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "market_report": """
+            Multi-Timeframe Analysis for BTC/USDT
+            Trend Summary:
+              DAILY    bullish (strength: 80%, slope: +4.0%)
+              WEEKLY   bullish (strength: 45%, slope: +2.2%)
+              MONTHLY  neutral (strength: 30%, slope: +0.4%)
+            Alignment Score: 56/100
+            Verdict: Mixed
+            """,
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive only on confirmation.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.80,
+              "action_summary": "Constructive only on confirmation",
+              "entry_zone": "Break above 103000",
+              "invalidation": "Close below 96000",
+              "target_zones": ["110000"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.confidence == 0.70
+    assert thesis.evidence["confidence_source"] == "portfolio_manager_mtf_penalized"
+    assert thesis.evidence["mtf_confidence_penalty"]["alignment_score"] == 56.0
+    assert any("Multi-timeframe alignment 56/100" in risk for risk in thesis.risk_notes)
+
+
+def test_graph_adds_price_sanity_note_when_trigger_already_crossed():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BNB/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.3, current_price=682.0)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_price", symbol="BNB/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BNB/USDT",
+            "final_trade_decision": (
+                "**Rating**: Hold\n\nBreak above $638 with volume and RSI confirmation."
+            ),
+            "final_trade_summary_json": """
+            {
+              "rating": "Hold",
+              "direction": "watch",
+              "confidence": 0.3,
+              "action_summary": "Wait for confirmation",
+              "entry_zone": "Break above $638 with volume",
+              "invalidation": "Close below $620",
+              "target_zones": ["$700"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    note = "price-only above $638 has already occurred at current price $682"
+    assert any(note in risk for risk in thesis.risk_notes)
+    assert thesis.evidence["current_price"] == 682.0
 
 
 def test_graph_stability_guard_holds_recent_same_symbol_flip():

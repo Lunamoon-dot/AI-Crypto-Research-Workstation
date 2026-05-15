@@ -229,7 +229,40 @@ def test_journal_service_does_not_mark_nonempty_reasons_completed(tmp_path):
     loaded = service.get_research_run(saved_run.id)
     assert loaded.status == ResearchRunStatus.COMPLETED_DEGRADED
     assert loaded.status != ResearchRunStatus.COMPLETED
-    assert loaded.degradation_reasons == ["missing_news"]
+    assert loaded.degradation_reasons == ["missing_news_feed"]
+
+
+def test_journal_service_normalizes_missing_data_reason_codes(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="BTC/USDT",
+            missing_optional_data=["liquidation heatmap", "onchain secondary"],
+        )
+    )
+    market_snapshot = service.save_market_snapshot(
+        MarketSnapshot(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            current_price=100000.0,
+        )
+    )
+    run.market_snapshot_id = market_snapshot.id
+    thesis = TradeThesis(
+        symbol="BTC/USDT",
+        direction=ThesisDirection.WATCH,
+        thesis_text="Watch for confirmation.",
+    )
+
+    saved_run, _thesis, _scenarios = service.complete_research_run_bundle(
+        run,
+        thesis,
+        [],
+    )
+
+    loaded = service.get_research_run(saved_run.id)
+    assert "missing_liquidations" in loaded.missing_optional_data
+    assert "missing_onchain_flows" in loaded.missing_optional_data
 
 
 def test_journal_service_records_decision_and_outcome(tmp_path):

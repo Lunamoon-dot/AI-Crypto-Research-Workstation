@@ -8,6 +8,7 @@ import {
   ConfidenceBadge,
   DirectionBadge,
   IdChip,
+  RatingBadge,
 } from '@/components/research/badges';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -80,6 +81,7 @@ export function ThesisLibraryPage() {
                 <th>Created</th>
                 <th>Symbol</th>
                 <th>Direction</th>
+                <th>Rating</th>
                 <th>Setup</th>
                 <th>Confidence</th>
                 <th>Memory</th>
@@ -97,6 +99,7 @@ export function ThesisLibraryPage() {
                     </Link>
                   </td>
                   <td><DirectionBadge value={thesis.direction} /></td>
+                  <td><RatingBadge value={thesis.summary.rating || 'Hold'} /></td>
                   <td>{thesis.setup_type}</td>
                   <td><ConfidenceBadge value={thesis.confidence} /></td>
                   <td><StabilityGuardBadge thesis={thesis} /></td>

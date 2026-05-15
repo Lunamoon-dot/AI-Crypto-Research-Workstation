@@ -88,11 +88,10 @@ def get_crypto_long_short_ratio(
 def get_crypto_nvt(
     symbol: Annotated[str, "Trading pair symbol, e.g. BTC/USDT, ETH/USDT"],
 ) -> str:
-    """Estimate the NVT Ratio (Network Value to Transactions) for a crypto asset.
+    """Estimate a valuation/liquidity proxy for a crypto asset.
 
-    High NVT (> 150) suggests the network is overvalued relative to usage.
-    Low NVT (< 50) suggests potential undervaluation.
-    Uses CoinGecko market cap and volume data.
+    Uses CoinGecko market cap divided by exchange-reported 24h volume. This is
+    not true on-chain NVT because it does not use network transaction volume.
     """
     return route_to_vendor("get_crypto_nvt", symbol)
 
@@ -104,7 +103,8 @@ def get_crypto_supply(
     """Fetch circulating supply, total supply, max supply, and FDV/MC ratio.
 
     High FDV/MC ratio (> 5x) signals significant future dilution from
-    token unlocks. Low ratio means most supply is already circulating.
+    token unlocks. Low ratio means most supply is already circulating. Burns
+    reduce supply; they do not mint new tokens.
     """
     return route_to_vendor("get_crypto_supply", symbol)
 
@@ -113,10 +113,10 @@ def get_crypto_supply(
 def get_crypto_exchange_metrics(
     symbol: Annotated[str, "Trading pair symbol, e.g. BTC/USDT, ETH/USDT"],
 ) -> str:
-    """Fetch exchange-related metrics: liquidity score, turnover ratio, 24h range.
+    """Fetch exchange volume/liquidity proxy metrics.
 
-    High turnover (> 100% of market cap) = extreme speculation.
-    Low turnover (< 10%) = accumulation or disinterest.
+    High turnover can indicate speculative trading. Low turnover can indicate
+    weak participation or a quiet tape; it is not accumulation by itself.
     """
     return route_to_vendor("get_crypto_exchange_metrics", symbol)
 

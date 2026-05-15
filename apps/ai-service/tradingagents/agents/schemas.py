@@ -452,7 +452,7 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         PortfolioRating.BUY: "long",
         PortfolioRating.OVERWEIGHT: "long",
         PortfolioRating.HOLD: "watch",
-        PortfolioRating.UNDERWEIGHT: "short",
+        PortfolioRating.UNDERWEIGHT: "avoid",
         PortfolioRating.SELL: "short",
     }
     return {

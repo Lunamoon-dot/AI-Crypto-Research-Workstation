@@ -17,12 +17,17 @@ from tradingagents.dataflows.sentiment_provider import (
 def get_fear_greed_index(
     symbol: Annotated[str, "Trading pair for context"],
 ) -> str:
-    """Fetch the current Crypto Fear & Greed Index (alternative.me).
+    """Fetch the current market-wide Crypto Fear & Greed Index.
 
-    Values range from 0 (Extreme Fear) to 100 (Extreme Greed).  Extreme fear
-    often signals buying opportunities; extreme greed warns of correction risk.
+    Values range from 0 (Extreme Fear) to 100 (Extreme Greed). This is broad
+    crypto market mood, not a coin-specific signal for the requested symbol.
     """
-    return fetch_crypto_fear_greed()
+    return (
+        fetch_crypto_fear_greed()
+        + "\n\n"
+        + f"Use for {symbol} only as macro sentiment context; require "
+        + "asset-specific news, flow, price, and liquidity evidence."
+    )
 
 
 @tool
@@ -42,9 +47,8 @@ def get_news_sentiment_aggregate(
 ) -> str:
     """Aggregate recent news headlines into a bullish/bearish sentiment score.
 
-    Uses keyword-based heuristic to score the tone of recent headlines.
-    Returns a 0-100 score with interpretation.  This complements the full
-    news reports from the News Analyst by providing a quick quantitative read.
+    Uses a keyword-based heuristic and a sample-size gate. Low headline counts
+    are weak context only and must not be treated as strong evidence.
     """
     from tradingagents.dataflows.interface import route_to_vendor
     import json

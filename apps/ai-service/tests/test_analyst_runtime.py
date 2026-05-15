@@ -193,7 +193,10 @@ def test_opinion_from_text_uses_declared_confidence_only():
     )
     decimal_opinion = opinion_from_text(
         "News Analyst",
-        "Conviction score = 0.64. News flow is positive but not decisive.",
+        (
+            "Conviction score = 0.64. Headline: ETF flows improve. "
+            "Source: CoinDesk. Published: 2026-05-08."
+        ),
         research_run_id="run_1",
         role="news_analyst",
         source_report_type="news",
@@ -203,6 +206,31 @@ def test_opinion_from_text_uses_declared_confidence_only():
     assert percent_opinion.confidence == 0.72
     assert decimal_opinion is not None
     assert decimal_opinion.confidence == 0.64
+
+
+def test_news_opinion_without_primary_feed_is_uncertain_low_quality():
+    opinion = opinion_from_text(
+        "News Analyst",
+        "\n".join(
+            [
+                "DATA_STATUS: insufficient_news_evidence",
+                "REASON_CODE: missing_news_feed",
+                "NO FEED. Do not invent stories.",
+                "Macro risk may be negative, but news-derived claims are unsupported.",
+            ]
+        ),
+        research_run_id="run_1",
+        role="news_analyst",
+        source_report_type="news",
+    )
+
+    assert opinion is not None
+    assert opinion.stance == AgentStance.UNCERTAIN
+    assert opinion.confidence is None
+    assert opinion.data_quality == 0.0
+    assert opinion.data_quality_label == "insufficient_data"
+    assert "missing_news_feed" in opinion.reason_codes
+    assert "insufficient_news_evidence" in opinion.missing_data
 
 
 def test_default_analyst_definitions_match_default_selection_order():

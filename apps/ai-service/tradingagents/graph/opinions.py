@@ -43,6 +43,8 @@ MISSING_DATA_TERMS = (
     "not available",
     "insufficient",
     "no data",
+    "no feed",
+    "unsupported",
 )
 RISK_TERMS = (
     "risk",
@@ -91,6 +93,14 @@ _DECLARED_CONFIDENCE_RE = re.compile(
     \s*(?P<percent>%|percent|pct)?
     """,
     re.IGNORECASE | re.VERBOSE,
+)
+_ISO_DATE_RE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
+_NEWS_FEED_MISSING_MARKERS = (
+    "no third-party crypto news feed",
+    "missing primary-source crypto headlines",
+    "no feed",
+    "do not fabricate headlines",
+    "news-derived claims are unsupported",
 )
 
 
@@ -304,7 +314,7 @@ def _text_opinion(
     if not text:
         return None
     stance = stance_override or _infer_stance(text)
-    return AgentOpinion(
+    opinion = AgentOpinion(
         research_run_id=research_run_id,
         agent_name=agent_name,
         role=role,
@@ -318,6 +328,12 @@ def _text_opinion(
         missing_data=_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=3),
         raw_text=text,
         source_report_type=source_report_type,
+    )
+    return normalize_opinion_quality(
+        opinion,
+        raw_text=text,
+        source_report_type=source_report_type,
+        stance_override=stance_override,
     )
 
 
@@ -360,7 +376,7 @@ def _structured_state_opinion(
         )
     except Exception:
         return None
-    return opinion.model_copy(
+    opinion = opinion.model_copy(
         update={
             "research_run_id": research_run_id,
             "agent_name": agent_name,
@@ -369,10 +385,79 @@ def _structured_state_opinion(
             "raw_text": opinion.raw_text or raw_text,
         }
     )
+    return normalize_opinion_quality(
+        opinion,
+        raw_text=raw_text,
+        source_report_type=source_report_type,
+    )
+
+
+def normalize_opinion_quality(
+    opinion: AgentOpinion,
+    *,
+    raw_text: str,
+    source_report_type: str,
+    stance_override: AgentStance | None = None,
+) -> AgentOpinion:
+    """Separate market stance from data confidence for persisted opinions."""
+
+    text = raw_text or opinion.raw_text or ""
+    missing_data = dedupe(
+        [
+            *opinion.missing_data,
+            *_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=5),
+        ]
+    )[:8]
+    reason_codes = dedupe([*opinion.reason_codes, *_reason_codes_from_text(text)])
+    data_quality = opinion.data_quality
+    stance = opinion.stance
+    confidence = opinion.confidence
+
+    if source_report_type == "news" and not _has_primary_news_evidence(text):
+        data_quality = 0.0
+        stance = AgentStance.UNCERTAIN
+        confidence = _cap_confidence(confidence, 0.2)
+        missing_data = dedupe(
+            [
+                *missing_data,
+                "insufficient_news_evidence",
+                "missing primary-source crypto headlines",
+            ]
+        )[:8]
+        reason_codes = dedupe(
+            [*reason_codes, "missing_news_feed", "insufficient_news_evidence"]
+        )
+    elif _missing_data_dominates(text, missing_data):
+        data_quality = min(data_quality, 0.25)
+        if stance_override is None:
+            stance = AgentStance.UNCERTAIN
+        confidence = _cap_confidence(confidence, 0.25)
+        reason_codes = dedupe([*reason_codes, "insufficient_data"])
+    elif missing_data:
+        data_quality = min(data_quality, 0.6)
+        confidence = _cap_confidence(confidence, 0.6)
+
+    if data_quality < 0.35 and stance_override is None:
+        stance = AgentStance.UNCERTAIN
+
+    return opinion.model_copy(
+        update={
+            "stance": stance,
+            "confidence": confidence,
+            "data_quality": data_quality,
+            "data_quality_label": _data_quality_label(data_quality),
+            "missing_data": missing_data,
+            "reason_codes": reason_codes,
+        }
+    )
 
 
 def _infer_stance(text: str) -> AgentStance:
     lowered = text.lower()
+    if _missing_data_dominates(
+        text, _extract_sentences(text, terms=MISSING_DATA_TERMS, limit=5)
+    ):
+        return AgentStance.UNCERTAIN
     bullish = sum(lowered.count(term) for term in BULLISH_TERMS)
     bearish = sum(lowered.count(term) for term in BEARISH_TERMS)
     if bullish == bearish == 0:
@@ -465,3 +550,60 @@ def _count_stale_mentions(opinions: list[AgentOpinion]) -> int:
         for opinion in opinions
         if any(term in opinion.raw_text.lower() for term in stale_terms)
     )
+
+
+def _has_primary_news_evidence(text: str) -> bool:
+    lowered = (text or "").lower()
+    if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
+        return False
+    if "cryptopanic" in lowered and _ISO_DATE_RE.search(text or ""):
+        return True
+    has_source = "source" in lowered or "http://" in lowered or "https://" in lowered
+    has_published_date = bool(_ISO_DATE_RE.search(text or ""))
+    has_headline_language = "headline" in lowered or "title" in lowered
+    return has_source and has_published_date and has_headline_language
+
+
+def _missing_data_dominates(text: str, missing_data: list[str]) -> bool:
+    lowered = (text or "").lower()
+    if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
+        return True
+    if not missing_data:
+        return False
+    evidence_hits = sum(lowered.count(term) for term in EVIDENCE_TERMS)
+    missing_hits = sum(lowered.count(term) for term in MISSING_DATA_TERMS)
+    return missing_hits >= 2 and evidence_hits <= 1
+
+
+def _reason_codes_from_text(text: str) -> list[str]:
+    lowered = (text or "").lower()
+    codes = []
+    if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
+        codes.append("missing_news_feed")
+    if "liquidation" in lowered and any(term in lowered for term in MISSING_DATA_TERMS):
+        codes.append("missing_liquidations")
+    if (
+        "on-chain" in lowered or "onchain" in lowered or "exchange flow" in lowered
+    ) and any(term in lowered for term in MISSING_DATA_TERMS):
+        codes.append("missing_onchain_flows")
+    if "funding" in lowered and any(term in lowered for term in MISSING_DATA_TERMS):
+        codes.append("missing_funding_rate")
+    if "open interest" in lowered and any(
+        term in lowered for term in MISSING_DATA_TERMS
+    ):
+        codes.append("exchange_oi_unsupported")
+    return codes
+
+
+def _cap_confidence(value: float | None, cap: float) -> float | None:
+    if value is None:
+        return None
+    return min(value, cap)
+
+
+def _data_quality_label(data_quality: float) -> str:
+    if data_quality < 0.35:
+        return "insufficient_data"
+    if data_quality < 0.75:
+        return "degraded"
+    return "clean"

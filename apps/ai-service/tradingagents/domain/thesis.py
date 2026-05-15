@@ -41,6 +41,17 @@ class TradeThesisStructuredSummary(BaseModel):
     spot_notes: str = ""
     perp_notes: str = ""
     missing_data: list[str] = Field(default_factory=list)
+    missing_data_reason_codes: list[str] = Field(default_factory=list)
+    data_quality: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Machine-readable data confidence independent from market stance.",
+    )
+    data_quality_label: str = Field(
+        default="clean",
+        description="clean | degraded | insufficient_data",
+    )
     is_degraded: bool = False
     degradation_reasons: list[str] = Field(default_factory=list)
 
@@ -124,6 +135,7 @@ class TradeThesisStructuredSummary(BaseModel):
         "key_reasons",
         "risks",
         "missing_data",
+        "missing_data_reason_codes",
         "degradation_reasons",
         mode="before",
     )
@@ -136,6 +148,22 @@ class TradeThesisStructuredSummary(BaseModel):
         if not isinstance(value, list):
             value = list(value) if isinstance(value, tuple) else [value]
         return [str(item).strip()[:500] for item in value if str(item).strip()]
+
+    @field_validator("data_quality_label", mode="before")
+    @classmethod
+    def _normalize_data_quality_label(cls, value: Any) -> str:
+        normalized = str(value or "clean").strip().lower()
+        if normalized in {"insufficient", "insufficient_data", "missing"}:
+            return "insufficient_data"
+        if normalized in {"degraded", "partial", "low_confidence"}:
+            return "degraded"
+        return "clean"
+
+    @model_validator(mode="after")
+    def _mirror_data_quality_to_degraded(self) -> "TradeThesisStructuredSummary":
+        if self.data_quality < 0.65 or self.data_quality_label != "clean":
+            self.is_degraded = True
+        return self
 
 
 class TradeThesis(BaseModel):

@@ -252,6 +252,13 @@ def create_analyst_opinion_builder(
                     source_report_type=source_report_type,
                     raw_text=report,
                 )
+                from tradingagents.graph.opinions import normalize_opinion_quality
+
+                opinion = normalize_opinion_quality(
+                    opinion,
+                    raw_text=report,
+                    source_report_type=source_report_type,
+                )
                 log_event(
                     logger,
                     "structured_output_call",

@@ -198,6 +198,8 @@ def format_cryptopanic_for_tool(
 
     guidance = (
         "**DATA STATUS — NO THIRD-PARTY CRYPTO NEWS FEED**\n\n"
+        "DATA_STATUS: insufficient_news_evidence\n"
+        "REASON_CODE: missing_news_feed\n\n"
         "Do **not** fabricate headlines, URLs, or publication dates. "
         "Explicitly label this news section as *missing primary-source crypto headlines* "
         "and synthesize actionable context only from other tools "
@@ -228,6 +230,8 @@ def format_global_cryptopanic_for_tool(
             f"Global crypto news snapshot (requested `curr_date={curr_date}`, "
             f"look_back≈{look_back_days}d)\n"
             f"{'=' * 50}\n\n"
+            "DATA_STATUS: insufficient_news_evidence\n"
+            "REASON_CODE: missing_news_feed\n\n"
             "**NO FEED.** Do not invent stories. Prefer sentiment/on-chain tools "
             "for macro mood unless `CRYPTOPANIC_API_TOKEN` is configured.\n"
         )

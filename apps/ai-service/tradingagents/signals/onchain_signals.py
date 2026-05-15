@@ -1,7 +1,8 @@
-"""On-chain signal — long/short ratio, NVT, and exchange reserve data.
+"""On-chain-adjacent proxy signal.
 
-Parses formatted text output from CCXT (long/short ratio) and CoinGecko
-(NVT, exchange reserves) to produce a structured trading signal.
+Parses formatted text output from CCXT/CoinGecko proxy data. Current inputs are
+position skew, market-cap-over-volume proxy, and turnover/liquidity proxies;
+they are not wallet-level on-chain flow metrics.
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ LS_MAJORITY_LONG = 1.5  # > 1.5 = majority long
 LS_MAJORITY_SHORT = 0.67  # < 0.67 = majority short
 LS_EXTREME_SHORT = 0.4  # < 0.4 = extreme short (squeeze risk)
 
-# NVT thresholds
-NVT_OVERHEATED = 150  # > 150 = overvalued relative to usage
-NVT_UNDERVALUED = 50  # < 50 = potentially undervalued
+# Market-cap-over-volume proxy thresholds.
+NVT_OVERHEATED = 150  # > 150 = high market cap relative to exchange volume
+NVT_UNDERVALUED = 50  # < 50 = low market cap relative to exchange volume
 
 # Turnover thresholds use decimal ratios, not percentages.
 TURNOVER_SPECULATIVE = 0.10  # > 10% of market cap in 24h
@@ -34,12 +35,15 @@ def compute_onchain_signal(
     nvt_text: Optional[str] = None,
     exchange_metrics_text: Optional[str] = None,
 ) -> FactorSignal:
-    """Compute a composite on-chain signal from available data sources.
+    """Compute a composite proxy signal from available data sources.
 
-    Each input is optional — the function uses whatever data is provided
-    and adjusts confidence accordingly.
+    Each input is optional. These inputs are supplementary market-structure
+    proxies and must not be interpreted as wallet-level evidence.
     """
-    detail: list[str] = []
+    detail: list[str] = [
+        "Coverage limited to exchange/CoinGecko proxies; no wallet flows, "
+        "whales, active addresses, or TVL"
+    ]
     bull_score = 0.0
     bear_score = 0.0
     total_weight = 0.0
@@ -72,7 +76,7 @@ def compute_onchain_signal(
         else:
             detail.append("Long/Short ratio: parse failed")
 
-    # ---- 2. NVT Ratio (weight: 0.30) --------------------------------------
+    # ---- 2. Market-cap-over-volume proxy (weight: 0.30) --------------------
     nvt_value = None
     if nvt_text:
         nvt_value = _parse_nvt(nvt_text)
@@ -80,41 +84,52 @@ def compute_onchain_signal(
             w = 0.30
             total_weight += w
             data_sources_used += 1
-            detail.append(f"NVT Ratio: {nvt_value:.0f}")
+            detail.append(f"NVT proxy (market cap / exchange volume): {nvt_value:.0f}")
 
             if nvt_value > NVT_OVERHEATED:
-                detail.append("High NVT — network overvalued relative to usage")
+                detail.append(
+                    "High proxy ratio - market cap elevated relative to exchange volume"
+                )
                 bear_score += w * 0.70
             elif nvt_value < NVT_UNDERVALUED:
-                detail.append("Low NVT — potentially undervalued")
+                detail.append(
+                    "Low proxy ratio - not proof of network usage or accumulation"
+                )
                 bull_score += w * 0.55
             else:
-                detail.append("NVT in neutral range")
+                detail.append("NVT proxy in neutral range")
         else:
             detail.append("NVT: parse failed")
 
-    # ---- 3. Exchange reserves / turnover (weight: 0.20) --------------------
+    # ---- 3. Exchange volume/liquidity proxy (weight: 0.20) -----------------
     if exchange_metrics_text:
         reserves_delta, turnover = _parse_exchange_metrics(exchange_metrics_text)
         w = 0.20
-        total_weight += w
-        data_sources_used += 1
+        if reserves_delta is not None or turnover is not None:
+            total_weight += w
+            data_sources_used += 1
 
         if reserves_delta is not None:
             detail.append(f"Exchange reserves delta: {reserves_delta:+.1%}")
-            # Reserves dropping → coins leaving exchanges → bullish (accumulation)
             if reserves_delta < -0.03:
-                detail.append("Reserves declining — accumulation signal")
+                detail.append("Reserves declining - possible outflow, verify source")
                 bull_score += w * 0.65
             elif reserves_delta > 0.03:
-                detail.append("Reserves rising — potential selling pressure")
+                detail.append("Reserves rising - potential selling pressure")
                 bear_score += w * 0.55
 
         if turnover is not None:
             detail.append(f"Turnover ratio: {turnover:.1%}")
             if turnover > TURNOVER_SPECULATIVE:
-                detail.append("Extreme turnover — speculative froth")
+                detail.append("High turnover - speculative activity elevated")
                 bear_score += w * 0.35
+            elif turnover <= 0.10:
+                detail.append(
+                    "Low turnover - weak participation or quiet tape, not "
+                    "accumulation by itself"
+                )
+        if reserves_delta is None and turnover is None:
+            detail.append("Exchange proxy metrics: parse failed")
 
     # ---- Compose final score ------------------------------------------------
 
@@ -146,10 +161,10 @@ def compute_onchain_signal(
         score = SignalScore.NEUTRAL
 
     threshold_breached = abs(net) >= 0.25
-    confidence = min(abs(net) * 1.2, 0.85)  # cap at 0.85 — on-chain is supplementary
+    confidence = min(abs(net) * 1.2, 0.65)  # proxy data is supplementary
 
-    # Data quality: 3 sources → 0.9, 2 → 0.7, 1 → 0.5
-    dq = {3: 0.9, 2: 0.7, 1: 0.5}.get(data_sources_used, 0.3)
+    # Proxy quality is capped because current sources do not include wallet flows.
+    dq = {3: 0.65, 2: 0.55, 1: 0.4}.get(data_sources_used, 0.3)
 
     return FactorSignal(
         name="onchain",
@@ -196,15 +211,20 @@ def _parse_long_short_ratio(text: str) -> Optional[float]:
 
 
 def _parse_nvt(text: str) -> Optional[float]:
-    """Extract NVT ratio value from CoinGecko formatted output.
+    """Extract NVT proxy value from CoinGecko formatted output.
 
     Looks for patterns like:
         NVT Ratio: 85.3
+        NVT Proxy Ratio: 85.3
         Approx NVT: 120
     """
     if not text:
         return None
-    m = re.search(r"(?:NVT|NVT Ratio|Approx NVT)[:\s]*([\d.]+)", text, re.IGNORECASE)
+    m = re.search(
+        r"(?:NVT Proxy Ratio|NVT Ratio|Approx NVT|NVT)[:\s]*([\d.]+)",
+        text,
+        re.IGNORECASE,
+    )
     if m:
         return float(m.group(1))
     return None

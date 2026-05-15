@@ -7,6 +7,12 @@ import logging
 from contextlib import nullcontext
 from typing import Any
 
+from tradingagents.agents.utils.rating import (
+    assert_consistent_ratings,
+    ensure_no_conflicting_rating_mentions,
+    parse_rating_label,
+)
+from tradingagents.agents.utils.thesis_json import extract_trade_thesis_json
 from tradingagents.dataflows.config import config_context
 from tradingagents.domain import ResearchRun, ResearchRunStatus
 from tradingagents.observability import (
@@ -19,6 +25,7 @@ from tradingagents.observability import (
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .config_hash import compute_config_hash
+from .thesis_builder import parse_structured_summary_payload
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +299,31 @@ class ResearchRunOrchestrator:
         if host.current_research_run:
             host.current_research_run.status = ResearchRunStatus.COMPLETED
         final_signal = host.process_signal(final_state["final_trade_decision"])
+        summary_rating = None
+        summary_json = final_state.get("final_trade_summary_json") or (
+            extract_trade_thesis_json(final_state.get("final_trade_decision", ""))
+        )
+        if summary_json:
+            summary_rating = parse_structured_summary_payload(summary_json).get(
+                "rating"
+            )
+        assert_consistent_ratings(
+            [
+                (
+                    "final_trade_decision.rating",
+                    parse_rating_label(final_state["final_trade_decision"]),
+                ),
+                ("final_trade_summary_json.rating", summary_rating),
+                ("final_signal", final_signal),
+            ],
+            context="research run final decision",
+        )
+        ensure_no_conflicting_rating_mentions(
+            final_state["final_trade_decision"],
+            official_rating=final_signal,
+            context="final_trade_decision",
+        )
+        final_state["final_signal"] = final_signal
         log_event(
             logger,
             "research_run_completed",

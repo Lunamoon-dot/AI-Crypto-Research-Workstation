@@ -114,6 +114,9 @@ export interface AgentOpinionResponse {
   agent_role: string;
   stance: string;
   confidence: number | null;
+  data_quality: number | null;
+  data_quality_label: string;
+  reason_codes: string[];
   created_at: string | null;
   payload: JsonRecord;
 }
@@ -138,6 +141,9 @@ export interface ThesisSummaryResponse {
   spot_notes: string;
   perp_notes: string;
   missing_data: string[];
+  missing_data_reason_codes: string[];
+  data_quality: number | null;
+  data_quality_label: string;
   is_degraded: boolean;
   degradation_reasons: string[];
 }
@@ -621,6 +627,9 @@ export function toAgentOpinionResponse(
     agent_role: stringValue(opinion.agent_role),
     stance: stringValue(opinion.stance),
     confidence: nullableNumber(opinion.confidence),
+    data_quality: nullableNumber(opinion.data_quality),
+    data_quality_label: stringValue(opinion.data_quality_label, 'unknown'),
+    reason_codes: stringList(opinion.reason_codes),
     created_at: nullableString(opinion.created_at),
     payload: recordValue(opinion.payload ?? opinion.payload_json),
   };
@@ -636,12 +645,26 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     summary.invalidation,
   );
   const targets = firstStringList(thesis.target_zones, summary.target_zones);
+  const summaryResponse = toThesisSummaryResponse(
+    summary,
+    entryZone,
+    invalidation,
+    targets,
+  );
+  const direction = directionForRating(
+    summaryResponse.rating,
+    stringValue(thesis.direction, 'watch'),
+  );
+  summaryResponse.direction = directionForRating(
+    summaryResponse.rating,
+    summaryResponse.direction,
+  );
   return {
     id: nullableString(thesis.id),
     workspace_id: stringValue(thesis.workspace_id, 'local'),
     research_run_id: nullableString(thesis.research_run_id),
     symbol: stringValue(thesis.symbol),
-    direction: stringValue(thesis.direction, 'watch'),
+    direction,
     setup_type: stringValue(thesis.setup_type, 'unspecified'),
     confidence: nullableNumber(thesis.confidence),
     confidence_source: stringValue(evidence.confidence_source),
@@ -654,7 +677,7 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     invalidation_level: invalidation,
     target_zones: targets,
     thesis_text: stringValue(thesis.thesis_text),
-    summary: toThesisSummaryResponse(summary, entryZone, invalidation, targets),
+    summary: summaryResponse,
     supporting_signal_ids: stringList(thesis.supporting_signal_ids),
     contradicting_signal_ids: stringList(thesis.contradicting_signal_ids),
     stale_or_missing_data: stringList(thesis.stale_or_missing_data),
@@ -1005,6 +1028,9 @@ function toThesisSummaryResponse(
     spot_notes: stringValue(summary.spot_notes),
     perp_notes: stringValue(summary.perp_notes),
     missing_data: stringList(summary.missing_data),
+    missing_data_reason_codes: stringList(summary.missing_data_reason_codes),
+    data_quality: nullableNumber(summary.data_quality),
+    data_quality_label: stringValue(summary.data_quality_label, 'unknown'),
     is_degraded: booleanValue(summary.is_degraded),
     degradation_reasons: stringList(summary.degradation_reasons),
   };
@@ -1131,4 +1157,21 @@ function booleanValue(value: unknown, fallback = false): boolean {
     return false;
   }
   return fallback;
+}
+
+function directionForRating(rating: string, fallback: string): string {
+  const normalized = rating.trim().toLowerCase();
+  if (normalized === 'buy' || normalized === 'overweight') {
+    return 'long';
+  }
+  if (normalized === 'underweight') {
+    return 'avoid';
+  }
+  if (normalized === 'sell') {
+    return 'short';
+  }
+  if (normalized === 'hold') {
+    return fallback === 'neutral' ? 'neutral' : 'watch';
+  }
+  return fallback || 'watch';
 }

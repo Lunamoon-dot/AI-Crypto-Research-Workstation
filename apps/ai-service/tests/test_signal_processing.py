@@ -10,7 +10,12 @@ to it.
 
 import pytest
 
-from tradingagents.agents.utils.rating import RATINGS_5_TIER, parse_rating
+from tradingagents.agents.utils.rating import (
+    RATINGS_5_TIER,
+    DecisionConsistencyError,
+    ensure_no_conflicting_rating_mentions,
+    parse_rating,
+)
 from tradingagents.graph.signal_processing import SignalProcessor
 
 
@@ -50,6 +55,22 @@ class TestParseRating:
             "Exit before earnings."
         )
         assert parse_rating(text) == "Sell"
+
+    def test_prose_keyword_without_rating_label_is_ignored(self):
+        text = "Avoid exposure. Counterfactual upgrade path could become Overweight."
+        assert parse_rating(text) == "Hold"
+
+    def test_conflicting_rating_mentions_fail_validation(self):
+        text = (
+            "**Rating**: Underweight\n\nCountercase: Overweight if ETF flows recover."
+        )
+        assert parse_rating(text) == "Underweight"
+        with pytest.raises(DecisionConsistencyError):
+            ensure_no_conflicting_rating_mentions(
+                text,
+                official_rating="Underweight",
+                context="test decision",
+            )
 
     def test_no_rating_returns_default(self):
         assert parse_rating("No clear directional signal at this time.") == "Hold"

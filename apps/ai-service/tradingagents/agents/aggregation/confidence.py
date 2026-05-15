@@ -14,12 +14,21 @@ def aggregate_confidence(
 ) -> float | None:
     """Return adjusted consensus confidence from opinion confidence values."""
 
-    confidences = [
-        opinion.confidence for opinion in opinions if opinion.confidence is not None
+    weighted_confidences = [
+        (
+            opinion.confidence,
+            max(min(getattr(opinion, "data_quality", 1.0), 1.0), 0.0),
+        )
+        for opinion in opinions
+        if opinion.confidence is not None
     ]
-    if not confidences:
+    if not weighted_confidences:
         return None
-    base = sum(confidences) / len(confidences)
+    total_weight = sum(weight for _, weight in weighted_confidences)
+    if total_weight <= 0:
+        return None
+    base = sum(confidence * weight for confidence, weight in weighted_confidences)
+    base /= total_weight
     penalty = 0.0
     if conflict_level == ConflictLevel.HIGH:
         penalty += 0.2

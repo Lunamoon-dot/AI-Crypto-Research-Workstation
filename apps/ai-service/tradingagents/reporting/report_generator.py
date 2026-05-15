@@ -11,6 +11,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from tradingagents.agents.utils.rating import (
+    ensure_no_conflicting_rating_mentions,
+    parse_rating_label,
+)
+from tradingagents.utils.price_sanity import (
+    extract_current_price,
+    price_trigger_sanity_notes,
+)
+
 logger = logging.getLogger(__name__)
 
 # Try to import charting — graceful degradation if not installed
@@ -52,17 +61,16 @@ class ReportGenerator:
         """
         ticker = final_state.get("company_of_interest", "Unknown")
         trade_date = final_state.get("trade_date", "Unknown")
-        rating = final_state.get("final_trade_decision", "No decision")
-
         sections = [
             self._header(ticker, trade_date),
             self._data_quality(final_state),
-            self._executive_summary(rating),
+            self._executive_summary(final_state),
             self._analyst_reports(final_state),
             self._investment_debate(final_state),
             self._trader_plan(final_state),
             self._risk_debate(final_state),
             self._final_decision(final_state),
+            self._price_level_sanity(final_state),
             self._disclaimer(),
         ]
 
@@ -111,29 +119,132 @@ class ReportGenerator:
             f"**LLM Provider**: {self.config.get('llm_provider', 'unknown').title()}"
         )
 
-    def _executive_summary(self, rating_text: str) -> str:
+    def _executive_summary(self, state_or_rating_text: dict | str) -> str:
+        if isinstance(state_or_rating_text, dict):
+            thesis = self._canonical_thesis(state_or_rating_text)
+            if thesis:
+                return self._executive_summary_from_thesis(
+                    thesis,
+                    state_or_rating_text,
+                )
+            rating_text = state_or_rating_text.get(
+                "final_trade_decision",
+                "No decision",
+            )
+        else:
+            rating_text = state_or_rating_text
+
         section = "## Executive Summary\n\n"
         section += f"{rating_text}\n"
 
-        # Extract rating keyword for a visual badge
-        for kw in ["Buy", "Overweight", "Hold", "Underweight", "Sell"]:
-            if kw in rating_text:
-                emoji = {
-                    "Buy": "🟢",
-                    "Overweight": "🟢",
-                    "Hold": "🟡",
-                    "Underweight": "🟠",
-                    "Sell": "🔴",
-                }.get(kw, "⚪")
-                section += f"\n**Final Rating**: {emoji} {kw}\n"
-                break
-
+        rating = parse_rating_label(rating_text)
+        if rating:
+            ensure_no_conflicting_rating_mentions(
+                rating_text,
+                official_rating=rating,
+                context="report executive summary",
+            )
+            tone = {
+                "Buy": "green",
+                "Overweight": "green",
+                "Hold": "yellow",
+                "Underweight": "orange",
+                "Sell": "red",
+            }.get(rating, "neutral")
+            section += f"\n**Final Rating**: {tone} {rating}\n"
         return section
+
+    def _executive_summary_from_thesis(self, thesis: dict, state: dict) -> str:
+        summary = self._thesis_summary(thesis)
+        rating = str(summary.get("rating") or "Hold")
+        direction = str(summary.get("direction") or thesis.get("direction") or "watch")
+        confidence = self._number(summary.get("confidence") or thesis.get("confidence"))
+        action = str(
+            summary.get("action_summary")
+            or thesis.get("why_this_thesis")
+            or thesis.get("thesis_text")
+            or ""
+        ).strip()
+        lines = [
+            "## Executive Summary",
+            "",
+            f"**Final Rating**: {self._rating_tone(rating)} {rating}",
+            f"**Direction**: {direction}",
+            f"**Publication Mode**: {self._publication_mode(thesis, state)}",
+        ]
+        if confidence is not None:
+            lines.append(f"**Confidence**: {confidence:.0%}")
+        data_quality = self._number(summary.get("data_quality"))
+        data_quality_label = str(summary.get("data_quality_label") or "unknown")
+        if data_quality is not None:
+            lines.append(f"**Data Quality**: {data_quality_label} {data_quality:.0%}")
+        if action:
+            lines.extend(["", action])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _canonical_thesis(state: dict) -> dict:
+        thesis = state.get("trade_thesis") or state.get("canonical_trade_thesis")
+        return thesis if isinstance(thesis, dict) else {}
+
+    @staticmethod
+    def _thesis_summary(thesis: dict) -> dict:
+        summary = thesis.get("structured_summary") or thesis.get("summary") or {}
+        return summary if isinstance(summary, dict) else {}
+
+    @staticmethod
+    def _number(value: object) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _rating_tone(rating: str) -> str:
+        return {
+            "Buy": "green",
+            "Overweight": "green",
+            "Hold": "yellow",
+            "Underweight": "orange",
+            "Sell": "red",
+        }.get(rating, "neutral")
+
+    def _publication_mode(self, thesis: dict, state: dict) -> str:
+        summary = self._thesis_summary(thesis)
+        run_quality = state.get("run_quality") or {}
+        confidence = self._number(summary.get("confidence") or thesis.get("confidence"))
+        data_quality_label = str(summary.get("data_quality_label") or "").lower()
+        degraded = bool(summary.get("is_degraded")) or data_quality_label in {
+            "degraded",
+            "insufficient_data",
+        }
+        run_status = str(run_quality.get("status") or "").lower()
+        if run_status in {"completed_degraded", "failed"}:
+            degraded = True
+        if confidence is not None and confidence <= 0.25:
+            return "Watch/risk memo"
+        if degraded:
+            return "Degraded memo"
+        return "Standard thesis"
 
     def _data_quality(self, state: dict) -> str:
         quality = state.get("run_quality") or {}
+        thesis = self._canonical_thesis(state)
+        summary = self._thesis_summary(thesis)
         label = quality.get("label") or quality.get("status") or "unknown"
+        if summary and label == "unknown":
+            data_quality = self._number(summary.get("data_quality"))
+            data_label = summary.get("data_quality_label") or "unknown"
+            label = (
+                f"{data_label} {data_quality:.0%}"
+                if data_quality is not None
+                else str(data_label)
+            )
         lines = ["## Data Quality", "", f"Completion: {label}"]
+        if summary.get("is_degraded"):
+            lines.extend(["", "Thesis data quality: degraded"])
         if quality.get("degradation_reasons"):
             lines.extend(["", "Degradation reasons:"])
             lines.extend(f"- {item}" for item in quality["degradation_reasons"])
@@ -156,7 +267,9 @@ class ReportGenerator:
             section += "### News & Macro Analysis\n\n" + state["news_report"] + "\n\n"
         if state.get("fundamentals_report"):
             section += (
-                "### Fundamental Analysis\n\n" + state["fundamentals_report"] + "\n\n"
+                "### Market-Structure / On-Chain Proxy Analysis\n\n"
+                + state["fundamentals_report"]
+                + "\n\n"
             )
 
         return (
@@ -190,7 +303,7 @@ class ReportGenerator:
         section = "## Risk Analysis (Aggressive / Neutral / Conservative)\n\n"
         if risk.get("history"):
             section += risk["history"] + "\n\n"
-        if risk.get("judge_decision"):
+        if risk.get("judge_decision") and not self._canonical_thesis(state):
             section += (
                 "### Portfolio Manager Final Decision\n\n" + risk["judge_decision"]
             )
@@ -198,10 +311,64 @@ class ReportGenerator:
         return section
 
     def _final_decision(self, state: dict) -> str:
+        thesis = self._canonical_thesis(state)
+        if thesis:
+            return self._final_decision_from_thesis(thesis, state)
         decision = state.get("final_trade_decision", "")
         section = "## Final Thesis Decision\n\n"
         section += decision if decision else "_Pending._"
         return section
+
+    def _final_decision_from_thesis(self, thesis: dict, state: dict) -> str:
+        summary = self._thesis_summary(thesis)
+        lines = [
+            "## Final Thesis Decision",
+            "",
+            f"**Publication Mode**: {self._publication_mode(thesis, state)}",
+            f"**Rating**: {summary.get('rating') or 'Hold'}",
+            f"**Direction**: {summary.get('direction') or thesis.get('direction') or 'watch'}",
+        ]
+        confidence = self._number(summary.get("confidence") or thesis.get("confidence"))
+        if confidence is not None:
+            lines.append(f"**Confidence**: {confidence:.0%}")
+        entry = summary.get("entry_zone") or thesis.get("entry_zone")
+        invalidation = summary.get("invalidation") or thesis.get("invalidation_level")
+        targets = summary.get("target_zones") or thesis.get("target_zones") or []
+        if entry:
+            lines.append(f"**Entry/Review Zone**: {entry}")
+        if invalidation:
+            lines.append(f"**Invalidation**: {invalidation}")
+        if targets:
+            lines.append(f"**Targets**: {', '.join(str(target) for target in targets)}")
+        risks = summary.get("risks") or thesis.get("risk_notes") or []
+        if risks:
+            lines.extend(["", "Risks / gates:"])
+            lines.extend(f"- {risk}" for risk in risks)
+        return "\n".join(lines)
+
+    def _price_level_sanity(self, state: dict) -> str:
+        current_price = extract_current_price(state.get("quant_signal"))
+        if current_price is None:
+            return "## Price-Level Sanity Checks\n\n_No current price available._"
+
+        notes: list[str] = []
+        for label, key in (
+            ("Setup Planner", "trader_investment_plan"),
+            ("Final Decision", "final_trade_decision"),
+            ("Scenario Plan", "scenario_plan"),
+        ):
+            notes.extend(
+                price_trigger_sanity_notes(
+                    state.get(key),
+                    current_price,
+                    source=label,
+                )
+            )
+        if not notes:
+            return "## Price-Level Sanity Checks\n\n_No crossed price-only triggers detected._"
+        return "## Price-Level Sanity Checks\n\n" + "\n".join(
+            f"- {note}" for note in notes
+        )
 
     def _disclaimer(self) -> str:
         return (

@@ -11,6 +11,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from tradingagents.agents.utils.rating import (
+    assert_consistent_ratings,
+    ensure_no_conflicting_rating_mentions,
+    normalize_rating,
+    parse_rating_label,
+)
 from tradingagents.agents.utils.thesis_json import (
     extract_trade_thesis_json,
     strip_trade_thesis_json_block,
@@ -23,6 +29,7 @@ from tradingagents.domain import (
     TradeThesisStructuredSummary,
 )
 from tradingagents.observability import log_event
+from tradingagents.utils.price_sanity import price_trigger_sanity_notes
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,14 @@ _STABILITY_OVERRIDE_TERMS = (
     "closed above",
     "broke below",
     "broke above",
+)
+_MTF_ALIGNMENT_RE = re.compile(
+    r"\bAlignment\s+Score\s*:\s*(?P<score>\d+(?:\.\d+)?)\s*/\s*100",
+    re.IGNORECASE,
+)
+_MTF_DIRECTION_RE = re.compile(
+    r"\b(?P<timeframe>daily|weekly|monthly)\b[^\n]*(?P<direction>bullish|bearish|sideways|neutral)",
+    re.IGNORECASE,
 )
 
 
@@ -112,15 +127,8 @@ def parse_structured_summary_payload(raw_json: str | None) -> dict[str, Any]:
 
 
 def summary_rating(payload: dict[str, Any]) -> str | None:
-    ratings = {
-        "buy": "Buy",
-        "overweight": "Overweight",
-        "hold": "Hold",
-        "underweight": "Underweight",
-        "sell": "Sell",
-    }
     raw = payload.get("rating")
-    return ratings.get(str(raw).strip().lower()) if raw is not None else None
+    return normalize_rating(raw) if raw is not None else None
 
 
 def summary_direction(payload: dict[str, Any]) -> ThesisDirection | None:
@@ -182,6 +190,15 @@ def normalize_confidence_value(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return max(min(number, 1.0), 0.0)
+
+
+def normalize_price_value(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "").strip().lstrip("$"))
+    except (TypeError, ValueError):
+        return None
 
 
 def quant_bias_from_score(score: Any) -> str:
@@ -248,6 +265,136 @@ def utc_datetime(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _dedupe(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _machine_reason_codes(values: list[Any]) -> list[str]:
+    return _dedupe([_reason_code(value) for value in values])
+
+
+def _reason_code(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = text.split(":", 1)[0] if ":" in text else text
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    aliases = {
+        "news": "missing_news_feed",
+        "missing_news": "missing_news_feed",
+        "missing_news_feed": "missing_news_feed",
+        "insufficient_news_evidence": "insufficient_news_evidence",
+        "liquidation": "missing_liquidations",
+        "liquidations": "missing_liquidations",
+        "missing_liquidations": "missing_liquidations",
+        "onchain": "missing_onchain_flows",
+        "on_chain": "missing_onchain_flows",
+        "onchain_secondary": "missing_onchain_flows",
+        "missing_onchain_secondary": "missing_onchain_flows",
+        "missing_onchain_flows": "missing_onchain_flows",
+    }
+    if "liquidation" in text:
+        return "missing_liquidations"
+    if "onchain" in text or "on_chain" in text or "exchange_flow" in text:
+        return "missing_onchain_flows"
+    return aliases.get(text, text or "unknown_data_quality_issue")
+
+
+def _format_percent(value: float) -> str:
+    return f"{value:.0%}"
+
+
+def _format_alignment_score(value: float) -> str:
+    return f"{value:.0f}/100"
+
+
+def _normalized_mtf_direction(value: str) -> str:
+    normalized = value.lower()
+    return "neutral" if normalized == "sideways" else normalized
+
+
+def _mtf_penalty_from_state(
+    final_state: dict, thesis_text: str
+) -> tuple[float, str, dict[str, Any]]:
+    """Return a deterministic confidence penalty for mixed timeframe evidence."""
+
+    text = "\n".join(
+        str(part or "")
+        for part in [
+            final_state.get("market_report", ""),
+            final_state.get("trader_investment_plan", ""),
+            final_state.get("scenario_plan", ""),
+            thesis_text,
+        ]
+    )
+    score_match = _MTF_ALIGNMENT_RE.search(text)
+    if not score_match:
+        return 0.0, "", {}
+
+    score = max(min(float(score_match.group("score")), 100.0), 0.0)
+    directions: dict[str, str] = {}
+    for match in _MTF_DIRECTION_RE.finditer(text):
+        timeframe = match.group("timeframe").lower()
+        directions.setdefault(
+            timeframe,
+            _normalized_mtf_direction(match.group("direction")),
+        )
+
+    penalty = 0.0
+    if score < 40:
+        penalty = 0.20
+    elif score < 60:
+        penalty = 0.10
+    elif score < 70:
+        penalty = 0.05
+
+    daily = directions.get("daily")
+    monthly = directions.get("monthly")
+    if daily and monthly and daily != monthly and score < 70:
+        penalty = max(penalty, 0.10)
+
+    if penalty <= 0:
+        return (
+            0.0,
+            "",
+            {
+                "alignment_score": score,
+                "directions": directions,
+                "penalty": 0.0,
+            },
+        )
+
+    direction_note = ""
+    if directions:
+        ordered = [
+            f"{timeframe} {directions[timeframe]}"
+            for timeframe in ("daily", "weekly", "monthly")
+            if timeframe in directions
+        ]
+        direction_note = f" ({', '.join(ordered)})"
+
+    note = (
+        "Multi-timeframe alignment "
+        f"{_format_alignment_score(score)}{direction_note}; confidence reduced "
+        f"by {_format_percent(penalty)}."
+    )
+    return (
+        penalty,
+        note,
+        {
+            "alignment_score": score,
+            "directions": directions,
+            "penalty": penalty,
+        },
+    )
+
+
 class ThesisBuilder:
     """Builds journal ``TradeThesis`` artifacts from graph output."""
 
@@ -266,19 +413,30 @@ class ThesisBuilder:
             else final_decision
         ) or final_decision
 
-        rating = summary_rating(structured_payload) or self.host.process_signal(
-            clean_decision
+        run: ResearchRun | None = getattr(self.host, "current_research_run", None)
+        market_type = (
+            structured_payload.get("market_type")
+            or final_state.get("market_type")
+            or getattr(run, "market_type", None)
+            or (getattr(self.host, "config", None) or {}).get("market_type", "spot")
         )
-        direction_map = {
-            "Buy": ThesisDirection.LONG,
-            "Overweight": ThesisDirection.LONG,
-            "Sell": ThesisDirection.SHORT,
-            "Underweight": ThesisDirection.SHORT,
-            "Hold": ThesisDirection.WATCH,
-        }
-        direction = summary_direction(structured_payload) or direction_map.get(
-            rating,
-            ThesisDirection.WATCH,
+        rating = assert_consistent_ratings(
+            [
+                ("structured_summary.rating", summary_rating(structured_payload)),
+                ("final_trade_decision.rating", parse_rating_label(clean_decision)),
+                ("final_signal", final_state.get("final_signal")),
+            ],
+            context="trade thesis",
+        ) or self.host.process_signal(clean_decision)
+        ensure_no_conflicting_rating_mentions(
+            clean_decision,
+            official_rating=rating,
+            context="final_trade_decision",
+        )
+        direction = self._resolve_direction(
+            rating=rating,
+            requested_direction=summary_direction(structured_payload),
+            market_type=str(market_type),
         )
 
         quant = getattr(self.host, "quant_signal_result", None)
@@ -337,6 +495,9 @@ class ThesisBuilder:
             "take_profit",
             "take_profit_zones",
         )
+        current_price = normalize_price_value(
+            getattr(quant, "current_price", None) if quant is not None else None
+        )
         contract_degradation_reasons: list[str] = []
         if not structured_payload:
             contract_degradation_reasons.append("structured_summary_missing")
@@ -369,12 +530,40 @@ class ThesisBuilder:
         supporting_evidence = signal_evidence(signals, supporting_ids)
         contradicting_evidence = signal_evidence(signals, contradicting_ids)
         stale_or_missing_data = stale_or_missing_data_notes(signals)
-        run: ResearchRun | None = getattr(self.host, "current_research_run", None)
-        market_type = (
-            structured_payload.get("market_type")
-            or final_state.get("market_type")
-            or getattr(run, "market_type", None)
-            or (getattr(self.host, "config", None) or {}).get("market_type", "spot")
+        price_sanity_text = "\n".join(
+            str(part or "")
+            for part in [
+                entry_zone,
+                invalidation_level,
+                *[f"upside target {target}" for target in target_zones],
+                structured_payload.get("upside_catalyst"),
+                clean_decision,
+            ]
+        )
+        price_sanity_notes = price_trigger_sanity_notes(
+            price_sanity_text,
+            current_price,
+            source="thesis",
+        )
+        data_quality, data_quality_label, missing_data_reason_codes = (
+            self._derive_data_quality(
+                run=run,
+                signals=signals,
+                opinions=opinions,
+                stale_or_missing_data=stale_or_missing_data,
+                contract_degradation_reasons=contract_degradation_reasons,
+                payload=structured_payload,
+            )
+        )
+        run_degradation_reasons = list(
+            getattr(run, "degradation_reasons", []) if run else []
+        )
+        all_degradation_reasons = _dedupe(
+            [
+                *contract_degradation_reasons,
+                *run_degradation_reasons,
+                *missing_data_reason_codes,
+            ]
         )
         why_this_thesis = first_nonempty_line(clean_decision) or (
             f"{direction.value} thesis generated from agent debate"
@@ -398,6 +587,38 @@ class ThesisBuilder:
             stale_or_missing_count=len(stale_or_missing_data),
             contract_degradation_count=len(contract_degradation_reasons),
         )
+        confidence, confidence_source, confidence_cap_note = (
+            self._apply_data_quality_confidence_cap(
+                confidence=confidence,
+                confidence_source=confidence_source,
+                data_quality_label=data_quality_label,
+            )
+        )
+        confidence, confidence_source, quant_cap_note = (
+            self._apply_low_quant_confidence_cap(
+                confidence=confidence,
+                confidence_source=confidence_source,
+                quant_confidence=quant_confidence,
+            )
+        )
+        mtf_penalty, mtf_penalty_note, mtf_penalty_payload = _mtf_penalty_from_state(
+            final_state,
+            clean_decision,
+        )
+        confidence, confidence_source = self._apply_confidence_penalty(
+            confidence=confidence,
+            confidence_source=confidence_source,
+            penalty=mtf_penalty,
+            suffix="mtf_penalized",
+        )
+        system_risk_notes = _dedupe(
+            [
+                *price_sanity_notes,
+                confidence_cap_note,
+                quant_cap_note,
+                mtf_penalty_note,
+            ]
+        )
         heuristic_confidence = confidence
         if confidence_source != "quant_only":
             confidence_version = "thesis_heuristic:v1"
@@ -411,6 +632,9 @@ class ThesisBuilder:
             supporting_ids,
             contradicting_ids,
         )
+        for note in [confidence_cap_note, quant_cap_note, mtf_penalty_note]:
+            if note:
+                confidence_rationale = f"{confidence_rationale} {note}"
         structured_summary = self._structured_summary(
             payload=structured_payload,
             rating=rating,
@@ -425,8 +649,12 @@ class ThesisBuilder:
             stale_or_missing_data=stale_or_missing_data,
             contradictions=contradictions,
             why_this_thesis=why_this_thesis,
-            contract_degradation_reasons=contract_degradation_reasons,
+            contract_degradation_reasons=all_degradation_reasons,
             market_type=market_type,
+            data_quality=data_quality,
+            data_quality_label=data_quality_label,
+            missing_data_reason_codes=missing_data_reason_codes,
+            system_risk_notes=system_risk_notes,
         )
 
         thesis = TradeThesis(
@@ -466,6 +694,12 @@ class ThesisBuilder:
                 "quant_bias": quant_bias_from_score(
                     getattr(quant, "score", None) if quant is not None else None
                 ),
+                "data_quality": data_quality,
+                "data_quality_label": data_quality_label,
+                "missing_data_reason_codes": missing_data_reason_codes,
+                "current_price": current_price,
+                "price_sanity_notes": price_sanity_notes,
+                "mtf_confidence_penalty": mtf_penalty_payload,
             },
             why_this_thesis=why_this_thesis,
             supporting_evidence=supporting_evidence,
@@ -479,6 +713,7 @@ class ThesisBuilder:
         )
 
         thesis = self._apply_stability_guard(thesis)
+        thesis = self._refresh_price_sanity_notes(thesis)
 
         if run and not run.decision_id:
             run.decision_id = str(uuid.uuid4())
@@ -496,6 +731,8 @@ class ThesisBuilder:
             empirical_confidence_sample_size=thesis.empirical_confidence_sample_size,
             empirical_confidence_oos_sample_size=thesis.empirical_confidence_oos_sample_size,
             confidence_version=thesis.confidence_version,
+            data_quality=data_quality,
+            data_quality_label=data_quality_label,
             supporting_evidence_count=len(thesis.supporting_evidence),
             contradicting_evidence_count=len(thesis.contradicting_evidence),
             stale_or_missing_data_count=len(thesis.stale_or_missing_data),
@@ -513,7 +750,200 @@ class ThesisBuilder:
             heuristic_confidence=thesis.heuristic_confidence,
             empirical_confidence=thesis.empirical_confidence,
             confidence_version=thesis.confidence_version,
+            data_quality=data_quality,
+            data_quality_label=data_quality_label,
         )
+        return thesis
+
+    @staticmethod
+    def _resolve_direction(
+        *,
+        rating: str,
+        requested_direction: ThesisDirection | None,
+        market_type: str,
+    ) -> ThesisDirection:
+        """Resolve thesis direction from the official rating contract."""
+
+        expected = direction_from_rating(rating)
+        if rating == "Underweight":
+            return ThesisDirection.AVOID
+        if rating == "Sell":
+            return ThesisDirection.SHORT
+        if rating in _BULLISH_RATINGS:
+            return ThesisDirection.LONG
+        if requested_direction in {ThesisDirection.NEUTRAL, ThesisDirection.WATCH}:
+            return requested_direction
+        return expected
+
+    @staticmethod
+    def _derive_data_quality(
+        *,
+        run: ResearchRun | None,
+        signals: list[Signal],
+        opinions: list[Any],
+        stale_or_missing_data: list[str],
+        contract_degradation_reasons: list[str],
+        payload: dict[str, Any],
+    ) -> tuple[float, str, list[str]]:
+        run_degradation = list(getattr(run, "degradation_reasons", []) if run else [])
+        run_missing_optional = list(
+            getattr(run, "missing_optional_data", []) if run else []
+        )
+        run_missing_core = list(getattr(run, "missing_core_data", []) if run else [])
+        reason_codes = _dedupe(
+            [
+                *structured_list(payload, "missing_data_reason_codes", "reason_codes"),
+                *structured_list(payload, "missing_data"),
+                *run_degradation,
+                *run_missing_optional,
+                *run_missing_core,
+                *contract_degradation_reasons,
+                *stale_or_missing_data,
+            ]
+        )
+        signal_quality_values = [
+            normalize_confidence_value(signal.evidence.get("data_quality"))
+            for signal in signals
+            if isinstance(getattr(signal, "evidence", None), dict)
+            and signal.evidence.get("data_quality") is not None
+        ]
+        signal_quality_values = [
+            value for value in signal_quality_values if value is not None
+        ]
+        opinion_quality_values = [
+            normalize_confidence_value(getattr(opinion, "data_quality", None))
+            for opinion in opinions
+        ]
+        opinion_quality_values = [
+            value for value in opinion_quality_values if value is not None
+        ]
+
+        quality = 1.0
+        if signal_quality_values:
+            quality = min(
+                quality, sum(signal_quality_values) / len(signal_quality_values)
+            )
+        if opinion_quality_values:
+            quality = min(
+                quality, sum(opinion_quality_values) / len(opinion_quality_values)
+            )
+        if run and run.missing_core_data:
+            quality = min(quality, 0.25)
+        elif run and run.has_degradation():
+            quality = min(quality, 0.6)
+        if contract_degradation_reasons:
+            quality = min(quality, 0.65)
+        if stale_or_missing_data:
+            quality -= min(0.05 * len(stale_or_missing_data), 0.20)
+        if any("insufficient_news_evidence" in item for item in reason_codes):
+            quality = min(quality, 0.35)
+        machine_codes = _machine_reason_codes(reason_codes)
+        if any(item.startswith("missing_") for item in machine_codes):
+            quality = min(quality, 0.6)
+
+        quality = round(max(min(quality, 1.0), 0.0), 2)
+        if quality < 0.35:
+            label = "insufficient_data"
+        elif quality < 0.75:
+            label = "degraded"
+        else:
+            label = "clean"
+        return quality, label, machine_codes
+
+    @staticmethod
+    def _apply_data_quality_confidence_cap(
+        *,
+        confidence: float | None,
+        confidence_source: str,
+        data_quality_label: str,
+    ) -> tuple[float | None, str, str]:
+        cap_by_label = {
+            "insufficient_data": 0.25,
+            "degraded": 0.45,
+        }
+        cap = cap_by_label.get(data_quality_label)
+        if cap is None or confidence is None or confidence <= cap:
+            return confidence, confidence_source, ""
+        return (
+            round(cap, 2),
+            f"{confidence_source}_data_quality_capped",
+            (
+                f"Data quality is {data_quality_label}; final confidence capped "
+                f"at {cap:.0%} and should be treated as a low-confidence risk memo."
+            ),
+        )
+
+    @staticmethod
+    def _apply_low_quant_confidence_cap(
+        *,
+        confidence: float | None,
+        confidence_source: str,
+        quant_confidence: float | None,
+    ) -> tuple[float | None, str, str]:
+        if (
+            confidence is None
+            or quant_confidence is None
+            or quant_confidence > 0.25
+            or "portfolio_manager" not in confidence_source
+        ):
+            return confidence, confidence_source, ""
+
+        cap = min(0.25, round(quant_confidence + 0.10, 2))
+        if confidence <= cap:
+            return confidence, confidence_source, ""
+        return (
+            cap,
+            f"{confidence_source}_low_quant_capped",
+            (
+                f"Quant heuristic confidence is {quant_confidence:.0%}; final "
+                f"confidence capped at {cap:.0%} and should be treated as a "
+                "watch/risk memo."
+            ),
+        )
+
+    @staticmethod
+    def _apply_confidence_penalty(
+        *,
+        confidence: float | None,
+        confidence_source: str,
+        penalty: float,
+        suffix: str,
+    ) -> tuple[float | None, str]:
+        if confidence is None or penalty <= 0:
+            return confidence, confidence_source
+        return round(max(confidence - penalty, 0.0), 2), f"{confidence_source}_{suffix}"
+
+    @staticmethod
+    def _refresh_price_sanity_notes(thesis: TradeThesis) -> TradeThesis:
+        current_price = normalize_price_value(thesis.evidence.get("current_price"))
+        text = "\n".join(
+            str(part or "")
+            for part in [
+                thesis.entry_zone,
+                thesis.invalidation_level,
+                *[f"upside target {target}" for target in thesis.target_zones],
+                thesis.invalidation,
+                thesis.thesis_text,
+            ]
+        )
+        notes = price_trigger_sanity_notes(text, current_price, source="thesis")
+        if not notes:
+            return thesis
+
+        all_notes = _dedupe(
+            [
+                *list(thesis.evidence.get("price_sanity_notes", []) or []),
+                *notes,
+            ]
+        )
+        thesis.evidence["price_sanity_notes"] = all_notes
+        thesis.risk_notes = _dedupe([*thesis.risk_notes, *all_notes])
+        if thesis.structured_summary is not None:
+            thesis.structured_summary = thesis.structured_summary.model_copy(
+                update={
+                    "risks": _dedupe([*thesis.structured_summary.risks, *all_notes])
+                }
+            )
         return thesis
 
     def _apply_stability_guard(self, thesis: TradeThesis) -> TradeThesis:
@@ -836,6 +1266,10 @@ class ThesisBuilder:
         why_this_thesis: str,
         contract_degradation_reasons: list[str],
         market_type: str,
+        data_quality: float,
+        data_quality_label: str,
+        missing_data_reason_codes: list[str],
+        system_risk_notes: list[str],
     ) -> TradeThesisStructuredSummary:
         summary_payload = dict(payload)
         summary_payload["rating"] = rating
@@ -865,15 +1299,27 @@ class ThesisBuilder:
             or contradicting_evidence[:3]
             or ([why_this_thesis] if why_this_thesis else [])
         )
-        summary_payload["risks"] = summary_payload.get("risks") or (
+        base_risks = structured_list(summary_payload, "risks")
+        fallback_risks = (
             stale_or_missing_data[:3]
             or contradictions[:3]
             or ["Manual review required before changing thesis stance."]
         )
+        summary_payload["risks"] = _dedupe(
+            [
+                *(base_risks or fallback_risks),
+                *system_risk_notes,
+            ]
+        )
         summary_payload["missing_data"] = (
             summary_payload.get("missing_data") or (stale_or_missing_data[:3])
         )
-        summary_payload["is_degraded"] = bool(contract_degradation_reasons)
+        summary_payload["missing_data_reason_codes"] = missing_data_reason_codes
+        summary_payload["data_quality"] = data_quality
+        summary_payload["data_quality_label"] = data_quality_label
+        summary_payload["is_degraded"] = bool(
+            contract_degradation_reasons or data_quality_label != "clean"
+        )
         summary_payload["degradation_reasons"] = contract_degradation_reasons
         try:
             return TradeThesisStructuredSummary.model_validate(summary_payload)
@@ -892,11 +1338,25 @@ class ThesisBuilder:
                     "key_reasons": supporting_evidence[:3]
                     or contradicting_evidence[:3]
                     or ([why_this_thesis] if why_this_thesis else []),
-                    "risks": stale_or_missing_data[:3]
-                    or contradictions[:3]
-                    or ["Manual review required before changing thesis stance."],
+                    "risks": _dedupe(
+                        [
+                            *(
+                                stale_or_missing_data[:3]
+                                or contradictions[:3]
+                                or [
+                                    "Manual review required before changing thesis stance."
+                                ]
+                            ),
+                            *system_risk_notes,
+                        ]
+                    ),
                     "missing_data": stale_or_missing_data[:3],
-                    "is_degraded": bool(contract_degradation_reasons),
+                    "missing_data_reason_codes": missing_data_reason_codes,
+                    "data_quality": data_quality,
+                    "data_quality_label": data_quality_label,
+                    "is_degraded": bool(
+                        contract_degradation_reasons or data_quality_label != "clean"
+                    ),
                     "degradation_reasons": contract_degradation_reasons,
                 }
             )

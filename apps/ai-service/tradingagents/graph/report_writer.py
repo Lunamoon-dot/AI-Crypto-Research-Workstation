@@ -20,6 +20,7 @@ class ReportWriter:
         self.host = host
 
     def write(self, trade_date, final_state: dict) -> None:
+        trade_thesis = getattr(self.host, "current_trade_thesis", None)
         self.host.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
@@ -56,10 +57,16 @@ class ReportWriter:
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
+            "final_signal": final_state.get("final_signal"),
             "final_trade_summary_json": final_state.get("final_trade_summary_json", ""),
             "scenario_plan": final_state.get("scenario_plan", ""),
+            "quant_signal": final_state.get("quant_signal", ""),
             "run_quality": final_state.get("run_quality", {}),
         }
+        if trade_thesis is not None:
+            self.host.log_states_dict[str(trade_date)]["trade_thesis"] = (
+                trade_thesis.model_dump(mode="json")
+            )
 
         safe_ticker = safe_ticker_component(self.host.ticker)
         directory = (

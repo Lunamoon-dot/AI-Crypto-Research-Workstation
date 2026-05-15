@@ -54,13 +54,21 @@ _CORE_CODE_ALIASES = {
 }
 
 _OPTIONAL_CODE_ALIASES = {
-    "news": "missing_news",
-    "missing_news": "missing_news",
+    "news": "missing_news_feed",
+    "news_feed": "missing_news_feed",
+    "missing_news": "missing_news_feed",
+    "missing_news_feed": "missing_news_feed",
+    "insufficient_news_evidence": "insufficient_news_evidence",
     "social": "missing_social",
     "missing_social": "missing_social",
-    "onchain": "missing_onchain_secondary",
-    "onchain_secondary": "missing_onchain_secondary",
-    "missing_onchain_secondary": "missing_onchain_secondary",
+    "onchain": "missing_onchain_flows",
+    "onchain_secondary": "missing_onchain_flows",
+    "onchain_flows": "missing_onchain_flows",
+    "missing_onchain_secondary": "missing_onchain_flows",
+    "missing_onchain_flows": "missing_onchain_flows",
+    "liquidation": "missing_liquidations",
+    "liquidations": "missing_liquidations",
+    "missing_liquidations": "missing_liquidations",
     "funding_rate": "missing_funding_rate",
     "funding_rate_history": "missing_funding_rate",
     "missing_funding_rate": "missing_funding_rate",
@@ -956,7 +964,19 @@ def _reason_code(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = text.split(":", 1)[0] if ":" in text else text
     text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
-    return text or "unknown_data_quality_issue"
+    aliases = {
+        "missing_news": "missing_news_feed",
+        "news": "missing_news_feed",
+        "news_feed": "missing_news_feed",
+        "missing_onchain_secondary": "missing_onchain_flows",
+        "onchain_secondary": "missing_onchain_flows",
+        "onchain": "missing_onchain_flows",
+    }
+    if "liquidation" in text:
+        return "missing_liquidations"
+    if "onchain" in text or "on_chain" in text or "exchange_flow" in text:
+        return "missing_onchain_flows"
+    return aliases.get(text, text or "unknown_data_quality_issue")
 
 
 def _core_reason_code(value: Any) -> str:
@@ -966,6 +986,10 @@ def _core_reason_code(value: Any) -> str:
 
 def _optional_reason_code(value: Any) -> str:
     code = _reason_code(value)
+    if "liquidation" in code:
+        return "missing_liquidations"
+    if "onchain" in code or "on_chain" in code or "exchange_flow" in code:
+        return "missing_onchain_flows"
     if code.startswith("missing_") or code.startswith("exchange_"):
         return _OPTIONAL_CODE_ALIASES.get(code, code)
     return _OPTIONAL_CODE_ALIASES.get(code, f"missing_{code}")

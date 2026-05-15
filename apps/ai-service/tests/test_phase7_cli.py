@@ -640,8 +640,8 @@ def test_journal_show_surfaces_completed_degraded(tmp_path, monkeypatch):
         ResearchRun(
             symbol="BTC/USDT",
             status=ResearchRunStatus.COMPLETED_DEGRADED,
-            degradation_reasons=["missing_news"],
-            missing_optional_data=["missing_news"],
+            degradation_reasons=["missing_news_feed"],
+            missing_optional_data=["missing_news_feed"],
         )
     )
     journal.update_research_run(run)
@@ -652,7 +652,7 @@ def test_journal_show_surfaces_completed_degraded(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "completed (degraded)" in result.output
     assert "Missing Optional Data" in result.output
-    assert "missing_news" in result.output
+    assert "missing_news_feed" in result.output
 
 
 def test_journal_and_thesis_plain_modes_are_line_oriented(tmp_path, monkeypatch):

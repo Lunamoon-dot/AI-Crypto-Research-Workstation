@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AgentStance(str, Enum):
@@ -27,13 +29,45 @@ class AgentOpinion(BaseModel):
     role: str = "analyst"
     stance: AgentStance = AgentStance.UNCERTAIN
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    data_quality: float = Field(default=1.0, ge=0.0, le=1.0)
+    data_quality_label: str = "clean"
     key_evidence: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     invalidation_conditions: list[str] = Field(default_factory=list)
     missing_data: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
     raw_text: str = ""
     source_report_type: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("data_quality_label", mode="before")
+    @classmethod
+    def _normalize_data_quality_label(cls, value: Any) -> str:
+        normalized = str(value or "clean").strip().lower()
+        if normalized in {"insufficient", "insufficient_data", "missing"}:
+            return "insufficient_data"
+        if normalized in {"degraded", "partial", "low_confidence"}:
+            return "degraded"
+        return "clean"
+
+    @field_validator("missing_data", "reason_codes", mode="before")
+    @classmethod
+    def _normalize_text_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            value = list(value) if isinstance(value, tuple) else [value]
+        return [str(item).strip()[:500] for item in value if str(item).strip()]
+
+    @model_validator(mode="after")
+    def _mirror_low_data_quality_label(self) -> "AgentOpinion":
+        if self.data_quality < 0.35:
+            self.data_quality_label = "insufficient_data"
+        elif self.data_quality < 0.75 and self.data_quality_label == "clean":
+            self.data_quality_label = "degraded"
+        return self
 
 
 def render_agent_opinion(opinion: AgentOpinion) -> str:
@@ -47,6 +81,7 @@ def render_agent_opinion(opinion: AgentOpinion) -> str:
         f"**Role**: {opinion.role}",
         f"**Stance**: {opinion.stance.value}",
         f"**Confidence**: {confidence}",
+        f"**Data Quality**: {opinion.data_quality_label} ({opinion.data_quality:.0%})",
         "",
         "**Key Evidence**:",
     ]
@@ -57,6 +92,8 @@ def render_agent_opinion(opinion: AgentOpinion) -> str:
     lines.extend(_render_list(opinion.invalidation_conditions))
     lines.extend(["", "**Missing Data**:"])
     lines.extend(_render_list(opinion.missing_data))
+    lines.extend(["", "**Reason Codes**:"])
+    lines.extend(_render_list(opinion.reason_codes))
     if opinion.raw_text:
         lines.extend(["", "**Source Report**:", opinion.raw_text])
     return "\n".join(lines)

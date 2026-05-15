@@ -17,8 +17,8 @@ _OPTIONAL_REASON_CODES = {
     "open_interest": "exchange_oi_unsupported",
     "liquidations": "missing_liquidations",
     "long_short_ratio": "missing_long_short_ratio",
-    "nvt": "missing_onchain_secondary",
-    "exchange_metrics": "missing_exchange_metrics",
+    "nvt": "missing_onchain_flows",
+    "exchange_metrics": "missing_onchain_flows",
 }
 
 

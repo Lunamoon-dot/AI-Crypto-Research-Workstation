@@ -1,7 +1,8 @@
-"""On-chain and derivatives market data for deeper crypto analysis.
+"""Crypto derivatives and market-structure proxy data.
 
-Adds metrics beyond basic OHLCV: liquidations, long/short ratio, exchange
-reserves, market cap / TVL, and blockchain-level data via public APIs.
+Adds metrics beyond basic OHLCV: liquidations, long/short ratio, market cap /
+volume, supply, turnover, and liquidity. Current CoinGecko/CCXT coverage is
+mostly exchange/market proxy data, not wallet-level on-chain flow data.
 """
 
 from __future__ import annotations
@@ -216,19 +217,18 @@ def _resolve_coingecko_id(symbol: str) -> Optional[str]:
 
 
 def fetch_nvt_approximation(symbol: str) -> str:
-    """Approximate the NVT Ratio (Network Value to Transactions).
+    """Compute a market-cap-over-volume valuation/liquidity proxy.
 
-    Uses CoinGecko market cap divided by 24h on-chain volume from
-    blockchain explorer public APIs.  High NVT suggests overvaluation;
-    low NVT suggests undervaluation relative to usage.
+    Uses CoinGecko market cap divided by exchange-reported 24h volume. This is
+    not true on-chain NVT because it does not use network transaction volume.
     """
     base = symbol.split("/")[0].lower() if "/" in symbol else symbol.lower()
     market_data = fetch_coingecko_metrics(base)
 
-    lines = [f"=== {base.upper()} NVT Approximation ===", ""]
+    lines = [f"=== {base.upper()} Valuation/Liquidity Proxy ===", ""]
 
     if market_data is None:
-        lines.append("CoinGecko data unavailable — cannot compute NVT.")
+        lines.append("CoinGecko data unavailable - cannot compute proxy ratio.")
         return "\n".join(lines)
 
     try:
@@ -256,17 +256,28 @@ def fetch_nvt_approximation(symbol: str) -> str:
         lines.append(f"  24h High / Low:    ${high_24h:,.2f} / ${low_24h:,.2f}")
         lines.append(f"  Price Change 24h:  {price_change_24h:+.2f}%")
         lines.append(f"  Price Change 7d:   {price_change_7d:+.2f}%")
-        lines.append(f"  Est. NVT Ratio:    {nvt:.1f}")
+        lines.append(f"  NVT Proxy Ratio:   {nvt:.1f}")
+        lines.append("  Method:            market cap / exchange-reported 24h volume")
+        lines.append(
+            "  Limitation:        not true network transaction NVT; no on-chain "
+            "transaction volume is used"
+        )
         lines.append("")
 
         if nvt > 150:
-            lines.append("🔴 NVT > 150 — network may be overvalued relative to usage.")
+            lines.append(
+                "Proxy > 150: market cap is high relative to exchange volume; "
+                "liquidity/valuation risk is elevated."
+            )
         elif nvt > 90:
-            lines.append("🟠 NVT 90-150 — moderately high valuation.")
+            lines.append("Proxy 90-150: moderately high market-cap/volume ratio.")
         elif nvt > 50:
-            lines.append("🟢 NVT 50-90 — reasonable valuation range.")
+            lines.append("Proxy 50-90: middle market-cap/volume range.")
         else:
-            lines.append("🟢 NVT < 50 — potentially undervalued relative to usage.")
+            lines.append(
+                "Proxy < 50: market cap is low relative to exchange volume; "
+                "this is not proof of network usage or accumulation."
+            )
 
     except (KeyError, TypeError, ValueError) as e:
         logger.debug("NVT parse error: %s", e)
@@ -284,6 +295,7 @@ def fetch_token_supply_metrics(symbol: str) -> str:
     """Fetch circulating supply, total supply, and FDV for a crypto asset.
 
     High FDV / market cap ratio (> 5x) indicates large future dilution risk.
+    Burns reduce supply; they do not mint tokens.
     """
     base = symbol.split("/")[0].lower() if "/" in symbol else symbol.lower()
     data = fetch_coingecko_metrics(base)
@@ -324,12 +336,19 @@ def fetch_token_supply_metrics(symbol: str) -> str:
             lines.append("")
             if fdv_ratio > 5:
                 lines.append(
-                    "🔴 FDV/MC > 5x — significant future dilution risk from unlocks."
+                    "FDV/MC > 5x - significant future dilution risk from unlocks."
                 )
             elif fdv_ratio > 2:
-                lines.append("🟠 FDV/MC 2-5x — moderate dilution risk.")
+                lines.append("FDV/MC 2-5x - moderate dilution risk.")
             else:
-                lines.append("🟢 FDV/MC < 2x — most supply already circulating.")
+                lines.append("FDV/MC < 2x - most supply already circulating.")
+
+        lines.append("")
+        lines.append(
+            "Supply guard: burns reduce supply; they do not mint new tokens. "
+            "Low dilution or burn mechanics are structural context, not a "
+            "standalone entry signal."
+        )
 
     except (KeyError, TypeError, ValueError) as e:
         logger.debug("Supply parse error: %s", e)
@@ -339,21 +358,20 @@ def fetch_token_supply_metrics(symbol: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Exchange reserves (CoinGecko)
+# Exchange volume/liquidity proxy metrics (CoinGecko)
 # ---------------------------------------------------------------------------
 
 
 def fetch_exchange_reserves(symbol: str) -> str:
-    """Report on whether coins are flowing into or out of exchanges.
+    """Report exchange-volume and liquidity proxy metrics.
 
-    Increasing exchange reserves = potential selling pressure.
-    Decreasing reserves = potential holding/accumulation.
-    Uses public CoinGecko exchange data where available.
+    This does not fetch exchange reserves, inflows/outflows, or wallet-level
+    flow data. It uses public CoinGecko market volume/turnover proxies.
     """
     base = symbol.split("/")[0].lower() if "/" in symbol else symbol.lower()
     data = fetch_coingecko_metrics(base)
 
-    lines = [f"=== {base.upper()} Exchange & Liquidity Metrics ===", ""]
+    lines = [f"=== {base.upper()} Exchange Volume & Liquidity Proxies ===", ""]
 
     if data is None:
         lines.append("Data unavailable.")
@@ -361,7 +379,7 @@ def fetch_exchange_reserves(symbol: str) -> str:
 
     try:
         market_data = data["market_data"]
-        # The total volume includes exchange-traded volume
+        # The total volume includes exchange-traded volume.
         total_volume = float(market_data["total_volume"].get("usd") or 0)
         market_cap = float(market_data["market_cap"].get("usd") or 0)
 
@@ -374,6 +392,10 @@ def fetch_exchange_reserves(symbol: str) -> str:
         else:
             turnover_24h = 0
 
+        lines.append(
+            "  Data Limitation:    CoinGecko/CCXT proxy only; no exchange "
+            "reserves, inflow/outflow, whale, active-address, or TVL data"
+        )
         lines.append(f"  Liquidity Score:    {liquidity_score}")
         lines.append(f"  24h Turnover:       {turnover_24h:.2%} of market cap")
         lines.append(f"  Total Volume:       ${total_volume:,.0f}")
@@ -390,20 +412,19 @@ def fetch_exchange_reserves(symbol: str) -> str:
 
         lines.append("")
         if turnover_24h > 10.0:
-            lines.append("🔴 Extremely high turnover — speculative activity elevated.")
+            lines.append("Extremely high turnover - speculative activity elevated.")
         elif turnover_24h > 0.3:
-            lines.append(
-                "🟠 High turnover — active trading, above-average speculation."
-            )
+            lines.append("High turnover - active trading, above-average speculation.")
         elif turnover_24h > 0.1:
-            lines.append("🟡 Moderate turnover — healthy trading activity.")
+            lines.append("Moderate turnover - active trading participation.")
         else:
             lines.append(
-                "🟢 Low turnover — low speculative interest, accumulation phase."
+                "Low turnover - low participation or quiet tape; not accumulation "
+                "by itself."
             )
 
     except (KeyError, TypeError, ValueError) as e:
-        logger.debug("Exchange reserve parse error: %s", e)
+        logger.debug("Exchange proxy parse error: %s", e)
         lines.append("Error parsing exchange metrics.")
 
     return "\n".join(lines)

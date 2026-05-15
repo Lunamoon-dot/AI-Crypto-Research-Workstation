@@ -14,8 +14,10 @@ import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import {
   ConfidenceBadge,
+  DataQualityBadge,
   DirectionBadge,
   IdChip,
+  RatingBadge,
 } from '@/components/research/badges';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
 import { JsonView } from '@/components/research/json-view';
@@ -164,7 +166,7 @@ export function ThesisDetailPage() {
           icon={<FileText size={18} />}
           label="Rating"
           tone="primary"
-          value={thesis.summary.rating || thesis.setup_type || 'n/a'}
+          value={<RatingBadge value={thesis.summary.rating || 'Hold'} />}
         />
         <MetricTile
           className="span-3"
@@ -194,6 +196,15 @@ export function ThesisDetailPage() {
             <p style={{ margin: 0 }}>{thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.'}</p>
             <DataPair label="Setup" value={thesis.setup_type} />
             <DataPair label="Confidence basis" value={thesis.confidence_source || 'n/a'} />
+            <DataPair
+              label="Data quality"
+              value={
+                <DataQualityBadge
+                  label={thesis.summary.data_quality_label}
+                  value={thesis.summary.data_quality}
+                />
+              }
+            />
             {stabilityGuard.applied === true ? (
               <DataPair
                 label="Stability guard"

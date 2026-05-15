@@ -129,6 +129,9 @@ export interface AgentOpinionResponse {
   agent_role: string;
   stance: string;
   confidence: number | null;
+  data_quality: number | null;
+  data_quality_label: string;
+  reason_codes: string[];
   created_at: string | null;
   payload: JsonRecord;
 }
@@ -153,6 +156,9 @@ export interface ThesisSummaryResponse {
   spot_notes: string;
   perp_notes: string;
   missing_data: string[];
+  missing_data_reason_codes: string[];
+  data_quality: number | null;
+  data_quality_label: string;
   is_degraded: boolean;
   degradation_reasons: string[];
 }
