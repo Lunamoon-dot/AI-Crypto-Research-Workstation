@@ -41,8 +41,14 @@ export function StatusBadge({ value }: { value: string }) {
   return <span className={`badge ${tone}`}>{value || 'unknown'}</span>;
 }
 
-export function ConfidenceBadge({ value }: { value: number | null }) {
-  return <span className="badge primary">{formatConfidence(value)}</span>;
+export function ConfidenceBadge({
+  label,
+  value,
+}: {
+  label?: string;
+  value: number | null;
+}) {
+  return <span className="badge primary">{label ?? formatConfidence(value)}</span>;
 }
 
 export function DataQualityBadge({

@@ -39,6 +39,10 @@ export function getResearchRunEvidenceBundle(
   return generatedClient(auth).getResearchRunEvidenceBundle(id);
 }
 
+export function getResearchRunSnapshots(id: string, auth: WorkspaceRequestContext) {
+  return generatedClient(auth).getResearchRunSnapshots(id);
+}
+
 export function getJournalRunEvidenceBundle(
   id: string,
   auth: WorkspaceRequestContext,

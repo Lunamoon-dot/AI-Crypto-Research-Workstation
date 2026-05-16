@@ -2926,6 +2926,64 @@ test('research workspace derives stage timings from run events', async () => {
   ]);
 });
 
+test('research workspace derives spot branch timing from setup planner completion', async () => {
+  const { journal, researchRuns } = buildHarness();
+  journal.researchRuns.set(key('run_spot_branch_timing', 'workspace_a'), {
+    id: 'run_spot_branch_timing',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    market_type: 'spot',
+    status: 'running',
+  });
+  journal.events.set(key('run_spot_branch_timing', 'workspace_a'), [
+    {
+      id: 'event_setup_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_spot_branch_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:07:00.000Z',
+      message: 'setup started',
+      payload: { graph_node: 'Setup Planner' },
+    },
+    {
+      id: 'event_setup_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_spot_branch_timing',
+      event_type: 'agent.node.completed',
+      created_at: '2026-05-12T00:07:10.000Z',
+      message: 'setup completed',
+      payload: { graph_node: 'Setup Planner', duration_ms: 10000 },
+    },
+    {
+      id: 'event_risk_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_spot_branch_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:07:11.000Z',
+      message: 'risk started',
+      payload: { graph_node: 'Aggressive Analyst' },
+    },
+  ]);
+
+  const workspace = await researchRuns.workspace(
+    'run_spot_branch_timing',
+    'user_1',
+    'workspace_a',
+  );
+  const timing = (stageKey: string) =>
+    workspace.stage_timings.find((stage) => stage.stage_key === stageKey);
+
+  assert.equal(timing('setup_planner')?.event_state, 'completed');
+  assert.equal(timing('setup_planner')?.duration_ms, 10000);
+  assert.equal(timing('spot_checks')?.event_state, 'completed');
+  assert.equal(timing('spot_checks')?.started_at, null);
+  assert.equal(timing('spot_checks')?.completed_at, '2026-05-12T00:07:10.000Z');
+  assert.equal(timing('spot_checks')?.duration_ms, null);
+  assert.deepEqual(timing('spot_checks')?.source_event_ids, ['event_setup_done']);
+  assert.equal(timing('risk_debate')?.event_state, 'running');
+});
+
 test('alerts list and read APIs are workspace scoped', async () => {
   const { journal, alerts } = buildHarness();
   journal.alerts.push(

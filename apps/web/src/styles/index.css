@@ -447,6 +447,22 @@ a {
   min-width: min(100%, 240px);
 }
 
+.analyst-module-avatar {
+  display: grid;
+  height: 48px;
+  width: 48px;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.analyst-module-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.28));
+}
+
 .bento-grid {
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
@@ -1422,6 +1438,13 @@ a {
   gap: 8px;
 }
 
+.signal-run-id-pair {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
 .signal-run-open {
   min-height: 30px;
   padding: 5px 9px;
@@ -1435,6 +1458,51 @@ a {
 
 .signal-run-table-wrap {
   margin-top: 12px;
+}
+
+.signal-snapshot-summary {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.signal-snapshot-summary-main,
+.signal-snapshot-metrics,
+.signal-snapshot-metric {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.signal-snapshot-summary-main {
+  gap: 7px;
+}
+
+.signal-snapshot-metrics {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.signal-snapshot-metric {
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.signal-snapshot-metric strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.signal-snapshot-metric-id {
+  gap: 7px;
 }
 
 .signal-run-table {
@@ -1914,10 +1982,10 @@ a {
 
 @keyframes workflow-flow-y {
   from {
-    background-position: 0 -120%;
+    background-position: 0 120%;
   }
   to {
-    background-position: 0 120%;
+    background-position: 0 -120%;
   }
 }
 
@@ -1980,6 +2048,24 @@ a {
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.workflow-node-avatar {
+  display: grid;
+  height: 42px;
+  width: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.workflow-node-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.28));
 }
 
 .workflow-org {
@@ -2066,7 +2152,8 @@ a {
   height: 32px;
 }
 
-.workflow-branch-grid::before {
+.workflow-branch-grid::before,
+.workflow-merge-grid::before {
   position: absolute;
   top: 10px;
   right: calc(var(--analyst-width) / 2);
@@ -2080,7 +2167,41 @@ a {
   display: none;
 }
 
+.workflow-merge-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--analyst-count), minmax(170px, 1fr));
+  gap: var(--analyst-gap);
+  width: min(100%, var(--analyst-row-width));
+  height: 34px;
+}
+
+.workflow-merge-grid::before {
+  top: 18px;
+}
+
+.workflow-merge-grid::after {
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--workflow-connector-color, rgba(245, 158, 11, 0.36));
+  content: "";
+}
+
+.workflow-merge-grid-single::before {
+  display: none;
+}
+
 .workflow-branch-cell {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.workflow-merge-cell {
   position: relative;
   display: grid;
   justify-items: center;
@@ -2101,6 +2222,13 @@ a {
   width: 1px;
 }
 
+.workflow-merge-rise {
+  position: absolute;
+  top: 0;
+  height: 18px;
+  width: 1px;
+}
+
 .workflow-sequence {
   display: grid;
   width: 100%;
@@ -2113,7 +2241,9 @@ a {
 }
 
 .workflow-connector-line,
-.workflow-branch-grid::before {
+.workflow-branch-grid::before,
+.workflow-merge-grid::before,
+.workflow-merge-grid::after {
   background: var(--workflow-connector-color, rgba(245, 158, 11, 0.36));
 }
 
@@ -2169,7 +2299,8 @@ a {
   animation: workflow-flow-y 1700ms linear infinite;
 }
 
-.workflow-branch-grid.workflow-connector-running::before {
+.workflow-branch-grid.workflow-connector-running::before,
+.workflow-merge-grid.workflow-connector-running::before {
   background:
     linear-gradient(
       90deg,
@@ -2185,7 +2316,9 @@ a {
 }
 
 .workflow-branch-grid.workflow-connector-ready::before,
-.workflow-branch-grid.workflow-connector-completed::before {
+.workflow-branch-grid.workflow-connector-completed::before,
+.workflow-merge-grid.workflow-connector-ready::before,
+.workflow-merge-grid.workflow-connector-completed::before {
   --workflow-flow-edge: rgba(52, 211, 153, 0.12);
   background:
     linear-gradient(
@@ -2199,12 +2332,48 @@ a {
   animation: workflow-flow-x 1700ms linear infinite;
 }
 
+.workflow-merge-grid.workflow-connector-running::after {
+  background:
+    linear-gradient(
+      180deg,
+      var(--workflow-flow-edge, rgba(167, 139, 250, 0.15)),
+      rgba(255, 255, 255, 0.96),
+      var(--workflow-flow-edge, rgba(167, 139, 250, 0.15))
+    );
+  background-size: 100% 220%;
+  box-shadow: 0 0 12px var(--workflow-connector-glow);
+  animation:
+    workflow-flow-y 1150ms linear infinite,
+    workflow-line-pulse 1400ms ease-in-out infinite;
+}
+
+.workflow-merge-grid.workflow-connector-ready::after,
+.workflow-merge-grid.workflow-connector-completed::after {
+  --workflow-flow-edge: rgba(52, 211, 153, 0.12);
+  background:
+    linear-gradient(
+      180deg,
+      var(--workflow-flow-edge),
+      rgba(236, 253, 245, 0.84),
+      var(--workflow-flow-edge)
+    );
+  background-size: 100% 220%;
+  box-shadow: 0 0 8px var(--workflow-connector-glow);
+  animation: workflow-flow-y 1700ms linear infinite;
+}
+
 .workflow-flow-complete .workflow-connector-running.workflow-connector-line,
 .workflow-flow-complete .workflow-connector-ready.workflow-connector-line,
 .workflow-flow-complete .workflow-connector-completed.workflow-connector-line,
 .workflow-flow-complete .workflow-branch-grid.workflow-connector-running::before,
 .workflow-flow-complete .workflow-branch-grid.workflow-connector-ready::before,
 .workflow-flow-complete .workflow-branch-grid.workflow-connector-completed::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-running::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-ready::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-completed::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-running::after,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-ready::after,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-completed::after,
 .workflow-flow-complete .workflow-state-running {
   animation: none;
 }
@@ -2214,7 +2383,13 @@ a {
 .workflow-flow-complete .workflow-connector-completed.workflow-connector-line,
 .workflow-flow-complete .workflow-branch-grid.workflow-connector-running::before,
 .workflow-flow-complete .workflow-branch-grid.workflow-connector-ready::before,
-.workflow-flow-complete .workflow-branch-grid.workflow-connector-completed::before {
+.workflow-flow-complete .workflow-branch-grid.workflow-connector-completed::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-running::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-ready::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-completed::before,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-running::after,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-ready::after,
+.workflow-flow-complete .workflow-merge-grid.workflow-connector-completed::after {
   background: var(--workflow-connector-color, rgba(52, 211, 153, 0.62));
   box-shadow: none;
 }
@@ -2299,10 +2474,52 @@ a {
 
 .workflow-node-main {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
   min-width: 0;
+  min-height: 42px;
+}
+
+.workflow-node-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.workflow-node-badges {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workflow-node-badge-left,
+.workflow-node-badge-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workflow-node-badge-left {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.workflow-node-badge-right {
+  justify-content: flex-end;
+}
+
+.workflow-node-confidence {
+  flex: 0 0 auto;
+}
+
+.workflow-node-status {
+  flex: 0 0 auto;
 }
 
 .workflow-node-copy {
@@ -2310,13 +2527,17 @@ a {
 }
 
 .workflow-node-kicker {
-  margin-bottom: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--warning);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.08em;
   line-height: 1.2;
   text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workflow-node h3 {
@@ -2325,6 +2546,8 @@ a {
   font-size: 14px;
   font-weight: 780;
   line-height: 1.32;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .workflow-node p {
@@ -2336,6 +2559,60 @@ a {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.workflow-node-detail-pill {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  border: 1px solid var(--workflow-detail-border);
+  border-radius: 999px;
+  background: var(--workflow-detail-bg);
+  color: var(--workflow-detail-color);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  padding: 0 10px;
+  text-transform: lowercase;
+}
+
+.workflow-node-inline-detail {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-detail-bullish {
+  --workflow-detail-bg: rgba(16, 185, 129, 0.12);
+  --workflow-detail-border: rgba(52, 211, 153, 0.54);
+  --workflow-detail-color: #34d399;
+}
+
+.workflow-node-detail-bearish {
+  --workflow-detail-bg: rgba(248, 113, 113, 0.1);
+  --workflow-detail-border: rgba(248, 113, 113, 0.5);
+  --workflow-detail-color: #fca5a5;
+}
+
+.workflow-node-detail-neutral {
+  --workflow-detail-bg: rgba(56, 189, 248, 0.1);
+  --workflow-detail-border: rgba(125, 211, 252, 0.42);
+  --workflow-detail-color: #bae6fd;
+}
+
+.workflow-node-detail-uncertain,
+.workflow-node-detail-mixed {
+  --workflow-detail-bg: rgba(245, 158, 11, 0.12);
+  --workflow-detail-border: rgba(251, 191, 36, 0.48);
+  --workflow-detail-color: #fbbf24;
 }
 
 .workflow-node-meta {
@@ -2531,15 +2808,6 @@ a {
     flex-direction: column;
   }
 
-  .workflow-node-main {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
-
-  .workflow-node-main > .badge {
-    grid-column: 2;
-    justify-self: start;
-  }
-
   .workflow-node-meta {
     grid-template-columns: 1fr;
   }
@@ -2605,6 +2873,10 @@ a {
     align-items: flex-start;
   }
 
+  .signal-snapshot-summary {
+    grid-template-columns: 1fr;
+  }
+
   .mobile-bottom-nav {
     position: fixed;
     right: 12px;
@@ -2642,6 +2914,12 @@ a {
   .workflow-branch-grid.workflow-connector-running::before,
   .workflow-branch-grid.workflow-connector-ready::before,
   .workflow-branch-grid.workflow-connector-completed::before,
+  .workflow-merge-grid.workflow-connector-running::before,
+  .workflow-merge-grid.workflow-connector-ready::before,
+  .workflow-merge-grid.workflow-connector-completed::before,
+  .workflow-merge-grid.workflow-connector-running::after,
+  .workflow-merge-grid.workflow-connector-ready::after,
+  .workflow-merge-grid.workflow-connector-completed::after,
   .workflow-state-running {
     animation: none;
   }

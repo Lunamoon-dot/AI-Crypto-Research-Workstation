@@ -48,35 +48,55 @@ import type {
   AgentOpinionResponse,
   ResearchRunArtifactsResponse,
   ResearchRunEventResponse,
+  JournalRunWorkspaceResponse,
   ResearchRunStageTimingResponse,
   SignalSnapshotResponse,
 } from '@/types';
+
+const agentAvatarSrc = (fileName: string) => `/agent-avatars/${fileName}`;
+const terminalArtifactPollWindowMs = 2 * 60 * 1000;
 
 const pipelineStages = [
   {
     key: 'quant',
     label: 'Quant',
     icon: BarChart3,
+    avatarSrc: agentAvatarSrc('signal.png'),
     aliases: ['quant', 'quant analyst', 'signal'],
   },
-  { key: 'market', label: 'Market', icon: Database, aliases: ['market', 'market analyst'] },
-  { key: 'news', label: 'News', icon: Newspaper, aliases: ['news', 'news analyst'] },
+  {
+    key: 'market',
+    label: 'Market',
+    icon: Database,
+    avatarSrc: agentAvatarSrc('market-analyst.png'),
+    aliases: ['market', 'market analyst'],
+  },
+  {
+    key: 'news',
+    label: 'News',
+    icon: Newspaper,
+    avatarSrc: agentAvatarSrc('news-analyst.png'),
+    aliases: ['news', 'news analyst'],
+  },
   {
     key: 'social',
     label: 'Social',
     icon: Users,
+    avatarSrc: agentAvatarSrc('social-analyst.png'),
     aliases: ['social', 'sentiment', 'sentiment analyst', 'social analyst'],
   },
   {
     key: 'onchain',
     label: 'Onchain',
     icon: WalletCards,
+    avatarSrc: agentAvatarSrc('onchain-analyst.png'),
     aliases: ['onchain', 'fundamental', 'onchain analyst'],
   },
   {
     key: 'debate',
     label: 'Bull/Contrarian Debate',
     icon: Brain,
+    avatarSrc: agentAvatarSrc('bull-contrarian-debate-agent.png'),
     aliases: ['bull researcher', 'bear researcher', 'contrarian analyst'],
     requiredAliases: [['bull researcher'], ['bear researcher', 'contrarian analyst']],
   },
@@ -84,18 +104,21 @@ const pipelineStages = [
     key: 'research_manager',
     label: 'Research Manager',
     icon: Users,
+    avatarSrc: agentAvatarSrc('research-manager-agent.png'),
     aliases: ['research manager', 'research_manager'],
   },
   {
     key: 'setup_planner',
     label: 'Setup Planner',
     icon: CheckCircle2,
+    avatarSrc: agentAvatarSrc('setup-planner-agent.png'),
     aliases: ['setup planner', 'setup_planner', 'trader'],
   },
   {
     key: 'spot_checks',
     label: 'Spot Checks',
     icon: WalletCards,
+    avatarSrc: agentAvatarSrc('spot-checks.png'),
     aliases: ['setup planner', 'setup_planner', 'trader'],
     marketTypes: ['spot'],
     detail: 'Accumulation / DCA / allocation',
@@ -104,6 +127,7 @@ const pipelineStages = [
     key: 'perp_checks',
     label: 'Perp Checks',
     icon: ShieldAlert,
+    avatarSrc: agentAvatarSrc('spot-checks.png'),
     aliases: ['setup planner', 'setup_planner', 'trader'],
     marketTypes: ['perp'],
     detail: 'Funding / OI / liquidation',
@@ -112,6 +136,7 @@ const pipelineStages = [
     key: 'risk_debate',
     label: 'Risk Debate',
     icon: ShieldAlert,
+    avatarSrc: agentAvatarSrc('risk-debate-agent.png'),
     aliases: [
       'risk',
       'risk analyst',
@@ -129,18 +154,21 @@ const pipelineStages = [
     key: 'portfolio_manager',
     label: 'Portfolio Manager',
     icon: BarChart3,
+    avatarSrc: agentAvatarSrc('portfolio-manager-agent.png'),
     aliases: ['portfolio manager', 'portfolio_manager'],
   },
   {
     key: 'scenario_planner',
     label: 'Scenario Planner',
     icon: Newspaper,
+    avatarSrc: agentAvatarSrc('scenario-planner-agent.png'),
     aliases: ['scenario planner', 'scenarioplanner', 'scenario.plan', 'scenarios_saved'],
   },
   {
     key: 'thesis',
     label: 'Trade Thesis',
     icon: Brain,
+    avatarSrc: agentAvatarSrc('trade-thesis-agent.png'),
     aliases: ['thesis', 'trade thesis', 'trade_thesis', 'thesis.generated'],
   },
 ] as const;
@@ -173,8 +201,11 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         ? getJournalRunWorkspace(runId, auth)
         : getResearchRunWorkspace(runId, auth),
     refetchInterval: (query) => {
-      const runStatus = query.state.data?.run.status;
-      if (isActiveJobStatus(runStatus)) {
+      const workspace = query.state.data;
+      if (isActiveJobStatus(workspace?.run.status)) {
+        return 5000;
+      }
+      if (shouldPollTerminalArtifacts(workspace, query.state.dataUpdatedAt)) {
         return 5000;
       }
       if (query.state.error && isActiveJobStatus(jobQuery.data?.status)) {
@@ -266,6 +297,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const signal = workspace.snapshots.signal_snapshot;
   const runFailed = workspace.run.status === 'failed';
   const runTerminal = isTerminalRunStatus(workspace.run.status);
+  const artifactPolling = shouldPollTerminalArtifacts(workspace);
   const marketType = normalizeMarketType(workspace.run.market_type);
   const artifacts = workspace.artifacts ?? emptyArtifacts();
   const selectedAnalysts = selectedAnalystKeysFromEvents(workspace.events);
@@ -313,6 +345,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         key: stage.key,
         label: stage.label,
         icon: stage.icon,
+        avatarSrc: stage.avatarSrc,
         statusLabel: stageState.label,
         badgeClass: stageState.badgeClass,
         detail,
@@ -433,6 +466,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
 
         <FullReportArtifactPanel
           artifacts={artifacts}
+          artifactPolling={artifactPolling}
           runTerminal={runTerminal}
         />
 
@@ -571,16 +605,22 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
 }
 
 function FullReportArtifactPanel({
+  artifactPolling,
   artifacts,
   runTerminal,
 }: {
+  artifactPolling: boolean;
   artifacts: ResearchRunArtifactsResponse;
   runTerminal: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const report = artifacts.full_report;
   const state = artifacts.full_state;
-  const reportStatus = artifactStatusLabel(report.exists, runTerminal);
+  const reportStatus = artifactStatusLabel(
+    report.exists,
+    runTerminal,
+    artifactPolling,
+  );
 
   async function copyPath() {
     if (!report.path) {
@@ -619,13 +659,16 @@ function FullReportArtifactPanel({
           <code>{report.path ?? 'No report path resolved.'}</code>
         </div>
         <div className="stack small">
-          <DataPair label="Markdown" value={artifactMeta(report)} />
+          <DataPair
+            label="Markdown"
+            value={artifactMeta(report, runTerminal, artifactPolling)}
+          />
           <DataPair
             label="State JSON"
             value={
               state.exists
-                ? artifactMeta(state)
-                : artifactStatusLabel(false, runTerminal).label
+                ? artifactMeta(state, runTerminal, artifactPolling)
+                : artifactStatusLabel(false, runTerminal, artifactPolling).label
             }
           />
         </div>
@@ -634,23 +677,27 @@ function FullReportArtifactPanel({
   );
 }
 
-function artifactStatusLabel(exists: boolean, runTerminal: boolean) {
+function artifactStatusLabel(
+  exists: boolean,
+  runTerminal: boolean,
+  artifactPolling = false,
+) {
   if (exists) {
     return { label: 'Saved', className: 'badge constructive' };
   }
-  if (runTerminal) {
-    return { label: 'Not found', className: 'badge risk' };
+  if (!runTerminal || artifactPolling) {
+    return { label: 'Pending', className: 'badge warning' };
   }
-  return { label: 'Pending', className: 'badge warning' };
+  return { label: 'Not found', className: 'badge risk' };
 }
 
 function artifactMeta(artifact: {
   exists: boolean;
   size_bytes: number | null;
   modified_at: string | null;
-}) {
+}, runTerminal: boolean, artifactPolling = false) {
   if (!artifact.exists) {
-    return 'Pending';
+    return artifactStatusLabel(false, runTerminal, artifactPolling).label;
   }
   const size = formatBytes(artifact.size_bytes);
   const modified = formatDateTime(artifact.modified_at);
@@ -717,6 +764,38 @@ function isTerminalRunStatus(status: string | undefined): boolean {
     status &&
       !['created', 'queued', 'running', 'submitted', 'pending'].includes(status),
   );
+}
+
+function shouldPollTerminalArtifacts(
+  workspace: JournalRunWorkspaceResponse | undefined,
+  observedAt = 0,
+): boolean {
+  if (!workspace || !isTerminalRunStatus(workspace.run.status)) {
+    return false;
+  }
+  if (
+    workspace.artifacts.full_report.exists &&
+    workspace.artifacts.full_state.exists
+  ) {
+    return false;
+  }
+  const terminalAt = Math.max(
+    timestampMs(workspace.run.completed_at) ?? 0,
+    timestampMs(workspace.run.started_at) ?? 0,
+    observedAt,
+  );
+  if (terminalAt <= 0) {
+    return false;
+  }
+  return Date.now() - terminalAt < terminalArtifactPollWindowMs;
+}
+
+function timestampMs(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function matchesStageOpinion(
@@ -791,7 +870,7 @@ function resolvePipelineStageState({
     hasStageReadyArtifact(stage.key, signal, scenarioCount, thesisReady)
   ) {
     return {
-      label: 'ready',
+      label: 'completed',
       badgeClass: 'badge constructive',
       detail: readyDetailForStage(stage.key),
     };
@@ -809,7 +888,7 @@ function resolvePipelineStageState({
   const completed = latestCompletedStageEvent(events, stage);
   if (completed) {
     return {
-      label: 'ready',
+      label: 'completed',
       badgeClass: 'badge constructive',
       detail: 'Completed',
     };
@@ -891,6 +970,7 @@ function fallbackStageTiming(
   events: ResearchRunEventResponse[],
   runTerminal: boolean,
 ): ResearchRunStageTimingResponse {
+  const marketBranch = isMarketBranchStage(stage.key);
   const startedEvents = startedEventsForStage(stage, events);
   const completedEvents = completedEventsForStage(stage, events);
   const failedEvents = events.filter(
@@ -912,10 +992,11 @@ function fallbackStageTiming(
     latestFailed,
     runTerminal,
   });
-  const durationMs =
-    eventDurationMs(latestTerminal) ??
-    wallClockDurationMs(startedAt, completedAt) ??
-    runningDurationMs(startedAt, eventState);
+  const durationMs = marketBranch
+    ? null
+    : eventDurationMs(latestTerminal) ??
+      wallClockDurationMs(startedAt, completedAt) ??
+      runningDurationMs(startedAt, eventState);
 
   return {
     stage_key: stage.key,
@@ -957,7 +1038,13 @@ function completedEventsForStage(
   const milestoneEvents = events.filter((event) =>
     milestoneTypes.includes(event.event_type),
   );
-  if (stage.key === 'quant' || stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+  if (isMarketBranchStage(stage.key)) {
+    const completed =
+      latestEvent(milestoneEvents) ??
+      latestMatchingEvent(events, stage, 'agent.node.completed');
+    return completed ? [completed] : [];
+  }
+  if (stage.key === 'quant') {
     return milestoneEvents;
   }
   return [
@@ -1091,7 +1178,10 @@ function latestCompletedStageEvent(
     );
   }
   if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
-    return latestEventByType(events, ['plan.recorded']);
+    return (
+      latestEventByType(events, ['plan.recorded']) ??
+      latestMatchingEvent(events, stage, 'agent.node.completed')
+    );
   }
   if (stage.key === 'scenario_planner') {
     return (
@@ -1128,6 +1218,10 @@ function latestStartedStageEvent(
     ]);
   }
   return latestMatchingEvent(events, stage, 'agent.node.started');
+}
+
+function isMarketBranchStage(stageKey: string): boolean {
+  return stageKey === 'spot_checks' || stageKey === 'perp_checks';
 }
 
 function latestCompletedGroupEvent(

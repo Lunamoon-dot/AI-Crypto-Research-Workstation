@@ -552,22 +552,32 @@ export class PostgresJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'research_run_id', research_run_id,
-         'signal_snapshot_id', signal_snapshot_id,
-         'symbol', symbol,
-         'signal_type', signal_type,
-         'direction', direction,
-         'confidence', confidence,
-         'observed_at', observed_at,
-         'source', source,
-         'source_timestamp', source_timestamp,
-         'payload', payload_json
+      `SELECT s.payload_json || jsonb_build_object(
+         'id', s.id,
+         'workspace_id', s.workspace_id,
+         'research_run_id', snapshot_ref.research_run_id,
+         'signal_snapshot_id', snapshot_ref.signal_snapshot_id,
+         'symbol', s.symbol,
+         'signal_type', s.signal_type,
+         'direction', s.direction,
+         'confidence', s.confidence,
+         'observed_at', s.observed_at,
+         'source', s.source,
+         'source_timestamp', s.source_timestamp,
+         'payload', s.payload_json
        ) AS payload_json
-       FROM signals
-       WHERE id = $1 AND workspace_id = $2`,
+       FROM signals s
+       LEFT JOIN LATERAL (
+         SELECT
+           ss.id AS signal_snapshot_id,
+           ss.research_run_id
+         FROM signal_snapshots ss
+         WHERE ss.workspace_id = s.workspace_id
+           AND ss.payload_json->'signal_ids' ? s.id
+         ORDER BY ss.captured_at DESC, ss.id DESC
+         LIMIT 1
+       ) snapshot_ref ON true
+       WHERE s.id = $1 AND s.workspace_id = $2`,
       [id, workspaceId],
     );
   }
@@ -579,43 +589,63 @@ export class PostgresJournalRepository implements JournalRepository {
   ): Promise<JsonRecord[]> {
     if (symbol) {
       return this.many(
-        `SELECT payload_json || jsonb_build_object(
-           'id', id,
-           'workspace_id', workspace_id,
-           'research_run_id', research_run_id,
-           'signal_snapshot_id', signal_snapshot_id,
-           'symbol', symbol,
-           'signal_type', signal_type,
-           'direction', direction,
-           'confidence', confidence,
-           'observed_at', observed_at,
-           'source', source,
-           'source_timestamp', source_timestamp
+        `SELECT s.payload_json || jsonb_build_object(
+           'id', s.id,
+           'workspace_id', s.workspace_id,
+           'research_run_id', snapshot_ref.research_run_id,
+           'signal_snapshot_id', snapshot_ref.signal_snapshot_id,
+           'symbol', s.symbol,
+           'signal_type', s.signal_type,
+           'direction', s.direction,
+           'confidence', s.confidence,
+           'observed_at', s.observed_at,
+           'source', s.source,
+           'source_timestamp', s.source_timestamp
          ) AS payload_json
-         FROM signals
-         WHERE workspace_id = $1 AND symbol = $2
-         ORDER BY observed_at DESC
+         FROM signals s
+         LEFT JOIN LATERAL (
+           SELECT
+             ss.id AS signal_snapshot_id,
+             ss.research_run_id
+           FROM signal_snapshots ss
+           WHERE ss.workspace_id = s.workspace_id
+             AND ss.payload_json->'signal_ids' ? s.id
+           ORDER BY ss.captured_at DESC, ss.id DESC
+           LIMIT 1
+         ) snapshot_ref ON true
+         WHERE s.workspace_id = $1 AND s.symbol = $2
+         ORDER BY s.observed_at DESC
          LIMIT $3`,
         [workspaceId, symbol, limit],
       );
     }
     return this.many(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'research_run_id', research_run_id,
-         'signal_snapshot_id', signal_snapshot_id,
-         'symbol', symbol,
-         'signal_type', signal_type,
-         'direction', direction,
-         'confidence', confidence,
-         'observed_at', observed_at,
-         'source', source,
-         'source_timestamp', source_timestamp
+      `SELECT s.payload_json || jsonb_build_object(
+         'id', s.id,
+         'workspace_id', s.workspace_id,
+         'research_run_id', snapshot_ref.research_run_id,
+         'signal_snapshot_id', snapshot_ref.signal_snapshot_id,
+         'symbol', s.symbol,
+         'signal_type', s.signal_type,
+         'direction', s.direction,
+         'confidence', s.confidence,
+         'observed_at', s.observed_at,
+         'source', s.source,
+         'source_timestamp', s.source_timestamp
        ) AS payload_json
-       FROM signals
-       WHERE workspace_id = $1
-       ORDER BY observed_at DESC
+       FROM signals s
+       LEFT JOIN LATERAL (
+         SELECT
+           ss.id AS signal_snapshot_id,
+           ss.research_run_id
+         FROM signal_snapshots ss
+         WHERE ss.workspace_id = s.workspace_id
+           AND ss.payload_json->'signal_ids' ? s.id
+         ORDER BY ss.captured_at DESC, ss.id DESC
+         LIMIT 1
+       ) snapshot_ref ON true
+       WHERE s.workspace_id = $1
+       ORDER BY s.observed_at DESC
        LIMIT $2`,
       [workspaceId, limit],
     );

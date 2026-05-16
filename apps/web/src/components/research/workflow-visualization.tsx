@@ -1,13 +1,14 @@
 import type { CSSProperties } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { ConfidenceBadge } from '@/components/research/badges';
-import { formatDateTime } from '@/lib/format';
+import { formatConfidence, formatDateTime } from '@/lib/format';
 import type { ResearchRunStageTimingResponse } from '@/types';
 
 export type WorkflowVisualizationStage = {
   key: string;
   label: string;
   icon: LucideIcon;
+  avatarSrc?: string;
   statusLabel: string;
   badgeClass: string;
   detail: string;
@@ -39,6 +40,8 @@ export function WorkflowVisualization({
   const analystGridStyle = analystGridVariables(analystStages.length);
   const canvasStyle = workflowCanvasVariables(analystStages.length);
   const analystConnectorState = groupConnectorState(analystStages);
+  const firstSequentialStage = sequentialStages[0];
+  const mergeConnectorState = firstSequentialStage?.statusLabel ?? 'pending';
   const workflowComplete = terminalStagesComplete({
     signalStage,
     analystStages,
@@ -117,6 +120,32 @@ export function WorkflowVisualization({
                   </div>
                 ))}
               </div>
+              {sequentialStages.length > 0 ? (
+                <div
+                  aria-hidden
+                  className={`workflow-merge-grid ${connectorClass(
+                    mergeConnectorState,
+                  )} ${
+                    analystStages.length === 1 ? 'workflow-merge-grid-single' : ''
+                  }`}
+                  style={analystGridStyle}
+                >
+                  {analystStages.map((stage) => (
+                    <span
+                      className={`workflow-merge-cell ${connectorClass(
+                        mergeConnectorState,
+                      )}`}
+                      key={stage.key}
+                    >
+                      <span
+                        className={`workflow-merge-rise workflow-connector-line ${connectorClass(
+                          mergeConnectorState,
+                        )}`}
+                      />
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </>
           ) : null}
 
@@ -153,32 +182,114 @@ function WorkflowNode({
   variant: 'signal' | 'analyst' | 'manager';
 }) {
   const Icon = stage.icon;
+  const displayDetail = workflowNodeDetail(stage.detail, timing);
+  const detailTone = workflowDetailTone(displayDetail);
+  const inlineDetail = !detailTone && shouldInlineWorkflowDetail(displayDetail);
   return (
     <article className={`workflow-node workflow-node-${variant} workflow-state-${stateClass(stage.statusLabel)}`}>
       <div className="workflow-node-main">
-        <span className="pipeline-icon">
-          <Icon aria-hidden size={17} />
-        </span>
-        <div className="workflow-node-copy">
+        {stage.avatarSrc ? (
+          <span className="workflow-node-avatar" aria-hidden>
+            <img src={stage.avatarSrc} alt="" loading="lazy" />
+          </span>
+        ) : (
+          <span className="pipeline-icon">
+            <Icon aria-hidden size={17} />
+          </span>
+        )}
+        <div className="workflow-node-heading">
           <div className="workflow-node-kicker">{nodeKicker(stage, variant)}</div>
           <h3>{stage.label}</h3>
-          <p>{stage.detail}</p>
         </div>
-        <span className={stage.badgeClass}>{stage.statusLabel}</span>
+        <div className="workflow-node-badges">
+          <span className="workflow-node-badge-left">
+            {stage.confidence !== null ? (
+              <span className="workflow-node-confidence">
+                <ConfidenceBadge
+                  label={`Confidence ${formatConfidence(stage.confidence)}`}
+                  value={stage.confidence}
+                />
+              </span>
+            ) : null}
+            {detailTone ? (
+              <span className={`workflow-node-detail-pill workflow-node-detail-${detailTone}`}>
+                {displayDetail}
+              </span>
+            ) : null}
+            {inlineDetail ? (
+              <span className="workflow-node-inline-detail">{displayDetail}</span>
+            ) : null}
+          </span>
+          <span className="workflow-node-badge-right">
+            <span className={`${stage.badgeClass} workflow-node-status`}>
+              {stage.statusLabel}
+            </span>
+          </span>
+        </div>
       </div>
+      {!detailTone && !inlineDetail ? (
+        <div className="workflow-node-copy">
+          <p title={workflowTimingTitle(timing)}>{displayDetail}</p>
+        </div>
+      ) : null}
       <div className="workflow-node-meta small">
         <span>Dur {formatDuration(timing?.duration_ms)}</span>
         <span>Events {timing?.source_event_ids.length ?? 0}</span>
-        <span>Start {formatDateTime(timing?.started_at)}</span>
+        <span title={workflowTimingTitle(timing)}>
+          {timing?.completed_at
+            ? `Done ${formatTimeWithSeconds(timing.completed_at)}`
+            : `Start ${formatTimeWithSeconds(timing?.started_at)}`}
+        </span>
       </div>
       {stage.warning ? (
         <div className="workflow-warning small">{stage.warning}</div>
       ) : null}
-      {stage.confidence !== null ? (
-        <ConfidenceBadge value={stage.confidence} />
-      ) : null}
     </article>
   );
+}
+
+function workflowNodeDetail(
+  detail: string,
+  timing: ResearchRunStageTimingResponse | undefined,
+): string {
+  if (detail !== 'Completed' || !timing?.completed_at) {
+    return detail;
+  }
+  return `Completed ${formatTimeWithSeconds(timing.completed_at)}`;
+}
+
+function workflowTimingTitle(
+  timing: ResearchRunStageTimingResponse | undefined,
+): string | undefined {
+  if (!timing) {
+    return undefined;
+  }
+  return `Started ${formatDateTime(timing.started_at)} | Completed ${formatDateTime(timing.completed_at)}`;
+}
+
+function shouldInlineWorkflowDetail(value: string): boolean {
+  const trimmed = value.trim();
+  return Boolean(trimmed) && trimmed.length <= 36 && trimmed.includes(' / ');
+}
+
+function workflowDetailTone(value: string):
+  | 'bullish'
+  | 'bearish'
+  | 'neutral'
+  | 'uncertain'
+  | 'mixed'
+  | null {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'bullish' ||
+    normalized === 'bearish' ||
+    normalized === 'neutral' ||
+    normalized === 'uncertain' ||
+    normalized === 'mixed'
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 function nodeKicker(
@@ -211,6 +322,21 @@ function formatDuration(value: number | null | undefined): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.round(seconds % 60);
   return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+function formatTimeWithSeconds(value: string | null | undefined): string {
+  if (!value) {
+    return 'n/a';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date);
 }
 
 function stateClass(value: string): string {

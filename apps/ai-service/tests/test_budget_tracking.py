@@ -204,6 +204,40 @@ class TestBudgetTracker:
         assert wrapped({"ok": True}) == {"ok": True}
         assert seen_stages == ["scenario_planner"]
 
+    def test_setup_planner_budgeted_node_emits_plan_recorded(self, monkeypatch):
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.budget_tracker = None
+        events = []
+
+        def record_event(_logger, event, **fields):
+            events.append((event, fields))
+
+        monkeypatch.setattr(graph_setup_module, "log_event", record_event)
+
+        def node(_state):
+            return {
+                "trader_investment_plan": "Review spot accumulation.",
+                "market_type": "spot",
+            }
+
+        wrapped = setup._budgeted_node(
+            node,
+            "setup_planner",
+            graph_node=str(graph_setup_module.PipelineNode.SETUP_PLANNER),
+        )
+
+        assert wrapped({})["market_type"] == "spot"
+        plan_events = [fields for event, fields in events if event == "plan_recorded"]
+        assert plan_events == [
+            {
+                "action": "setup_proposal",
+                "market_type": "spot",
+                "setup_plan_length": 25,
+                "stage": "setup_planner",
+                "graph_node": str(graph_setup_module.PipelineNode.SETUP_PLANNER),
+            }
+        ]
+
     def test_real_graph_setup_wraps_all_pipeline_stages(self, monkeypatch):
         setup = GraphSetup.__new__(GraphSetup)
         setup.quick_thinking_llm = object()

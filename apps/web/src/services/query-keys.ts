@@ -31,6 +31,8 @@ export const queryKeys = {
     scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>
     ['research-run-workspace', queryIdentity(), id] as const,
+  researchRunSnapshots: (id: string) =>
+    ['research-run-snapshots', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,
   thesesRoot: () => scopedResource('theses'),
   theses: (filters: Record<string, unknown>) => scopedFilters('theses', filters),

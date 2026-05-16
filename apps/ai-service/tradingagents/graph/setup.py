@@ -389,6 +389,16 @@ class GraphSetup:
                     output_keys=sorted(str(key) for key in result.keys()),
                     **event_ctx,
                 )
+                if stage == "setup_planner" and result.get("trader_investment_plan"):
+                    setup_plan = str(result.get("trader_investment_plan") or "")
+                    log_event(
+                        logger,
+                        "plan_recorded",
+                        action="setup_proposal",
+                        market_type=result.get("market_type"),
+                        setup_plan_length=len(setup_plan),
+                        **event_ctx,
+                    )
                 return result
             except Exception as exc:
                 log_event(

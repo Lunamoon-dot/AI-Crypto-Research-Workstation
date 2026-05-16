@@ -2,15 +2,11 @@ import { FormEvent, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  BarChart3,
   Brain,
   CalendarDays,
   Coins,
-  Newspaper,
   Play,
   Radar,
-  Users,
-  WalletCards,
 } from 'lucide-react';
 import { createResearchRun } from '@/services/research-runs';
 import { BentoGrid } from '@/components/research/bento';
@@ -24,10 +20,26 @@ import { researchRunRequestSchema } from '@/schemas/research-run';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 
 const analystOptions = [
-  { value: 'market', label: 'Market', icon: BarChart3 },
-  { value: 'news', label: 'News', icon: Newspaper },
-  { value: 'social', label: 'Social', icon: Users },
-  { value: 'onchain', label: 'Onchain', icon: WalletCards },
+  {
+    value: 'market',
+    label: 'Market',
+    avatarSrc: '/agent-avatars/market-analyst.png',
+  },
+  {
+    value: 'news',
+    label: 'News',
+    avatarSrc: '/agent-avatars/news-analyst.png',
+  },
+  {
+    value: 'social',
+    label: 'Social',
+    avatarSrc: '/agent-avatars/social-analyst.png',
+  },
+  {
+    value: 'onchain',
+    label: 'Onchain',
+    avatarSrc: '/agent-avatars/onchain-analyst.png',
+  },
 ];
 
 export function ResearchRunFormPage() {
@@ -167,13 +179,12 @@ export function ResearchRunFormPage() {
           <Panel className="span-7" title="Analyst modules" description="Pick the reasoning lanes for this run">
             <div className="analyst-module-grid">
               {analystOptions.map((analyst) => {
-                const Icon = analyst.icon;
                 const checked = analysts.includes(analyst.value);
                 return (
                   <label className={`state-card ${checked ? 'emphasis' : ''}`} key={analyst.value}>
                     <div className="row">
-                      <span className="pipeline-icon">
-                        <Icon aria-hidden size={17} />
+                      <span className="analyst-module-avatar" aria-hidden>
+                        <img src={analyst.avatarSrc} alt="" loading="lazy" />
                       </span>
                       <input
                         checked={checked}

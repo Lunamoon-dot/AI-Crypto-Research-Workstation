@@ -703,11 +703,14 @@ function buildStageTiming(
   events: ResearchRunEventResponse[],
   runTerminal: boolean,
 ): ResearchRunStageTimingResponse {
-  const startedEvents = events.filter(
-    (event) =>
-      event.event_type === 'agent.node.started' &&
-      eventMatchesStageAliases(event, stage.aliases),
-  );
+  const marketBranch = isMarketBranchStage(stage.key);
+  const startedEvents = marketBranch
+    ? []
+    : events.filter(
+        (event) =>
+          event.event_type === 'agent.node.started' &&
+          eventMatchesStageAliases(event, stage.aliases),
+      );
   const completedAgentEvents = events.filter(
     (event) =>
       event.event_type === 'agent.node.completed' &&
@@ -721,7 +724,13 @@ function buildStageTiming(
       event.event_type === 'agent.node.failed' &&
       eventMatchesStageAliases(event, stage.aliases),
   );
-  const completedEvents = [...completedAgentEvents, ...completedMilestoneEvents];
+  const marketBranchCompleted =
+    latestEvent(completedMilestoneEvents) ?? latestEvent(completedAgentEvents);
+  const completedEvents = marketBranch
+    ? marketBranchCompleted
+      ? [marketBranchCompleted]
+      : []
+    : [...completedAgentEvents, ...completedMilestoneEvents];
   const terminalEvents = [...completedEvents, ...failedEvents];
   const latestTerminal = latestEvent(terminalEvents);
   const latestFailed = latestEvent(failedEvents);
@@ -734,9 +743,11 @@ function buildStageTiming(
     ...completedMilestoneEvents,
     ...failedEvents,
   ]);
-  const durationMs = stage.grouped
-    ? wallClockDurationMs(startedAt, completedAt)
-    : eventDurationMs(latestTerminal) ?? wallClockDurationMs(startedAt, completedAt);
+  const durationMs = marketBranch
+    ? null
+    : stage.grouped
+      ? wallClockDurationMs(startedAt, completedAt)
+      : eventDurationMs(latestTerminal) ?? wallClockDurationMs(startedAt, completedAt);
   const eventState = resolveStageEventState({
     hasStarted: startedEvents.length > 0,
     latestCompleted,
@@ -778,6 +789,10 @@ function resolveStageEventState({
     return 'running';
   }
   return runTerminal ? 'missing' : 'pending';
+}
+
+function isMarketBranchStage(stageKey: string): boolean {
+  return stageKey === 'spot_checks' || stageKey === 'perp_checks';
 }
 
 function selectedAnalystsFromStageEvents(

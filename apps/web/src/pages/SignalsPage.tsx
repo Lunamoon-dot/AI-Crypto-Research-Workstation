@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { listSignals } from '@/services/signals';
+import { getResearchRunSnapshots } from '@/services/research-runs';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid } from '@/components/research/bento';
@@ -116,11 +117,10 @@ export function SignalsPage() {
   const [symbol, setSymbol] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const query = useQuery({
-    queryKey: queryKeys.signals({ symbol, limit: 100 }),
+    queryKey: queryKeys.signals({ symbol, limit: 100, includeSnapshotRefs: true }),
     queryFn: () => listSignals({ symbol: symbol || undefined, limit: 100 }, auth),
   });
   const signals = query.data ?? [];
-  const loadedRows = signals.length;
   const signalGroups = useMemo(
     () => groupSignalsByRun(signals),
     [signals],
@@ -194,8 +194,6 @@ function SignalRunGroupCard({
   group: SignalRunGroup;
   onToggle: () => void;
 }) {
-  const groupIdentifier = group.runId ?? group.snapshotId;
-
   return (
     <article className="signal-run-card">
       <div className="signal-run-card-header">
@@ -225,9 +223,20 @@ function SignalRunGroupCard({
             <span className="small muted">{group.sources.length} sources</span>
           </span>
         </button>
-        {groupIdentifier ? (
+        {group.snapshotId || group.runId ? (
           <div className="signal-run-actions">
-            <IdChip value={groupIdentifier} />
+            {group.snapshotId ? (
+              <span className="signal-run-id-pair">
+                <span className="small muted">Snapshot</span>
+                <IdChip value={group.snapshotId} />
+              </span>
+            ) : null}
+            {!group.snapshotId && group.runId ? (
+              <span className="signal-run-id-pair">
+                <span className="small muted">Run</span>
+                <IdChip value={group.runId} />
+              </span>
+            ) : null}
             {group.runId ? (
               <Link className="button ghost signal-run-open" to={routes.researchRun(group.runId)}>
                 Open run
@@ -239,6 +248,7 @@ function SignalRunGroupCard({
 
       {expanded ? (
         <div className="signal-run-body">
+          <SignalSnapshotSummary group={group} />
           <div className="table-wrap signal-run-table-wrap">
             <table className="table signal-run-table">
               <thead>
@@ -279,6 +289,65 @@ function SignalRunGroupCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function SignalSnapshotSummary({ group }: { group: SignalRunGroup }) {
+  const auth = useWorkspaceStore();
+  const runId = group.runId;
+  const snapshotsQuery = useQuery({
+    queryKey: queryKeys.researchRunSnapshots(runId ?? 'missing'),
+    queryFn: () => getResearchRunSnapshots(runId!, auth),
+    enabled: Boolean(runId),
+    staleTime: 30_000,
+  });
+  const snapshot = snapshotsQuery.data?.signal_snapshot ?? null;
+  const counts = {
+    bullish: snapshot?.bullish_count ?? group.counts.bullish,
+    bearish: snapshot?.bearish_count ?? group.counts.bearish,
+    neutral: snapshot?.neutral_count ?? group.counts.neutral,
+  };
+  const snapshotId = snapshot?.id ?? group.snapshotId;
+  const signalCount = snapshot?.signal_count ?? group.signals.length;
+  const capturedAt = snapshot?.captured_at ?? group.observedAt;
+
+  return (
+    <div className="signal-snapshot-summary">
+      <div className="signal-snapshot-summary-main">
+        <span className="small muted">Signal snapshot</span>
+        <IdChip value={snapshotId} />
+      </div>
+      <div className="signal-snapshot-metrics">
+        <SnapshotMetric label="Captured" value={formatDateTime(capturedAt)} />
+        <SnapshotMetric label="Signals" value={String(signalCount)} />
+        <SnapshotMetric
+          label="Bull/Bear/Neutral"
+          value={`${counts.bullish}/${counts.bearish}/${counts.neutral}`}
+        />
+        <SnapshotMetric
+          label="Stale/Unknown"
+          value={`${snapshot?.stale_count ?? 0}/${snapshot?.unknown_freshness_count ?? 0}`}
+        />
+        {snapshot?.composite_signal_id ? (
+          <span className="signal-snapshot-metric signal-snapshot-metric-id">
+            <span>Composite</span>
+            <IdChip value={snapshot.composite_signal_id} />
+          </span>
+        ) : null}
+        {snapshotsQuery.isError ? (
+          <span className="small muted">Snapshot detail unavailable</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SnapshotMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="signal-snapshot-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </span>
   );
 }
 
