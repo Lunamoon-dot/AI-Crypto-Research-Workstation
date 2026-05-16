@@ -26,17 +26,33 @@ RATINGS_5_TIER: Tuple[str, ...] = (
 
 _RATING_CANONICAL = {rating.lower(): rating for rating in RATINGS_5_TIER}
 
-# Matches "Rating: X" / "rating - X" / "Rating: **X**" and tolerates
-# markdown wrappers around the label or value. Deliberately anchored to the
-# start of a line so prose such as "upgrade risk: Overweight" is not parsed as
-# the official final rating.
-_RATING_LABEL_RE = re.compile(
-    r"^\s*(?:[#>*\-\s]*)\*{0,2}rating\*{0,2}\s*[:\-]\s*\*{0,2}"
-    r"(buy|overweight|hold|underweight|sell)\b",
+# Matches explicit rating declaration lines and tolerates markdown wrappers
+# around the label or value. Deliberately anchored to the start of a line so
+# prose such as "upgrade risk: Overweight" is not parsed as the official final
+# rating. The fallback labels cover providers that ignore the exact
+# ``Rating:`` contract but still emit a clear final stance line.
+_RATING_DECLARATION_RE = re.compile(
+    r"^\s*(?:[#>*\-\s]*)\*{0,2}"
+    r"(?P<label>"
+    r"(?:final\s+)?rating|"
+    r"research\s+stance|"
+    r"stance|"
+    r"final\s+(?:trade|trading)\s+decision|"
+    r"(?:final\s+)?research\s+thesis(?:\s+stance)?"
+    r")"
+    r"\*{0,2}\s*[:\-]\s*\*{0,2}\s*(?P<value>.+)$",
     re.IGNORECASE,
 )
 _RATING_WORD_RE = re.compile(
     r"\b(buy|overweight|hold|underweight|sell)\b",
+    re.IGNORECASE,
+)
+_RATING_VALUE_PREFIX_RE = re.compile(
+    r"^\s*[\*_`~\[\(]*(buy|overweight|hold|underweight|sell)\b",
+    re.IGNORECASE,
+)
+_AVOID_VALUE_PREFIX_RE = re.compile(
+    r"^\s*[\*_`~\[\(]*avoid(?:ance)?\b",
     re.IGNORECASE,
 )
 
@@ -53,13 +69,35 @@ def normalize_rating(value: object) -> str | None:
     return _RATING_CANONICAL.get(str(value).strip().lower())
 
 
-def parse_rating_label(text: str) -> str | None:
-    """Extract only an explicit official ``Rating:`` field from text."""
-
+def _declared_ratings(text: str) -> list[tuple[str, tuple[str, ...]]]:
+    declarations: list[tuple[str, tuple[str, ...]]] = []
     for line in (text or "").splitlines():
-        match = _RATING_LABEL_RE.search(line)
-        if match:
-            return normalize_rating(match.group(1))
+        match = _RATING_DECLARATION_RE.search(line)
+        if not match:
+            continue
+        rating = _rating_from_declaration_value(match.group("value"))
+        if rating is not None:
+            declarations.append((line.strip(), (rating,)))
+    return declarations
+
+
+def _rating_from_declaration_value(value: str) -> str | None:
+    """Return only the leading official rating from a declaration value."""
+
+    match = _RATING_VALUE_PREFIX_RE.search(value or "")
+    if match:
+        return normalize_rating(match.group(1))
+    if _AVOID_VALUE_PREFIX_RE.search(value or ""):
+        return "Underweight"
+    return None
+
+
+def parse_rating_label(text: str) -> str | None:
+    """Extract an explicit official rating declaration from text."""
+
+    for _line, ratings in _declared_ratings(text):
+        if ratings:
+            return ratings[0]
     return None
 
 
@@ -68,8 +106,8 @@ def parse_rating(text: str, default: str = "Hold") -> str:
 
     This intentionally does not scan arbitrary prose. The final badge and
     downstream signal must come from a machine-readable field or a rendered
-    ``Rating:`` header, never from a counterargument that merely mentions a
-    rating keyword.
+    official declaration line, never from a counterargument that merely
+    mentions a rating keyword.
     """
 
     return parse_rating_label(text) or default
@@ -94,15 +132,16 @@ def ensure_no_conflicting_rating_mentions(
     official_rating: str | None = None,
     context: str = "decision",
 ) -> None:
-    """Fail fast when a decision artifact contains opposing rating words.
+    """Fail fast when a decision artifact has opposing official rating fields.
 
-    The production renderer must never choose between ``Underweight`` and
-    ``Overweight`` by keyword order. If both appear in the same final decision
-    artifact, publishing should stop and the model should regenerate a clean
-    decision with one official rating.
+    Counterfactual prose is allowed to mention alternative ratings, e.g.
+    "re-evaluate toward Overweight." The production renderer must only fail
+    when explicit declaration lines disagree, because those are the fields
+    downstream consumers treat as authoritative.
     """
 
-    mentions = rating_mentions(text)
+    declarations = _declared_ratings(text)
+    mentions = {rating for _line, ratings in declarations for rating in ratings}
     conflicts = (
         {"Overweight", "Underweight"},
         {"Buy", "Sell"},

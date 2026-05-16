@@ -5,7 +5,8 @@ import { getSignal } from '@/services/signals';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { ConfidenceBadge, DirectionBadge, IdChip } from '@/components/research/badges';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid, DataPair } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -55,40 +56,43 @@ export function SignalDetailPage() {
         eyebrow="05 Signal Detail"
         title={`${signal.symbol} ${signal.signal_type}`}
         description="Trace source data, freshness, evidence fields, and linked research artifacts."
-        action={<DirectionBadge value={signal.direction} />}
+        action={
+          <div className="page-header-action-stack">
+            <HeaderStats
+              stats={[
+                {
+                  icon: <Activity aria-hidden size={14} />,
+                  label: 'Confidence',
+                  tone: 'constructive',
+                  value: <ConfidenceBadge value={signal.confidence} />,
+                },
+                {
+                  icon: <ShieldAlert aria-hidden size={14} />,
+                  label: 'Freshness',
+                  meta: signal.staleness_reason || 'Source freshness',
+                  tone: signal.is_stale ? 'warning' : 'primary',
+                  value: signal.freshness_status || 'unknown',
+                },
+                {
+                  icon: <Database aria-hidden size={14} />,
+                  label: 'Source',
+                  meta: formatDateTime(signal.source_timestamp),
+                  value: signal.source || 'n/a',
+                },
+                {
+                  icon: <Clock3 aria-hidden size={14} />,
+                  label: 'Observed',
+                  meta: formatDateTime(signal.observed_at),
+                  value: formatAge(signal.age_seconds),
+                },
+              ]}
+            />
+            <DirectionBadge value={signal.direction} />
+          </div>
+        }
       />
 
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<Activity size={18} />}
-          label="Confidence"
-          tone="constructive"
-          value={<ConfidenceBadge value={signal.confidence} />}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<ShieldAlert size={18} />}
-          label="Freshness"
-          meta={signal.staleness_reason || 'Source freshness status'}
-          tone={signal.is_stale ? 'warning' : 'primary'}
-          value={signal.freshness_status || 'unknown'}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Database size={18} />}
-          label="Source"
-          meta={formatDateTime(signal.source_timestamp)}
-          value={signal.source || 'n/a'}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Clock3 size={18} />}
-          label="Observed"
-          meta={formatAge(signal.age_seconds)}
-          value={formatDateTime(signal.observed_at)}
-        />
-
         <Panel className="span-4 emphasis" title="Provenance rail">
           <div className="stack small">
             <DataPair label="Signal ID" value={<IdChip value={signal.id} />} />

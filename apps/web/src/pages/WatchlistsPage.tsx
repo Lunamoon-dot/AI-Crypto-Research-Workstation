@@ -35,7 +35,8 @@ import {
   IdChip,
 } from '@/components/research/badges';
 import { BriefCard } from '@/components/research/brief-card';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid, DataPair } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -277,36 +278,38 @@ export function WatchlistsPage() {
         eyebrow="06 Watchlists & Briefs"
         title="Watchlists and briefs"
         description="Track symbols or research theses, check alerts against saved thesis conditions, then create a brief from the selected watchlist."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <ClipboardList aria-hidden size={14} />,
+                label: 'Watchlists',
+                tone: 'primary',
+                value: query.isLoading ? '...' : query.data?.length ?? 0,
+              },
+              {
+                icon: <RadioTower aria-hidden size={14} />,
+                label: 'Active',
+                tone: 'constructive',
+                value: enabledCount,
+              },
+              {
+                icon: <Archive aria-hidden size={14} />,
+                label: 'Selected tracks',
+                meta: selectedWatchlist?.name ?? 'no watchlist',
+                value: itemsQuery.isLoading ? '...' : itemsQuery.data?.length ?? 0,
+              },
+              {
+                icon: <FileText aria-hidden size={14} />,
+                label: briefsSelectedOnly ? 'Selected briefs' : 'Workspace briefs',
+                tone: 'warning',
+                value: briefsQuery.isLoading ? '...' : visibleBriefs.length,
+              },
+            ]}
+          />
+        }
       />
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<ClipboardList size={18} />}
-          label="Watchlists"
-          tone="primary"
-          value={query.isLoading ? '...' : query.data?.length ?? 0}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<RadioTower size={18} />}
-          label="Active"
-          tone="constructive"
-          value={enabledCount}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Archive size={18} />}
-          label="Selected tracks"
-          value={itemsQuery.isLoading ? '...' : itemsQuery.data?.length ?? 0}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<FileText size={18} />}
-          label={briefsSelectedOnly ? 'Selected briefs' : 'Workspace briefs'}
-          tone="warning"
-          value={briefsQuery.isLoading ? '...' : visibleBriefs.length}
-        />
-
         <Panel className="span-4 emphasis" title="Watchlists" description="Select the monitoring scope">
           {query.isLoading ? <LoadingState /> : null}
           {query.isError ? <ErrorState error={query.error} /> : null}

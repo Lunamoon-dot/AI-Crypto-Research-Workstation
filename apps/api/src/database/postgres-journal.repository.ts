@@ -555,6 +555,8 @@ export class PostgresJournalRepository implements JournalRepository {
       `SELECT payload_json || jsonb_build_object(
          'id', id,
          'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'signal_snapshot_id', signal_snapshot_id,
          'symbol', symbol,
          'signal_type', signal_type,
          'direction', direction,
@@ -580,6 +582,8 @@ export class PostgresJournalRepository implements JournalRepository {
         `SELECT payload_json || jsonb_build_object(
            'id', id,
            'workspace_id', workspace_id,
+           'research_run_id', research_run_id,
+           'signal_snapshot_id', signal_snapshot_id,
            'symbol', symbol,
            'signal_type', signal_type,
            'direction', direction,
@@ -599,6 +603,8 @@ export class PostgresJournalRepository implements JournalRepository {
       `SELECT payload_json || jsonb_build_object(
          'id', id,
          'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'signal_snapshot_id', signal_snapshot_id,
          'symbol', symbol,
          'signal_type', signal_type,
          'direction', direction,

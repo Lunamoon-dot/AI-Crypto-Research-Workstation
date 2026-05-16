@@ -8,13 +8,13 @@ import {
   FileText,
   FlaskConical,
   History,
-  Play,
 } from 'lucide-react';
 import { listResearchRuns } from '@/services/research-runs';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { IdChip, StatusBadge } from '@/components/research/badges';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -77,47 +77,42 @@ export function ResearchHistoryPage() {
         title="Research history"
         description="Manage research runs, persisted artifacts, thesis outputs, and failed or active jobs."
         action={
-          <Link className="button primary" to={routes.researchNew}>
-            <Play aria-hidden size={16} />
-            New research run
-          </Link>
+          <HeaderStats
+            stats={[
+              {
+                icon: <History aria-hidden size={14} />,
+                label: 'Runs',
+                meta: 'Latest 100',
+                tone: 'primary',
+                value: query.isLoading ? '...' : metrics.total,
+              },
+              {
+                icon: <Activity aria-hidden size={14} />,
+                label: 'Active',
+                meta: 'Queued or running',
+                tone: 'warning',
+                value: query.isLoading ? '...' : metrics.active,
+              },
+              {
+                icon: <CheckCircle2 aria-hidden size={14} />,
+                label: 'Completed',
+                meta: 'Clean or degraded',
+                tone: 'constructive',
+                value: query.isLoading ? '...' : metrics.completed,
+              },
+              {
+                icon: <AlertTriangle aria-hidden size={14} />,
+                label: 'Attention',
+                meta: 'Failed or degraded',
+                tone: metrics.attention > 0 ? 'risk' : 'constructive',
+                value: query.isLoading ? '...' : metrics.attention,
+              },
+            ]}
+          />
         }
       />
 
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<History size={18} />}
-          label="Runs"
-          meta="Latest 100 records"
-          tone="primary"
-          value={query.isLoading ? '...' : metrics.total}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Activity size={18} />}
-          label="Active"
-          meta="Queued or running"
-          tone="warning"
-          value={query.isLoading ? '...' : metrics.active}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<CheckCircle2 size={18} />}
-          label="Completed"
-          meta="Clean or degraded"
-          tone="constructive"
-          value={query.isLoading ? '...' : metrics.completed}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<AlertTriangle size={18} />}
-          label="Attention"
-          meta="Failed, timed out, or degraded"
-          tone={metrics.attention > 0 ? 'risk' : 'constructive'}
-          value={query.isLoading ? '...' : metrics.attention}
-        />
-
         <Panel className="span-12" title="Filters">
           <div className="form-grid">
             <label className="label">
@@ -170,7 +165,7 @@ export function ResearchHistoryPage() {
         </Panel>
 
         <Panel
-          className="span-12 emphasis"
+          className="span-12"
           title="Run results"
           description={`${runs.length} shown`}
         >

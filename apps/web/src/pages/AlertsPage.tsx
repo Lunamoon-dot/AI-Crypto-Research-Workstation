@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { AlertTriangle, Bell, CheckCircle2, RadioTower } from 'lucide-react';
 import {
   getAlertSchedulerStatus,
   listAlerts,
@@ -11,6 +12,7 @@ import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { DataPair } from '@/components/research/bento';
 import { IdChip } from '@/components/research/badges';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -43,10 +45,47 @@ export function AlertsPage() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.alertsRoot() });
     },
   });
+  const alerts = query.data ?? [];
+  const unreadCount = alerts.filter((alert) => !alert.read_at).length;
 
   return (
     <main className="page">
-      <PageHeader title="Alerts" description="Research alerts and watchlist changes." />
+      <PageHeader
+        title="Alerts"
+        description="Research alerts and watchlist changes."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <Bell aria-hidden size={14} />,
+                label: 'Alerts shown',
+                meta: unreadOnly ? 'unread only' : 'latest 100',
+                tone: 'primary',
+                value: query.isLoading ? '...' : alerts.length,
+              },
+              {
+                icon: <AlertTriangle aria-hidden size={14} />,
+                label: 'Unread',
+                tone: unreadCount > 0 ? 'warning' : 'constructive',
+                value: query.isLoading ? '...' : unreadCount,
+              },
+              {
+                icon: <RadioTower aria-hidden size={14} />,
+                label: 'Scheduler',
+                meta: scheduler.data?.last_run_at ? formatDateTime(scheduler.data.last_run_at) : 'No run yet',
+                tone: scheduler.data?.enabled ? 'constructive' : 'degraded',
+                value: scheduler.data?.enabled ? 'enabled' : 'manual',
+              },
+              {
+                icon: <CheckCircle2 aria-hidden size={14} />,
+                label: 'Enabled lists',
+                meta: 'workspace scopes',
+                value: scheduler.data?.workspace_enabled_watchlists ?? '...',
+              },
+            ]}
+          />
+        }
+      />
       <div className="grid two">
         <Panel title="Filters">
           <label className="badge">

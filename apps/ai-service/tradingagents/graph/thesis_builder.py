@@ -171,6 +171,16 @@ def structured_list(payload: dict[str, Any], *keys: str) -> list[str]:
     return []
 
 
+def text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        value = list(value) if isinstance(value, tuple) else [value]
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
 def normalize_confidence_value(value: Any) -> float | None:
     if value is None or value == "":
         return None
@@ -279,6 +289,13 @@ def _dedupe(values: list[Any]) -> list[str]:
 
 def _machine_reason_codes(values: list[Any]) -> list[str]:
     return _dedupe([_reason_code(value) for value in values])
+
+
+def _opinion_values(opinions: list[Any], attr: str) -> list[str]:
+    values: list[Any] = []
+    for opinion in opinions:
+        values.extend(text_list(getattr(opinion, attr, None)))
+    return _dedupe(values)
 
 
 def _reason_code(value: Any) -> str:
@@ -530,6 +547,14 @@ class ThesisBuilder:
         supporting_evidence = signal_evidence(signals, supporting_ids)
         contradicting_evidence = signal_evidence(signals, contradicting_ids)
         stale_or_missing_data = stale_or_missing_data_notes(signals)
+        opinion_missing_data = _opinion_values(opinions, "missing_data")
+        summary_missing_data = _dedupe(
+            [
+                *structured_list(structured_payload, "missing_data"),
+                *stale_or_missing_data,
+                *opinion_missing_data,
+            ]
+        )[:10]
         price_sanity_text = "\n".join(
             str(part or "")
             for part in [
@@ -651,6 +676,7 @@ class ThesisBuilder:
             why_this_thesis=why_this_thesis,
             contract_degradation_reasons=all_degradation_reasons,
             market_type=market_type,
+            missing_data=summary_missing_data,
             data_quality=data_quality,
             data_quality_label=data_quality_label,
             missing_data_reason_codes=missing_data_reason_codes,
@@ -790,10 +816,14 @@ class ThesisBuilder:
             getattr(run, "missing_optional_data", []) if run else []
         )
         run_missing_core = list(getattr(run, "missing_core_data", []) if run else [])
+        opinion_reason_codes = _opinion_values(opinions, "reason_codes")
+        opinion_missing_data = _opinion_values(opinions, "missing_data")
         reason_codes = _dedupe(
             [
                 *structured_list(payload, "missing_data_reason_codes", "reason_codes"),
                 *structured_list(payload, "missing_data"),
+                *opinion_reason_codes,
+                *opinion_missing_data,
                 *run_degradation,
                 *run_missing_optional,
                 *run_missing_core,
@@ -835,9 +865,19 @@ class ThesisBuilder:
             quality = min(quality, 0.65)
         if stale_or_missing_data:
             quality -= min(0.05 * len(stale_or_missing_data), 0.20)
-        if any("insufficient_news_evidence" in item for item in reason_codes):
-            quality = min(quality, 0.35)
         machine_codes = _machine_reason_codes(reason_codes)
+        opinion_machine_codes = _machine_reason_codes(
+            [*opinion_reason_codes, *opinion_missing_data]
+        )
+        if any(
+            item == "insufficient_news_evidence" for item in machine_codes
+        ) or "missing_news_feed" in opinion_machine_codes:
+            quality = min(quality, 0.34)
+        if (
+            "missing_onchain_flows" in opinion_machine_codes
+            or "insufficient_onchain_evidence" in opinion_machine_codes
+        ):
+            quality = min(quality, 0.6)
         if any(item.startswith("missing_") for item in machine_codes):
             quality = min(quality, 0.6)
 
@@ -1266,6 +1306,7 @@ class ThesisBuilder:
         why_this_thesis: str,
         contract_degradation_reasons: list[str],
         market_type: str,
+        missing_data: list[str],
         data_quality: float,
         data_quality_label: str,
         missing_data_reason_codes: list[str],
@@ -1311,9 +1352,7 @@ class ThesisBuilder:
                 *system_risk_notes,
             ]
         )
-        summary_payload["missing_data"] = (
-            summary_payload.get("missing_data") or (stale_or_missing_data[:3])
-        )
+        summary_payload["missing_data"] = missing_data
         summary_payload["missing_data_reason_codes"] = missing_data_reason_codes
         summary_payload["data_quality"] = data_quality
         summary_payload["data_quality_label"] = data_quality_label
@@ -1350,7 +1389,7 @@ class ThesisBuilder:
                             *system_risk_notes,
                         ]
                     ),
-                    "missing_data": stale_or_missing_data[:3],
+                    "missing_data": missing_data,
                     "missing_data_reason_codes": missing_data_reason_codes,
                     "data_quality": data_quality,
                     "data_quality_label": data_quality_label,

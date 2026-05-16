@@ -392,6 +392,8 @@ export interface OperationsHealthResponse {
 export interface SignalResponse {
   id: string | null;
   workspace_id: string;
+  research_run_id: string | null;
+  signal_snapshot_id: string | null;
   symbol: string;
   signal_type: string;
   direction: string;
@@ -695,7 +697,10 @@ export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
     suggested_user_action: stringValue(scenario.suggested_user_action),
     condition: stringValue(scenario.condition ?? payload.condition),
     expected_behavior: stringValue(
-      scenario.expected_behavior ?? payload.expected_behavior,
+      scenario.expected_behavior ??
+        scenario.expected_market_behavior ??
+        payload.expected_behavior ??
+        payload.expected_market_behavior,
     ),
     payload,
   };
@@ -804,6 +809,12 @@ export function toSignalResponse(signal: JsonRecord): SignalResponse {
   return {
     id: nullableString(signal.id),
     workspace_id: stringValue(signal.workspace_id, 'local'),
+    research_run_id: nullableString(
+      signal.research_run_id ?? payload.research_run_id,
+    ),
+    signal_snapshot_id: nullableString(
+      signal.signal_snapshot_id ?? payload.signal_snapshot_id,
+    ),
     symbol: stringValue(signal.symbol ?? payload.symbol),
     signal_type: stringValue(signal.signal_type ?? payload.signal_type),
     direction: stringValue(signal.direction ?? payload.direction),

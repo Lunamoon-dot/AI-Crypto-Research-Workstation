@@ -32,7 +32,8 @@ import {
   RatingBadge,
   StatusBadge,
 } from '@/components/research/badges';
-import { BentoGrid, DataPair, MetricTile, TimelineRow } from '@/components/research/bento';
+import { BentoGrid, DataPair, TimelineRow } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -270,6 +271,8 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         selectedAnalysts === null ||
         selectedAnalysts.has(stage.key)),
   );
+  const latestFailure = latestRunFailureEvent(workspace.events);
+  const failureReason = latestFailure ? runFailureMessage(latestFailure) : '';
 
   async function exportEvidenceBundle() {
     setExportingBundle(true);
@@ -293,8 +296,37 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         title={`${workspace.run.symbol} research run`}
         description={`Run ${workspace.run.run_id ?? workspace.run.id ?? runId}`}
         action={
-          <div className="top-strip-actions">
-            <StatusBadge value={workspace.run.status} />
+          <div className="page-header-action-stack">
+            <HeaderStats
+              stats={[
+                {
+                  icon: <CheckCircle2 aria-hidden size={14} />,
+                  label: 'Status',
+                  tone: workspace.run.status === 'completed' ? 'constructive' : 'warning',
+                  value: <StatusBadge value={workspace.run.status} />,
+                },
+                {
+                  icon: <Database aria-hidden size={14} />,
+                  label: 'Market price',
+                  meta: market?.source || 'No market snapshot',
+                  tone: 'primary',
+                  value: formatNumber(market?.current_price),
+                },
+                {
+                  icon: <BarChart3 aria-hidden size={14} />,
+                  label: 'Signals',
+                  meta: 'Bullish / bearish / neutral',
+                  value: signal?.signal_count ?? 0,
+                },
+                {
+                  icon: <Brain aria-hidden size={14} />,
+                  label: 'Opinions',
+                  meta: workspace.debate.debate?.conflict_level ?? 'No debate',
+                  tone: 'degraded',
+                  value: workspace.debate.agent_opinions.length,
+                },
+              ]}
+            />
             <button
               className="button"
               disabled={exportingBundle}
@@ -308,39 +340,14 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         }
       />
       {exportError ? <div className="badge risk">{exportError}</div> : null}
+      {latestFailure ? (
+        <div className="callout risk">
+          <strong>Run failed during finalization</strong>
+          <p>{failureReason}</p>
+        </div>
+      ) : null}
 
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<CheckCircle2 size={18} />}
-          label="Status"
-          tone={workspace.run.status === 'completed' ? 'constructive' : 'warning'}
-          value={workspace.run.status}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Database size={18} />}
-          label="Market price"
-          meta={market?.source || 'No market snapshot'}
-          tone="primary"
-          value={formatNumber(market?.current_price)}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<BarChart3 size={18} />}
-          label="Signals"
-          meta="Bullish / bearish / neutral"
-          value={signal?.signal_count ?? 0}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Brain size={18} />}
-          label="Opinions"
-          meta={workspace.debate.debate?.conflict_level ?? 'No debate'}
-          tone="degraded"
-          value={workspace.debate.agent_opinions.length}
-        />
-
         <Panel
           className="span-12 emphasis"
           title="Agent pipeline"
@@ -959,6 +966,17 @@ function latestEventByType(events: ResearchRunEventResponse[], eventTypes: strin
   return [...events].reverse().find((event) => eventTypes.includes(event.event_type));
 }
 
+function latestRunFailureEvent(events: ResearchRunEventResponse[]) {
+  return [...events].reverse().find((event) => event.event_type === 'run.failed');
+}
+
+function runFailureMessage(event: ResearchRunEventResponse): string {
+  const error = stringValue(event.payload.error);
+  const errorType = stringValue(event.payload.error_type);
+  const message = event.message || 'Research run failed.';
+  return [errorType, error || message].filter(Boolean).join(': ');
+}
+
 function eventMatchesAliases(
   event: ResearchRunEventResponse,
   aliases: readonly string[],
@@ -1017,4 +1035,11 @@ function marketTypeSpecificThesisNote(
     return parts.join(' ');
   }
   return summary.spot_notes;
+}
+
+function stringValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  return String(value);
 }

@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
-import { FormEvent, useState } from 'react';
+import { FormEvent, type ReactNode, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Download, FileText, GitBranch, ShieldAlert, Target } from 'lucide-react';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
@@ -19,14 +19,15 @@ import {
   IdChip,
   RatingBadge,
 } from '@/components/research/badges';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
-import type { JsonRecord } from '@/types';
+import type { JsonRecord, ScenarioResponse } from '@/types';
 
 export function ThesisDetailPage() {
   const { id } = useParams();
@@ -119,6 +120,11 @@ export function ThesisDetailPage() {
       </main>
     );
   }
+  const actionSummary =
+    thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
+  const entry = thesis.entry_zone || thesis.summary.entry_zone || 'n/a';
+  const invalidation =
+    thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
 
   function submitDecision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -152,70 +158,90 @@ export function ThesisDetailPage() {
   }
 
   return (
-    <main className="page">
+    <main className="page thesis-detail-page">
       <PageHeader
         eyebrow="04 Thesis Detail"
         title={`${thesis.symbol} thesis`}
         description={`Created ${formatDateTime(thesis.created_at)}. Review the evidence, contradiction set, scenarios, and journal actions.`}
-        action={<DirectionBadge value={thesis.direction} />}
+        action={
+          <div className="page-header-action-stack">
+            <HeaderStats
+              stats={[
+                {
+                  icon: <FileText aria-hidden size={14} />,
+                  label: 'Rating',
+                  tone: 'primary',
+                  value: <RatingBadge value={thesis.summary.rating || 'Hold'} />,
+                },
+                {
+                  icon: <CheckCircle2 aria-hidden size={14} />,
+                  label: 'Confidence',
+                  tone: 'constructive',
+                  value: <ConfidenceBadge value={thesis.confidence} />,
+                },
+                {
+                  icon: <Target aria-hidden size={14} />,
+                  label: 'Targets',
+                  meta: 'Target zones',
+                  value: thesis.target_zones.length,
+                },
+                {
+                  icon: <ShieldAlert aria-hidden size={14} />,
+                  label: 'Data gaps',
+                  meta: 'Stale or missing',
+                  tone: thesis.stale_or_missing_data.length > 0 ? 'warning' : 'constructive',
+                  value: thesis.stale_or_missing_data.length,
+                },
+              ]}
+            />
+            <DirectionBadge value={thesis.direction} />
+          </div>
+        }
       />
 
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<FileText size={18} />}
-          label="Rating"
-          tone="primary"
-          value={<RatingBadge value={thesis.summary.rating || 'Hold'} />}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<CheckCircle2 size={18} />}
-          label="Thesis confidence"
-          tone="constructive"
-          value={<ConfidenceBadge value={thesis.confidence} />}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Target size={18} />}
-          label="Targets"
-          meta="Target zones"
-          value={thesis.target_zones.length}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<ShieldAlert size={18} />}
-          label="Risk"
-          meta="Stale or missing data"
-          tone={thesis.stale_or_missing_data.length > 0 ? 'warning' : 'constructive'}
-          value={thesis.stale_or_missing_data.length}
-        />
+        <Panel
+          className="span-5 thesis-brief-panel"
+          title="Thesis brief"
+          description="Decision, risk boundary, and source context"
+        >
+          <div className="thesis-brief">
+            <section className="thesis-brief-summary">
+              <span>Action summary</span>
+              <p>{actionSummary}</p>
+            </section>
 
-        <Panel className="span-4 emphasis" title="Core metrics" description="Setup, entry, invalidation, and run link">
-          <div className="stack">
-            <p style={{ margin: 0 }}>{thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.'}</p>
-            <DataPair label="Setup" value={thesis.setup_type} />
-            <DataPair label="Confidence basis" value={thesis.confidence_source || 'n/a'} />
-            <DataPair
-              label="Data quality"
-              value={
+            <div className="thesis-fact-grid">
+              <ThesisFact label="Setup">{thesis.setup_type || 'n/a'}</ThesisFact>
+              <ThesisFact label="Entry">{entry}</ThesisFact>
+              <ThesisFact label="Data quality">
                 <DataQualityBadge
                   label={thesis.summary.data_quality_label}
                   value={thesis.summary.data_quality}
                 />
-              }
-            />
-            {stabilityGuard.applied === true ? (
-              <DataPair
-                label="Stability guard"
-                value={<span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>}
-              />
-            ) : null}
-            <DataPair label="Quant confidence" value={<ConfidenceBadge value={thesis.quant_confidence} />} />
-            <DataPair label="Entry" value={thesis.entry_zone || 'n/a'} />
-            <DataPair label="Invalidation" value={<strong>{thesis.invalidation_level || 'n/a'}</strong>} />
-            <DataPair label="Run" value={<IdChip value={thesis.research_run_id} />} />
-            <div className="top-strip-meta">
+              </ThesisFact>
+              <ThesisFact label="Quant confidence">
+                <ConfidenceBadge value={thesis.quant_confidence} />
+              </ThesisFact>
+              <ThesisFact label="Confidence basis" wide>
+                {thesis.confidence_source || 'n/a'}
+              </ThesisFact>
+              {stabilityGuard.applied === true ? (
+                <ThesisFact label="Stability guard" wide>
+                  <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
+                </ThesisFact>
+              ) : null}
+              <ThesisFact label="Run" wide>
+                <IdChip value={thesis.research_run_id} />
+              </ThesisFact>
+            </div>
+
+            <section className="thesis-boundary">
+              <span>Invalidation</span>
+              <p>{invalidation}</p>
+            </section>
+
+            <div className="top-strip-meta thesis-brief-actions">
               {thesis.research_run_id ? (
                 <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
                   Open run
@@ -245,13 +271,17 @@ export function ThesisDetailPage() {
           </div>
         </Panel>
 
-        <Panel className="span-8" title="Evidence and contradictions">
-          <div className="grid two">
-            <EvidenceBlock title="Supporting signals" tone="constructive" values={thesis.supporting_signal_ids} />
-            <EvidenceBlock title="Contradicting signals" tone="risk" values={thesis.contradicting_signal_ids} />
-            <EvidenceBlock title="Key reasons" tone="primary" values={thesis.summary.key_reasons} />
-            <EvidenceBlock title="Risks" tone="warning" values={thesis.summary.risks} />
-          </div>
+        <Panel
+          className="span-7"
+          title="Evidence and contradictions"
+          description="Readable thesis drivers first, source IDs second."
+        >
+          <EvidenceAndContradictions
+            contradictingSignalIds={thesis.contradicting_signal_ids}
+            keyReasons={thesis.summary.key_reasons}
+            risks={thesis.summary.risks}
+            supportingSignalIds={thesis.supporting_signal_ids}
+          />
           {stabilityGuard.applied === true ? (
             <div className="stack small">
               <strong>Stability guard audit</strong>
@@ -266,17 +296,13 @@ export function ThesisDetailPage() {
           {scenariosQuery.data?.length === 0 ? (
             <EmptyState label="No scenarios for this thesis." />
           ) : null}
-          <div className="stack">
-            {scenariosQuery.data?.map((scenario) => (
-              <div className="list-row" key={scenario.id ?? scenario.condition}>
-                <div className="row">
-                  <strong>{scenario.probability_band || 'scenario'}</strong>
-                  <span className="badge primary">{scenario.suggested_user_action || 'review'}</span>
-                </div>
-                <div className="small"><strong>Condition:</strong> {scenario.condition || 'n/a'}</div>
-                <div className="small muted"><strong>Expected:</strong> {scenario.expected_behavior || 'n/a'}</div>
-                <JsonView value={scenario.payload} />
-              </div>
+          <div className="scenario-radar-list">
+            {scenariosQuery.data?.map((scenario, index) => (
+              <ScenarioRadarCard
+                index={index}
+                key={scenario.id ?? scenario.condition}
+                scenario={scenario}
+              />
             ))}
           </div>
         </Panel>
@@ -490,6 +516,270 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function ScenarioRadarCard({
+  scenario,
+  index,
+}: {
+  scenario: ScenarioResponse;
+  index: number;
+}) {
+  const band = cleanScenarioText(scenario.probability_band) || 'scenario';
+  const bandTone = scenarioBandTone(band);
+  const action = cleanScenarioText(
+    scenario.suggested_user_action ||
+      stringValue(scenario.payload.suggested_action) ||
+      'review',
+  );
+  const actionParts = splitAction(action);
+  const condition = cleanScenarioText(
+    scenario.condition || stringValue(scenario.payload.condition),
+  ) || 'No condition recorded.';
+  const expected = cleanScenarioText(
+    scenario.expected_behavior ||
+      stringValue(scenario.payload.expected_market_behavior) ||
+      stringValue(scenario.payload.expected_behavior),
+  );
+  const invalidation = cleanScenarioText(stringValue(scenario.payload.invalidation));
+  const riskMap = stringList(
+    scenario.payload.risk_map ?? scenario.payload.risk_factors,
+  );
+
+  return (
+    <article className={`scenario-card scenario-card-${bandTone}`}>
+      <div className="scenario-card-header">
+        <div className="scenario-title">
+          <span className="scenario-index">{index + 1}</span>
+          <strong>{titleCaseBand(band)}</strong>
+        </div>
+        <span className={`badge ${bandTone}`}>{band}</span>
+      </div>
+
+      <p className="scenario-condition">{condition}</p>
+
+      <div className="scenario-action">
+        <span className={`badge ${actionTone(actionParts.label)}`}>
+          {actionParts.label}
+        </span>
+        {actionParts.detail ? <span>{actionParts.detail}</span> : null}
+      </div>
+
+      {expected ? (
+        <div className="scenario-field">
+          <span>Expected</span>
+          <p>{expected}</p>
+        </div>
+      ) : null}
+
+      {invalidation ? (
+        <div className="scenario-field">
+          <span>Invalidation</span>
+          <p>{invalidation}</p>
+        </div>
+      ) : null}
+
+      {riskMap.length > 0 ? (
+        <div className="scenario-risk-row">
+          {riskMap.slice(0, 4).map((risk) => (
+            <span className="pill warning" key={risk}>
+              {cleanScenarioText(risk)}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <details className="scenario-debug">
+        <summary>Payload</summary>
+        <JsonView value={scenario.payload} />
+      </details>
+    </article>
+  );
+}
+
+function scenarioBandTone(value: string): 'constructive' | 'warning' | 'degraded' | 'primary' {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('high')) {
+    return 'constructive';
+  }
+  if (normalized.includes('medium') || normalized.includes('base')) {
+    return 'warning';
+  }
+  if (normalized.includes('low')) {
+    return 'degraded';
+  }
+  return 'primary';
+}
+
+function titleCaseBand(value: string): string {
+  const clean = value.trim();
+  return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)} probability` : 'Scenario';
+}
+
+function actionTone(value: string): 'constructive' | 'warning' | 'risk' | 'primary' {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('exit') || normalized.includes('reduce') || normalized.includes('avoid')) {
+    return 'risk';
+  }
+  if (normalized.includes('watch') || normalized.includes('monitor')) {
+    return 'constructive';
+  }
+  if (normalized.includes('reassess') || normalized.includes('review')) {
+    return 'warning';
+  }
+  return 'primary';
+}
+
+function splitAction(value: string): { label: string; detail: string } {
+  const cleaned = cleanScenarioText(value);
+  const match = cleaned.match(
+    /^(watch|monitor|review|reassess|avoid|reduce|exit|stand aside|maintain|downgrade|upgrade|record|wait)\b[:,-]?\s*(.*)$/i,
+  );
+  if (!match) {
+    return { label: 'Review', detail: cleaned };
+  }
+  const label = match[1].replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return { label, detail: match[2]?.trim() ?? '' };
+}
+
+function cleanScenarioText(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value
+    .replace(/\*\*/g, '')
+    .replace(/^\s*(?:\u2192|->|=>)\s*/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => cleanScenarioText(item))
+    .filter(Boolean);
+}
+
+function ThesisFact({
+  children,
+  label,
+  wide = false,
+}: {
+  children: ReactNode;
+  label: string;
+  wide?: boolean;
+}) {
+  return (
+    <div className={`thesis-fact${wide ? ' wide' : ''}`}>
+      <span>{label}</span>
+      <div className="thesis-fact-value">{children}</div>
+    </div>
+  );
+}
+
+function EvidenceAndContradictions({
+  contradictingSignalIds,
+  keyReasons,
+  risks,
+  supportingSignalIds,
+}: {
+  contradictingSignalIds: string[];
+  keyReasons: string[];
+  risks: string[];
+  supportingSignalIds: string[];
+}) {
+  return (
+    <div className="thesis-evidence-layout">
+      <div className="thesis-evidence-main-column">
+        <EvidenceNarrativeBlock
+          title="Key reasons"
+          tone="primary"
+          values={keyReasons}
+        />
+        <div className="thesis-evidence-signal-grid">
+          <EvidenceSignalRail
+            title="Supporting signals"
+            tone="constructive"
+            values={supportingSignalIds}
+          />
+          <EvidenceSignalRail
+            title="Contradicting signals"
+            tone="risk"
+            values={contradictingSignalIds}
+          />
+        </div>
+      </div>
+      <EvidenceNarrativeBlock
+        title="Risks"
+        tone="warning"
+        values={risks}
+      />
+    </div>
+  );
+}
+
+function EvidenceNarrativeBlock({
+  title,
+  tone,
+  values,
+}: {
+  title: string;
+  tone: 'primary' | 'warning';
+  values: string[];
+}) {
+  const cleanedValues = values.map((value) => cleanScenarioText(value)).filter(Boolean);
+
+  return (
+    <section className={`thesis-evidence-card thesis-evidence-card-${tone}`}>
+      <div className="thesis-evidence-card-header">
+        <strong>{title}</strong>
+        <span className={`badge ${tone}`}>{cleanedValues.length}</span>
+      </div>
+      {cleanedValues.length === 0 ? (
+        <p className="thesis-evidence-empty">None reported.</p>
+      ) : (
+        <ol className="thesis-evidence-list">
+          {cleanedValues.map((value, index) => (
+            <li className={`thesis-evidence-item thesis-evidence-item-${tone}`} key={`${title}-${value}`}>
+              <span className="thesis-evidence-index">{index + 1}</span>
+              <p>{value}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function EvidenceSignalRail({
+  title,
+  tone,
+  values,
+}: {
+  title: string;
+  tone: 'constructive' | 'risk';
+  values: string[];
+}) {
+  return (
+    <section className={`thesis-evidence-card thesis-evidence-card-rail thesis-evidence-card-${tone}`}>
+      <div className="thesis-evidence-card-header">
+        <strong>{title}</strong>
+        <span className={`badge ${tone}`}>{values.length}</span>
+      </div>
+      {values.length === 0 ? (
+        <p className="thesis-evidence-empty">No linked signal IDs.</p>
+      ) : (
+        <div className="thesis-evidence-signal-list">
+          {values.map((value) => (
+            <IdChip key={value} value={value} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function EvidenceBlock({

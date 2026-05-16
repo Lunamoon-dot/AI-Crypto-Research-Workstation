@@ -1224,10 +1224,12 @@ export const openApiDocument = {
       },
       SignalResponse: {
         type: 'object',
-        required: ['id', 'workspace_id', 'symbol', 'signal_type', 'direction', 'confidence', 'observed_at', 'source', 'source_timestamp', 'summary'],
+        required: ['id', 'workspace_id', 'research_run_id', 'signal_snapshot_id', 'symbol', 'signal_type', 'direction', 'confidence', 'observed_at', 'source', 'source_timestamp', 'summary'],
         properties: {
           id: { type: ['string', 'null'] },
           workspace_id: { type: 'string' },
+          research_run_id: { type: ['string', 'null'] },
+          signal_snapshot_id: { type: ['string', 'null'] },
           symbol: { type: 'string' },
           signal_type: { type: 'string' },
           direction: { type: 'string' },

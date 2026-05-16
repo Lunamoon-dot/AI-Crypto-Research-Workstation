@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { GitCompare } from 'lucide-react';
 import { useState } from 'react';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
+import { IdChip } from '@/components/research/badges';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -112,26 +114,34 @@ export function RunComparisonPage() {
 function ComparisonResult({ diff }: { diff: ComparisonResponse }) {
   return (
     <BentoGrid>
-      <MetricTile
-        className="span-3"
-        icon={<GitCompare size={18} />}
-        label="Severity"
-        tone={diff.change_severity === 'major' ? 'warning' : 'primary'}
-        value={diff.change_severity}
-        meta={`${diff.changed_count} changed field(s)`}
-      />
-      <MetricTile
-        className="span-3"
-        label="Direction flip"
-        tone={diff.direction_flip ? 'risk' : 'constructive'}
-        value={diff.direction_flip ? 'Yes' : 'No'}
-        meta={diff.kind}
-      />
-      <MetricTile
-        className="span-6"
-        label="IDs"
-        value={<span className="small mono">{diff.id_a} {'->'} {diff.id_b}</span>}
-        meta={diff.severity_reasons.join(', ')}
+      <HeaderStats
+        className="span-12 comparison-result-stats"
+        stats={[
+          {
+            icon: <GitCompare aria-hidden size={14} />,
+            label: 'Severity',
+            meta: `${diff.changed_count} changed field(s)`,
+            tone: diff.change_severity === 'major' ? 'warning' : 'primary',
+            value: diff.change_severity,
+          },
+          {
+            label: 'Direction flip',
+            meta: diff.kind,
+            tone: diff.direction_flip ? 'risk' : 'constructive',
+            value: diff.direction_flip ? 'Yes' : 'No',
+          },
+          {
+            label: 'IDs',
+            meta: diff.severity_reasons.join(', '),
+            value: (
+              <span className="top-strip-meta">
+                <IdChip value={diff.id_a} />
+                <span className="small muted">to</span>
+                <IdChip value={diff.id_b} />
+              </span>
+            ),
+          },
+        ]}
       />
       <Panel className="span-12" title="Changed Fields">
         {diff.changed_fields.length === 0 ? <EmptyState label="No material differences." /> : null}

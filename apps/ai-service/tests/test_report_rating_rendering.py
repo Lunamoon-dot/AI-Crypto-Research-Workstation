@@ -12,10 +12,18 @@ def test_report_final_rating_uses_official_rating_label_only():
     assert "**Final Rating**: orange Underweight" in report
 
 
-def test_report_final_rating_fails_on_opposing_rating_mentions():
+def test_report_final_rating_allows_counterfactual_rating_mentions():
+    report = ReportGenerator({})._executive_summary(
+        "**Rating**: Underweight\n\nCountercase: Overweight if flows recover."
+    )
+
+    assert "**Final Rating**: orange Underweight" in report
+
+
+def test_report_final_rating_fails_on_opposing_rating_declarations():
     with pytest.raises(DecisionConsistencyError):
         ReportGenerator({})._executive_summary(
-            "**Rating**: Underweight\n\nCountercase: Overweight if flows recover."
+            "**Rating**: Underweight\n\n**Final Rating**: Overweight"
         )
 
 

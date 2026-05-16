@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { KeyRound, ServerCog, UserRound } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid, DataPair } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { env } from '@/lib/env';
@@ -24,30 +25,33 @@ export function SettingsPage() {
         eyebrow="07 Settings"
         title="Settings"
         description="Local-first identity and runtime configuration for the current MVP."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <KeyRound aria-hidden size={14} />,
+                label: 'Auth mode',
+                tone: 'primary',
+                value: auth.mode,
+              },
+              {
+                icon: <UserRound aria-hidden size={14} />,
+                label: 'User',
+                meta: auth.userId,
+                value: auth.userId.slice(0, 10),
+              },
+              {
+                icon: <ServerCog aria-hidden size={14} />,
+                label: 'Runtime',
+                meta: env.apiBaseUrl,
+                tone: 'warning',
+                value: 'Local',
+              },
+            ]}
+          />
+        }
       />
       <BentoGrid>
-        <MetricTile
-          className="span-4"
-          icon={<KeyRound size={18} />}
-          label="Auth mode"
-          tone="primary"
-          value={auth.mode}
-        />
-        <MetricTile
-          className="span-4"
-          icon={<UserRound size={18} />}
-          label="User"
-          value={auth.userId.slice(0, 10)}
-        />
-        <MetricTile
-          className="span-4"
-          icon={<ServerCog size={18} />}
-          label="Runtime"
-          meta={env.apiBaseUrl}
-          tone="warning"
-          value="Local"
-        />
-
         <Panel className="span-6 emphasis" title="Local identity">
           <div className="stack">
             <label className="label">

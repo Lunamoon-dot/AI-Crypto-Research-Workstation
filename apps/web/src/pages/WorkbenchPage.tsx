@@ -16,8 +16,9 @@ import { listSignals } from '@/services/signals';
 import { listTheses } from '@/services/theses';
 import { listWatchlists } from '@/services/watchlists';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
 import { DirectionBadge, ConfidenceBadge, StatusBadge } from '@/components/research/badges';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -60,47 +61,48 @@ export function WorkbenchPage() {
         title="Daily operating view"
         description="Briefs, thesis review, signals, and runs."
         action={
-          <Link className="button primary" to={routes.researchNew}>
-            <Radar aria-hidden size={16} />
-            New research run
-          </Link>
+          <div className="page-header-action-stack">
+            <HeaderStats
+              stats={[
+                {
+                  icon: <FileText aria-hidden size={14} />,
+                  label: 'Latest brief',
+                  meta: latestBrief?.brief_date ?? 'No brief available',
+                  tone: 'primary',
+                  value: briefs.isLoading ? '...' : latestBrief ? 'Ready' : 'None',
+                },
+                {
+                  icon: <TrendingUp aria-hidden size={14} />,
+                  label: 'Open theses',
+                  meta: 'Latest artifacts',
+                  tone: 'constructive',
+                  value: theses.isLoading ? '...' : theses.data?.length ?? 0,
+                },
+                {
+                  icon: <Signal aria-hidden size={14} />,
+                  label: 'Signals',
+                  meta: 'Evidence feed',
+                  tone: 'warning',
+                  value: signals.isLoading ? '...' : signals.data?.length ?? 0,
+                },
+                {
+                  icon: <Bell aria-hidden size={14} />,
+                  label: 'Unread alerts',
+                  meta: 'Watchlist changes',
+                  tone: 'risk',
+                  value: alerts.isLoading ? '...' : alerts.data?.length ?? 0,
+                },
+              ]}
+            />
+            <Link className="button primary" to={routes.researchNew}>
+              <Radar aria-hidden size={16} />
+              New research run
+            </Link>
+          </div>
         }
       />
 
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<FileText size={18} />}
-          label="Latest brief"
-          meta={latestBrief?.brief_date ?? 'No brief available'}
-          tone="primary"
-          value={briefs.isLoading ? '...' : latestBrief ? 'Ready' : 'None'}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<TrendingUp size={18} />}
-          label="Open theses"
-          meta="Latest research artifacts"
-          tone="constructive"
-          value={theses.isLoading ? '...' : theses.data?.length ?? 0}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Signal size={18} />}
-          label="Signals"
-          meta="Deterministic evidence feed"
-          tone="warning"
-          value={signals.isLoading ? '...' : signals.data?.length ?? 0}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Bell size={18} />}
-          label="Unread alerts"
-          meta="Actionable watchlist changes"
-          tone="risk"
-          value={alerts.isLoading ? '...' : alerts.data?.length ?? 0}
-        />
-
         <Panel className="span-7 emphasis" title="Latest brief" description="Daily market context">
           {briefs.isLoading ? <LoadingState /> : null}
           {briefs.isError ? <ErrorState error={briefs.error} /> : null}

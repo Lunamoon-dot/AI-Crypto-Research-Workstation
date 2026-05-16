@@ -5,6 +5,8 @@ import pytest
 
 from tradingagents.agents.utils.rating import DecisionConsistencyError
 from tradingagents.domain import (
+    AgentOpinion,
+    AgentStance,
     DataFreshness,
     ResearchRun,
     Signal,
@@ -297,6 +299,144 @@ def test_degraded_run_caps_pm_confidence_and_surfaces_reason_codes():
     assert thesis.structured_summary.data_quality_label == "degraded"
     assert "missing_news_feed" in thesis.structured_summary.missing_data_reason_codes
     assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
+
+
+def test_news_opinion_missing_feed_caps_data_quality_and_merges_summary_codes():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = [
+        AgentOpinion(
+            agent_name="Market Analyst",
+            role="market_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="Sentiment Analyst",
+            role="sentiment_analyst",
+            stance=AgentStance.NEUTRAL,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="Onchain Analyst",
+            role="onchain_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="News Analyst",
+            role="news_analyst",
+            stance=AgentStance.UNCERTAIN,
+            data_quality=0.0,
+            missing_data=[
+                "insufficient_news_evidence",
+                "missing primary-source crypto headlines",
+            ],
+            reason_codes=["missing_news_feed"],
+        ),
+    ]
+    graph.current_research_run = ResearchRun(id="run_news_missing", symbol="BTC/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if flows hold.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive, but news feed is missing",
+              "entry_zone": "Pullback near 100000",
+              "invalidation": "Close below 95000",
+              "target_zones": ["110000"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert thesis.confidence == 0.25
+    assert summary.data_quality == 0.34
+    assert summary.data_quality_label == "insufficient_data"
+    assert "missing_news_feed" in summary.missing_data_reason_codes
+    assert "insufficient_news_evidence" in summary.missing_data_reason_codes
+    assert "insufficient_news_evidence" in summary.missing_data
+    assert "missing primary-source crypto headlines" in summary.missing_data
+
+
+def test_onchain_opinion_missing_flows_caps_data_quality_to_degraded():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "ETH/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = [
+        AgentOpinion(
+            agent_name="Market Analyst",
+            role="market_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="Sentiment Analyst",
+            role="sentiment_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="News Analyst",
+            role="news_analyst",
+            stance=AgentStance.NEUTRAL,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="Onchain Analyst",
+            role="onchain_analyst",
+            stance=AgentStance.UNCERTAIN,
+            data_quality=1.0,
+            missing_data=["exchange flow data unavailable"],
+            reason_codes=["missing_onchain_flows"],
+        ),
+    ]
+    graph.current_research_run = ResearchRun(
+        id="run_onchain_missing",
+        symbol="ETH/USDT",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "ETH/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if flows hold.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive, but onchain flow is missing",
+              "entry_zone": "Pullback near 3150",
+              "invalidation": "Close below 3000",
+              "target_zones": ["3500"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert thesis.confidence == 0.45
+    assert summary.data_quality == 0.6
+    assert summary.data_quality_label == "degraded"
+    assert "missing_onchain_flows" in summary.missing_data_reason_codes
+    assert "exchange flow data unavailable" in summary.missing_data
 
 
 def test_low_quant_confidence_caps_high_pm_confidence_as_watch_memo():

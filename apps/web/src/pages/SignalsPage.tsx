@@ -1,110 +1,248 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { AlertTriangle, Filter, Signal, Table2 } from 'lucide-react';
-import { listAlerts } from '@/services/alerts';
-import { countSignals, listSignals } from '@/services/signals';
+import { useMemo, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { listSignals } from '@/services/signals';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
-import { ConfidenceBadge, DirectionBadge } from '@/components/research/badges';
+import { BentoGrid } from '@/components/research/bento';
+import { ConfidenceBadge, DirectionBadge, IdChip } from '@/components/research/badges';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { formatDateTime } from '@/lib/format';
+import { formatConfidence, formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import type { SignalResponse } from '@/types';
+
+type DirectionFilter = 'all' | 'bullish' | 'bearish' | 'neutral';
+type SignalDirection = Exclude<DirectionFilter, 'all'>;
+type DirectionSummary = SignalDirection | 'mixed';
+
+type SignalRunGroup = {
+  key: string;
+  runId: string | null;
+  snapshotId: string | null;
+  symbol: string;
+  observedAt: string | null;
+  sources: string[];
+  averageConfidence: number | null;
+  directionSummary: DirectionSummary;
+  counts: Record<SignalDirection, number>;
+  signals: SignalResponse[];
+};
+
+function normalizeDirection(value: string): SignalDirection {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('bull') || normalized.includes('long')) {
+    return 'bullish';
+  }
+  if (normalized.includes('bear') || normalized.includes('short')) {
+    return 'bearish';
+  }
+  return 'neutral';
+}
+
+function groupSignalsByRun(signals: SignalResponse[]): SignalRunGroup[] {
+  const groups = new Map<string, SignalResponse[]>();
+
+  for (const signal of signals) {
+    const key =
+      signal.research_run_id ||
+      signal.signal_snapshot_id ||
+      `${signal.symbol}-${signal.observed_at ?? signal.source_timestamp ?? 'unknown'}`;
+    groups.set(key, [...(groups.get(key) ?? []), signal]);
+  }
+
+  return [...groups.entries()]
+    .map(([key, groupSignals]) => {
+      const [first] = groupSignals;
+      const counts = countDirections(groupSignals);
+      const confidences = groupSignals
+        .map((signal) => signal.confidence)
+        .filter((value): value is number => value !== null && Number.isFinite(value));
+      const sources = [
+        ...new Set(groupSignals.map((signal) => signal.source).filter(Boolean)),
+      ];
+
+      return {
+        key,
+        runId: first?.research_run_id ?? null,
+        snapshotId: first?.signal_snapshot_id ?? null,
+        symbol: first?.symbol ?? 'n/a',
+        observedAt: latestTimestamp(
+          groupSignals.map((signal) => signal.observed_at ?? signal.source_timestamp),
+        ),
+        sources,
+        averageConfidence: confidences.length
+          ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
+          : null,
+        directionSummary: summarizeDirectionCounts(counts),
+        counts,
+        signals: groupSignals,
+      };
+    })
+    .sort((left, right) => compareNullableTimestamp(right.observedAt, left.observedAt));
+}
+
+function countDirections(signals: SignalResponse[]) {
+  return signals.reduce<Record<SignalDirection, number>>(
+    (counts, signal) => {
+      counts[normalizeDirection(signal.direction)] += 1;
+      return counts;
+    },
+    { bullish: 0, bearish: 0, neutral: 0 },
+  );
+}
+
+function summarizeDirectionCounts(
+  counts: Record<SignalDirection, number>,
+): DirectionSummary {
+  const nonZero = Object.entries(counts).filter(([, count]) => count > 0);
+  return nonZero.length === 1
+    ? (nonZero[0][0] as SignalDirection)
+    : 'mixed';
+}
+
+function latestTimestamp(values: Array<string | null | undefined>) {
+  return values.filter(Boolean).sort().at(-1) ?? null;
+}
+
+function compareNullableTimestamp(left: string | null, right: string | null) {
+  return (left ?? '').localeCompare(right ?? '');
+}
 
 export function SignalsPage() {
   const auth = useWorkspaceStore();
   const [symbol, setSymbol] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const query = useQuery({
     queryKey: queryKeys.signals({ symbol, limit: 100 }),
     queryFn: () => listSignals({ symbol: symbol || undefined, limit: 100 }, auth),
   });
-  const countQuery = useQuery({
-    queryKey: queryKeys.signalsCount({ symbol }),
-    queryFn: () => countSignals({ symbol: symbol || undefined }, auth),
-  });
-  const alertsQuery = useQuery({
-    queryKey: queryKeys.alerts({ unread: true, limit: 10 }),
-    queryFn: () => listAlerts({ unread: true, limit: 10 }, auth),
-  });
+  const signals = query.data ?? [];
+  const loadedRows = signals.length;
+  const signalGroups = useMemo(
+    () => groupSignalsByRun(signals),
+    [signals],
+  );
 
-  const directionCounts = countQuery.data ?? {
-    total: 0,
-    bullish: 0,
-    bearish: 0,
-    neutral: 0,
-  };
-  const loadedRows = query.data?.length ?? 0;
+  function toggleGroup(key: string) {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
 
   return (
     <main className="page">
       <PageHeader
         eyebrow="05 Signals Explorer"
         title="Signal explorer"
-        description="Inspect deterministic evidence, source timestamps, and alert pressure in a table-first workspace."
+        description="Inspect deterministic evidence grouped by research run, with expandable source-level signal detail."
       />
 
       <BentoGrid>
-        <MetricTile
-          className="span-4"
-          icon={<Signal size={18} />}
-          label="Total signals"
-          meta={`${directionCounts.bullish} bullish + ${directionCounts.bearish} bearish + ${directionCounts.neutral} neutral/other`}
-          tone="primary"
-          value={countQuery.isLoading ? '...' : directionCounts.total}
-        />
-        <MetricTile
-          className="span-2"
-          label="Bullish"
-          tone="constructive"
-          value={directionCounts.bullish}
-        />
-        <MetricTile
-          className="span-2"
-          label="Bearish"
-          tone="risk"
-          value={directionCounts.bearish}
-        />
-        <MetricTile
-          className="span-2"
-          label="Neutral / other"
-          tone="warning"
-          value={directionCounts.neutral}
-        />
-        <MetricTile
-          className="span-2"
-          icon={<AlertTriangle size={18} />}
-          label="Unread alerts"
-          tone="warning"
-          value={alertsQuery.isLoading ? '...' : alertsQuery.data?.length ?? 0}
-        />
-
         <Panel
-          className="span-8 emphasis"
-          title="Signals data table"
-          description="Filter by symbol and scan confidence, direction, source, and summary"
-          action={<Filter aria-hidden size={17} />}
+          className="span-12 signals-table-panel"
+          title="Signals by run"
+          description="Filter by symbol, then expand a run to inspect its source signals"
+          action={
+            <label className="signal-panel-symbol-filter">
+              <span>Symbol</span>
+              <input
+                className="input"
+                placeholder="BTC"
+                value={symbol}
+                onChange={(event) => setSymbol(event.target.value)}
+              />
+            </label>
+          }
         >
-          <label className="label" style={{ marginBottom: 14 }}>
-            Symbol
-            <input
-              className="input"
-              placeholder="BTC"
-              value={symbol}
-              onChange={(event) => setSymbol(event.target.value)}
-            />
-          </label>
           {query.isLoading ? <LoadingState /> : null}
           {query.isError ? <ErrorState error={query.error} /> : null}
-          {query.data?.length === 0 ? <EmptyState label="No signals found." /> : null}
-          <div className="table-wrap">
-            <table className="table">
+          {!query.isLoading && !query.isError && signals.length === 0 ? (
+            <EmptyState label="No signals match the current filters." />
+          ) : null}
+          <div className="signal-run-list">
+            {signalGroups.map((group) => (
+              <SignalRunGroupCard
+                expanded={expandedGroups.has(group.key)}
+                group={group}
+                key={group.key}
+                onToggle={() => toggleGroup(group.key)}
+              />
+            ))}
+          </div>
+        </Panel>
+
+      </BentoGrid>
+    </main>
+  );
+}
+
+function SignalRunGroupCard({
+  expanded,
+  group,
+  onToggle,
+}: {
+  expanded: boolean;
+  group: SignalRunGroup;
+  onToggle: () => void;
+}) {
+  const groupIdentifier = group.runId ?? group.snapshotId;
+
+  return (
+    <article className="signal-run-card">
+      <div className="signal-run-card-header">
+        <button
+          aria-expanded={expanded}
+          className="signal-run-toggle"
+          onClick={onToggle}
+          type="button"
+        >
+          <ChevronDown
+            aria-hidden
+            className={`signal-run-chevron${expanded ? ' open' : ''}`}
+            size={18}
+          />
+          <span className="signal-run-title">
+            <strong>{group.symbol}</strong>
+            <span>{formatDateTime(group.observedAt)}</span>
+          </span>
+          <span className="signal-run-meta">
+            <span className="badge">{group.signals.length} signals</span>
+            <span className={`badge ${directionSummaryTone(group.directionSummary)}`}>
+              {directionSummaryLabel(group.directionSummary)}
+            </span>
+            <span className="badge primary">
+              avg {formatConfidence(group.averageConfidence)}
+            </span>
+            <span className="small muted">{group.sources.length} sources</span>
+          </span>
+        </button>
+        {groupIdentifier ? (
+          <div className="signal-run-actions">
+            <IdChip value={groupIdentifier} />
+            {group.runId ? (
+              <Link className="button ghost signal-run-open" to={routes.researchRun(group.runId)}>
+                Open run
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {expanded ? (
+        <div className="signal-run-body">
+          <div className="table-wrap signal-run-table-wrap">
+            <table className="table signal-run-table">
               <thead>
                 <tr>
-                  <th>Observed</th>
-                  <th>Symbol</th>
                   <th>Type</th>
                   <th>Direction</th>
                   <th>Confidence</th>
@@ -114,10 +252,8 @@ export function SignalsPage() {
                 </tr>
               </thead>
               <tbody>
-                {query.data?.map((signal) => (
-                  <tr key={signal.id ?? `${signal.symbol}-${signal.observed_at}`}>
-                    <td>{formatDateTime(signal.observed_at)}</td>
-                    <td><strong>{signal.symbol}</strong></td>
+                {group.signals.map((signal) => (
+                  <tr key={signal.id ?? `${signal.signal_type}-${signal.source}-${signal.observed_at}`}>
                     <td>{signal.signal_type}</td>
                     <td><DirectionBadge value={signal.direction} /></td>
                     <td><ConfidenceBadge value={signal.confidence} /></td>
@@ -140,42 +276,22 @@ export function SignalsPage() {
               </tbody>
             </table>
           </div>
-        </Panel>
-
-        <Panel className="span-4" title="Alerts inbox" description="Signal-linked notifications">
-          {alertsQuery.isLoading ? <LoadingState /> : null}
-          {alertsQuery.isError ? <ErrorState error={alertsQuery.error} /> : null}
-          {alertsQuery.data?.length === 0 ? <EmptyState label="No unread alerts." /> : null}
-          <div className="stack">
-            {alertsQuery.data?.map((alert) => (
-              <div className="list-row" key={alert.id ?? alert.message}>
-                <div className="row">
-                  <strong>{alert.symbol || 'n/a'}</strong>
-                  <span className="badge warning">{alert.alert_type}</span>
-                </div>
-                <div className="small">{alert.message}</div>
-                <div className="small muted">{formatDateTime(alert.created_at)}</div>
-                {alert.thesis_id ? (
-                  <Link className="badge primary" to={routes.thesis(alert.thesis_id)}>
-                    open thesis
-                  </Link>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel className="span-12" title="Table footer" description="Current explorer scope">
-          <div className="top-strip-meta">
-            <span className="badge">
-              <Table2 aria-hidden size={14} />
-              {loadedRows} of {directionCounts.total} loaded
-            </span>
-            <span className="badge primary">{symbol || 'all symbols'}</span>
-            <span className="badge">API backed</span>
-          </div>
-        </Panel>
-      </BentoGrid>
-    </main>
+        </div>
+      ) : null}
+    </article>
   );
+}
+
+function directionSummaryLabel(value: DirectionSummary) {
+  return value === 'mixed' ? 'mixed directions' : value;
+}
+
+function directionSummaryTone(value: DirectionSummary) {
+  if (value === 'bullish') {
+    return 'constructive';
+  }
+  if (value === 'bearish') {
+    return 'risk';
+  }
+  return 'warning';
 }

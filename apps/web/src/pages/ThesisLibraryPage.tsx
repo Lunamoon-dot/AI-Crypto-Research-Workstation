@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listTheses } from '@/services/theses';
 import { queryKeys } from '@/services/query-keys';
@@ -10,6 +10,7 @@ import {
   IdChip,
   RatingBadge,
 } from '@/components/research/badges';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -35,42 +36,74 @@ export function ThesisLibraryPage() {
       return symbolOk && directionOk;
     });
   }, [direction, query.data, symbol]);
+  const thesisSummary = useMemo(() => summarizeTheses(theses), [theses]);
+  const thesisFilters = (
+    <div className="scenario-filter-controls thesis-panel-filters">
+      <label className="scenario-filter-label">
+        Symbol
+        <input
+          className="input"
+          placeholder="BTC"
+          value={symbol}
+          onChange={(event) => setSymbol(event.target.value)}
+        />
+      </label>
+      <label className="scenario-filter-label">
+        Direction
+        <select
+          className="select"
+          value={direction}
+          onChange={(event) => setDirection(event.target.value)}
+        >
+          <option value="">All</option>
+          <option value="bullish">bullish</option>
+          <option value="bearish">bearish</option>
+          <option value="neutral">neutral</option>
+          <option value="watch">watch</option>
+        </select>
+      </label>
+    </div>
+  );
 
   return (
     <main className="page">
       <PageHeader
         title="Thesis library"
         description="Research memory with confidence, invalidation, evidence, and run links."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                label: 'Theses shown',
+                meta: `${query.data?.length ?? 0} total`,
+                tone: 'primary',
+                value: query.isLoading ? '...' : theses.length,
+              },
+              {
+                label: 'Bullish',
+                tone: 'constructive',
+                value: thesisSummary.bullish,
+              },
+              {
+                label: 'Bearish',
+                tone: 'risk',
+                value: thesisSummary.bearish,
+              },
+              {
+                label: 'Watch / neutral',
+                tone: 'warning',
+                value: thesisSummary.watch,
+              },
+            ]}
+          />
+        }
       />
-      <Panel title="Filters">
-        <div className="form-grid">
-          <label className="label">
-            Symbol
-            <input
-              className="input"
-              placeholder="BTC"
-              value={symbol}
-              onChange={(event) => setSymbol(event.target.value)}
-            />
-          </label>
-          <label className="label">
-            Direction
-            <select
-              className="select"
-              value={direction}
-              onChange={(event) => setDirection(event.target.value)}
-            >
-              <option value="">All</option>
-              <option value="bullish">bullish</option>
-              <option value="bearish">bearish</option>
-              <option value="neutral">neutral</option>
-              <option value="watch">watch</option>
-            </select>
-          </label>
-        </div>
-      </Panel>
-      <div style={{ height: 14 }} />
-      <Panel title="Theses" description={`${theses.length} shown`}>
+      <Panel
+        className="thesis-list-panel"
+        title="Theses"
+        action={thesisFilters}
+        description={`${theses.length} shown`}
+      >
         {query.isLoading ? <LoadingState /> : null}
         {query.isError ? <ErrorState error={query.error} /> : null}
         {query.data?.length === 0 ? <EmptyState label="No theses yet." /> : null}
@@ -103,7 +136,9 @@ export function ThesisLibraryPage() {
                   <td>{thesis.setup_type}</td>
                   <td><ConfidenceBadge value={thesis.confidence} /></td>
                   <td><StabilityGuardBadge thesis={thesis} /></td>
-                  <td>{thesis.invalidation_level || 'n/a'}</td>
+                  <td>
+                    <InvalidationPreview value={thesis.invalidation_level} />
+                  </td>
                   <td><IdChip value={thesis.research_run_id} /></td>
                 </tr>
               ))}
@@ -112,6 +147,66 @@ export function ThesisLibraryPage() {
         </div>
       </Panel>
     </main>
+  );
+}
+
+function summarizeTheses(theses: ThesisResponse[]) {
+  return theses.reduce(
+    (summary, thesis) => {
+      const direction = thesis.direction.toLowerCase();
+      if (direction.includes('bull') || direction.includes('long')) {
+        summary.bullish += 1;
+      } else if (direction.includes('bear') || direction.includes('short')) {
+        summary.bearish += 1;
+      } else {
+        summary.watch += 1;
+      }
+      return summary;
+    },
+    { bearish: 0, bullish: 0, watch: 0 },
+  );
+}
+
+function InvalidationPreview({ value }: { value: string | null | undefined }) {
+  const text = value?.trim() || 'n/a';
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+  const textRef = useRef<HTMLParagraphElement>(null);
+
+  useLayoutEffect(() => {
+    setExpanded(false);
+    if (text === 'n/a') {
+      setCanExpand(false);
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const element = textRef.current;
+      setCanExpand(Boolean(element && element.scrollHeight > element.clientHeight + 1));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [text]);
+
+  return (
+    <div className="invalidation-preview">
+      <p
+        className={`invalidation-preview-text${expanded ? '' : ' clamped'}`}
+        ref={textRef}
+      >
+        {text}
+      </p>
+      {canExpand ? (
+        <button
+          aria-expanded={expanded}
+          className="invalidation-toggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {expanded ? 'Show less' : 'Read more'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

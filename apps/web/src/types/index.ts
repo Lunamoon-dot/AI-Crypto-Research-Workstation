@@ -407,6 +407,8 @@ export interface OperationsHealthResponse {
 export interface SignalResponse {
   id: string | null;
   workspace_id: string;
+  research_run_id: string | null;
+  signal_snapshot_id: string | null;
   symbol: string;
   signal_type: string;
   direction: string;
@@ -431,8 +433,6 @@ export interface SignalDetailResponse extends SignalResponse {
   is_stale: boolean;
   age_seconds: number | null;
   staleness_reason: string;
-  research_run_id: string | null;
-  signal_snapshot_id: string | null;
   provenance: JsonRecord;
   evidence: JsonRecord;
   watch_conditions: JsonRecord;

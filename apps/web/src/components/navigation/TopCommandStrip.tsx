@@ -1,4 +1,4 @@
-import { Bell, Search, UserCircle } from 'lucide-react';
+import { Bell, UserCircle } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { WorkspaceSwitcher } from '@/components/navigation/WorkspaceSwitcher';
 import { routes } from '@/lib/routes';
@@ -27,10 +27,6 @@ export function TopCommandStrip() {
         <p className="top-strip-title">{title}</p>
         <div className="small muted">Local research mode | API-backed workstation</div>
       </div>
-      <label className="search-box" aria-label="Workspace search">
-        <Search aria-hidden size={16} />
-        <input placeholder="Search thesis, signal, run..." />
-      </label>
       <div className="top-strip-actions">
         <WorkspaceSwitcher />
         <button className="button icon ghost" aria-label="Notifications" type="button">

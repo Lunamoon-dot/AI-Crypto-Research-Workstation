@@ -13,7 +13,8 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { createResearchRun } from '@/services/research-runs';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { errorMessage } from '@/services/client';
@@ -81,39 +82,40 @@ export function ResearchRunFormPage() {
         eyebrow="02 Research Launcher"
         title="Launch a research run"
         description="Configure a local AI research request. The action creates research artifacts only; it does not execute trades."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <Coins aria-hidden size={14} />,
+                label: 'Symbol',
+                tone: 'primary',
+                value: symbol || 'n/a',
+              },
+              {
+                icon: <Radar aria-hidden size={14} />,
+                label: 'Market',
+                tone: 'constructive',
+                value: marketType,
+              },
+              {
+                icon: <CalendarDays aria-hidden size={14} />,
+                label: 'Date',
+                tone: 'warning',
+                value: analysisDate,
+              },
+              {
+                icon: <Brain aria-hidden size={14} />,
+                label: 'Analysts',
+                meta: 'Selected modules',
+                value: analysts.length,
+              },
+            ]}
+          />
+        }
       />
 
       <form onSubmit={submit}>
         <BentoGrid>
-          <MetricTile
-            className="span-3"
-            icon={<Coins size={18} />}
-            label="Symbol"
-            tone="primary"
-            value={symbol || 'n/a'}
-          />
-          <MetricTile
-            className="span-3"
-            icon={<Radar size={18} />}
-            label="Market"
-            tone="constructive"
-            value={marketType}
-          />
-          <MetricTile
-            className="span-3"
-            icon={<CalendarDays size={18} />}
-            label="Date"
-            tone="warning"
-            value={analysisDate}
-          />
-          <MetricTile
-            className="span-3"
-            icon={<Brain size={18} />}
-            label="Analysts"
-            meta="Selected modules"
-            value={analysts.length}
-          />
-
           <Panel className="span-5 emphasis" title="Core parameters" description="Asset, market, date, and runtime profile">
             <div className="form-grid">
               <label className="label">

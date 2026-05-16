@@ -41,6 +41,12 @@ PROVIDER_DEFAULTS = {
     "xai": ("grok-4", None),
 }
 
+PORTFOLIO_MANAGER_REQUIRED_MARKERS = [
+    "**Rating**:",
+    "**Research Summary**:",
+    "**Investment Thesis**:",
+]
+
 
 # Minimal but realistic state for the three agents.
 DEBATE_HISTORY = """
@@ -158,7 +164,7 @@ def main() -> int:
         (
             "Portfolio Manager",
             final_decision,
-            ["**Rating**:", "**Executive Summary**:", "**Investment Thesis**:"],
+            PORTFOLIO_MANAGER_REQUIRED_MARKERS,
         ),
     ]
     print("\n" + "=" * 70 + "\nStructure checks\n" + "=" * 70)

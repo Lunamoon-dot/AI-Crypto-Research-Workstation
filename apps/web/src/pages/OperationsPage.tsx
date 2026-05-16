@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Database, ServerCog, Sparkles } from 'lucide-react';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid, DataPair } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
@@ -26,43 +27,44 @@ export function OperationsPage() {
         eyebrow="Operations Health"
         title="Operations"
         description="Provider, model, queue, and freshness telemetry from the API runtime and persisted health tables."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <ServerCog aria-hidden size={14} />,
+                label: 'Providers',
+                meta: providerIssues > 0 ? `${providerIssues} need config` : 'configured',
+                tone: providerIssues > 0 ? 'warning' : 'constructive',
+                value: data ? data.providers.length : '...',
+              },
+              {
+                icon: <Sparkles aria-hidden size={14} />,
+                label: 'LLM success',
+                meta: `${data?.llm.total_calls ?? 0} calls`,
+                tone: (data?.llm.success_rate ?? 1) < 0.9 ? 'warning' : 'constructive',
+                value: formatConfidence(data?.llm.success_rate),
+              },
+              {
+                icon: <Database aria-hidden size={14} />,
+                label: 'Stale checks',
+                meta: `${data?.freshness.total_checks ?? 0} rows`,
+                tone: (data?.freshness.stale_checks ?? 0) > 0 ? 'warning' : 'constructive',
+                value: data?.freshness.stale_checks ?? '...',
+              },
+              {
+                icon: <Activity aria-hidden size={14} />,
+                label: 'Queue',
+                meta: data?.queue.redis_configured ? 'Redis configured' : 'No Redis URL',
+                tone: data?.queue.backend === 'bullmq' && !data.queue.redis_configured ? 'warning' : 'primary',
+                value: data?.queue.backend ?? '...',
+              },
+            ]}
+          />
+        }
       />
       {health.isLoading ? <LoadingState /> : null}
       {health.isError ? <ErrorState error={health.error} /> : null}
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<ServerCog size={18} />}
-          label="Providers"
-          tone={providerIssues > 0 ? 'warning' : 'constructive'}
-          value={data ? data.providers.length : '...'}
-          meta={providerIssues > 0 ? `${providerIssues} need config` : 'configured or healthy'}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Sparkles size={18} />}
-          label="LLM success"
-          tone={(data?.llm.success_rate ?? 1) < 0.9 ? 'warning' : 'constructive'}
-          value={formatConfidence(data?.llm.success_rate)}
-          meta={`${data?.llm.total_calls ?? 0} recent call(s)`}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Database size={18} />}
-          label="Stale checks"
-          tone={(data?.freshness.stale_checks ?? 0) > 0 ? 'warning' : 'constructive'}
-          value={data?.freshness.stale_checks ?? '...'}
-          meta={`${data?.freshness.total_checks ?? 0} freshness row(s)`}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Activity size={18} />}
-          label="Queue"
-          tone={data?.queue.backend === 'bullmq' && !data.queue.redis_configured ? 'warning' : 'primary'}
-          value={data?.queue.backend ?? '...'}
-          meta={data?.queue.redis_configured ? 'Redis configured' : 'No Redis URL'}
-        />
-
         <Panel className="span-7 emphasis" title="Provider Health">
           {data?.providers.length === 0 ? <EmptyState label="No provider rows." /> : null}
           <div className="stack">

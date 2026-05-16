@@ -42,6 +42,44 @@ def run_quality_payload(run: ResearchRun | None) -> dict[str, Any]:
     }
 
 
+def resolve_final_signal(
+    *,
+    final_trade_decision: str,
+    summary_rating: object,
+    process_signal,
+) -> str:
+    """Resolve the official final signal without treating parser fallback as truth.
+
+    Free-text provider fallback can produce a valid TRADE_THESIS_JSON block but
+    omit a Markdown ``Rating:`` header. In that case ``process_signal`` would
+    default to Hold and falsely disagree with the structured summary.
+    """
+
+    decision_rating = parse_rating_label(final_trade_decision)
+    structured_rating = assert_consistent_ratings(
+        [
+            ("final_trade_decision.rating", decision_rating),
+            ("final_trade_summary_json.rating", summary_rating),
+        ],
+        context="research run final decision",
+    )
+    final_signal = structured_rating or process_signal(final_trade_decision)
+    assert_consistent_ratings(
+        [
+            ("final_trade_decision.rating", decision_rating),
+            ("final_trade_summary_json.rating", summary_rating),
+            ("final_signal", final_signal),
+        ],
+        context="research run final decision",
+    )
+    ensure_no_conflicting_rating_mentions(
+        final_trade_decision,
+        official_rating=final_signal,
+        context="final_trade_decision",
+    )
+    return final_signal
+
+
 class ResearchRunOrchestrator:
     """Owns lifecycle, checkpoint, fallback, status, and budget flow."""
 
@@ -298,7 +336,6 @@ class ResearchRunOrchestrator:
 
         if host.current_research_run:
             host.current_research_run.status = ResearchRunStatus.COMPLETED
-        final_signal = host.process_signal(final_state["final_trade_decision"])
         summary_rating = None
         summary_json = final_state.get("final_trade_summary_json") or (
             extract_trade_thesis_json(final_state.get("final_trade_decision", ""))
@@ -307,23 +344,18 @@ class ResearchRunOrchestrator:
             summary_rating = parse_structured_summary_payload(summary_json).get(
                 "rating"
             )
-        assert_consistent_ratings(
-            [
-                (
-                    "final_trade_decision.rating",
-                    parse_rating_label(final_state["final_trade_decision"]),
-                ),
-                ("final_trade_summary_json.rating", summary_rating),
-                ("final_signal", final_signal),
-            ],
-            context="research run final decision",
-        )
-        ensure_no_conflicting_rating_mentions(
-            final_state["final_trade_decision"],
-            official_rating=final_signal,
-            context="final_trade_decision",
+        final_signal = resolve_final_signal(
+            final_trade_decision=final_state["final_trade_decision"],
+            summary_rating=summary_rating,
+            process_signal=host.process_signal,
         )
         final_state["final_signal"] = final_signal
+
+        host.current_scenario_plan = final_state.get("scenario_plan", "")
+        if host.current_trade_thesis is None:
+            host.current_trade_thesis = host._build_trade_thesis(final_state)
+
+        host._complete_journal_run()
         log_event(
             logger,
             "research_run_completed",
@@ -336,12 +368,6 @@ class ResearchRunOrchestrator:
             quick_think_llm=host.config.get("quick_think_llm"),
             deep_think_llm=host.config.get("deep_think_llm"),
         )
-
-        host.current_scenario_plan = final_state.get("scenario_plan", "")
-        if host.current_trade_thesis is None:
-            host.current_trade_thesis = host._build_trade_thesis(final_state)
-
-        host._complete_journal_run()
         final_state["run_quality"] = run_quality_payload(host.current_research_run)
         host._log_state(trade_date, final_state)
         return final_state, final_signal

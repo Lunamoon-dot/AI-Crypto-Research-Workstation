@@ -8,7 +8,8 @@ import { queryKeys } from '@/services/query-keys';
 import { listWatchlists } from '@/services/watchlists';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BriefCard } from '@/components/research/brief-card';
-import { BentoGrid, MetricTile } from '@/components/research/bento';
+import { BentoGrid } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -95,30 +96,33 @@ export function DailyBriefsPage() {
         eyebrow="06 Briefs Archive"
         title="Daily briefs"
         description="Focused archive view for persisted market briefs and their linked thesis/signal references."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <Archive aria-hidden size={14} />,
+                label: selectedOnly ? 'Selected briefs' : 'Workspace briefs',
+                meta: watchlistId ? 'watchlist scoped' : 'select watchlist',
+                tone: 'primary',
+                value: query.isLoading ? '...' : visibleBriefs.length,
+              },
+              {
+                icon: <CalendarDays aria-hidden size={14} />,
+                label: 'Date filter',
+                tone: 'warning',
+                value: date || 'All',
+              },
+              {
+                icon: <FileText aria-hidden size={14} />,
+                label: 'Latest',
+                meta: latest?.brief_date ?? 'No brief',
+                value: latest ? 'Ready' : 'None',
+              },
+            ]}
+          />
+        }
       />
       <BentoGrid>
-        <MetricTile
-          className="span-4"
-          icon={<Archive size={18} />}
-          label={selectedOnly ? 'Selected briefs' : 'Workspace briefs'}
-          tone="primary"
-          value={query.isLoading ? '...' : visibleBriefs.length}
-        />
-        <MetricTile
-          className="span-4"
-          icon={<CalendarDays size={18} />}
-          label="Date filter"
-          tone="warning"
-          value={date || 'All'}
-        />
-        <MetricTile
-          className="span-4"
-          icon={<FileText size={18} />}
-          label="Latest"
-          meta={latest?.brief_date ?? 'No brief'}
-          value={latest ? 'Ready' : 'None'}
-        />
-
         <Panel
           action={<Link className="button ghost" to={routes.watchlists}>Watchlists</Link>}
           className="span-4 emphasis"

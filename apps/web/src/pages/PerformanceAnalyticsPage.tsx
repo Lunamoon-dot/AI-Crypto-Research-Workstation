@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, Target, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
-import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { BentoGrid, DataPair } from '@/components/research/bento';
+import { IdChip } from '@/components/research/badges';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -42,6 +44,39 @@ export function PerformanceAnalyticsPage() {
         eyebrow="Performance Analytics"
         title="Performance"
         description="Review outcome quality, calibration drift, and recent lessons from recorded thesis reviews."
+        action={
+          <HeaderStats
+            stats={[
+              {
+                icon: <BarChart3 aria-hidden size={14} />,
+                label: 'Reviewed',
+                meta: analytics.data?.symbol ?? 'all symbols',
+                value: analytics.data?.sample_size ?? '...',
+              },
+              {
+                icon: <Target aria-hidden size={14} />,
+                label: 'Hit rate',
+                meta: 'target outcomes',
+                tone: 'constructive',
+                value: formatConfidence(analytics.data?.hit_rate),
+              },
+              {
+                icon: <Activity aria-hidden size={14} />,
+                label: 'Invalidated',
+                meta: 'reviewed theses',
+                tone: 'risk',
+                value: formatConfidence(analytics.data?.invalidation_rate),
+              },
+              {
+                icon: <TrendingUp aria-hidden size={14} />,
+                label: 'Health',
+                meta: health.data?.recommendation ?? 'loading',
+                tone: health.data?.overall_status === 'healthy' ? 'constructive' : 'warning',
+                value: health.data?.overall_status ?? '...',
+              },
+            ]}
+          />
+        }
       />
 
       <Panel title="Scope" description="Filter analytics by a persisted thesis symbol.">
@@ -63,38 +98,6 @@ export function PerformanceAnalyticsPage() {
 
       <div style={{ height: 14 }} />
       <BentoGrid>
-        <MetricTile
-          className="span-3"
-          icon={<BarChart3 size={18} />}
-          label="Reviewed"
-          value={analytics.data?.sample_size ?? '...'}
-          meta={analytics.data?.symbol ?? 'all symbols'}
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Target size={18} />}
-          label="Hit rate"
-          tone="constructive"
-          value={formatConfidence(analytics.data?.hit_rate)}
-          meta="target outcomes"
-        />
-        <MetricTile
-          className="span-3"
-          icon={<Activity size={18} />}
-          label="Invalidated"
-          tone="risk"
-          value={formatConfidence(analytics.data?.invalidation_rate)}
-          meta="reviewed theses"
-        />
-        <MetricTile
-          className="span-3"
-          icon={<TrendingUp size={18} />}
-          label="Health"
-          tone={health.data?.overall_status === 'healthy' ? 'constructive' : 'warning'}
-          value={health.data?.overall_status ?? '...'}
-          meta={health.data?.recommendation ?? 'loading'}
-        />
-
         <Panel className="span-5" title="Outcome Mix">
           {analytics.isLoading ? <LoadingState /> : null}
           {analytics.isError ? <ErrorState error={analytics.error} /> : null}
@@ -186,7 +189,7 @@ export function PerformanceAnalyticsPage() {
               <tbody>
                 {outcomes.data?.map((outcome) => (
                   <tr key={outcome.id ?? outcome.thesis_id}>
-                    <td className="mono">{outcome.thesis_id}</td>
+                    <td><IdChip value={outcome.thesis_id} /></td>
                     <td>{outcome.symbol}</td>
                     <td>{outcome.setup_type}</td>
                     <td><span className={outcome.invalidated ? 'badge risk' : 'badge'}>{outcome.result}</span></td>
