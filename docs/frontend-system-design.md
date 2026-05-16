@@ -1,8 +1,8 @@
 # Frontend System Design
 
-Status: proposed design for `apps/web`; the current directory only contains a placeholder README.
+Status: current architecture plus remaining design targets for `apps/web`.
 
-LunaCrypto's current frontend is a placeholder. This document defines the target frontend architecture for a logged-in crypto research workstation that consumes the existing NestJS API in `apps/api` and visualizes research output from the Python AI service.
+LunaCrypto's current frontend is a Vite/React research workstation that consumes the existing NestJS API in `apps/api` and visualizes research output from the Python AI service.
 
 ## Product Boundary
 
@@ -29,6 +29,22 @@ The UI must make provenance visible near every decision surface: source, timesta
 - Keep decision and outcome review workflows one click away from the thesis detail page.
 - Support local-first development now and hosted multi-workspace operation later.
 
+## Current Implementation Snapshot
+
+`apps/web` is implemented with:
+
+- Vite, React, TypeScript, and React Router.
+- TanStack Query for server state and polling-oriented reads.
+- Axios transport in `src/services/client.ts`.
+- Local header auth/workspace context through `src/store/useWorkspaceStore.ts`.
+- API modules under `src/services/*` plus mirrored/generated contract types.
+- Local CSS primitives in `src/styles/index.css`.
+
+The current route set includes Workbench, Research New, Research History,
+Research Run Workspace, Journal Run Workspace, Thesis Library/Detail, Signal
+Explorer/Detail, Scenario Monitor, Alerts, Watchlists, Daily Briefs,
+Operations, Settings, Performance, and Compare pages.
+
 ## Non-Goals
 
 - No direct order execution.
@@ -36,17 +52,18 @@ The UI must make provenance visible near every decision surface: source, timesta
 - No hidden AI decisions. Generated theses must expose assumptions, missing data, and contradiction signals.
 - No marketing landing page inside the logged-in app.
 
-## Recommended Stack
+## Stack Direction
 
-`apps/web` should be implemented as a TypeScript React application. If SSR is required later, use Next.js for route and deployment ergonomics. For the workstation itself, the main requirement is a fast client-side app with stable API contracts.
+The current stack is TypeScript React on Vite. Keep it unless SSR, server
+components, or deployment requirements create a concrete need to move.
 
-Recommended libraries:
+Recommended libraries and boundaries:
 
 - React with TypeScript for UI.
-- TanStack Query for API caching, background refresh, retries, and mutation state.
-- A route library such as Next.js App Router or TanStack Router.
-- A small shared API client generated from, or aligned with, `apps/api/src/contracts/frontend-contract.ts`.
-- A component system using local primitives first. Add a shared UI package only after a real reuse need exists; no shared UI package exists today.
+- React Router for workstation routing.
+- TanStack Query for API caching, background refresh, retries, polling, and mutation state.
+- A thin API client aligned with `apps/api/src/contracts/frontend-contract.ts` and `apps/api/src/contracts/openapi.generated.ts`.
+- Local component primitives first. Add a shared UI package only after a real reuse need exists.
 
 ## High-Level Architecture
 
@@ -89,15 +106,19 @@ Backend ownership:
 | --- | --- | --- |
 | `/workbench` | Daily command center with brief, active theses, alerts, watchlists, and recent runs | `GET /briefs/daily`, `GET /alerts`, `GET /theses`, `GET /watchlists` |
 | `/research/new` | Launch a research run | `POST /research-runs` |
-| `/research/runs/:id` | Run status, event timeline, snapshots, debate, and result links | `GET /research-runs/:id`, `/events`, `/snapshots`, `/debate` |
-| `/journal/runs/:id` | Full evidence workspace for one run | `GET /journal/runs/:id/workspace` |
+| `/research/runs/:id` | Run status, event timeline, snapshots, debate, artifacts, workflow visualization, and result links | `GET /research-runs/:id/workspace`, `GET /research-runs/:id/evidence-bundle` |
+| `/journal/runs/:id` | Full evidence workspace for one run | `GET /journal/runs/:id/workspace`, `GET /journal/runs/:id/evidence-bundle` |
 | `/theses` | Thesis inbox with filters | `GET /theses` |
 | `/theses/:id` | Thesis detail, evidence, scenarios, decision, and review | `GET /theses/:id`, `/scenarios`, `POST /decision`, `POST /review` |
 | `/signals` | Signal explorer by symbol, type, confidence, and freshness | `GET /signals` |
-| `/watchlists` | Watchlist management and watchlist item creation | `GET /watchlists`, `POST /watchlists/:id/items` |
+| `/watchlists` | Watchlist management and watchlist item creation | `GET /watchlists`, `POST /watchlists`, `GET /watchlists/:id/items`, `PATCH /watchlists/:id`, `POST /watchlists/:id/items`, `DELETE /watchlists/:id/items/:itemId` |
 | `/briefs/daily` | Daily market brief archive | `GET /briefs/daily` |
-| `/operations` | Provider health, LLM calls, freshness, run failures | future operations endpoints |
+| `/operations` | Provider health, LLM calls, freshness, run failures | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` |
 | `/settings` | Workspace, provider, model, and budget preferences | future settings endpoints |
+| `/research/history` | Research run history | `GET /research-runs` |
+| `/scenarios` | Scenario monitor | `GET /scenarios/monitor` |
+| `/performance` | Outcome and reliability analytics | `GET /performance/*` |
+| `/compare` | Thesis/run comparison | `GET /comparisons/theses`, `GET /comparisons/runs` |
 
 ## Layout Model
 
@@ -137,11 +158,17 @@ Purpose: inspect a single run while it is queued, running, completed, degraded, 
 Primary sections:
 
 - Header: symbol, market type, status, model/profile, config hash, started/completed time.
+- Agent workflow: event-derived organization chart with quant signal layer, selected analyst lanes, sequential manager stages, durations, and source-event counts.
 - Timeline: run events in chronological order.
 - Snapshots: market snapshot and signal snapshot.
 - Debate: consensus stance, conflict level, agent opinions.
 - Result: generated thesis link and scenario shortcuts.
 - Raw event drawer for debugging.
+
+The backend supplies `stage_timings` on workspace responses. Each stage timing
+contains `stage_key`, `label`, `event_state`, `started_at`, `completed_at`,
+`duration_ms`, and `source_event_ids`. The UI should keep visual stage status
+derived from artifacts and use `stage_timings` for event-backed timing metadata.
 
 Polling policy:
 
@@ -218,15 +245,18 @@ Create a thin typed client around the product API. The client should:
 Example module shape:
 
 ```text
-src/api/
+src/services/
   client.ts
+  generated/api-client.ts
+  query-keys.ts
   researchRuns.ts
   theses.ts
   signals.ts
   watchlists.ts
   briefs.ts
   alerts.ts
-  types.ts
+src/types/
+  index.ts
 ```
 
 ## Query and Cache Policy
@@ -235,7 +265,7 @@ src/api/
 | --- | --- | --- |
 | Research run | `researchRun(id)` | Poll while active |
 | Run events | `researchRunEvents(id)` | Poll while active |
-| Run workspace | `journalRunWorkspace(id)` | Fetch on open, refetch after run completion |
+| Run workspace | `researchRunWorkspace(id)` / `journalRunWorkspace(id)` | Fetch on open, poll while active, refetch after run completion |
 | Thesis list | `theses(filters)` | Refetch on decision/review mutation |
 | Thesis detail | `thesis(id)` | Refetch after decision/review |
 | Signals | `signals(filters)` | Manual refresh or short stale time |

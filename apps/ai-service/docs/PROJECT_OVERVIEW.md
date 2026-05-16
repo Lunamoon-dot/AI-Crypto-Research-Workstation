@@ -1,7 +1,7 @@
 # LunaCrypto AI Research Workstation - Tong Quan Du An
 
 > Living document. Cap nhat khi kien truc, CLI, schema, hoac ranh gioi san pham thay doi.
-> Lan sua cuoi: 2026-05-13. Phien ban du an: 0.3.0.
+> Lan sua cuoi: 2026-05-16. Phien ban du an: 0.3.0.
 
 ## 1. San Pham Nay La Gi
 
@@ -30,7 +30,7 @@ Tu repo root:
 apps/
   ai-service/   Python service, Typer CLI, LangGraph research engine
   api/          NestJS product API boundary
-  web/          placeholder README only
+  web/          Vite/React research workstation
 packages/
   database/     Prisma schema/client for product Postgres model
 docs/
@@ -72,13 +72,19 @@ CLI / Engine Contract
 API boundary:
 
 ```text
-Frontend (future)
+Frontend workstation
   -> NestJS API
   -> workspace/auth checks
   -> JobsService: inline | memory | BullMQ
   -> PythonEngineClient: lunacrypto engine run --request
   -> Postgres journal repository reads/writes when DATABASE_URL is configured
 ```
+
+Current web surface: `apps/web` is a Vite + React Router workstation with
+Workbench, Research, Journal, Theses, Signals, Scenarios, Alerts, Watchlists,
+Briefs, Operations, Settings, Performance, and Compare routes. The API workspace
+contract now includes `stage_timings` so the UI can render event-derived agent
+workflow status and durations.
 
 ## 5. Thu Muc Quan Trong Trong `apps/ai-service`
 

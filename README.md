@@ -1,6 +1,6 @@
 # LunaPerception
 
-LunaPerception is a monorepo for a crypto research product. The current working application is the Python AI research service in `apps/ai-service`, with a NestJS product API boundary in `apps/api`. The web app directory is currently only a placeholder.
+LunaPerception is a monorepo for a crypto research product. The current working application spans the Python AI research service in `apps/ai-service`, the NestJS product API boundary in `apps/api`, and a Vite/React workstation in `apps/web`.
 
 ## Workspace Layout
 
@@ -8,7 +8,7 @@ LunaPerception is a monorepo for a crypto research product. The current working 
 apps/
   ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
-  web/             Placeholder for the future logged-in product app
+  web/             Vite/React research workstation
 packages/
   database/        Prisma schema/client for the product Postgres model
 docs/
@@ -21,6 +21,7 @@ The Python import namespace intentionally remains `tradingagents` for compatibil
 
 ```bash
 pnpm install
+pnpm dev
 pnpm build
 pnpm build:api
 pnpm lint
@@ -105,9 +106,36 @@ lunacrypto engine run --request request.json
 ## API Boundary
 
 The NestJS API exposes research, journal, thesis, signal, watchlist, brief, and
-alert routes for the future product UI. Local API requests currently require
+alert routes for the web workstation. Local API requests currently require
 `x-user-id` and `x-workspace-id` headers, and workspace access must come from
 Postgres memberships or the `WORKSPACE_MEMBERSHIPS` environment variable.
+
+Composite research and journal workspace responses include `stage_timings`, an
+event-derived view of each workflow stage with `pending`, `running`,
+`completed`, `failed`, or `missing` state plus start/completion timestamps,
+duration, and source event IDs. The web workstation uses this contract to render
+the agent workflow visualization.
+
+## Web Workstation
+
+The web app is a local-first research workstation built with Vite, React,
+React Router, TanStack Query, and local CSS primitives. It provides workbench,
+research launcher/history/workspace, journal workspace, thesis library/detail,
+signals, scenarios, alerts, watchlists, briefs, operations, settings,
+performance, and comparison routes.
+
+Run it with the API:
+
+```bash
+pnpm dev
+```
+
+Or run the two processes separately:
+
+```bash
+pnpm --filter @lunaperception/api dev
+pnpm --filter @lunaperception/web dev
+```
 
 Queue behavior is controlled by:
 

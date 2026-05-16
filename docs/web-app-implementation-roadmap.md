@@ -1,12 +1,19 @@
 # LunaCrypto Web App Implementation Roadmap
 
-Status: execution checklist for `apps/web`
+Status: execution checklist for `apps/web`; current local MVP uses Vite/React
 Created: 2026-05-13
+Updated: 2026-05-16
 Scope: logged-in AI crypto research workstation, local-first/private-beta first
 
 This file turns the current repo assessment into an ordered implementation
 roadmap. It assumes the existing Python AI service, NestJS API, and
 Prisma/Postgres schema remain the source of truth for research artifacts.
+
+Implementation note: `apps/web` is implemented as a Vite, React Router,
+TanStack Query workstation with local CSS primitives and mirrored API contract
+types. Older checklist items that mention an app-directory framework should be
+treated as historical planning notes unless the project explicitly chooses a
+framework migration later.
 
 ## 0. Verdict
 
@@ -19,8 +26,9 @@ The repo is already shaped for a serious AI crypto research workstation:
 - `packages/database/prisma/schema.prisma` already models research runs,
   snapshots, debates, theses, scenarios, signals, watchlists, alerts, briefs,
   provider health, LLM calls, freshness checks, decisions, and reviews.
-- `apps/web` is still only a placeholder, so the next high-leverage work is to
-  build the web workstation against the API boundary.
+- `apps/web` is now a real workstation. The next high-leverage work is to keep
+  API contracts, workflow visualization, local gates, and hosted-readiness
+  hardening aligned.
 
 The product should not be built as a trading bot, execution terminal, or fake
 PnL dashboard. The strongest product shape is:
@@ -66,24 +74,37 @@ Existing frontend-facing routes confirmed in `apps/api/src`:
 
 | Capability | Route | Web use |
 | --- | --- | --- |
+| List research runs | `GET /research-runs` | Research history and recent runs |
 | Create research run | `POST /research-runs` | Run launcher |
 | Read run | `GET /research-runs/:id` | Run header/status |
 | Read run events | `GET /research-runs/:id/events` | Timeline/polling |
 | Read snapshots | `GET /research-runs/:id/snapshots` | Market and signal snapshot panels |
 | Read debate | `GET /research-runs/:id/debate` | Agent debate panel |
-| Read run workspace | `GET /research-runs/:id/workspace` | Composite research workspace |
-| Read journal workspace | `GET /journal/runs/:id/workspace` | Composite evidence workspace |
+| Read run workspace | `GET /research-runs/:id/workspace` | Composite research workspace with `stage_timings` |
+| Read run evidence bundle | `GET /research-runs/:id/evidence-bundle` | Portable evidence bundle |
+| Read journal workspace | `GET /journal/runs/:id/workspace` | Composite evidence workspace with `stage_timings` |
+| Read journal evidence bundle | `GET /journal/runs/:id/evidence-bundle` | Portable journal evidence bundle |
+| Read/cancel job | `GET /jobs/:id`, `POST /jobs/:id/cancel` | Queue status and cancellation |
 | List theses | `GET /theses` | Thesis inbox |
 | Read thesis | `GET /theses/:id` | Thesis detail |
 | Read scenarios | `GET /theses/:id/scenarios` | Scenario radar |
 | Record decision | `POST /theses/:id/decision` | Decision journal |
 | Record review | `POST /theses/:id/review` | Outcome review |
-| List signals | `GET /signals` | Signal explorer |
+| List/read signals | `GET /signals`, `GET /signals/:id` | Signal explorer and detail |
 | List watchlists | `GET /watchlists` | Watchlist overview |
+| Create/update watchlist | `POST /watchlists`, `PATCH /watchlists/:id` | Watchlist management |
+| Read watchlist items | `GET /watchlists/:id/items` | Watchlist detail |
 | Add watchlist item | `POST /watchlists/:id/items` | Add symbol/thesis/setup |
+| Remove watchlist item | `DELETE /watchlists/:id/items/:itemId` | Remove stale watches |
+| Manual watchlist check | `POST /watchlists/:id/check` | Explicit monitoring check |
 | List daily briefs | `GET /briefs/daily` | Daily brief page |
+| Create daily brief | `POST /briefs/daily` | Manual brief generation |
 | List alerts | `GET /alerts` | Alerts inbox |
 | Mark alert read | `POST /alerts/:id/read` | Alerts inbox action |
+| Operations | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` | Trust and reliability surfaces |
+| Scenarios monitor | `GET /scenarios/monitor` | Scenario monitoring surface |
+| Performance | `GET /performance/outcomes`, `/analytics`, `/trend`, `/health` | Outcome analytics |
+| Comparisons | `GET /comparisons/theses`, `GET /comparisons/runs` | Thesis/run comparison |
 
 Current local identity headers:
 
@@ -111,22 +132,18 @@ Current run creation payload:
 Some web screens can be built immediately, but a few backend gaps should be
 handled before claiming the app is production-ready.
 
-| Gap | Priority | Why it matters | Earliest phase |
+| Gap | Priority | Current status | Why it matters |
 | --- | --- | --- | --- |
-| `GET /research-runs` list | P0 | Workbench/recent runs need a list view | Phase 6 |
-| `GET /jobs/:id` or run status projection | P0 | `POST /research-runs` returns `job_id` but no job status route exists | Phase 8 |
-| Stable API error envelope | P0 | Web needs consistent validation/auth/provider error states | Phase 4 |
-| OpenAPI or generated client | P1 | Prevent DTO drift between API and web | Phase 5 |
-| `GET /watchlists/:id/items` | P1 | Watchlist page needs items, not only watchlist headers | Phase 12 |
-| `POST /watchlists` | P1 | Users need to create watchlists | Phase 12 |
-| `PATCH /watchlists/:id` | P1 | Rename/enable/disable watchlists | Phase 12 |
-| `DELETE /watchlists/:id/items/:itemId` | P1 | Remove stale watches | Phase 12 |
-| Provider health endpoints | P1 | Settings/operations trust surface | Phase 14 |
-| Config/profile endpoints | P1 | Run launcher should not hardcode profiles forever | Phase 14 |
-| Retrospective endpoints | P2 | Reliability analytics | Phase 17 |
-| Compare/diff endpoints | P2 | Signature differentiation | Phase 16 |
-| Real auth/session | P0 for hosted | Header identity is acceptable only for local/private beta | Phase 20 |
-| Workspace RBAC hardening | P0 for hosted | Team/cloud mode requires real isolation | Phase 20 |
+| Stable hosted auth/session | P0 for hosted | Deferred | Header identity is acceptable only for local/private beta |
+| Workspace RBAC hardening | P0 for hosted | Deferred | Team/cloud mode requires real isolation |
+| BullMQ production worker deployment | P0 for hosted | Deferred | Hosted runs should not rely on in-process local execution |
+| Stable API error envelope | P0 | Partial; web normalizes Nest and envelope shapes | Web needs consistent validation/auth/provider error states |
+| OpenAPI/code-generated client discipline | P1 | OpenAPI document and mirrored generated client exist | Prevent DTO drift between API and web |
+| Stage timing contract tests | P1 | Added for workspace contract | Workflow visualization depends on event-derived status |
+| Provider health endpoints | P1 | Implemented base reads | Settings/operations trust surface |
+| Config/profile endpoints | P1 | Deferred | Run launcher should not hardcode profiles forever |
+| Performance endpoints | P2 | Implemented base reads; deeper calibration later | Reliability analytics |
+| Compare/diff endpoints | P2 | Implemented base reads | Signature differentiation |
 
 ## 3.1 Recommended Technical Decisions
 
@@ -136,18 +153,18 @@ specific tradeoff.
 
 | Area | Recommendation | Why |
 | --- | --- | --- |
-| Web framework | Next.js App Router | Good route organization, server/client boundaries, middleware support, and deployment ergonomics |
+| Web framework | Vite + React Router | Matches current implementation and keeps the workstation client-side and simple |
 | UI runtime | React + TypeScript | Matches repo TypeScript/NestJS direction and keeps the web strongly typed |
-| Styling | Tailwind CSS with local primitives | Fast workstation UI without introducing a premature design-system package |
+| Styling | Local CSS primitives | Current app ships dense workstation CSS without introducing a shared design-system package |
 | Icons | `lucide-react` | Consistent icon set for dense operational UI |
 | Server state | TanStack Query | Polling, caching, retries, mutation states, and query invalidation fit this app well |
-| Forms | React Hook Form + Zod | Clear form validation for run launch, decisions, reviews, watchlists, and settings |
-| Accessible primitives | Radix UI for Dialog, Select, Tabs, Tooltip, Popover | Avoid hand-rolling keyboard/focus behavior |
+| Forms | Local controlled forms + Zod schemas where useful | Fits current code; add React Hook Form only if form complexity justifies it |
+| Accessible primitives | Local primitives first; add Radix only for complex focus-managed controls | Avoid dependency churn until dialog/select/popover behavior needs it |
 | Tables | Native table first, TanStack Table when sorting/column state grows | Avoid overbuilding early list views |
 | Dates | `date-fns` or small local helpers | Keep timestamp formatting predictable |
-| Charts | Recharts later, only for retrospective analytics | Do not add charting before reliability screens exist |
-| API contract | Manual mirrored types first, then OpenAPI/codegen | Fast start now, stable contract before hosted beta |
-| Tests | Vitest, React Testing Library, Playwright | Unit, component, and browser smoke coverage |
+| Charts | Recharts later, only for performance analytics | Do not add charting before reliability screens exist |
+| API contract | OpenAPI document plus mirrored/generated frontend client | Stable contract before hosted beta |
+| Tests | API contract tests now; add Vitest/RTL/Playwright when web behavior needs browser coverage | Unit, component, and browser smoke coverage |
 | Auth during dev/FE-BE MVP | Keep current local/header auth, hidden behind provider abstraction | Security is not the bottleneck yet; avoid blocking product workflow work |
 | Auth architecture | Build auth abstraction now, not real hosted auth now | Prevents a future rewrite while keeping dev velocity high |
 | Auth hosted-beta checkpoint | Decide between Clerk, Better Auth, or Auth0 before external users | Hosted auth matters only when leaving local/private dev |
@@ -157,9 +174,9 @@ specific tradeoff.
 
 External docs checked for the auth recommendation:
 
-- Next.js authentication guide: `https://nextjs.org/docs/app/guides/authentication`
-- Clerk Next.js SDK and Organizations docs: `https://clerk.com/docs/nextjs/overview`,
-  `https://clerk.com/docs/nextjs/guides/organizations/getting-started`
+- Hosted auth references should be refreshed before implementation.
+- Clerk React/JavaScript SDK and Organizations docs should be preferred if
+  Clerk remains the hosted-auth choice.
 - Clerk manual JWT verification docs:
   `https://clerk.com/docs/backend-requests/manual-jwt`
 - Auth0 JWKS and Organizations token docs: `https://auth0.com/docs/jwks`,
@@ -277,8 +294,8 @@ Rules:
 
 - Only use local header auth in development/private local deployments.
 - Web components never set these headers directly.
-- `apps/web/src/auth/auth-provider.tsx` owns local identity state.
-- `apps/web/src/api/client.ts` translates local identity into headers.
+- `apps/web/src/store/useWorkspaceStore.ts` owns local identity state.
+- `apps/web/src/services/client.ts` translates local identity into headers.
 - The API keeps `AuthService.resolveUser()` and
   `WorkspacesService.resolveWorkspace()` for local mode.
 
@@ -310,7 +327,7 @@ API rules:
   active workspace.
 - Store provider user/org IDs in local database so authorization does not depend
   only on frontend claims.
-- API route authorization belongs in NestJS, not only in Next.js middleware.
+- API route authorization belongs in NestJS, not only in client route guards.
 - All expensive operations must require `analyst` or `owner`.
 
 Recommended API auth files:
@@ -348,21 +365,17 @@ apps/api/src/authorization/
 Recommended web auth files:
 
 ```text
-apps/web/src/auth/
-  auth-provider.tsx
-  auth-types.ts
-  local-auth.ts
-  hosted-auth.ts
-  require-auth.tsx
-  workspace-switcher.tsx
+apps/web/src/store/useWorkspaceStore.ts
+apps/web/src/components/navigation/WorkspaceSwitcher.tsx
+apps/web/src/services/client.ts
 ```
 
 If using Clerk, add:
 
 ```text
-apps/web/middleware.ts
 apps/web/src/auth/clerk-provider.tsx
 apps/web/src/auth/clerk-token.ts
+apps/web/src/auth/require-auth.tsx
 ```
 
 ### Token policy
@@ -373,7 +386,7 @@ Hosted mode should use:
 - Provider-managed session cookies in the web app.
 - API-side JWT verification via SDK or JWKS.
 - No long-lived API token in localStorage.
-- No secrets in `NEXT_PUBLIC_*` variables.
+- No secrets in public frontend variables such as `VITE_*`.
 
 For machine-to-machine later:
 
@@ -473,58 +486,18 @@ Recommended `apps/web` structure:
 
 ```text
 apps/web/
-  app/
-    layout.tsx
-    page.tsx
-    globals.css
-    middleware.ts                 # only when hosted auth is enabled
-    (auth)/
-      sign-in/
-        page.tsx
-      sign-up/
-        page.tsx
-    (workstation)/
-      layout.tsx
-      workbench/
-        page.tsx
-      research/
-        new/
-          page.tsx
-        runs/
-          [id]/
-            page.tsx
-      journal/
-        runs/
-          [id]/
-            page.tsx
-      theses/
-        page.tsx
-        [id]/
-          page.tsx
-      signals/
-        page.tsx
-      alerts/
-        page.tsx
-      watchlists/
-        page.tsx
-        [id]/
-          page.tsx
-      briefs/
-        daily/
-          page.tsx
-          [id]/
-            page.tsx
-      retrospective/
-        page.tsx
-      operations/
-        page.tsx
-      settings/
-        page.tsx
+  index.html
+  vite.config.ts
   src/
-    api/
+    main.tsx
+    App.tsx
+    routes/
+      index.tsx
+    layouts/
+      MainLayout.tsx
+    services/
       client.ts
       query-keys.ts
-      types.ts
       research-runs.ts
       theses.ts
       signals.ts
@@ -532,34 +505,34 @@ apps/web/
       watchlists.ts
       briefs.ts
       operations.ts
-      settings.ts
-    app/
-      app-shell.tsx
-      providers.tsx
-      sidebar-nav.tsx
-      top-command-strip.tsx
-    auth/
-      auth-provider.tsx
-      auth-types.ts
-      local-auth.ts
-      hosted-auth.ts
-      require-auth.tsx
-      workspace-switcher.tsx
+      performance.ts
+      comparisons.ts
+      generated/
+        api-client.ts
+    store/
+      useWorkspaceStore.ts
     components/
+      navigation/
       ui/
       research/
-      layout/
-    features/
-      workbench/
-      research-runs/
-      theses/
-      signals/
-      alerts/
-      watchlists/
-      briefs/
-      retrospective/
-      operations/
-      settings/
+    pages/
+      WorkbenchPage.tsx
+      ResearchRunFormPage.tsx
+      ResearchHistoryPage.tsx
+      ResearchRunWorkspacePage.tsx
+      ThesisLibraryPage.tsx
+      ThesisDetailPage.tsx
+      SignalsPage.tsx
+      SignalDetailPage.tsx
+      ScenarioMonitorPage.tsx
+      AlertsPage.tsx
+      WatchlistsPage.tsx
+      DailyBriefsPage.tsx
+      OperationsPage.tsx
+      SettingsPage.tsx
+      PerformanceAnalyticsPage.tsx
+      RunComparisonPage.tsx
+      NotFoundPage.tsx
     lib/
       dates.ts
       env.ts
@@ -569,28 +542,26 @@ apps/web/
       routes.ts
       utils.ts
     styles/
-    test/
-      mocks/
-      render.tsx
+      index.css
+    types/
+      index.ts
 ```
 
-Feature folder convention:
+Page/module convention:
 
 ```text
-src/features/<feature>/
-  components/
-  hooks/
-  schemas/
-  utils/
-  <feature>-page.tsx
+src/pages/<FeaturePage>.tsx
+src/services/<feature>.ts
+src/schemas/<feature>.ts
+src/components/<domain>/
 ```
 
 Rules:
 
-- `app/**/page.tsx` should be thin and route-focused.
+- `src/pages/**` should be route-focused and delegate reusable UI to components.
 - Feature components own screen composition.
-- `src/api` owns all HTTP paths.
-- `src/auth` owns identity/session/workspace context.
+- `src/services` owns all HTTP paths.
+- `src/store/useWorkspaceStore.ts` owns local identity/session/workspace context.
 - `src/components/ui` owns generic primitives.
 - `src/components/research` owns domain UI shared across features.
 - Do not create `packages/ui` until at least two apps need it.
@@ -610,20 +581,21 @@ packages/ui/          # only after repeated UI reuse across apps
 Local web:
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_AUTH_MODE=local
-NEXT_PUBLIC_LOCAL_USER_ID=local-user
-NEXT_PUBLIC_LOCAL_WORKSPACE_ID=local
+VITE_API_BASE_URL=/backend
+VITE_AUTH_MODE=local
+VITE_LOCAL_USER_ID=local-user
+VITE_LOCAL_WORKSPACE_ID=local
+API_BASE_URL=http://localhost:3000
 ```
 
 Hosted web with Clerk, later only:
 
 ```text
-NEXT_PUBLIC_AUTH_MODE=clerk
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+VITE_AUTH_MODE=clerk
+VITE_CLERK_PUBLISHABLE_KEY=...
 CLERK_SECRET_KEY=...
 CLERK_JWT_TEMPLATE=lunacrypto-api
-NEXT_PUBLIC_API_BASE_URL=https://api.example.com
+VITE_API_BASE_URL=https://api.example.com
 ```
 
 Hosted API:
@@ -640,7 +612,7 @@ REDIS_URL=...
 
 Rules:
 
-- Never put provider secret keys into `NEXT_PUBLIC_*`.
+- Never put provider secret keys into public frontend variables such as `VITE_*`.
 - Keep AI provider keys on API/worker side only.
 - Web should know only publishable auth keys and API base URL.
 - API should own JWT verification, workspace access, rate limits, and audit
@@ -683,17 +655,19 @@ enterprise SSO: later, only if needed
 
 ## 3.9 Current Local MVP Implementation Status
 
-Updated: 2026-05-13
+Updated: 2026-05-16
 
 Implemented for the local/private FE-BE MVP:
 
-- [x] Next.js workstation app under `apps/web` with route-group shell.
+- [x] Vite/React workstation app under `apps/web` with React Router shell.
 - [x] Local/header auth hidden behind web auth and API client abstractions.
 - [x] Workbench route for briefs, alerts, theses, signals, watchlists, and
   recent research runs.
 - [x] Research run launcher through `POST /research-runs`.
 - [x] Research run workspace for status, timeline, snapshots, debate, thesis,
-  data quality, and job-pending state.
+  data quality, job-pending state, artifacts, and workflow visualization.
+- [x] Workspace `stage_timings` contract for event-derived workflow state,
+  duration, timestamps, and source event IDs.
 - [x] Thesis library and thesis detail with evidence, contradictions, stale or
   missing data, scenarios, invalidation, monitor-next, decision form, and
   outcome review form.
@@ -703,24 +677,23 @@ Implemented for the local/private FE-BE MVP:
   add item, and remove item.
 - [x] Daily brief archive.
 - [x] Settings page that exposes local auth/API mode.
-- [x] Operations page with honest empty states for provider/model/freshness
-  endpoints that do not exist yet.
+- [x] Operations page backed by provider health, LLM call, and freshness
+  endpoints when repository data exists.
 - [x] Backend MVP additions: `GET /research-runs`, `GET /jobs/:id`, and
   watchlist CRUD/items endpoints.
-- [x] Local MVP gates verified: `pnpm lint`, `pnpm typecheck`, `pnpm build`,
-  and `pnpm test`.
+- [x] OpenAPI document and frontend generated/mirrored client types.
+- [x] Local MVP gates should remain: `pnpm lint`, `pnpm typecheck`,
+  `pnpm build`, and `pnpm test`.
 
 Explicitly deferred beyond this MVP foundation:
 
 - [ ] Hosted auth with Clerk/Auth0/Better Auth.
 - [ ] Hosted workspace RBAC hardening and role matrix tests across every route.
 - [ ] BullMQ production workers and dedicated Python worker deployment.
-- [ ] Provider health, LLM call, data freshness, queue, and config-health
-  operations endpoints.
-- [ ] OpenAPI/code-generated frontend client.
-- [ ] Watchlist scheduled/manual monitoring engine.
-- [ ] Compare/diff routes for runs and theses.
-- [ ] Retrospective reliability analytics and calibration dashboards.
+- [ ] Config-health/settings profile endpoints.
+- [ ] Production-grade queue operations dashboard.
+- [ ] Scheduled monitoring hardening beyond local/manual watchlist checks.
+- [ ] Deeper performance reliability analytics and calibration dashboards.
 - [ ] Export bundles, markdown/PDF export, and research package sharing.
 - [ ] External notifications through email, Telegram, Discord, or webhooks.
 - [ ] Billing, hosted SaaS packaging, team invites, and enterprise SSO.
@@ -760,21 +733,20 @@ Done when:
 - No route, nav item, or button says `Trading`, `Orders`, `Positions`,
   `Execution`, or `Auto trade`.
 - Nav uses research concepts: Workbench, Research, Journal, Theses, Signals,
-  Watchlists, Briefs, Retrospective, Operations, Settings.
+  Watchlists, Briefs, Performance, Compare, Operations, Settings.
 
 ### WEB-0002 - Choose implementation stack
 
 Recommended stack:
 
-- Next.js App Router.
+- Vite.
 - React.
 - TypeScript.
-- Tailwind CSS.
+- React Router.
+- Local CSS primitives.
 - TanStack Query.
-- React Hook Form.
-- Zod for form schemas.
-- Radix UI for accessible dialog/select/tabs/tooltip primitives.
-- Local component primitives first, built on top of Radix only where needed.
+- Zod for form schemas where useful.
+- Local component primitives first; add Radix only when complex focus-managed controls need it.
 - `lucide-react` for icons.
 - `date-fns` or a small local date helper for formatting.
 - Recharts only when reliability/analytics charts are actually implemented.
@@ -787,6 +759,7 @@ Do not add:
 - A shared UI package before repeated usage exists.
 - Heavy charting libraries before analytics screens need them.
 - A marketing template or landing-page framework.
+- A framework migration before SSR/deployment requirements justify it.
 - Clerk/Auth0/Better Auth packages during the first local web MVP unless the
   owner explicitly moves the project into hosted-beta auth work.
 - Custom JWT user-auth scaffolding as a temporary bridge.
@@ -802,9 +775,10 @@ Done when:
 Document the default local contract:
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_LOCAL_USER_ID=local-user
-NEXT_PUBLIC_LOCAL_WORKSPACE_ID=local
+VITE_API_BASE_URL=/backend
+VITE_LOCAL_USER_ID=local-user
+VITE_LOCAL_WORKSPACE_ID=local
+API_BASE_URL=http://localhost:3000
 ```
 
 Backend local env expected:
@@ -884,7 +858,7 @@ Done when:
 
 ## 7. Phase 2 - Scaffold `apps/web`
 
-Goal: replace the placeholder with a real app that participates in PNPM/Turbo.
+Goal: keep the real Vite app integrated with PNPM/Turbo and the API contract.
 
 ### WEB-0201 - Create package manifest
 
@@ -898,11 +872,11 @@ Required fields:
   "version": "0.3.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "lint": "next lint",
+    "dev": "vite --host 0.0.0.0 --port 3001",
+    "build": "tsc --noEmit && vite build",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "echo \"web package has no tests yet\""
   }
 }
 ```
@@ -910,41 +884,36 @@ Required fields:
 Recommended runtime dependencies:
 
 ```text
-next
 react
 react-dom
+react-router-dom
 @tanstack/react-query
-react-hook-form
 zod
-@hookform/resolvers
 lucide-react
-date-fns
 clsx
 tailwind-merge
-class-variance-authority
-@radix-ui/react-dialog
-@radix-ui/react-select
-@radix-ui/react-tabs
-@radix-ui/react-tooltip
-@radix-ui/react-popover
+axios
+zustand
 ```
 
 Add only when the relevant feature starts:
 
 ```text
-@clerk/nextjs          # hosted Clerk auth
-recharts               # retrospective analytics charts
+@clerk/clerk-react     # hosted Clerk auth if selected later
+recharts               # performance analytics charts
 @tanstack/react-table  # advanced table sorting/column state
+react-hook-form        # only if forms become complex enough
+@radix-ui/*            # only for complex focus-managed primitives
 ```
 
 Recommended dev dependencies:
 
 ```text
+vite
+@vitejs/plugin-react
 typescript
 eslint
 tailwindcss
-postcss
-autoprefixer
 vitest
 @testing-library/react
 @testing-library/jest-dom
@@ -952,9 +921,8 @@ vitest
 @playwright/test
 ```
 
-Adjust scripts if the selected Next.js version no longer supports `next lint`;
-the important part is that root `pnpm lint`, `pnpm build`, and
-`pnpm typecheck` can include the web package through Turbo.
+The important part is that root `pnpm lint`, `pnpm build`, and `pnpm
+typecheck` can include the web package through Turbo.
 
 Done when:
 
@@ -962,14 +930,14 @@ Done when:
 - `pnpm --filter @lunaperception/web build` can run after initial app files
   exist.
 
-### WEB-0202 - Add TypeScript and Next config
+### WEB-0202 - Add TypeScript and Vite config
 
 Create:
 
 ```text
 apps/web/tsconfig.json
-apps/web/next.config.ts
-apps/web/next-env.d.ts
+apps/web/vite.config.ts
+apps/web/src/vite-env.d.ts
 ```
 
 Rules:
@@ -984,22 +952,24 @@ Done when:
 - TypeScript resolves app routes and `src` imports.
 - No backend internals leak into frontend imports.
 
-### WEB-0203 - Add app directory
+### WEB-0203 - Add app entry and routes
 
 Create:
 
 ```text
-apps/web/app/layout.tsx
-apps/web/app/page.tsx
-apps/web/app/globals.css
-apps/web/app/workbench/page.tsx
+apps/web/index.html
+apps/web/src/main.tsx
+apps/web/src/App.tsx
+apps/web/src/routes/index.tsx
+apps/web/src/pages/WorkbenchPage.tsx
+apps/web/src/styles/index.css
 ```
 
 Initial behavior:
 
 - `/` redirects to `/workbench` or renders the workbench directly.
 - No marketing hero.
-- No placeholder "coming soon" as the final state after this phase.
+- No "coming soon" screen as the final state after this phase.
 
 Done when:
 
@@ -1011,40 +981,26 @@ Done when:
 Create:
 
 ```text
-apps/web/app/(auth)/
-apps/web/app/(workstation)/
-apps/web/src/api/
-apps/web/src/app/
-apps/web/src/auth/
+apps/web/src/components/navigation/
 apps/web/src/components/ui/
 apps/web/src/components/research/
-apps/web/src/features/
-apps/web/src/lib/
+apps/web/src/layouts/
+apps/web/src/pages/
+apps/web/src/routes/
+apps/web/src/schemas/
+apps/web/src/services/
+apps/web/src/store/
 apps/web/src/styles/
-apps/web/src/test/
-```
-
-Recommended feature folders:
-
-```text
-apps/web/src/features/workbench/
-apps/web/src/features/research-runs/
-apps/web/src/features/theses/
-apps/web/src/features/signals/
-apps/web/src/features/alerts/
-apps/web/src/features/watchlists/
-apps/web/src/features/briefs/
-apps/web/src/features/retrospective/
-apps/web/src/features/operations/
-apps/web/src/features/settings/
+apps/web/src/types/
 ```
 
 Done when:
 
 - Route files stay thin and only bind route params to feature pages.
 - Fetching, formatting, auth, and UI logic live in source folders.
-- Auth code lives under `src/auth`, not scattered through pages.
-- API paths live only under `src/api`.
+- Auth/workspace code lives under `src/store` and navigation components, not
+  scattered through pages.
+- API paths live only under `src/services`.
 
 ## 8. Phase 3 - API Client, Query, And Auth Foundation
 
@@ -1052,7 +1008,8 @@ Goal: all screens consume the API through one typed layer.
 
 ### WEB-0301 - Create frontend API types
 
-Create `apps/web/src/api/types.ts`.
+Create or update `apps/web/src/types/index.ts` and
+`apps/web/src/services/generated/api-client.ts`.
 
 Initial source:
 
@@ -1066,7 +1023,7 @@ Initial source:
 Rule:
 
 - Keep type names aligned with the API contract.
-- Add a TODO to replace manual mirror with generated OpenAPI/shared contract.
+- Keep OpenAPI and mirrored client types synchronized when the backend contract changes.
 
 Done when:
 
@@ -1075,11 +1032,11 @@ Done when:
 
 ### WEB-0302 - Create API client primitive
 
-Create `apps/web/src/api/client.ts`.
+Create `apps/web/src/services/client.ts`.
 
 Responsibilities:
 
-- Resolve `baseUrl` from `NEXT_PUBLIC_API_BASE_URL`.
+- Resolve `baseUrl` from `VITE_API_BASE_URL`.
 - In local mode, attach `x-user-id`.
 - In local mode, attach `x-workspace-id`.
 - In hosted mode, attach `Authorization: Bearer <jwt>`.
@@ -1111,12 +1068,15 @@ Done when:
 Create:
 
 ```text
-apps/web/src/api/research-runs.ts
-apps/web/src/api/theses.ts
-apps/web/src/api/signals.ts
-apps/web/src/api/watchlists.ts
-apps/web/src/api/briefs.ts
-apps/web/src/api/alerts.ts
+apps/web/src/services/research-runs.ts
+apps/web/src/services/theses.ts
+apps/web/src/services/signals.ts
+apps/web/src/services/watchlists.ts
+apps/web/src/services/briefs.ts
+apps/web/src/services/alerts.ts
+apps/web/src/services/operations.ts
+apps/web/src/services/performance.ts
+apps/web/src/services/comparisons.ts
 ```
 
 Required functions:
@@ -1150,8 +1110,8 @@ Done when:
 Create:
 
 ```text
-apps/web/src/app/providers.tsx
-apps/web/src/api/query-keys.ts
+apps/web/src/main.tsx
+apps/web/src/services/query-keys.ts
 ```
 
 Query key policy:
@@ -1179,12 +1139,8 @@ Done when:
 Create:
 
 ```text
-apps/web/src/auth/auth-provider.tsx
-apps/web/src/auth/auth-types.ts
-apps/web/src/auth/local-auth.ts
-apps/web/src/auth/hosted-auth.ts
-apps/web/src/auth/require-auth.tsx
-apps/web/src/auth/workspace-switcher.tsx
+apps/web/src/store/useWorkspaceStore.ts
+apps/web/src/components/navigation/WorkspaceSwitcher.tsx
 apps/web/src/lib/env.ts
 ```
 
@@ -1193,7 +1149,7 @@ Responsibilities:
 - Provide current `userId`.
 - Provide current `workspaceId`.
 - Provide current auth mode: `local`, `clerk`, `auth0`, or `better-auth`.
-- Provide a placeholder `getApiToken()` function for future hosted mode.
+- Provide a stub `getApiToken()` function for future hosted mode.
 - Provide a `getLocalHeaders()` function for local mode.
 - Use local defaults in development.
 - Expose a small dev-only switcher later.
@@ -1205,8 +1161,8 @@ Local mode behavior:
 
 ```text
 auth mode: local
-identity source: NEXT_PUBLIC_LOCAL_USER_ID
-workspace source: NEXT_PUBLIC_LOCAL_WORKSPACE_ID
+identity source: VITE_LOCAL_USER_ID
+workspace source: VITE_LOCAL_WORKSPACE_ID
 transport: x-user-id and x-workspace-id
 ```
 
@@ -1225,13 +1181,13 @@ interface shape so the later hosted-auth work is additive.
 Route protection:
 
 - Local mode can render the app directly.
-- Hosted mode later protects `(workstation)` routes and redirects
-  unauthenticated users to `(auth)/sign-in`.
-- API still enforces authorization; Next.js route protection is not enough.
+- Hosted mode later protects workstation routes and redirects unauthenticated
+  users to a sign-in route.
+- API still enforces authorization; client route protection is not enough.
 
 Done when:
 
-- No component imports `NEXT_PUBLIC_LOCAL_USER_ID` directly.
+- No component imports `VITE_LOCAL_USER_ID` directly.
 - Hosted auth can later replace this provider.
 - Feature code does not know whether auth is local headers or JWT.
 
@@ -1241,7 +1197,7 @@ Goal: build a dense research workstation shell before feature screens.
 
 ### WEB-0401 - Define visual tokens
 
-In `apps/web/app/globals.css`, define:
+In `apps/web/src/styles/index.css`, define:
 
 - Background.
 - Surface.
@@ -1325,9 +1281,9 @@ Done when:
 Create:
 
 ```text
-apps/web/src/app/app-shell.tsx
-apps/web/src/app/sidebar-nav.tsx
-apps/web/src/app/top-command-strip.tsx
+apps/web/src/layouts/MainLayout.tsx
+apps/web/src/components/navigation/SidebarNav.tsx
+apps/web/src/components/navigation/TopCommandStrip.tsx
 ```
 
 Navigation:
@@ -1340,7 +1296,8 @@ Theses
 Signals
 Watchlists
 Briefs
-Retrospective
+Performance
+Compare
 Operations
 Settings
 ```
@@ -1365,7 +1322,7 @@ Goal: make the first screen useful before all deep screens are complete.
 
 ### WEB-0501 - Route and layout
 
-Create `apps/web/app/workbench/page.tsx`.
+Create or update `apps/web/src/pages/WorkbenchPage.tsx`.
 
 Panels:
 
@@ -1475,7 +1432,7 @@ Goal: users can start research from the web.
 Create:
 
 ```text
-apps/web/app/research/new/page.tsx
+apps/web/src/pages/ResearchRunFormPage.tsx
 apps/web/src/features/research-runs/research-run-form.tsx
 ```
 
@@ -1559,7 +1516,7 @@ Goal: inspect a single run from queue to final thesis.
 Create:
 
 ```text
-apps/web/app/research/runs/[id]/page.tsx
+apps/web/src/pages/ResearchRunWorkspacePage.tsx
 apps/web/src/features/research-runs/research-run-workspace.tsx
 ```
 
@@ -1721,7 +1678,7 @@ Goal: turn AI outputs into a browsable research memory.
 Create:
 
 ```text
-apps/web/app/theses/page.tsx
+apps/web/src/pages/ThesisLibraryPage.tsx
 apps/web/src/features/theses/thesis-library.tsx
 ```
 
@@ -1804,7 +1761,7 @@ Goal: close the journal feedback loop.
 Create:
 
 ```text
-apps/web/app/theses/[id]/page.tsx
+apps/web/src/pages/ThesisDetailPage.tsx
 apps/web/src/features/theses/thesis-detail.tsx
 ```
 
@@ -1961,7 +1918,7 @@ Goal: make deterministic evidence inspectable independent of AI prose.
 Create:
 
 ```text
-apps/web/app/signals/page.tsx
+apps/web/src/pages/SignalsPage.tsx
 apps/web/src/features/signals/signal-explorer.tsx
 ```
 
@@ -2040,7 +1997,7 @@ Goal: make monitoring actionable without creating trade-command behavior.
 Create:
 
 ```text
-apps/web/app/alerts/page.tsx
+apps/web/src/pages/AlertsPage.tsx
 apps/web/src/features/alerts/alerts-inbox.tsx
 ```
 
@@ -2108,7 +2065,7 @@ Goal: support the user monitoring loop.
 Create:
 
 ```text
-apps/web/app/watchlists/page.tsx
+apps/web/src/pages/WatchlistsPage.tsx
 apps/web/src/features/watchlists/watchlists-page.tsx
 ```
 
@@ -2175,7 +2132,7 @@ Done when:
 Create later:
 
 ```text
-apps/web/app/watchlists/[id]/page.tsx
+apps/web/src/pages/WatchlistsPage.tsx
 ```
 
 Show:
@@ -2200,7 +2157,7 @@ Goal: make daily research habit-forming.
 Create:
 
 ```text
-apps/web/app/briefs/daily/page.tsx
+apps/web/src/pages/DailyBriefsPage.tsx
 apps/web/src/features/briefs/daily-briefs-page.tsx
 ```
 
@@ -2234,7 +2191,7 @@ Done when:
 Create route:
 
 ```text
-apps/web/app/briefs/daily/[id]/page.tsx
+apps/web/src/pages/DailyBriefsPage.tsx
 ```
 
 Backend note:
@@ -2280,7 +2237,7 @@ Goal: expose trust, configuration, and local mode state.
 Create:
 
 ```text
-apps/web/app/settings/page.tsx
+apps/web/src/pages/SettingsPage.tsx
 apps/web/src/features/settings/settings-page.tsx
 ```
 
@@ -2302,7 +2259,7 @@ Done when:
 Create:
 
 ```text
-apps/web/app/operations/page.tsx
+apps/web/src/pages/OperationsPage.tsx
 apps/web/src/features/settings/operations-page.tsx
 ```
 
@@ -2333,7 +2290,7 @@ UI rules:
 - Never show raw API keys.
 - Show only configured/missing/invalid.
 - Show provider names, model names, and health states.
-- Do not send secrets to `NEXT_PUBLIC_*` env vars.
+- Do not send secrets to public frontend env vars such as `VITE_*`.
 
 Done when:
 
@@ -2348,8 +2305,7 @@ Goal: make the "research OS" memory explicit.
 Create:
 
 ```text
-apps/web/app/journal/runs/[id]/page.tsx
-apps/web/src/features/research-runs/journal-run-workspace.tsx
+apps/web/src/pages/ResearchRunWorkspacePage.tsx
 ```
 
 Data:
@@ -2438,7 +2394,7 @@ Request:
 UI route:
 
 ```text
-apps/web/app/compare/runs/page.tsx
+apps/web/src/pages/RunComparisonPage.tsx
 ```
 
 Compare:
@@ -2501,7 +2457,7 @@ Done when:
 
 - Scenario planning becomes monitorable over time.
 
-## 22. Phase 17 - Retrospective And Reliability Analytics
+## 22. Phase 17 - Performance And Reliability Analytics
 
 Goal: measure research quality without fake trading metrics.
 
@@ -2510,23 +2466,23 @@ Goal: measure research quality without fake trading metrics.
 Create:
 
 ```text
-apps/web/app/retrospective/page.tsx
-apps/web/src/features/retrospective/retrospective-page.tsx
+apps/web/src/pages/PerformanceAnalyticsPage.tsx
+apps/web/src/services/performance.ts
 ```
 
-Backend additions:
+Backend surface:
 
 ```text
-GET /retrospective/evaluations
-GET /retrospective/reliability
-GET /retrospective/agent-calibration
-GET /retrospective/confidence-calibration
-GET /retrospective/setup-quality
+GET /performance/outcomes
+GET /performance/analytics
+GET /performance/trend
+GET /performance/health
 ```
 
 Done when:
 
-- Route is empty-state ready until endpoints exist.
+- Route uses real endpoint data when present and keeps honest empty states
+  where deeper calibration data is not available yet.
 
 ### WEB-1702 - Metrics to show
 
@@ -2722,7 +2678,7 @@ hosted private beta with external users or real multi-workspace data.
 Default hosted implementation at that point:
 
 - Clerk Organizations for user/org/session management.
-- Next.js middleware protects workstation routes.
+- Client route guards or hosted framework middleware protect workstation routes.
 - Web retrieves a Clerk session JWT for API calls.
 - NestJS API verifies the bearer token through Clerk SDK or JWKS.
 - API maps provider `sub` to local `User`.
@@ -2732,12 +2688,11 @@ Default hosted implementation at that point:
 Required web work:
 
 ```text
-apps/web/middleware.ts
-apps/web/app/(auth)/sign-in/page.tsx
-apps/web/app/(auth)/sign-up/page.tsx
 apps/web/src/auth/clerk-provider.tsx
 apps/web/src/auth/clerk-token.ts
 apps/web/src/auth/require-auth.tsx
+apps/web/src/pages/SignInPage.tsx
+apps/web/src/pages/SignUpPage.tsx
 ```
 
 Required API work:
@@ -2767,7 +2722,7 @@ Security rules:
 - Hosted mode does not trust `workspace_id` in body without matching the active
   authenticated workspace.
 - No JWT or refresh token is stored in localStorage.
-- No auth secret is exposed through `NEXT_PUBLIC_*`.
+- No auth secret is exposed through public frontend env vars such as `VITE_*`.
 - API returns stable `401 unauthenticated` and `403 workspace_forbidden`
   envelopes.
 
@@ -2886,7 +2841,7 @@ Done when:
 Send:
 
 - Daily brief.
-- Weekly retrospective.
+- Weekly performance review.
 - Important thesis invalidation updates.
 
 Rules:
@@ -3144,7 +3099,7 @@ Build exactly in this order unless a task is blocked by an explicit dependency:
 21. Build Journal run workspace.
 22. Build Contradiction Map.
 23. Build Run Diff and Thesis Diff after compare endpoints exist.
-24. Build Retrospective analytics after evaluation/reliability endpoints exist.
+24. Build Performance analytics after evaluation/reliability endpoints exist.
 25. Add export/run-bundle workflow.
 26. Harden API error envelope and contract generation.
 27. Replace local/header auth before hosted beta.

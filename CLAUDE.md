@@ -43,14 +43,14 @@ python -m ruff format --check .
 apps/
   ai-service/      Python LunaCrypto service and CLI
   api/             NestJS product API boundary
-  web/             Placeholder for the future logged-in product app
+  web/             Vite/React research workstation
 packages/
   database/        Prisma schema/client for the product Postgres model
 docs/
   backend/frontend architecture notes and UX references
 ```
 
-The current production code lives in `apps/ai-service`, with the product API boundary in `apps/api`. `apps/web` is only a placeholder, and no shared UI/config/types packages exist yet.
+The current product surface spans `apps/ai-service`, `apps/api`, and `apps/web`. The web app uses Vite, React Router, TanStack Query, local CSS primitives, and a generated/mirrored API client under `apps/web/src/services`.
 
 ## AI Service Notes
 

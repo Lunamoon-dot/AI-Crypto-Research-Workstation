@@ -3,8 +3,8 @@
 Repo review date: 2026-05-12
 
 This repo is currently shaped as a local-first crypto research workstation. The
-web app is still only a placeholder, but the Python AI service and NestJS API
-already define enough product surface to design a serious workstation UI.
+web app is now a Vite/React workstation, and the Python AI service plus NestJS
+API define the product surface it consumes.
 
 ## Product Positioning
 
@@ -33,13 +33,20 @@ API-ready surfaces from `apps/api`:
 | Capability | Current backend source | UX implication |
 | --- | --- | --- |
 | Start research run | `POST /research-runs` | Run launcher wizard |
+| List research runs | `GET /research-runs` | Research history and recent runs |
 | Read run status | `GET /research-runs/:id` | Run header/status card |
 | Read run timeline | `GET /research-runs/:id/events` | Live timeline, later SSE/WebSocket |
+| Read run workspace | `GET /research-runs/:id/workspace` | Composite workspace, agent workflow, snapshots, debate, thesis |
+| Read evidence bundle | `GET /research-runs/:id/evidence-bundle` | Portable run evidence export surface |
 | List/detail theses | `GET /theses`, `GET /theses/:id` | Thesis inbox and thesis detail |
 | Decide/review thesis | `POST /theses/:id/decision`, `POST /theses/:id/review` | Decision journal and outcome review |
-| List signals | `GET /signals?symbol=` | Signal explorer |
-| Watchlists | `GET /watchlists`, `POST /watchlists/:id/items` | Watchlist management |
-| Daily briefs | `GET /briefs/daily` | Daily brief archive |
+| List/detail signals | `GET /signals?symbol=`, `GET /signals/:id` | Signal explorer and signal detail |
+| Jobs | `GET /jobs/:id`, `POST /jobs/:id/cancel` | Queue/status/cancel affordances |
+| Watchlists | `GET /watchlists`, `POST /watchlists`, `GET /watchlists/:id/items`, `PATCH /watchlists/:id`, `POST /watchlists/:id/items`, `DELETE /watchlists/:id/items/:itemId` | Watchlist management |
+| Daily briefs | `GET /briefs/daily`, `POST /briefs/daily` | Daily brief archive and creation |
+| Operations | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` | Trust and reliability surfaces |
+| Performance | `GET /performance/outcomes`, `/analytics`, `/trend`, `/health` | Outcome/reliability analytics |
+| Comparisons | `GET /comparisons/theses`, `GET /comparisons/runs` | Thesis/run diff surface |
 
 AI-service capabilities beyond the first API boundary:
 
@@ -50,11 +57,11 @@ AI-service capabilities beyond the first API boundary:
 | Agent opinions and debate | `agent_opinions`, `debates` tables | Implemented: `GET /research-runs/:id/debate` |
 | Scenario planner | `scenarios` table | Implemented: `GET /theses/:id/scenarios` |
 | Alerts | `alerts` table, `WatchlistService` | Implemented: `GET /alerts`, `POST /alerts/:id/read` |
-| Provider health | `provider_health` table | `GET /operations/providers` |
-| LLM cost/latency | `llm_calls` table | `GET /operations/llm-calls` |
-| Data freshness | `data_freshness_checks` table | `GET /operations/freshness` |
-| Evaluations | `thesis_evaluations`, `EvaluationService` | `GET /retrospective/evaluations` |
-| Reliability | `reliability_snapshots`, factor reliability | `GET /retrospective/reliability` |
+| Provider health | `provider_health` table | Implemented: `GET /operations/provider-health` |
+| LLM cost/latency | `llm_calls` table | Implemented: `GET /operations/llm-calls` |
+| Data freshness | `data_freshness_checks` table | Implemented: `GET /operations/data-freshness` |
+| Evaluations | `thesis_evaluations`, `EvaluationService` | Implemented base: `GET /performance/outcomes`, `/analytics`, `/trend` |
+| Reliability | `reliability_snapshots`, factor reliability | Implemented base: `GET /performance/health`; deeper calibration later |
 | Config/profile health | `config` CLI and loaders | `GET /settings/config-health`, `GET /settings/profiles` |
 | Diff/replay | `diff_cmd.py`, `replay_cmd.py` | `POST /compare`, `POST /replay` |
 
@@ -77,18 +84,22 @@ Recommended route map:
 
 | Route | Purpose | Initial maturity |
 | --- | --- | --- |
-| `/workbench` | Daily command center with briefs, active theses, watchlists, signal board, and run queue | API-ready composite |
-| `/research/new` | Launch a research run with symbol, market type, date, analyst set, provider profile | API-ready |
-| `/research/runs/:id` | Run status, event timeline, agent pipeline, and result shortcuts | API-ready base, snapshots/debate implemented |
-| `/journal/runs/:id` | Full evidence workspace: snapshots, signals, debate, scenario, report, provenance | API-ready base |
-| `/theses` | Thesis inbox grouped by watch, accepted, rejected, needs review, degraded | API-ready |
-| `/theses/:id` | Thesis detail, evidence, scenario map, decision, outcome review | API-ready base, scenarios implemented |
-| `/signals` | Signal explorer by symbol, type, direction, confidence, freshness | API-ready base |
-| `/watchlists` | Symbol/thesis/setup watchlists and alert rules | API-ready base, alert list/read implemented |
-| `/briefs/daily` | Daily market brief list/detail | API-ready |
-| `/retrospective` | Evaluation analytics, factor reliability, agent calibration, confidence curve | Needs endpoint |
-| `/operations` | Provider health, data freshness, LLM calls, budget and failure audit | Needs endpoint |
-| `/settings` | Workspace, provider keys, model profiles, data vendors, budgets | Needs endpoint |
+| `/workbench` | Daily command center with briefs, active theses, watchlists, signal board, and run queue | Implemented |
+| `/research/new` | Launch a research run with symbol, market type, date, analyst set, provider profile | Implemented |
+| `/research/history` | Research run list/history | Implemented |
+| `/research/runs/:id` | Run status, event timeline, agent workflow visualization, snapshots, debate, artifacts, and result shortcuts | Implemented |
+| `/journal/runs/:id` | Full evidence workspace: snapshots, signals, debate, scenario, report, provenance | Implemented |
+| `/theses` | Thesis inbox grouped by watch, accepted, rejected, needs review, degraded | Implemented |
+| `/theses/:id` | Thesis detail, evidence, scenario map, decision, outcome review | Implemented |
+| `/signals` and `/signals/:id` | Signal explorer/detail by symbol, type, direction, confidence, freshness | Implemented |
+| `/scenarios` | Scenario monitor | Implemented |
+| `/alerts` | Alert inbox and mark-read workflow | Implemented |
+| `/watchlists` | Symbol/thesis/setup watchlists and alert rules | Implemented |
+| `/briefs/daily` | Daily market brief list/detail | Implemented |
+| `/performance` | Outcome analytics and reliability surface | Implemented base |
+| `/compare` | Run/thesis comparison surface | Implemented base |
+| `/operations` | Provider health, data freshness, LLM calls, budget and failure audit | Implemented base |
+| `/settings` | Workspace, provider keys, model profiles, data vendors, budgets | Implemented base |
 
 ## Navigation Model
 
@@ -101,7 +112,8 @@ Use a persistent left sidebar:
 - Signals
 - Watchlists
 - Briefs
-- Retrospective
+- Performance
+- Compare
 - Operations
 - Settings
 
@@ -149,8 +161,12 @@ Layout:
 
 - Header: symbol, market type, status, model/profile, config hash, started/completed timestamps.
 - Left timeline: run.started, snapshots_saved, signal.generated, analyst nodes, debate, thesis.generated, run.completed.
-- Center: pipeline graph and evidence tabs.
+- Center: workflow organization chart and evidence tabs.
 - Right rail: emerging thesis summary, degradation reasons, missing core/optional data.
+
+The workflow chart should use the API `stage_timings` contract for start time,
+duration, source event count, and event-derived state. It should show selected
+analyst lanes only, then the sequential manager/risk/scenario/thesis chain.
 
 Tabs:
 
@@ -178,7 +194,7 @@ Important UX rule:
 Decision and outcome review should be one click away from the thesis, because
 that is how the product learns.
 
-### 4. Retrospective
+### 4. Performance
 
 Layout:
 
@@ -224,8 +240,10 @@ Medium priority:
 GET /operations/provider-health
 GET /operations/llm-calls
 GET /operations/data-freshness
-GET /retrospective/evaluations
-GET /retrospective/reliability
+GET /performance/outcomes
+GET /performance/analytics
+GET /performance/trend
+GET /performance/health
 GET /settings/config-health
 ```
 

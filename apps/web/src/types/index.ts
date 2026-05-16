@@ -62,6 +62,16 @@ export interface ResearchRunEventResponse {
   payload: JsonRecord;
 }
 
+export interface ResearchRunStageTimingResponse {
+  stage_key: string;
+  label: string;
+  event_state: 'pending' | 'running' | 'completed' | 'failed' | 'missing';
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  source_event_ids: string[];
+}
+
 export interface MarketSnapshotResponse {
   id: string | null;
   workspace_id: string;
@@ -535,6 +545,7 @@ export interface AlertResponse {
 export interface JournalRunWorkspaceResponse {
   run: ResearchRunResponse;
   events: ResearchRunEventResponse[];
+  stage_timings: ResearchRunStageTimingResponse[];
   snapshots: ResearchRunSnapshotsResponse;
   debate: ResearchRunDebateResponse;
   thesis: ThesisResponse | null;

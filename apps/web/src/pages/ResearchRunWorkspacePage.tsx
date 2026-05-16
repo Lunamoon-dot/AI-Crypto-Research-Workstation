@@ -37,6 +37,10 @@ import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
+import {
+  WorkflowVisualization,
+  type WorkflowVisualizationStage,
+} from '@/components/research/workflow-visualization';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
@@ -44,6 +48,7 @@ import type {
   AgentOpinionResponse,
   ResearchRunArtifactsResponse,
   ResearchRunEventResponse,
+  ResearchRunStageTimingResponse,
   SignalSnapshotResponse,
 } from '@/types';
 
@@ -271,6 +276,60 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         selectedAnalysts === null ||
         selectedAnalysts.has(stage.key)),
   );
+  const perpMissingData =
+    marketType === 'perp'
+      ? uniqueStrings([
+          ...workspace.run.missing_core_data,
+          ...workspace.run.missing_optional_data,
+          ...(workspace.thesis?.summary.missing_data ?? []),
+        ])
+      : [];
+  const workflowStages: WorkflowVisualizationStage[] = visiblePipelineStages.map(
+    (stage) => {
+      const stageOpinions = workspace.debate.agent_opinions.filter((item) =>
+        matchesStageOpinion(item, stage.aliases),
+      );
+      const opinion = stageOpinions[0];
+      const debateMatch = stage.key === 'debate' ? workspace.debate.debate : null;
+      const stageState = resolvePipelineStageState({
+        stage,
+        events: workspace.events,
+        opinionCount: stageOpinions.length,
+        debateReady: Boolean(debateMatch),
+        signal,
+        scenarioCount: workspace.scenarios.length,
+        thesisReady: Boolean(workspace.thesis),
+        runFailed,
+        runTerminal,
+      });
+      const detail = pipelineStageDetail({
+        stage,
+        opinion,
+        opinionCount: stageOpinions.length,
+        debateStance: debateMatch?.consensus_stance,
+        stateDetail: stageState.detail,
+      });
+      return {
+        key: stage.key,
+        label: stage.label,
+        icon: stage.icon,
+        statusLabel: stageState.label,
+        badgeClass: stageState.badgeClass,
+        detail,
+        confidence: opinion?.confidence ?? null,
+        warning:
+          stage.key === 'perp_checks' && perpMissingData.length > 0
+            ? `Missing: ${perpMissingData.join(', ')}`
+            : undefined,
+      };
+    },
+  );
+  const workflowStageTimings = mergeWorkflowStageTimings(
+    workspace.stage_timings ?? [],
+    visiblePipelineStages,
+    workspace.events,
+    runTerminal,
+  );
   const latestFailure = latestRunFailureEvent(workspace.events);
   const failureReason = latestFailure ? runFailureMessage(latestFailure) : '';
 
@@ -351,49 +410,13 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         <Panel
           className="span-12 emphasis"
           title="Agent pipeline"
-          description="Run stages and artifacts"
+          description="Signal fan-out and sequential agent chain"
         >
-          <div className="pipeline">
-            {visiblePipelineStages.map((stage) => {
-              const Icon = stage.icon;
-              const stageOpinions = workspace.debate.agent_opinions.filter((item) =>
-                matchesStageOpinion(item, stage.aliases),
-              );
-              const opinion = stageOpinions[0];
-              const debateMatch = stage.key === 'debate' ? workspace.debate.debate : null;
-              const stageState = resolvePipelineStageState({
-                stage,
-                events: workspace.events,
-                opinionCount: stageOpinions.length,
-                debateReady: Boolean(debateMatch),
-                signal,
-                scenarioCount: workspace.scenarios.length,
-                thesisReady: Boolean(workspace.thesis),
-                runFailed,
-                runTerminal,
-              });
-              const detail = pipelineStageDetail({
-                stage,
-                opinion,
-                opinionCount: stageOpinions.length,
-                debateStance: debateMatch?.consensus_stance,
-                stateDetail: stageState.detail,
-              });
-              return (
-                <div className="pipeline-node" key={stage.key}>
-                  <div className="row">
-                    <span className="pipeline-icon">
-                      <Icon aria-hidden size={17} />
-                    </span>
-                    <span className={stageState.badgeClass}>{stageState.label}</span>
-                  </div>
-                  <h3 style={{ margin: '12px 0 4px' }}>{stage.label}</h3>
-                  <div className="small muted">{detail}</div>
-                  {opinion ? <ConfidenceBadge value={opinion.confidence} /> : null}
-                </div>
-              );
-            })}
-          </div>
+          <WorkflowVisualization
+            marketType={marketType}
+            stageTimings={workflowStageTimings}
+            stages={workflowStages}
+          />
         </Panel>
 
         <Panel className="span-4" title="Run metadata">
@@ -816,6 +839,185 @@ function resolvePipelineStageState({
   };
 }
 
+function mergeWorkflowStageTimings(
+  apiTimings: ResearchRunStageTimingResponse[],
+  stages: readonly PipelineStage[],
+  events: ResearchRunEventResponse[],
+  runTerminal: boolean,
+): ResearchRunStageTimingResponse[] {
+  const apiByStage = new Map(apiTimings.map((timing) => [timing.stage_key, timing]));
+  return stages.map((stage) =>
+    mergeStageTiming(
+      apiByStage.get(stage.key),
+      fallbackStageTiming(stage, events, runTerminal),
+    ),
+  );
+}
+
+function mergeStageTiming(
+  apiTiming: ResearchRunStageTimingResponse | undefined,
+  fallbackTiming: ResearchRunStageTimingResponse,
+): ResearchRunStageTimingResponse {
+  if (!apiTiming) {
+    return fallbackTiming;
+  }
+  const apiHasTimingData = Boolean(
+    apiTiming.started_at ||
+      apiTiming.completed_at ||
+      apiTiming.duration_ms !== null ||
+      apiTiming.source_event_ids.length > 0,
+  );
+  if (!apiHasTimingData) {
+    return fallbackTiming;
+  }
+  return {
+    ...apiTiming,
+    event_state:
+      apiTiming.event_state === 'pending' || apiTiming.event_state === 'missing'
+        ? fallbackTiming.event_state
+        : apiTiming.event_state,
+    started_at: apiTiming.started_at ?? fallbackTiming.started_at,
+    completed_at: apiTiming.completed_at ?? fallbackTiming.completed_at,
+    duration_ms: apiTiming.duration_ms ?? fallbackTiming.duration_ms,
+    source_event_ids:
+      apiTiming.source_event_ids.length > 0
+        ? apiTiming.source_event_ids
+        : fallbackTiming.source_event_ids,
+  };
+}
+
+function fallbackStageTiming(
+  stage: PipelineStage,
+  events: ResearchRunEventResponse[],
+  runTerminal: boolean,
+): ResearchRunStageTimingResponse {
+  const startedEvents = startedEventsForStage(stage, events);
+  const completedEvents = completedEventsForStage(stage, events);
+  const failedEvents = events.filter(
+    (event) =>
+      event.event_type === 'agent.node.failed' &&
+      eventMatchesAliases(event, stage.aliases),
+  );
+  const latestCompleted = latestEvent(completedEvents);
+  const latestFailed = latestEvent(failedEvents);
+  const latestTerminal =
+    latestFailed && eventIsSameOrAfter(latestFailed, latestCompleted)
+      ? latestFailed
+      : latestCompleted;
+  const startedAt = earliestEventTimestamp(startedEvents);
+  const completedAt = latestTerminal ? latestTerminal.created_at : null;
+  const eventState = fallbackStageEventState({
+    hasStarted: startedEvents.length > 0,
+    latestCompleted,
+    latestFailed,
+    runTerminal,
+  });
+  const durationMs =
+    eventDurationMs(latestTerminal) ??
+    wallClockDurationMs(startedAt, completedAt) ??
+    runningDurationMs(startedAt, eventState);
+
+  return {
+    stage_key: stage.key,
+    label: stage.label,
+    event_state: eventState,
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: durationMs,
+    source_event_ids: uniqueEventIds([
+      ...startedEvents,
+      ...completedEvents,
+      ...failedEvents,
+    ]),
+  };
+}
+
+function startedEventsForStage(
+  stage: PipelineStage,
+  events: ResearchRunEventResponse[],
+): ResearchRunEventResponse[] {
+  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+    return [];
+  }
+  if (stage.key === 'quant') {
+    return events.filter((event) => event.event_type === 'run.started').slice(0, 1);
+  }
+  return events.filter(
+    (event) =>
+      event.event_type === 'agent.node.started' &&
+      eventMatchesAliases(event, stage.aliases),
+  );
+}
+
+function completedEventsForStage(
+  stage: PipelineStage,
+  events: ResearchRunEventResponse[],
+): ResearchRunEventResponse[] {
+  const milestoneTypes = completedEventTypesForStage(stage.key);
+  const milestoneEvents = events.filter((event) =>
+    milestoneTypes.includes(event.event_type),
+  );
+  if (stage.key === 'quant' || stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+    return milestoneEvents;
+  }
+  return [
+    ...events.filter(
+      (event) =>
+        event.event_type === 'agent.node.completed' &&
+        eventMatchesAliases(event, stage.aliases),
+    ),
+    ...milestoneEvents,
+  ];
+}
+
+function completedEventTypesForStage(stageKey: string): string[] {
+  if (stageKey === 'quant') {
+    return ['signal.generated', 'snapshot.health'];
+  }
+  if (stageKey === 'debate') {
+    return ['debate.recorded'];
+  }
+  if (stageKey === 'setup_planner') {
+    return ['plan.recorded'];
+  }
+  if (stageKey === 'spot_checks' || stageKey === 'perp_checks') {
+    return ['plan.recorded'];
+  }
+  if (stageKey === 'risk_debate') {
+    return ['risk.debate.recorded', 'risk.checked'];
+  }
+  if (stageKey === 'scenario_planner') {
+    return ['scenario.plan.recorded', 'scenarios_saved'];
+  }
+  if (stageKey === 'thesis') {
+    return ['thesis.generated', 'trade_thesis_saved'];
+  }
+  return [];
+}
+
+function fallbackStageEventState({
+  hasStarted,
+  latestCompleted,
+  latestFailed,
+  runTerminal,
+}: {
+  hasStarted: boolean;
+  latestCompleted: ResearchRunEventResponse | null;
+  latestFailed: ResearchRunEventResponse | null;
+  runTerminal: boolean;
+}): ResearchRunStageTimingResponse['event_state'] {
+  if (latestFailed && eventIsSameOrAfter(latestFailed, latestCompleted)) {
+    return 'failed';
+  }
+  if (latestCompleted) {
+    return 'completed';
+  }
+  if (hasStarted) {
+    return 'running';
+  }
+  return runTerminal ? 'missing' : 'pending';
+}
+
 function hasStageReadyArtifact(
   stageKey: string,
   signal: SignalSnapshotResponse | null,
@@ -889,10 +1091,7 @@ function latestCompletedStageEvent(
     );
   }
   if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
-    return (
-      latestEventByType(events, ['plan.recorded']) ??
-      latestMatchingEvent(events, stage, 'agent.node.completed')
-    );
+    return latestEventByType(events, ['plan.recorded']);
   }
   if (stage.key === 'scenario_planner') {
     return (
@@ -910,6 +1109,9 @@ function latestStartedStageEvent(
   events: ResearchRunEventResponse[],
   stage: PipelineStage,
 ) {
+  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+    return null;
+  }
   if (stage.key === 'risk_debate') {
     return latestMatchingEvent(events, stage, 'agent.node.started', [
       'risk',
@@ -966,6 +1168,90 @@ function latestEventByType(events: ResearchRunEventResponse[], eventTypes: strin
   return [...events].reverse().find((event) => eventTypes.includes(event.event_type));
 }
 
+function latestEvent(events: ResearchRunEventResponse[]): ResearchRunEventResponse | null {
+  return [...events].sort((left, right) => eventTimeMs(left) - eventTimeMs(right)).at(-1) ?? null;
+}
+
+function eventIsSameOrAfter(
+  event: ResearchRunEventResponse,
+  baseline: ResearchRunEventResponse | null,
+): boolean {
+  if (!baseline) {
+    return true;
+  }
+  return eventTimeMs(event) >= eventTimeMs(baseline);
+}
+
+function earliestEventTimestamp(events: ResearchRunEventResponse[]): string | null {
+  return [...events].sort((left, right) => eventTimeMs(left) - eventTimeMs(right)).at(0)?.created_at ?? null;
+}
+
+function eventTimeMs(event: ResearchRunEventResponse): number {
+  return parseTimestampMs(event.created_at) ?? 0;
+}
+
+function eventDurationMs(event: ResearchRunEventResponse | null): number | null {
+  const value = event?.payload.duration_ms;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function wallClockDurationMs(
+  startedAt: string | null,
+  completedAt: string | null,
+): number | null {
+  const started = parseTimestampMs(startedAt);
+  const completed = parseTimestampMs(completedAt);
+  if (started === null || completed === null) {
+    return null;
+  }
+  const duration = completed - started;
+  return duration >= 0 ? duration : null;
+}
+
+function runningDurationMs(
+  startedAt: string | null,
+  eventState: ResearchRunStageTimingResponse['event_state'],
+): number | null {
+  if (eventState !== 'running') {
+    return null;
+  }
+  const started = parseTimestampMs(startedAt);
+  if (started === null) {
+    return null;
+  }
+  const duration = Date.now() - started;
+  return duration >= 0 ? duration : null;
+}
+
+function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.replace(
+    /\.(\d{3})\d+([zZ]|[+-]\d{2}:?\d{2})$/,
+    '.$1$2',
+  );
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function uniqueEventIds(events: ResearchRunEventResponse[]): string[] {
+  return [
+    ...new Set(
+      events
+        .map((event) => event.id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+}
+
 function latestRunFailureEvent(events: ResearchRunEventResponse[]) {
   return [...events].reverse().find((event) => event.event_type === 'run.failed');
 }
@@ -983,6 +1269,7 @@ function eventMatchesAliases(
 ): boolean {
   const text = [
     event.payload.agent_name,
+    event.payload.analyst_name,
     event.payload.graph_node,
     event.payload.stage,
     event.message,
@@ -1035,6 +1322,10 @@ function marketTypeSpecificThesisNote(
     return parts.join(' ');
   }
   return summary.spot_notes;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function stringValue(value: unknown): string {

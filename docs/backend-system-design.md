@@ -84,7 +84,7 @@ Current NestJS module map:
 | `UsersModule` | User lookup and defaults |
 | `WorkspacesModule` | Workspace lookup and defaults |
 | `DatabaseModule` | Journal repository provider |
-| `JobsModule` | Research run enqueueing and Python engine bridge |
+| `JobsModule` | Research run enqueueing, Python engine bridge, job status, cancellation, and queue/memory/inline lifecycle |
 | `ResearchRunsModule` | Create/read runs, events, snapshots, debate, workspace composite |
 | `JournalModule` | Journal workspace route |
 | `ThesesModule` | Thesis list/detail, scenarios, decision, review |
@@ -92,6 +92,10 @@ Current NestJS module map:
 | `WatchlistsModule` | Watchlists and watchlist items |
 | `BriefsModule` | Daily market briefs |
 | `AlertsModule` | Alert list and mark-read |
+| `OperationsModule` | Provider health, LLM call, and data freshness views |
+| `PerformanceModule` | Outcome/reliability analytics surfaces |
+| `ComparisonsModule` | Thesis and run comparison responses |
+| `ScenariosModule` | Scenario monitor view |
 
 ## Public API Surface
 
@@ -99,24 +103,51 @@ Existing frontend-facing routes:
 
 | Route | Purpose |
 | --- | --- |
+| `GET /research-runs` | List recent research runs |
 | `POST /research-runs` | Create/enqueue a research run |
 | `GET /research-runs/:id` | Fetch run summary |
 | `GET /research-runs/:id/events` | Fetch run timeline events |
 | `GET /research-runs/:id/snapshots` | Fetch market and signal snapshots |
 | `GET /research-runs/:id/debate` | Fetch debate and agent opinions |
 | `GET /research-runs/:id/workspace` | Fetch run composite workspace |
+| `GET /research-runs/:id/evidence-bundle` | Fetch portable evidence bundle for a run |
 | `GET /journal/runs/:id/workspace` | Fetch journal workspace composite |
+| `GET /journal/runs/:id/evidence-bundle` | Fetch portable evidence bundle for a journal run |
+| `GET /jobs/:id` | Fetch job lifecycle/status |
+| `POST /jobs/:id/cancel` | Request job cancellation |
 | `GET /theses` | List theses |
 | `GET /theses/:id` | Fetch thesis detail |
 | `GET /theses/:id/scenarios` | Fetch scenario planner output |
 | `POST /theses/:id/decision` | Record user decision |
 | `POST /theses/:id/review` | Record outcome review |
 | `GET /signals` | List signals |
+| `GET /signals/:id` | Fetch signal detail |
+| `GET /signals/count` | Fetch signal count |
 | `GET /watchlists` | List watchlists |
+| `POST /watchlists` | Create watchlist |
+| `GET /watchlists/:id` | Fetch watchlist |
+| `GET /watchlists/:id/items` | Fetch watchlist items |
+| `PATCH /watchlists/:id` | Update watchlist metadata |
 | `POST /watchlists/:id/items` | Add a watchlist item |
+| `POST /watchlists/:id/check` | Run manual watchlist check |
+| `DELETE /watchlists/:id/items/:itemId` | Remove a watchlist item |
 | `GET /briefs/daily` | Fetch daily briefs |
+| `POST /briefs/daily` | Create daily brief |
 | `GET /alerts` | List alerts |
 | `POST /alerts/:id/read` | Mark alert read |
+| `GET /alerts/scheduler` | Read alert scheduler status |
+| `POST /alerts/scheduler/run` | Run alert scheduler manually |
+| `GET /operations/health` | Operations summary |
+| `GET /operations/provider-health` | Provider health rows |
+| `GET /operations/llm-calls` | LLM call rows |
+| `GET /operations/data-freshness` | Data freshness rows |
+| `GET /performance/outcomes` | Outcome review rows |
+| `GET /performance/analytics` | Outcome analytics |
+| `GET /performance/trend` | Outcome trend |
+| `GET /performance/health` | Performance data health |
+| `GET /scenarios/monitor` | Scenario monitor rows |
+| `GET /comparisons/theses` | Compare two theses |
+| `GET /comparisons/runs` | Compare two runs |
 
 Current local workspace headers:
 
@@ -174,6 +205,13 @@ Frontend
 ```
 
 DTO mappers in `apps/api/src/contracts/frontend-contract.ts` are the contract stabilization layer. They should remain explicit so frontend consumers do not depend directly on raw database JSON payloads.
+
+Workspace composites include `stage_timings`, derived from run events by
+`buildResearchRunStageTimings()`. These timing rows normalize selected analyst
+lanes and system stages into `pending`, `running`, `completed`, `failed`, or
+`missing` states with start/completion timestamps, duration, and source event
+IDs. This lets the web app show an event-backed workflow view without parsing
+raw event payloads in the browser.
 
 ## Data Model
 
@@ -292,6 +330,8 @@ Recommended contract policy:
 
 - All request DTOs validate required fields, enums, and bounded limits.
 - All response DTOs pass through explicit mapper functions.
+- Composite workspace responses include typed `stage_timings` for workflow
+  status/timing display.
 - Do not expose raw `payload_json` as the only source for core UI fields.
 - Keep backward-compatible response fields when the frontend depends on them.
 - Version breaking API changes through new fields/routes before removing old fields.

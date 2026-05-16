@@ -19,6 +19,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
+  buildResearchRunStageTimings,
   EvidenceBundleResponse,
   JournalRunWorkspaceResponse,
   ResearchRunArtifactsResponse,
@@ -347,9 +348,12 @@ export class ResearchRunsService {
       thesisId && thesis
         ? await this.journal.listScenarios(thesisId, workspaceId)
         : [];
+    const runResponse = toResearchRunResponse(run);
+    const eventResponses = events.map(toResearchRunEventResponse);
     return {
-      run: toResearchRunResponse(run),
-      events: events.map(toResearchRunEventResponse),
+      run: runResponse,
+      events: eventResponses,
+      stage_timings: buildResearchRunStageTimings(runResponse, eventResponses),
       snapshots,
       debate,
       thesis: thesis ? toThesisResponse(thesis) : null,
@@ -386,9 +390,12 @@ export class ResearchRunsService {
     }
 
     const run = activeRunFromJob(request, job);
+    const runResponse = toResearchRunResponse(run);
+    const eventResponses = jobEvents(request, job).map(toResearchRunEventResponse);
     return {
-      run: toResearchRunResponse(run),
-      events: jobEvents(request, job).map(toResearchRunEventResponse),
+      run: runResponse,
+      events: eventResponses,
+      stage_timings: buildResearchRunStageTimings(runResponse, eventResponses),
       snapshots: {
         market_snapshot: null,
         signal_snapshot: null,
@@ -468,11 +475,14 @@ export class ResearchRunsService {
       : rows(exported, 'agent_opinions');
 
     const events = rows(exported, 'run_events');
+    const runResponse = toResearchRunResponse(run);
+    const eventResponses = appendRecoveredFailureEvent(events, run).map(
+      toResearchRunEventResponse,
+    );
     return {
-      run: toResearchRunResponse(run),
-      events: appendRecoveredFailureEvent(events, run).map(
-        toResearchRunEventResponse,
-      ),
+      run: runResponse,
+      events: eventResponses,
+      stage_timings: buildResearchRunStageTimings(runResponse, eventResponses),
       snapshots: {
         market_snapshot: marketSnapshot
           ? toMarketSnapshotResponse(marketSnapshot)

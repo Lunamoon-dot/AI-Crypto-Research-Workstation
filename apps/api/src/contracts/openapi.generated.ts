@@ -838,6 +838,30 @@ export const openApiDocument = {
           payload: { $ref: '#/components/schemas/JsonRecord' },
         },
       },
+      ResearchRunStageTimingResponse: {
+        type: 'object',
+        required: [
+          'stage_key',
+          'label',
+          'event_state',
+          'started_at',
+          'completed_at',
+          'duration_ms',
+          'source_event_ids',
+        ],
+        properties: {
+          stage_key: { type: 'string' },
+          label: { type: 'string' },
+          event_state: {
+            type: 'string',
+            enum: ['pending', 'running', 'completed', 'failed', 'missing'],
+          },
+          started_at: { type: ['string', 'null'] },
+          completed_at: { type: ['string', 'null'] },
+          duration_ms: { type: ['number', 'null'] },
+          source_event_ids: { type: 'array', items: { type: 'string' } },
+        },
+      },
       MarketSnapshotResponse: {
         type: 'object',
         required: ['id', 'workspace_id', 'research_run_id', 'symbol', 'captured_at', 'current_price', 'source', 'source_timestamp', 'payload'],
@@ -1617,6 +1641,7 @@ export const openApiDocument = {
         required: [
           'run',
           'events',
+          'stage_timings',
           'snapshots',
           'debate',
           'thesis',
@@ -1628,6 +1653,10 @@ export const openApiDocument = {
           events: {
             type: 'array',
             items: { $ref: '#/components/schemas/ResearchRunEventResponse' },
+          },
+          stage_timings: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ResearchRunStageTimingResponse' },
           },
           snapshots: { $ref: '#/components/schemas/ResearchRunSnapshotsResponse' },
           debate: { $ref: '#/components/schemas/ResearchRunDebateResponse' },

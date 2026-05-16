@@ -29,6 +29,7 @@ flowchart LR
 | `SetupProposal` | Setup Planner | risk analysts, Portfolio Manager | Spot/perp-aware setup for manual review |
 | `TradeThesis` | Portfolio Manager + thesis builder | web, watchlist, evaluation | Final structured research thesis |
 | `RunEvent` | engine/journal bridge | timeline UI | Audit trail for run progress, failures, and degradation |
+| `ResearchRunStageTiming` | API contract mapper | workflow visualization | Event-derived stage state, timing, and source event references |
 
 ## Agent Workflow
 
@@ -61,6 +62,19 @@ Pipeline status is event-driven. Analyst lanes can move to running/ready as
 their own graph node lifecycle events arrive; the UI should not wait for every
 agent to finish before marking completed lanes ready. Debate starts only after
 every selected analyst lane has completed.
+
+The API exposes an event-derived `stage_timings` array on research and journal
+workspace responses. It normalizes quant, selected analyst lanes, debate,
+research manager, setup planner, spot/perp checks, risk debate, portfolio
+manager, scenario planner, and thesis stages into a stable UI contract:
+
+```text
+pending | running | completed | failed | missing
+```
+
+Each row includes start/completion timestamps, duration, and source event IDs.
+The web workflow visualization uses this for timing and event traceability while
+artifact presence still drives the user-facing readiness details.
 
 The Setup Planner is the canonical business role for the old internal
 `Trader` step. The legacy state key `trader_investment_plan` remains for

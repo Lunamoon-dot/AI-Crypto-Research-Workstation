@@ -960,6 +960,18 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
   }
   assert.deepEqual(engineProperties.market_type.enum, ['spot', 'perp']);
   assert.deepEqual(createProperties.market_type.enum, ['spot', 'perp']);
+  const workspaceRequired =
+    openApiDocument.components.schemas.JournalRunWorkspaceResponse.required;
+  assert.ok(workspaceRequired.includes('stage_timings'));
+  const timingProperties =
+    openApiDocument.components.schemas.ResearchRunStageTimingResponse.properties;
+  assert.deepEqual(timingProperties.event_state.enum, [
+    'pending',
+    'running',
+    'completed',
+    'failed',
+    'missing',
+  ]);
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -2739,6 +2751,179 @@ test('research workspace exposes snapshots, debate, scenarios, and events', asyn
   assert.equal(bundle.signal_details[0]?.id, 'sig_support');
   assert.deepEqual(bundle.signal_details[0]?.evidence, { ema_stack: 'bullish' });
   assert.equal(scenarios[0]?.condition, 'Holds entry zone');
+});
+
+test('research workspace derives stage timings from run events', async () => {
+  const { journal, researchRuns } = buildHarness();
+  journal.researchRuns.set(key('run_stage_timing', 'workspace_a'), {
+    id: 'run_stage_timing',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    asset_class: 'crypto',
+    market_type: 'perp',
+    status: 'completed',
+  });
+  journal.events.set(key('run_stage_timing', 'workspace_a'), [
+    {
+      id: 'event_started',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'run.started',
+      created_at: '2026-05-12T00:00:00.000Z',
+      message: 'started',
+      payload: { analysts: ['market', 'news'] },
+    },
+    {
+      id: 'event_market_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:00:01.000Z',
+      message: 'market started',
+      payload: { analyst_name: 'market', graph_node: 'Market Analyst' },
+    },
+    {
+      id: 'event_market_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.completed',
+      created_at: '2026-05-12T00:00:03.000Z',
+      message: 'market completed',
+      payload: {
+        analyst_name: 'market',
+        graph_node: 'Market Analyst',
+        duration_ms: 2450,
+      },
+    },
+    {
+      id: 'event_news_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:00:04.000Z',
+      message: 'news started',
+      payload: { analyst_name: 'news', graph_node: 'News Analyst' },
+    },
+    {
+      id: 'event_bull_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:01:00.000Z',
+      message: 'bull started',
+      payload: { graph_node: 'Bull Researcher' },
+    },
+    {
+      id: 'event_bear_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:02:00.000Z',
+      message: 'bear started',
+      payload: { graph_node: 'Contrarian Analyst' },
+    },
+    {
+      id: 'event_bull_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.completed',
+      created_at: '2026-05-12T00:04:00.000Z',
+      message: 'bull completed',
+      payload: { graph_node: 'Bull Researcher' },
+    },
+    {
+      id: 'event_bear_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.completed',
+      created_at: '2026-05-12T00:05:00.000Z',
+      message: 'bear completed',
+      payload: { graph_node: 'Contrarian Analyst' },
+    },
+    {
+      id: 'event_debate_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'debate.recorded',
+      created_at: '2026-05-12T00:06:00.000Z',
+      message: 'debate recorded',
+      payload: {},
+    },
+    {
+      id: 'event_plan_done',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'plan.recorded',
+      created_at: '2026-05-12T00:07:00.000Z',
+      message: 'plan recorded',
+      payload: {},
+    },
+    {
+      id: 'event_risk_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:10:00.000Z',
+      message: 'aggressive risk started',
+      payload: { graph_node: 'Aggressive Analyst' },
+    },
+    {
+      id: 'event_risk_failed',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.failed',
+      created_at: '2026-05-12T00:11:00.000Z',
+      message: 'aggressive risk failed',
+      payload: { graph_node: 'Aggressive Analyst' },
+    },
+    {
+      id: 'event_scenario_start',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.started',
+      created_at: '2026-05-12T00:12:00.000Z',
+      message: 'scenario started',
+      payload: { graph_node: 'Scenario Planner' },
+    },
+    {
+      id: 'event_scenario_failed',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_stage_timing',
+      event_type: 'agent.node.failed',
+      created_at: '2026-05-12T00:12:02.000Z',
+      message: 'scenario failed',
+      payload: { graph_node: 'Scenario Planner', duration_ms: 333 },
+    },
+  ]);
+
+  const workspace = await researchRuns.workspace(
+    'run_stage_timing',
+    'user_1',
+    'workspace_a',
+  );
+  const timing = (stageKey: string) =>
+    workspace.stage_timings.find((stage) => stage.stage_key === stageKey);
+
+  assert.equal(timing('market')?.event_state, 'completed');
+  assert.equal(timing('market')?.duration_ms, 2450);
+  assert.equal(timing('news')?.event_state, 'running');
+  assert.equal(timing('debate')?.event_state, 'completed');
+  assert.equal(timing('debate')?.started_at, '2026-05-12T00:01:00.000Z');
+  assert.equal(timing('debate')?.completed_at, '2026-05-12T00:06:00.000Z');
+  assert.equal(timing('debate')?.duration_ms, 300000);
+  assert.equal(timing('perp_checks')?.event_state, 'completed');
+  assert.equal(timing('perp_checks')?.completed_at, '2026-05-12T00:07:00.000Z');
+  assert.equal(timing('spot_checks'), undefined);
+  assert.equal(timing('social'), undefined);
+  assert.equal(timing('risk_debate')?.event_state, 'failed');
+  assert.equal(timing('risk_debate')?.duration_ms, 60000);
+  assert.equal(timing('scenario_planner')?.event_state, 'failed');
+  assert.equal(timing('scenario_planner')?.duration_ms, 333);
+  assert.equal(timing('portfolio_manager')?.event_state, 'missing');
+  assert.deepEqual(timing('market')?.source_event_ids, [
+    'event_market_start',
+    'event_market_done',
+  ]);
 });
 
 test('alerts list and read APIs are workspace scoped', async () => {

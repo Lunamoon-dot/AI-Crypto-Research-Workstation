@@ -47,6 +47,16 @@ export interface ResearchRunEventResponse {
   payload: JsonRecord;
 }
 
+export interface ResearchRunStageTimingResponse {
+  stage_key: string;
+  label: string;
+  event_state: 'pending' | 'running' | 'completed' | 'failed' | 'missing';
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  source_event_ids: string[];
+}
+
 export interface MarketSnapshotResponse {
   id: string | null;
   workspace_id: string;
@@ -507,6 +517,7 @@ export interface AlertResponse {
 export interface JournalRunWorkspaceResponse {
   run: ResearchRunResponse;
   events: ResearchRunEventResponse[];
+  stage_timings: ResearchRunStageTimingResponse[];
   snapshots: ResearchRunSnapshotsResponse;
   debate: ResearchRunDebateResponse;
   thesis: ThesisResponse | null;
@@ -566,6 +577,331 @@ export function toResearchRunEventResponse(
     message: stringValue(event.message),
     payload: recordValue(event.payload ?? event.payload_json),
   };
+}
+
+type StageTimingDefinition = {
+  key: string;
+  label: string;
+  aliases: readonly string[];
+  marketTypes?: readonly string[];
+  completedEventTypes?: readonly string[];
+  grouped?: boolean;
+};
+
+const STAGE_TIMING_DEFINITIONS: readonly StageTimingDefinition[] = [
+  {
+    key: 'quant',
+    label: 'Quant',
+    aliases: ['quant', 'quant analyst', 'signal'],
+    completedEventTypes: ['signal.generated', 'snapshot.health'],
+  },
+  {
+    key: 'market',
+    label: 'Market',
+    aliases: ['market', 'market analyst'],
+  },
+  {
+    key: 'news',
+    label: 'News',
+    aliases: ['news', 'news analyst'],
+  },
+  {
+    key: 'social',
+    label: 'Social',
+    aliases: ['social', 'sentiment', 'sentiment analyst', 'social analyst'],
+  },
+  {
+    key: 'onchain',
+    label: 'Onchain',
+    aliases: ['onchain', 'fundamental', 'onchain analyst'],
+  },
+  {
+    key: 'debate',
+    label: 'Bull/Contrarian Debate',
+    aliases: ['bull researcher', 'bear researcher', 'contrarian analyst'],
+    completedEventTypes: ['debate.recorded'],
+    grouped: true,
+  },
+  {
+    key: 'research_manager',
+    label: 'Research Manager',
+    aliases: ['research manager', 'research_manager'],
+  },
+  {
+    key: 'setup_planner',
+    label: 'Setup Planner',
+    aliases: ['setup planner', 'setup_planner', 'trader'],
+    completedEventTypes: ['plan.recorded'],
+  },
+  {
+    key: 'spot_checks',
+    label: 'Spot Checks',
+    aliases: ['setup planner', 'setup_planner', 'trader'],
+    marketTypes: ['spot'],
+    completedEventTypes: ['plan.recorded'],
+  },
+  {
+    key: 'perp_checks',
+    label: 'Perp Checks',
+    aliases: ['setup planner', 'setup_planner', 'trader'],
+    marketTypes: ['perp'],
+    completedEventTypes: ['plan.recorded'],
+  },
+  {
+    key: 'risk_debate',
+    label: 'Risk Debate',
+    aliases: [
+      'risk',
+      'risk analyst',
+      'aggressive analyst',
+      'conservative analyst',
+      'neutral analyst',
+    ],
+    completedEventTypes: ['risk.debate.recorded', 'risk.checked'],
+    grouped: true,
+  },
+  {
+    key: 'portfolio_manager',
+    label: 'Portfolio Manager',
+    aliases: ['portfolio manager', 'portfolio_manager'],
+  },
+  {
+    key: 'scenario_planner',
+    label: 'Scenario Planner',
+    aliases: ['scenario planner', 'scenarioplanner', 'scenario.plan', 'scenarios_saved'],
+    completedEventTypes: ['scenario.plan.recorded', 'scenarios_saved'],
+  },
+  {
+    key: 'thesis',
+    label: 'Trade Thesis',
+    aliases: ['thesis', 'trade thesis', 'trade_thesis', 'thesis.generated'],
+    completedEventTypes: ['thesis.generated', 'trade_thesis_saved'],
+  },
+];
+
+const SELECTABLE_STAGE_KEYS = new Set(['market', 'news', 'social', 'onchain']);
+
+export function buildResearchRunStageTimings(
+  run: ResearchRunResponse,
+  events: ResearchRunEventResponse[],
+): ResearchRunStageTimingResponse[] {
+  const marketType = normalizeStageMarketType(run.market_type);
+  const selectedAnalysts = selectedAnalystsFromStageEvents(events);
+  const runTerminal = isTerminalRunStatus(run.status);
+
+  return STAGE_TIMING_DEFINITIONS.filter(
+    (stage) =>
+      (!stage.marketTypes || stage.marketTypes.includes(marketType)) &&
+      (!SELECTABLE_STAGE_KEYS.has(stage.key) ||
+        selectedAnalysts === null ||
+        selectedAnalysts.has(stage.key)),
+  ).map((stage) => buildStageTiming(stage, events, runTerminal));
+}
+
+function buildStageTiming(
+  stage: StageTimingDefinition,
+  events: ResearchRunEventResponse[],
+  runTerminal: boolean,
+): ResearchRunStageTimingResponse {
+  const startedEvents = events.filter(
+    (event) =>
+      event.event_type === 'agent.node.started' &&
+      eventMatchesStageAliases(event, stage.aliases),
+  );
+  const completedAgentEvents = events.filter(
+    (event) =>
+      event.event_type === 'agent.node.completed' &&
+      eventMatchesStageAliases(event, stage.aliases),
+  );
+  const completedMilestoneEvents = events.filter((event) =>
+    stage.completedEventTypes?.includes(event.event_type),
+  );
+  const failedEvents = events.filter(
+    (event) =>
+      event.event_type === 'agent.node.failed' &&
+      eventMatchesStageAliases(event, stage.aliases),
+  );
+  const completedEvents = [...completedAgentEvents, ...completedMilestoneEvents];
+  const terminalEvents = [...completedEvents, ...failedEvents];
+  const latestTerminal = latestEvent(terminalEvents);
+  const latestFailed = latestEvent(failedEvents);
+  const latestCompleted = latestEvent(completedEvents);
+  const startedAt = earliestTimestamp(startedEvents);
+  const completedAt = latestTerminal ? nullableString(latestTerminal.created_at) : null;
+  const sourceEvents = uniqueEvents([
+    ...startedEvents,
+    ...completedAgentEvents,
+    ...completedMilestoneEvents,
+    ...failedEvents,
+  ]);
+  const durationMs = stage.grouped
+    ? wallClockDurationMs(startedAt, completedAt)
+    : eventDurationMs(latestTerminal) ?? wallClockDurationMs(startedAt, completedAt);
+  const eventState = resolveStageEventState({
+    hasStarted: startedEvents.length > 0,
+    latestCompleted,
+    latestFailed,
+    runTerminal,
+  });
+
+  return {
+    stage_key: stage.key,
+    label: stage.label,
+    event_state: eventState,
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: durationMs,
+    source_event_ids: sourceEvents
+      .map((event) => event.id)
+      .filter((id): id is string => Boolean(id)),
+  };
+}
+
+function resolveStageEventState({
+  hasStarted,
+  latestCompleted,
+  latestFailed,
+  runTerminal,
+}: {
+  hasStarted: boolean;
+  latestCompleted: ResearchRunEventResponse | null;
+  latestFailed: ResearchRunEventResponse | null;
+  runTerminal: boolean;
+}): ResearchRunStageTimingResponse['event_state'] {
+  if (latestFailed && eventIsSameOrAfter(latestFailed, latestCompleted)) {
+    return 'failed';
+  }
+  if (latestCompleted) {
+    return 'completed';
+  }
+  if (hasStarted) {
+    return 'running';
+  }
+  return runTerminal ? 'missing' : 'pending';
+}
+
+function selectedAnalystsFromStageEvents(
+  events: ResearchRunEventResponse[],
+): Set<string> | null {
+  const startedEvent = events.find(
+    (event) =>
+      event.event_type === 'run.started' &&
+      Array.isArray(event.payload.analysts),
+  );
+  if (!startedEvent) {
+    return null;
+  }
+  return new Set(
+    (startedEvent.payload.analysts as unknown[])
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => SELECTABLE_STAGE_KEYS.has(value)),
+  );
+}
+
+function eventMatchesStageAliases(
+  event: ResearchRunEventResponse,
+  aliases: readonly string[],
+): boolean {
+  const text = [
+    event.payload.agent_name,
+    event.payload.analyst_name,
+    event.payload.graph_node,
+    event.payload.stage,
+    event.message,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+  return aliases.some((alias) => text.includes(alias));
+}
+
+function normalizeStageMarketType(value: string): 'spot' | 'perp' {
+  const normalized = value.trim().toLowerCase();
+  return ['perp', 'perpetual', 'future', 'futures'].includes(normalized)
+    ? 'perp'
+    : 'spot';
+}
+
+function isTerminalRunStatus(status: string | undefined): boolean {
+  return Boolean(
+    status &&
+      !['created', 'queued', 'running', 'submitted', 'pending'].includes(status),
+  );
+}
+
+function eventDurationMs(event: ResearchRunEventResponse | null): number | null {
+  if (!event) {
+    return null;
+  }
+  return nullableNumber(event.payload.duration_ms);
+}
+
+function wallClockDurationMs(
+  startedAt: string | null,
+  completedAt: string | null,
+): number | null {
+  if (!startedAt || !completedAt) {
+    return null;
+  }
+  const started = Date.parse(startedAt);
+  const completed = Date.parse(completedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(completed)) {
+    return null;
+  }
+  const duration = completed - started;
+  return duration >= 0 ? duration : null;
+}
+
+function earliestTimestamp(events: ResearchRunEventResponse[]): string | null {
+  const event = [...events].sort(compareEventsByTime).at(0);
+  return event ? nullableString(event.created_at) : null;
+}
+
+function latestEvent(
+  events: ResearchRunEventResponse[],
+): ResearchRunEventResponse | null {
+  return [...events].sort(compareEventsByTime).at(-1) ?? null;
+}
+
+function eventIsSameOrAfter(
+  left: ResearchRunEventResponse,
+  right: ResearchRunEventResponse | null,
+): boolean {
+  if (!right) {
+    return true;
+  }
+  return eventTimestamp(left) >= eventTimestamp(right);
+}
+
+function compareEventsByTime(
+  left: ResearchRunEventResponse,
+  right: ResearchRunEventResponse,
+): number {
+  return eventTimestamp(left) - eventTimestamp(right);
+}
+
+function eventTimestamp(event: ResearchRunEventResponse): number {
+  const timestamp = Date.parse(event.created_at ?? '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function uniqueEvents(
+  events: ResearchRunEventResponse[],
+): ResearchRunEventResponse[] {
+  const seen = new Set<string>();
+  const result: ResearchRunEventResponse[] = [];
+  for (const event of events.sort(compareEventsByTime)) {
+    const key =
+      event.id ??
+      `${event.event_type}:${event.created_at ?? ''}:${event.message}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(event);
+  }
+  return result;
 }
 
 export function toMarketSnapshotResponse(
