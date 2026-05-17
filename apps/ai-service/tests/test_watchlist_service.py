@@ -74,6 +74,32 @@ def test_watchlist_check_creates_invalidation_alert_and_timeline_event(tmp_path)
     assert any(event.event_type == "thesis_invalidated" for event in timeline)
 
 
+def test_watchlist_check_honors_invalidation_cues_for_avoid_thesis(tmp_path):
+    config = _config(tmp_path)
+    journal = JournalService(config)
+    watchlists = WatchlistService(config)
+    run = journal.start_research_run(ResearchRun(symbol="BNB/USDT"))
+    thesis = journal.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BNB/USDT",
+            direction=ThesisDirection.AVOID,
+            thesis_text="Avoid until resistance clears.",
+            invalidation_level=(
+                "Break above $638 with increasing volume and RSI sustained above 50."
+            ),
+        )
+    )
+    watchlists.add_thesis(thesis.id)
+
+    before_break = watchlists.check_once(current_prices={"BNB/USDT": 637.0})
+    after_break = watchlists.check_once(current_prices={"BNB/USDT": 650.0})
+
+    assert before_break.alerts_created == []
+    assert len(after_break.alerts_created) == 1
+    assert after_break.alerts_created[0].alert_type == AlertType.THESIS_INVALIDATED
+
+
 def test_watchlist_check_uses_latest_market_snapshot(tmp_path):
     config = _config(tmp_path)
     journal = JournalService(config)

@@ -46,6 +46,7 @@ import { PerformanceService } from '../src/performance/performance.service';
 import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { OperationsService } from '../src/operations/operations.service';
+import { WorkbenchService } from '../src/workbench/workbench.service';
 import { openApiDocument } from '../src/contracts/openapi.generated';
 
 class FakeJournalRepository implements JournalRepository {
@@ -441,6 +442,41 @@ class FakeJournalRepository implements JournalRepository {
       workspace_id: workspaceId,
       watchlist_id: watchlistId,
       removed: true,
+    };
+  }
+
+  async removeWatchlist(id: string, workspaceId: string): Promise<JsonRecord> {
+    const index = this.watchlists.findIndex(
+      (watchlist) =>
+        watchlist.id === id && watchlist.workspace_id === workspaceId,
+    );
+    if (index === -1) {
+      throw new NotFoundException(`Watchlist ${id} not found`);
+    }
+    const [watchlist] = this.watchlists.splice(index, 1);
+    const itemIds = this.watchlistItems
+      .filter(
+        (item) =>
+          item.watchlist_id === id && item.workspace_id === workspaceId,
+      )
+      .map((item) => String(item.id));
+    for (let itemIndex = this.watchlistItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = this.watchlistItems[itemIndex];
+      if (item.watchlist_id === id && item.workspace_id === workspaceId) {
+        this.watchlistItems.splice(itemIndex, 1);
+      }
+    }
+    for (const alert of this.alerts) {
+      if (itemIds.includes(String(alert.watchlist_item_id ?? ''))) {
+        alert.watchlist_item_id = null;
+      }
+    }
+    return {
+      id,
+      workspace_id: workspaceId,
+      name: String(watchlist.name ?? ''),
+      removed: true,
+      removed_item_count: itemIds.length,
     };
   }
 
@@ -995,7 +1031,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/theses/{id}/decision', ['post']],
     ['/theses/{id}/review', ['post']],
     ['/watchlists', ['get', 'post']],
-    ['/watchlists/{id}', ['get', 'patch']],
+    ['/watchlists/{id}', ['get', 'patch', 'delete']],
     ['/watchlists/{id}/items', ['get', 'post']],
     ['/watchlists/{id}/items/{itemId}', ['delete']],
     ['/watchlists/{id}/check', ['post']],
@@ -1004,6 +1040,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/alerts/{id}/read', ['post']],
     ['/alerts/scheduler', ['get']],
     ['/alerts/scheduler/run', ['post']],
+    ['/workbench/attention', ['get']],
     ['/performance/outcomes', ['get']],
     ['/performance/analytics', ['get']],
     ['/performance/trend', ['get']],
@@ -2202,6 +2239,11 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
     'user_1',
     'workspace_a',
   );
+  const removedWatchlist = await watchlists.remove(
+    'watch_1',
+    'user_1',
+    'workspace_a',
+  );
   const dailyBriefs = await briefs.daily(
     '2026-05-12',
     20,
@@ -2218,6 +2260,8 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
   assert.equal(updatedWatchlist.name, 'Core renamed');
   assert.equal(updatedWatchlist.enabled, false);
   assert.equal(removedItem.removed, true);
+  assert.equal(removedWatchlist.removed, true);
+  assert.equal(removedWatchlist.removed_item_count, 0);
   assert.equal(dailyBriefs[0]?.summary, 'Risk-on tone.');
   assert.deepEqual(dailyBriefs[0]?.thesis_ids, ['thesis_2']);
 });
@@ -2291,6 +2335,41 @@ test('watchlist symbol tracking normalizes common crypto input', async () => {
   assert.equal(item.item_type, 'symbol');
 });
 
+test('watchlist removal deletes tracks and keeps alert history', async () => {
+  const { journal, watchlists } = buildHarness();
+  journal.watchlists.push({
+    id: 'watch_1',
+    workspace_id: 'workspace_a',
+    name: 'Core',
+    enabled: true,
+  });
+  journal.watchlistItems.push({
+    id: 'watch_item_1',
+    workspace_id: 'workspace_a',
+    watchlist_id: 'watch_1',
+    item_type: 'symbol',
+    symbol: 'BTC/USDT',
+    enabled: true,
+  });
+  journal.alerts.push({
+    id: 'alert_1',
+    workspace_id: 'workspace_a',
+    alert_type: 'target_zone_reached',
+    symbol: 'BTC/USDT',
+    watchlist_item_id: 'watch_item_1',
+    message: 'Target reached',
+    created_at: '2026-05-12T00:00:00.000Z',
+  });
+
+  const removed = await watchlists.remove('watch_1', 'user_1', 'workspace_a');
+
+  assert.equal(removed.removed, true);
+  assert.equal(removed.removed_item_count, 1);
+  assert.equal(await journal.getWatchlist('watch_1', 'workspace_a'), null);
+  assert.deepEqual(await journal.listWatchlistItems('watch_1', 'workspace_a'), []);
+  assert.equal(journal.alerts[0]?.watchlist_item_id, null);
+});
+
 test('watchlist check creates deduped alerts from latest snapshots', async () => {
   const { journal, watchlists } = buildHarness();
   journal.watchlists.push({
@@ -2348,6 +2427,60 @@ test('watchlist check creates deduped alerts from latest snapshots', async () =>
   assert.equal(first.alerts_created.length, 1);
   assert.equal(first.alerts_created[0]?.alert_type, 'target_zone_reached');
   assert.equal(second.alerts_created.length, 0);
+});
+
+test('watchlist check honors invalidation crossing cues for non-directional theses', async () => {
+  const { journal, watchlists } = buildHarness();
+  journal.watchlists.push({
+    id: 'watch_1',
+    workspace_id: 'workspace_a',
+    name: 'Core',
+    enabled: true,
+    created_at: '2026-05-12T00:00:00.000Z',
+  });
+  journal.watchlistItems.push({
+    id: 'watch_item_1',
+    workspace_id: 'workspace_a',
+    watchlist_id: 'watch_1',
+    item_type: 'thesis',
+    thesis_id: 'thesis_avoid',
+    symbol: 'BNB/USDT',
+    enabled: true,
+    created_at: '2026-05-12T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_avoid', 'workspace_a'), {
+    id: 'thesis_avoid',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    direction: 'avoid',
+    setup_type: 'agent_debate',
+    confidence: 0.35,
+    thesis_text: 'Avoid until confirmation clears resistance.',
+    target_zones: [],
+    invalidation_level:
+      'Break above $638 with increasing volume and RSI sustained above 50.',
+  });
+
+  const beforeBreak = await watchlists.check(
+    'watch_1',
+    { prices: { 'BNB/USDT': 637 } },
+    'user_1',
+    'workspace_a',
+  );
+  const afterBreak = await watchlists.check(
+    'watch_1',
+    { prices: { 'BNB/USDT': 650 } },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(beforeBreak.alerts_created.length, 0);
+  assert.equal(afterBreak.alerts_created.length, 1);
+  assert.equal(afterBreak.alerts_created[0]?.alert_type, 'thesis_invalidated');
+  assert.equal(
+    afterBreak.alerts_created[0]?.trigger_key,
+    'thesis_invalidated:thesis_avoid:638',
+  );
 });
 
 test('watchlist alert poll checks enabled watchlists across workspaces', async () => {
@@ -2984,6 +3117,51 @@ test('research workspace derives spot branch timing from setup planner completio
   assert.equal(timing('risk_debate')?.event_state, 'running');
 });
 
+test('research workspace does not complete thesis stage from persistence event only', async () => {
+  const { journal, researchRuns } = buildHarness();
+  journal.researchRuns.set(key('run_thesis_persist_only', 'workspace_a'), {
+    id: 'run_thesis_persist_only',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    market_type: 'spot',
+    status: 'completed',
+    thesis_id: 'thesis_persisted',
+  });
+  journal.theses.set(key('thesis_persisted', 'workspace_a'), {
+    id: 'thesis_persisted',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_thesis_persist_only',
+    symbol: 'BTC/USDT',
+    thesis_text: 'Persisted thesis.',
+  });
+  journal.events.set(key('run_thesis_persist_only', 'workspace_a'), [
+    {
+      id: 'event_thesis_saved',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_thesis_persist_only',
+      event_type: 'trade_thesis_saved',
+      created_at: '2026-05-12T00:13:00.000Z',
+      message: 'Trade thesis saved for BTC/USDT',
+      payload: { thesis_id: 'thesis_persisted' },
+    },
+  ]);
+
+  const workspace = await researchRuns.workspace(
+    'run_thesis_persist_only',
+    'user_1',
+    'workspace_a',
+  );
+  const thesisTiming = workspace.stage_timings.find(
+    (stage) => stage.stage_key === 'thesis',
+  );
+
+  assert.equal(thesisTiming?.event_state, 'missing');
+  assert.equal(thesisTiming?.completed_at, null);
+  assert.deepEqual(thesisTiming?.source_event_ids, []);
+  assert.equal(workspace.thesis?.id, 'thesis_persisted');
+});
+
 test('alerts list and read APIs are workspace scoped', async () => {
   const { journal, alerts } = buildHarness();
   journal.alerts.push(
@@ -3313,6 +3491,172 @@ test('operations health summarizes provider, llm, and freshness telemetry', asyn
   assert.equal(health.freshness.stale_checks, 1);
 });
 
+test('workbench attention aggregates and prioritizes unresolved operating items', async () => {
+  const { journal, workbench } = buildHarness();
+  const today = localDateStringForTest(new Date());
+  journal.theses.set(key('thesis_attention', 'workspace_a'), {
+    id: 'thesis_attention',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    confidence: 0.82,
+    created_at: '2026-05-10T00:00:00.000Z',
+    invalidation_level: '65000',
+    thesis_text: 'High conviction thesis.',
+  });
+  journal.scenarios.set(key('thesis_attention', 'workspace_a'), [
+    {
+      id: 'scenario_attention',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_attention',
+      probability_band: 'high',
+      suggested_user_action: 'review hedge plan',
+      payload: {
+        condition: 'Funding reverses while price loses VWAP',
+        risk_map: ['crowded long unwind'],
+      },
+    },
+  ]);
+  journal.alerts.push({
+    id: 'alert_attention',
+    workspace_id: 'workspace_a',
+    alert_type: 'thesis_invalidated',
+    symbol: 'BTC/USDT',
+    thesis_id: 'thesis_attention',
+    trigger_key: 'invalidated:65000',
+    created_at: new Date().toISOString(),
+    read_at: null,
+    message: 'BTC thesis invalidation level was reached.',
+  });
+  journal.researchRuns.set(key('run_failed_attention', 'workspace_a'), {
+    id: 'run_failed_attention',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    status: 'failed',
+    started_at: '2026-05-16T00:00:00.000Z',
+    completed_at: '2026-05-16T00:02:00.000Z',
+    degradation_reasons: ['engine_job_failed'],
+  });
+  journal.providerHealthRows.push({
+    id: 'provider_attention',
+    provider: 'ccxt',
+    component: 'market-data',
+    status: 'degraded',
+    checked_at: '2026-05-16T00:00:00.000Z',
+    error_message: 'OHLCV latency above threshold.',
+  });
+  journal.freshnessChecks.push({
+    id: 'fresh_attention',
+    workspace_id: 'workspace_a',
+    source: 'ohlcv',
+    symbol: 'BTC/USDT',
+    observed_timestamp: '2026-05-16T00:00:00.000Z',
+    age_seconds: 600,
+    threshold_seconds: 60,
+    status: 'stale',
+  });
+  journal.briefs.push({
+    id: 'brief_attention',
+    workspace_id: 'workspace_a',
+    brief_date: today,
+    watchlist_name: 'Core',
+    title: 'Market Brief',
+    created_at: `${today}T00:00:00.000Z`,
+    summary: 'Brief summary.',
+    thesis_updates: [
+      {
+        thesis_id: 'thesis_attention',
+        symbol: 'BTC/USDT',
+        direction: 'long',
+        setup_type: 'breakout',
+        confidence: 0.82,
+        status: 'review alerts',
+        update: 'Review invalidation.',
+        invalidation_level: '65000',
+        recent_alerts: ['Invalidation level reached.'],
+      },
+    ],
+    top_risks: ['BTC invalidation needs review.'],
+  });
+  journal.watchlists.push({
+    id: 'watch_attention',
+    workspace_id: 'workspace_a',
+    name: 'Core',
+    enabled: true,
+    created_at: '2026-05-10T00:00:00.000Z',
+  });
+
+  const response = await workbench.attention(10, 'user_1', 'workspace_a');
+  const sourceTypes = new Set(response.items.map((item) => item.source_type));
+  const alertItem = response.items.find((item) => item.source_id === 'alert_attention');
+
+  assert.equal(response.workspace_id, 'workspace_a');
+  assert.ok(response.items.length <= 10);
+  assert.ok(response.unresolved_count > 0);
+  assert.equal(response.latest_brief?.id, 'brief_attention');
+  assert.ok(response.brief_actions.some((item) => item.action.href === '/theses/thesis_attention'));
+  assert.equal(response.queues[0]?.priority, 'critical');
+  assert.ok(response.queues.some((queue) => queue.priority === 'review'));
+  assert.ok(sourceTypes.has('alert'));
+  assert.ok(sourceTypes.has('run'));
+  assert.ok(sourceTypes.has('provider'));
+  assert.ok(sourceTypes.has('thesis'));
+  assert.ok(sourceTypes.has('scenario'));
+  assert.ok(sourceTypes.has('brief'));
+  assert.equal(alertItem?.priority, 'critical');
+  assert.equal(alertItem?.action.href, '/theses/thesis_attention');
+  assert.deepEqual(
+    alertItem?.badges.map((badge) => badge.label),
+    ['Severity', 'Age', 'Source'],
+  );
+  assert.ok(
+    response.notifications.some(
+      (notification) =>
+        notification.type === 'alert' &&
+        notification.action.href === '/theses/thesis_attention',
+    ),
+  );
+  assert.ok(
+    response.notifications.some(
+      (notification) =>
+        notification.type === 'watchlist' &&
+        notification.action.href === '/watchlists',
+    ),
+  );
+});
+
+test('workbench attention is workspace scoped and capped', async () => {
+  const { journal, workbench } = buildHarness();
+  for (let index = 0; index < 14; index += 1) {
+    journal.alerts.push({
+      id: `alert_scope_${index}`,
+      workspace_id: 'workspace_a',
+      alert_type: 'target_zone_reached',
+      symbol: 'SOL/USDT',
+      created_at: new Date(Date.now() - index * 60000).toISOString(),
+      read_at: null,
+      message: `Alert ${index}`,
+    });
+  }
+  journal.alerts.push({
+    id: 'alert_other_workspace',
+    workspace_id: 'workspace_b',
+    alert_type: 'thesis_invalidated',
+    symbol: 'BTC/USDT',
+    created_at: new Date().toISOString(),
+    read_at: null,
+    message: 'Other workspace alert',
+  });
+
+  const response = await workbench.attention(10, 'user_1', 'workspace_a');
+
+  assert.equal(response.items.length, 10);
+  assert.ok(
+    response.items.every((item) => item.source_id !== 'alert_other_workspace'),
+  );
+});
+
 const createResearchRunMetadata: ArgumentMetadata = {
   type: 'body',
   metatype: CreateResearchRunDto,
@@ -3453,6 +3797,7 @@ function buildHarness() {
     comparisons: new ComparisonsService(journal, auth, workspaces),
     scenarios: new ScenariosService(journal, auth, workspaces),
     operations: new OperationsService(journal, auth, workspaces),
+    workbench: new WorkbenchService(journal, auth, workspaces),
   };
 }
 
@@ -3465,6 +3810,13 @@ function appendUniqueString(value: unknown, item: string): string[] {
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
   return current.includes(item) ? current : [...current, item];
+}
+
+function localDateStringForTest(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function isException(

@@ -196,6 +196,8 @@ class ReportGenerator:
     def _number(value: object) -> float | None:
         if value in (None, ""):
             return None
+        if not isinstance(value, (int, float, str)):
+            return None
         try:
             return float(value)
         except (TypeError, ValueError):

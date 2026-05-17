@@ -70,6 +70,15 @@ export class WatchlistsController {
     return this.watchlists.update(id, dto, userId, workspaceId);
   }
 
+  @Delete(':id')
+  remove(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.watchlists.remove(id, userId, workspaceId);
+  }
+
   @Post(':id/items')
   addItem(
     @Param('id') id: string,

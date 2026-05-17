@@ -4,6 +4,7 @@ import {
   AddWatchlistItemRequest,
   CheckWatchlistRequest,
   CreateWatchlistRequest,
+  RemoveWatchlistResponse,
   RemoveWatchlistItemResponse,
   UpdateWatchlistRequest,
   WatchlistCheckResponse,
@@ -80,6 +81,14 @@ export function removeWatchlistItem(
 ) {
   return apiRequest<RemoveWatchlistItemResponse>(
     `/watchlists/${encodeURIComponent(watchlistId)}/items/${encodeURIComponent(itemId)}`,
+    { method: 'DELETE' },
+    auth,
+  );
+}
+
+export function removeWatchlist(id: string, auth: WorkspaceRequestContext) {
+  return apiRequest<RemoveWatchlistResponse>(
+    `/watchlists/${encodeURIComponent(id)}`,
     { method: 'DELETE' },
     auth,
   );

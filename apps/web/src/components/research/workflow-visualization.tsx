@@ -201,16 +201,16 @@ function WorkflowNode({
           <div className="workflow-node-kicker">{nodeKicker(stage, variant)}</div>
           <h3>{stage.label}</h3>
         </div>
+        {stage.confidence !== null ? (
+          <span className="workflow-node-confidence workflow-node-confidence-header">
+            <ConfidenceBadge
+              label={`Conf ${formatConfidence(stage.confidence)}`}
+              value={stage.confidence}
+            />
+          </span>
+        ) : null}
         <div className="workflow-node-badges">
           <span className="workflow-node-badge-left">
-            {stage.confidence !== null ? (
-              <span className="workflow-node-confidence">
-                <ConfidenceBadge
-                  label={`Confidence ${formatConfidence(stage.confidence)}`}
-                  value={stage.confidence}
-                />
-              </span>
-            ) : null}
             {detailTone ? (
               <span className={`workflow-node-detail-pill workflow-node-detail-${detailTone}`}>
                 {displayDetail}

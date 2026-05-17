@@ -831,21 +831,21 @@ class ThesisBuilder:
                 *stale_or_missing_data,
             ]
         )
-        signal_quality_values = [
+        signal_quality_candidates = [
             normalize_confidence_value(signal.evidence.get("data_quality"))
             for signal in signals
             if isinstance(getattr(signal, "evidence", None), dict)
             and signal.evidence.get("data_quality") is not None
         ]
         signal_quality_values = [
-            value for value in signal_quality_values if value is not None
+            value for value in signal_quality_candidates if value is not None
         ]
-        opinion_quality_values = [
+        opinion_quality_candidates = [
             normalize_confidence_value(getattr(opinion, "data_quality", None))
             for opinion in opinions
         ]
         opinion_quality_values = [
-            value for value in opinion_quality_values if value is not None
+            value for value in opinion_quality_candidates if value is not None
         ]
 
         quality = 1.0

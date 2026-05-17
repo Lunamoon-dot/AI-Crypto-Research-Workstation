@@ -934,6 +934,68 @@ export class PostgresJournalRepository implements JournalRepository {
     return removed;
   }
 
+  async removeWatchlist(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const client = await this.requirePool().connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query(
+        `SELECT id, workspace_id, name
+         FROM watchlists
+         WHERE id = $1 AND workspace_id = $2
+         FOR UPDATE`,
+        [id, workspaceId],
+      );
+      const watchlist = existing.rows[0];
+      if (!watchlist) {
+        throw new NotFoundException(`Watchlist ${id} not found`);
+      }
+      const items = await client.query(
+        `SELECT id
+         FROM watchlist_items
+         WHERE watchlist_id = $1 AND workspace_id = $2`,
+        [id, workspaceId],
+      );
+      const itemIds = items.rows
+        .map((row) => nullableString(row.id))
+        .filter((itemId): itemId is string => itemId !== null);
+      if (itemIds.length > 0) {
+        await client.query(
+          `UPDATE alerts
+           SET watchlist_item_id = NULL,
+               payload_json = payload_json || jsonb_build_object('watchlist_item_removed', true)
+           WHERE workspace_id = $1 AND watchlist_item_id = ANY($2::text[])`,
+          [workspaceId, itemIds],
+        );
+      }
+      await client.query(
+        `DELETE FROM watchlist_items
+         WHERE watchlist_id = $1 AND workspace_id = $2`,
+        [id, workspaceId],
+      );
+      await client.query(
+        `DELETE FROM watchlists
+         WHERE id = $1 AND workspace_id = $2`,
+        [id, workspaceId],
+      );
+      await client.query('COMMIT');
+      return {
+        id,
+        workspace_id: workspaceId,
+        name: stringValue(watchlist.name, ''),
+        removed: true,
+        removed_item_count: itemIds.length,
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listDailyBriefs(
     date: string | undefined,
     limit: number,

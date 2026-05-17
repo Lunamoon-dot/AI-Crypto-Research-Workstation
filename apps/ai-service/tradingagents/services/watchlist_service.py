@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -453,7 +454,7 @@ class WatchlistService:
         alerts: list[Alert] = []
         invalidation_level = _extract_first_level(thesis.invalidation_level)
         if invalidation_level is not None and _invalidation_triggered(
-            thesis, current_price, invalidation_level
+            thesis, current_price, invalidation_level, thesis.invalidation_level
         ):
             alert = self._create_alert_once(
                 alert_type=AlertType.THESIS_INVALIDATED,
@@ -619,7 +620,13 @@ def _invalidation_triggered(
     thesis: TradeThesis,
     current_price: float,
     invalidation_level: float,
+    source_text: str | None = None,
 ) -> bool:
+    crossing_direction = _crossing_direction_from_text(source_text or "")
+    if crossing_direction == "above":
+        return current_price >= invalidation_level
+    if crossing_direction == "below":
+        return current_price <= invalidation_level
     if thesis.direction == ThesisDirection.SHORT:
         return current_price >= invalidation_level
     return current_price <= invalidation_level
@@ -631,6 +638,49 @@ def _target_triggered(
     if thesis.direction == ThesisDirection.SHORT:
         return current_price <= target_level
     return current_price >= target_level
+
+
+_ABOVE_CUE = re.compile(
+    r"\b(?:above|over|reclaim(?:s|ed|ing)?|exceed(?:s|ed|ing)?|"
+    r"break(?:s|ing)?\s+above|greater\s+than|cross(?:es|ed|ing)?\s+above)\b|>",
+    re.IGNORECASE,
+)
+_BELOW_CUE = re.compile(
+    r"\b(?:below|under|lose|loses|lost|break(?:s|ing)?\s+below|"
+    r"drop(?:s|ped|ping)?\s+below|fall(?:s|ing)?\s+below|less\s+than|"
+    r"cross(?:es|ed|ing)?\s+below)\b|<",
+    re.IGNORECASE,
+)
+
+
+def _crossing_direction_from_text(text: str) -> str | None:
+    numeric_match = re.search(r"[-+]?\d", text)
+    if not numeric_match:
+        return None
+    start = max(0, numeric_match.start() - 90)
+    end = min(len(text), numeric_match.start() + 90)
+    context = text[start:end]
+    numeric_offset = numeric_match.start() - start
+    above_distance = _nearest_cue_distance(context, _ABOVE_CUE, numeric_offset)
+    below_distance = _nearest_cue_distance(context, _BELOW_CUE, numeric_offset)
+
+    if above_distance is None and below_distance is None:
+        return None
+    if below_distance is None:
+        return "above"
+    if above_distance is None:
+        return "below"
+    return "above" if above_distance <= below_distance else "below"
+
+
+def _nearest_cue_distance(
+    text: str, pattern: re.Pattern[str], offset: int
+) -> int | None:
+    nearest: int | None = None
+    for match in pattern.finditer(text):
+        distance = abs(match.start() - offset)
+        nearest = distance if nearest is None else min(nearest, distance)
+    return nearest
 
 
 def _scenario_activation(
@@ -645,7 +695,7 @@ def _scenario_activation(
     classification_text = _scenario_classification_text(scenario)
     if _looks_like_invalidation(classification_text, scenario):
         level = levels[0]
-        if _invalidation_triggered(thesis, current_price, level):
+        if _invalidation_triggered(thesis, current_price, level, classification_text):
             return (
                 level,
                 f"Invalidation scenario condition crossed level {level:g}.",

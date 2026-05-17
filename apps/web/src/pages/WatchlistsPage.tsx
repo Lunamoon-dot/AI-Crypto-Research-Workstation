@@ -23,6 +23,7 @@ import {
   createWatchlist,
   getWatchlistItems,
   listWatchlists,
+  removeWatchlist,
   removeWatchlistItem,
   updateWatchlist,
 } from '@/services/watchlists';
@@ -208,6 +209,20 @@ export function WatchlistsPage() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.watchlistItems(watchlistId),
       });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => removeWatchlist(id, auth),
+    onSuccess: (removed) => {
+      const nextWatchlist =
+        (query.data ?? []).find((watchlist) => watchlist.id !== removed.id) ?? null;
+      setWatchlistId(nextWatchlist?.id ?? '');
+      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlistsRoot() });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.watchlistItems(removed.id),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dailyBriefsRoot() });
     },
   });
 
@@ -551,9 +566,25 @@ export function WatchlistsPage() {
                     )}
                     {selectedWatchlist.enabled ? 'Pause watchlist' : 'Resume watchlist'}
                   </button>
+                  <button
+                    className="button risk"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => {
+                      if (selectedWatchlist.id) {
+                        deleteMutation.mutate(selectedWatchlist.id);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden size={16} />
+                    {deleteMutation.isPending ? 'Deleting' : 'Delete watchlist'}
+                  </button>
                 </div>
               </form>
               {updateMutation.isError ? <span className="badge risk">{errorMessage(updateMutation.error)}</span> : null}
+              {deleteMutation.isError ? (
+                <span className="badge risk">{errorMessage(deleteMutation.error)}</span>
+              ) : null}
               <div className="top-strip-meta">
                 <button
                   className="button"

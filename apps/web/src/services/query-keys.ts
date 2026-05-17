@@ -15,6 +15,8 @@ function scopedFilters(resource: string, filters: Record<string, unknown>) {
 
 export const queryKeys = {
   workbench: () => scopedResource('workbench'),
+  workbenchAttention: (filters: Record<string, unknown>) =>
+    scopedFilters('workbench-attention', filters),
   researchRunsRoot: () => scopedResource('research-runs'),
   researchRuns: (filters: Record<string, unknown>) =>
     scopedFilters('research-runs', filters),

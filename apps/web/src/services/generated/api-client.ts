@@ -10,6 +10,7 @@ import type {
   EvidenceBundleResponse,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
+  RemoveWatchlistResponse,
   RemoveWatchlistItemResponse,
   SignalCountResponse,
   SignalDetailResponse,
@@ -402,6 +403,10 @@ export function createApiClient(request: ApiTransport) {
       request<WatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         body,
+      }),
+    removeWatchlist: (id: string) =>
+      request<RemoveWatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
       }),
     getWatchlistItems: (id: string) =>
       request<WatchlistItemResponse[]>(

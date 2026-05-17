@@ -456,6 +456,14 @@ export interface WatchlistItemResponse {
   created_at: string | null;
 }
 
+export interface RemoveWatchlistResponse {
+  id: string;
+  workspace_id: string;
+  name: string;
+  removed: boolean;
+  removed_item_count: number;
+}
+
 export interface BriefAssetSummaryResponse {
   symbol: string;
   current_price: number | null;
@@ -512,6 +520,86 @@ export interface AlertResponse {
   read_at: string | null;
   message: string;
   payload: JsonRecord;
+}
+
+export type AttentionPriority = 'critical' | 'review' | 'info';
+
+export type AttentionSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export type AttentionSourceType =
+  | 'alert'
+  | 'thesis'
+  | 'scenario'
+  | 'run'
+  | 'provider'
+  | 'brief'
+  | 'watchlist';
+
+export interface AttentionBadgeResponse {
+  label: string;
+  value: string;
+  tone: string;
+}
+
+export interface AttentionActionResponse {
+  label: string;
+  href: string;
+  entity_type: string;
+  entity_id: string | null;
+}
+
+export interface AttentionItemResponse {
+  id: string;
+  workspace_id: string;
+  priority: AttentionPriority;
+  severity: AttentionSeverity;
+  score: number;
+  source_type: AttentionSourceType;
+  source: string;
+  source_id: string | null;
+  symbol: string | null;
+  title: string;
+  summary: string;
+  status: string;
+  created_at: string | null;
+  age_minutes: number | null;
+  badges: AttentionBadgeResponse[];
+  action: AttentionActionResponse;
+  payload: JsonRecord;
+}
+
+export interface AttentionQueueResponse {
+  priority: AttentionPriority;
+  label: string;
+  items: AttentionItemResponse[];
+}
+
+export interface NotificationResponse {
+  id: string;
+  type: AttentionSourceType;
+  status: string;
+  priority: AttentionPriority;
+  source: string;
+  source_id: string | null;
+  symbol: string | null;
+  title: string;
+  message: string;
+  created_at: string | null;
+  read_at: string | null;
+  action: AttentionActionResponse;
+  badges: AttentionBadgeResponse[];
+}
+
+export interface WorkbenchAttentionResponse {
+  workspace_id: string;
+  generated_at: string;
+  item_count: number;
+  unresolved_count: number;
+  latest_brief: BriefResponse | null;
+  brief_actions: AttentionItemResponse[];
+  queues: AttentionQueueResponse[];
+  items: AttentionItemResponse[];
+  notifications: NotificationResponse[];
 }
 
 export interface JournalRunWorkspaceResponse {
@@ -675,7 +763,7 @@ const STAGE_TIMING_DEFINITIONS: readonly StageTimingDefinition[] = [
     key: 'thesis',
     label: 'Trade Thesis',
     aliases: ['thesis', 'trade thesis', 'trade_thesis', 'thesis.generated'],
-    completedEventTypes: ['thesis.generated', 'trade_thesis_saved'],
+    completedEventTypes: ['thesis.generated'],
   },
 ];
 

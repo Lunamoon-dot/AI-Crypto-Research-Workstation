@@ -66,7 +66,10 @@ def test_completed_event_is_logged_after_thesis_and_journal_completion(monkeypat
         "2026-05-16",
     )
 
+    assert timeline.index("agent_node_started") < timeline.index("build_thesis")
     assert timeline.index("build_thesis") < timeline.index("complete_journal")
+    assert timeline.index("thesis_generated") < timeline.index("complete_journal")
+    assert timeline.index("agent_node_completed") < timeline.index("complete_journal")
     assert timeline.index("complete_journal") < timeline.index("research_run_completed")
 
 
@@ -88,4 +91,7 @@ def test_completed_event_is_not_logged_when_thesis_build_fails(monkeypatch):
         ResearchRunOrchestrator().run_graph(host, "BTC/USDT", "2026-05-16")
 
     assert "build_thesis" in timeline
+    assert "agent_node_failed" in timeline
+    assert "thesis_generated" not in timeline
+    assert "agent_node_completed" not in timeline
     assert "research_run_completed" not in timeline

@@ -192,6 +192,15 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
     return this.journal.removeWatchlistItem(id, itemId, workspaceId);
   }
 
+  async remove(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    return this.journal.removeWatchlist(id, workspaceId);
+  }
+
   async check(
     id: string,
     dto: CheckWatchlistDto,
@@ -470,16 +479,20 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
   ): Promise<JsonRecord[]> {
     const alerts: JsonRecord[] = [];
     const direction = stringValue(thesis.direction, 'long').toLowerCase();
-    const invalidation = firstLevel(
-      firstString(
-        thesis.invalidation_level,
-        thesis.invalidation,
-        recordValue(thesis.structured_summary).invalidation,
-      ),
+    const invalidationText = firstString(
+      thesis.invalidation_level,
+      thesis.invalidation,
+      recordValue(thesis.structured_summary).invalidation,
     );
+    const invalidation = firstLevel(invalidationText);
     if (
       invalidation !== null &&
-      isInvalidationTriggered(direction, currentPrice, invalidation)
+      isInvalidationTriggered(
+        direction,
+        currentPrice,
+        invalidation,
+        invalidationText,
+      )
     ) {
       const alert = await this.createAlertOnce({
         alertType: 'thesis_invalidated',
@@ -782,7 +795,15 @@ function isInvalidationTriggered(
   direction: string,
   currentPrice: number,
   invalidationLevel: number,
+  sourceText = '',
 ): boolean {
+  const crossingDirection = crossingDirectionFromText(sourceText);
+  if (crossingDirection === 'above') {
+    return currentPrice >= invalidationLevel;
+  }
+  if (crossingDirection === 'below') {
+    return currentPrice <= invalidationLevel;
+  }
   return direction === 'short'
     ? currentPrice >= invalidationLevel
     : currentPrice <= invalidationLevel;
@@ -800,4 +821,52 @@ function isTargetTriggered(
 
 function formatLevel(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : String(value);
+}
+
+type CrossingDirection = 'above' | 'below';
+
+const ABOVE_CUE =
+  /\b(?:above|over|reclaim(?:s|ed|ing)?|exceed(?:s|ed|ing)?|break(?:s|ing)?\s+above|greater\s+than|cross(?:es|ed|ing)?\s+above)\b|>/gi;
+const BELOW_CUE =
+  /\b(?:below|under|lose|loses|lost|break(?:s|ing)?\s+below|drop(?:s|ped|ping)?\s+below|fall(?:s|ing)?\s+below|less\s+than|cross(?:es|ed|ing)?\s+below)\b|</gi;
+
+function crossingDirectionFromText(text: string): CrossingDirection | null {
+  const numericMatch = text.match(/[-+]?\d/);
+  if (!numericMatch || numericMatch.index === undefined) {
+    return null;
+  }
+  const start = Math.max(0, numericMatch.index - 90);
+  const end = Math.min(text.length, numericMatch.index + 90);
+  const context = text.slice(start, end);
+  const numericOffset = numericMatch.index - start;
+  const aboveDistance = nearestCueDistance(context, ABOVE_CUE, numericOffset);
+  const belowDistance = nearestCueDistance(context, BELOW_CUE, numericOffset);
+
+  if (aboveDistance === null && belowDistance === null) {
+    return null;
+  }
+  if (belowDistance === null) {
+    return 'above';
+  }
+  if (aboveDistance === null) {
+    return 'below';
+  }
+  return aboveDistance <= belowDistance ? 'above' : 'below';
+}
+
+function nearestCueDistance(
+  text: string,
+  pattern: RegExp,
+  offset: number,
+): number | null {
+  let nearest: number | null = null;
+  pattern.lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index === undefined) {
+      continue;
+    }
+    const distance = Math.abs(match.index - offset);
+    nearest = nearest === null ? distance : Math.min(nearest, distance);
+  }
+  return nearest;
 }

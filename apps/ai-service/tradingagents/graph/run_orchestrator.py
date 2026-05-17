@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import nullcontext
 from typing import Any
 
@@ -28,6 +29,10 @@ from .config_hash import compute_config_hash
 from .thesis_builder import parse_structured_summary_payload
 
 logger = logging.getLogger(__name__)
+
+
+def _log_value(value: Any) -> Any:
+    return getattr(value, "value", value)
 
 
 def run_quality_payload(run: ResearchRun | None) -> dict[str, Any]:
@@ -353,7 +358,65 @@ class ResearchRunOrchestrator:
 
         host.current_scenario_plan = final_state.get("scenario_plan", "")
         if host.current_trade_thesis is None:
-            host.current_trade_thesis = host._build_trade_thesis(final_state)
+            thesis_started_at = time.perf_counter()
+            run = getattr(host, "current_research_run", None)
+            log_event(
+                logger,
+                "agent_node_started",
+                run_id=getattr(run, "id", None),
+                decision_id=getattr(run, "decision_id", None),
+                status="running",
+                stage="thesis",
+                graph_node="Trade Thesis",
+            )
+            try:
+                host.current_trade_thesis = host._build_trade_thesis(final_state)
+                thesis = host.current_trade_thesis
+                log_event(
+                    logger,
+                    "thesis_generated",
+                    run_id=getattr(run, "id", None),
+                    decision_id=getattr(run, "decision_id", None),
+                    status="generated",
+                    stage="thesis",
+                    graph_node="Trade Thesis",
+                    thesis_id=getattr(thesis, "id", None),
+                    thesis_direction=_log_value(getattr(thesis, "direction", None)),
+                    confidence=getattr(thesis, "confidence", None),
+                )
+                log_event(
+                    logger,
+                    "agent_node_completed",
+                    run_id=getattr(run, "id", None),
+                    decision_id=getattr(run, "decision_id", None),
+                    status="completed",
+                    stage="thesis",
+                    graph_node="Trade Thesis",
+                    thesis_id=getattr(thesis, "id", None),
+                    duration_ms=round(
+                        (time.perf_counter() - thesis_started_at) * 1000,
+                        2,
+                    ),
+                    output_keys=["trade_thesis"],
+                )
+            except Exception as exc:
+                log_event(
+                    logger,
+                    "agent_node_failed",
+                    level=logging.ERROR,
+                    run_id=getattr(run, "id", None),
+                    decision_id=getattr(run, "decision_id", None),
+                    status="failed",
+                    stage="thesis",
+                    graph_node="Trade Thesis",
+                    duration_ms=round(
+                        (time.perf_counter() - thesis_started_at) * 1000,
+                        2,
+                    ),
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:500],
+                )
+                raise
 
         host._complete_journal_run()
         log_event(

@@ -127,6 +127,7 @@ export interface JournalRepository {
     input: { name?: string; enabled?: boolean },
     workspaceId: string,
   ): Promise<JsonRecord>;
+  removeWatchlist(id: string, workspaceId: string): Promise<JsonRecord>;
   removeWatchlistItem(
     watchlistId: string,
     itemId: string,

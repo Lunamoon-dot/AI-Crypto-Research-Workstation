@@ -346,6 +346,15 @@ export const openApiDocument = {
         requestBody: jsonRequest('UpdateWatchlistRequest'),
         responses: jsonResponse('Updated watchlist.', 'WatchlistResponse'),
       },
+      delete: {
+        operationId: 'removeWatchlist',
+        tags: ['watchlists'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Removed watchlist and its tracks.',
+          'RemoveWatchlistResponse',
+        ),
+      },
     },
     '/watchlists/{id}/items': {
       get: {
@@ -461,6 +470,17 @@ export const openApiDocument = {
           'Manual alert scheduler run result.',
           'WatchlistPollResponse',
           '201',
+        ),
+      },
+    },
+    '/workbench/attention': {
+      get: {
+        operationId: 'getWorkbenchAttention',
+        tags: ['workbench'],
+        parameters: [limitParameter(10, 10)],
+        responses: jsonResponse(
+          'Prioritized workbench attention queue for the active workspace.',
+          'WorkbenchAttentionResponse',
         ),
       },
     },
@@ -1422,6 +1442,17 @@ export const openApiDocument = {
           removed: { type: 'boolean' },
         },
       },
+      RemoveWatchlistResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'name', 'removed', 'removed_item_count'],
+        properties: {
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          name: { type: 'string' },
+          removed: { type: 'boolean' },
+          removed_item_count: { type: 'integer' },
+        },
+      },
       BriefAssetSummaryResponse: {
         type: 'object',
         required: ['symbol', 'current_price', 'market_regime', 'trend_direction', 'volatility_regime', 'source', 'source_timestamp', 'summary', 'change_from_previous'],
@@ -1507,6 +1538,112 @@ export const openApiDocument = {
           read_at: { type: ['string', 'null'] },
           message: { type: 'string' },
           payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      AttentionBadgeResponse: {
+        type: 'object',
+        required: ['label', 'value', 'tone'],
+        properties: {
+          label: { type: 'string' },
+          value: { type: 'string' },
+          tone: { type: 'string' },
+        },
+      },
+      AttentionActionResponse: {
+        type: 'object',
+        required: ['label', 'href', 'entity_type', 'entity_id'],
+        properties: {
+          label: { type: 'string' },
+          href: { type: 'string' },
+          entity_type: { type: 'string' },
+          entity_id: { type: ['string', 'null'] },
+        },
+      },
+      AttentionItemResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'priority', 'severity', 'score', 'source_type', 'source', 'source_id', 'symbol', 'title', 'summary', 'status', 'created_at', 'age_minutes', 'badges', 'action', 'payload'],
+        properties: {
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          priority: { type: 'string', enum: ['critical', 'review', 'info'] },
+          severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
+          score: { type: 'number' },
+          source_type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider', 'brief', 'watchlist'] },
+          source: { type: 'string' },
+          source_id: { type: ['string', 'null'] },
+          symbol: { type: ['string', 'null'] },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          status: { type: 'string' },
+          created_at: { type: ['string', 'null'] },
+          age_minutes: { type: ['number', 'null'] },
+          badges: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionBadgeResponse' },
+          },
+          action: { $ref: '#/components/schemas/AttentionActionResponse' },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      AttentionQueueResponse: {
+        type: 'object',
+        required: ['priority', 'label', 'items'],
+        properties: {
+          priority: { type: 'string', enum: ['critical', 'review', 'info'] },
+          label: { type: 'string' },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionItemResponse' },
+          },
+        },
+      },
+      NotificationResponse: {
+        type: 'object',
+        required: ['id', 'type', 'status', 'priority', 'source', 'source_id', 'symbol', 'title', 'message', 'created_at', 'read_at', 'action', 'badges'],
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider', 'brief', 'watchlist'] },
+          status: { type: 'string' },
+          priority: { type: 'string', enum: ['critical', 'review', 'info'] },
+          source: { type: 'string' },
+          source_id: { type: ['string', 'null'] },
+          symbol: { type: ['string', 'null'] },
+          title: { type: 'string' },
+          message: { type: 'string' },
+          created_at: { type: ['string', 'null'] },
+          read_at: { type: ['string', 'null'] },
+          action: { $ref: '#/components/schemas/AttentionActionResponse' },
+          badges: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionBadgeResponse' },
+          },
+        },
+      },
+      WorkbenchAttentionResponse: {
+        type: 'object',
+        required: ['workspace_id', 'generated_at', 'item_count', 'unresolved_count', 'latest_brief', 'brief_actions', 'queues', 'items', 'notifications'],
+        properties: {
+          workspace_id: { type: 'string' },
+          generated_at: { type: 'string' },
+          item_count: { type: 'integer' },
+          unresolved_count: { type: 'integer' },
+          latest_brief: { anyOf: [{ $ref: '#/components/schemas/BriefResponse' }, { type: 'null' }] },
+          brief_actions: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionItemResponse' },
+          },
+          queues: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionQueueResponse' },
+          },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AttentionItemResponse' },
+          },
+          notifications: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/NotificationResponse' },
+          },
         },
       },
       WatchlistPollResponse: {

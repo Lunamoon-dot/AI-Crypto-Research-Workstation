@@ -501,13 +501,17 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                   {marketTypeSpecificThesisNote(workspace.thesis.summary, marketType)}
                 </p>
               ) : null}
-              <div className="row small">
-                <span>Invalidation: {workspace.thesis.invalidation_level || 'n/a'}</span>
-                <ConfidenceBadge value={workspace.thesis.confidence} />
-                <DataQualityBadge
-                  label={workspace.thesis.summary.data_quality_label}
-                  value={workspace.thesis.summary.data_quality}
-                />
+              <div className="thesis-result-meta small">
+                <span className="thesis-result-invalidation">
+                  Invalidation: {workspace.thesis.invalidation_level || 'n/a'}
+                </span>
+                <div className="thesis-result-badges">
+                  <ConfidenceBadge value={workspace.thesis.confidence} />
+                  <DataQualityBadge
+                    label={workspace.thesis.summary.data_quality_label}
+                    value={workspace.thesis.summary.data_quality}
+                  />
+                </div>
               </div>
               <div className="top-strip-meta">
                 <Link className="button primary" to={routes.thesis(workspace.thesis.id ?? '')}>
@@ -867,7 +871,7 @@ function resolvePipelineStageState({
   if (
     stageHasReadyOpinion(stage.key, opinionCount) ||
     debateReady ||
-    hasStageReadyArtifact(stage.key, signal, scenarioCount, thesisReady)
+    hasStageReadyArtifact(stage.key, signal, scenarioCount)
   ) {
     return {
       label: 'completed',
@@ -900,6 +904,14 @@ function resolvePipelineStageState({
       label: 'running',
       badgeClass: 'badge primary',
       detail: 'Running',
+    };
+  }
+
+  if (stage.key === 'thesis' && thesisReady) {
+    return {
+      label: 'missing',
+      badgeClass: 'badge warning',
+      detail: 'Persisted without generation event',
     };
   }
 
@@ -1077,7 +1089,7 @@ function completedEventTypesForStage(stageKey: string): string[] {
     return ['scenario.plan.recorded', 'scenarios_saved'];
   }
   if (stageKey === 'thesis') {
-    return ['thesis.generated', 'trade_thesis_saved'];
+    return ['thesis.generated'];
   }
   return [];
 }
@@ -1109,16 +1121,12 @@ function hasStageReadyArtifact(
   stageKey: string,
   signal: SignalSnapshotResponse | null,
   scenarioCount: number,
-  thesisReady: boolean,
 ): boolean {
   if (stageKey === 'quant') {
     return Boolean(signal);
   }
   if (stageKey === 'scenario_planner') {
     return scenarioCount > 0;
-  }
-  if (stageKey === 'thesis') {
-    return thesisReady;
   }
   return false;
 }
@@ -1131,7 +1139,7 @@ function readyDetailForStage(stageKey: string): string {
     return 'Scenarios persisted';
   }
   if (stageKey === 'thesis') {
-    return 'Thesis persisted';
+    return 'Thesis generated';
   }
   if (stageKey === 'spot_checks') {
     return 'Spot checks applied';
@@ -1190,7 +1198,10 @@ function latestCompletedStageEvent(
     );
   }
   if (stage.key === 'thesis') {
-    return latestEventByType(events, ['thesis.generated', 'trade_thesis_saved']);
+    return (
+      latestEventByType(events, ['thesis.generated']) ??
+      latestMatchingEvent(events, stage, 'agent.node.completed')
+    );
   }
   return latestMatchingEvent(events, stage, 'agent.node.completed');
 }

@@ -19,7 +19,7 @@ const navItems = [
   { href: routes.workbench, label: 'Workbench', icon: Radar },
   { href: routes.researchNew, label: 'Research', icon: FlaskConical },
   { href: routes.researchHistory, label: 'History', icon: History },
-  { href: routes.performance, label: 'Performance', icon: BarChart3 },
+  { href: routes.performance, label: 'Reliability', icon: BarChart3 },
   { href: routes.compare, label: 'Compare', icon: GitCompare },
   { href: routes.theses, label: 'Theses', icon: ScrollText },
   { href: routes.signals, label: 'Signals', icon: Signal },

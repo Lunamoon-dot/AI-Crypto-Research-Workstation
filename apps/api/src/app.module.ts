@@ -16,6 +16,7 @@ import { SystemController } from './system.controller';
 import { ThesesModule } from './theses/theses.module';
 import { UsersModule } from './users/users.module';
 import { WatchlistsModule } from './watchlists/watchlists.module';
+import { WorkbenchModule } from './workbench/workbench.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ComparisonsModule,
     ScenariosModule,
     OperationsModule,
+    WorkbenchModule,
   ],
   controllers: [JobsController, SystemController],
 })

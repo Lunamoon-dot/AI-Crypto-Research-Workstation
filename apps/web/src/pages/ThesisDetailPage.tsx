@@ -231,9 +231,6 @@ export function ThesisDetailPage() {
                   <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
                 </ThesisFact>
               ) : null}
-              <ThesisFact label="Run" wide>
-                <IdChip value={thesis.research_run_id} />
-              </ThesisFact>
             </div>
 
             <section className="thesis-boundary">
@@ -242,6 +239,12 @@ export function ThesisDetailPage() {
             </section>
 
             <div className="top-strip-meta thesis-brief-actions">
+              {thesis.research_run_id ? (
+                <span className="thesis-run-inline">
+                  <span>Run</span>
+                  <IdChip value={thesis.research_run_id} />
+                </span>
+              ) : null}
               {thesis.research_run_id ? (
                 <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
                   Open run
