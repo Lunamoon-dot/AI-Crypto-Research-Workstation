@@ -1,8 +1,29 @@
 import { Link, useParams } from 'react-router-dom';
-import { FormEvent, type ReactNode, useState } from 'react';
+import { FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Download, FileText, GitBranch, ShieldAlert, Target } from 'lucide-react';
+import {
+  Activity,
+  Brain,
+  CheckCircle2,
+  Download,
+  FileText,
+  GitBranch,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+} from 'lucide-react';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
+import {
+  getThesisMonitorPlan,
+  listThesisPulseMemos,
+  listThesisPulses,
+  runThesisPulseMemo,
+  runThesisPulse,
+  updateThesisMonitorPlan,
+} from '@/services/thesis-monitoring';
 import {
   getThesis,
   getThesisScenarios,
@@ -27,7 +48,15 @@ import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
-import type { JsonRecord, ScenarioResponse } from '@/types';
+import type {
+  JsonRecord,
+  PatchThesisMonitorPlanRequest,
+  RunThesisPulseMemoResponse,
+  ScenarioResponse,
+  ThesisMonitorPlanResponse,
+  ThesisPulseMemoResponse,
+  ThesisPulseResponse,
+} from '@/types';
 
 export function ThesisDetailPage() {
   const { id } = useParams();
@@ -41,6 +70,18 @@ export function ThesisDetailPage() {
   const scenariosQuery = useQuery({
     queryKey: queryKeys.thesisScenarios(thesisId),
     queryFn: () => getThesisScenarios(thesisId, auth),
+  });
+  const monitorPlanQuery = useQuery({
+    queryKey: queryKeys.thesisMonitorPlan(thesisId),
+    queryFn: () => getThesisMonitorPlan(thesisId, auth),
+  });
+  const pulsesQuery = useQuery({
+    queryKey: queryKeys.thesisPulses(thesisId),
+    queryFn: () => listThesisPulses(thesisId, auth, { limit: 240 }),
+  });
+  const memoQuery = useQuery({
+    queryKey: queryKeys.thesisPulseMemos(thesisId),
+    queryFn: () => listThesisPulseMemos(thesisId, auth, { limit: 50 }),
   });
 
   const [decisionAction, setDecisionAction] = useState('watched');
@@ -94,6 +135,40 @@ export function ThesisDetailPage() {
       setReviewMfe('');
       setReviewMae('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesis(thesisId) });
+    },
+  });
+  const runPulseMutation = useMutation({
+    mutationFn: () => runThesisPulse(thesisId, {}, auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisMonitorPlan(thesisId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisPulses(thesisId),
+      });
+    },
+  });
+  const runMemoMutation = useMutation({
+    mutationFn: () => runThesisPulseMemo(thesisId, {}, auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisMonitorPlan(thesisId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisPulseMemos(thesisId),
+      });
+    },
+  });
+  const updateMonitorPlanMutation = useMutation({
+    mutationFn: (request: PatchThesisMonitorPlanRequest) =>
+      updateThesisMonitorPlan(thesisId, request, auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisMonitorPlan(thesisId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisPulses(thesisId),
+      });
     },
   });
 
@@ -291,6 +366,44 @@ export function ThesisDetailPage() {
               <JsonView value={stabilityGuard} />
             </div>
           ) : null}
+        </Panel>
+
+        <Panel
+          className="span-12"
+          title="Thesis pulse monitor"
+          description="Manual deterministic monitoring against baseline, invalidation, and targets."
+        >
+          <ThesisMonitorSection
+            error={
+              monitorPlanQuery.error ??
+              pulsesQuery.error ??
+              memoQuery.error ??
+              runPulseMutation.error ??
+              runMemoMutation.error ??
+              updateMonitorPlanMutation.error
+            }
+            isError={
+              monitorPlanQuery.isError ||
+              pulsesQuery.isError ||
+              memoQuery.isError ||
+              runPulseMutation.isError ||
+              runMemoMutation.isError ||
+              updateMonitorPlanMutation.isError
+            }
+            isLoading={
+              monitorPlanQuery.isLoading || pulsesQuery.isLoading || memoQuery.isLoading
+            }
+            isRunningMemo={runMemoMutation.isPending}
+            isRunning={runPulseMutation.isPending}
+            isSavingPlan={updateMonitorPlanMutation.isPending}
+            memoRunResult={runMemoMutation.data ?? null}
+            memos={memoQuery.data ?? []}
+            onRunMemo={() => runMemoMutation.mutate()}
+            onRunPulse={() => runPulseMutation.mutate()}
+            onSavePlan={(request) => updateMonitorPlanMutation.mutateAsync(request)}
+            plan={monitorPlanQuery.data ?? null}
+            pulses={pulsesQuery.data ?? []}
+          />
         </Panel>
 
         <Panel className="span-4" title="Scenario radar" description="Conditional outcomes">
@@ -519,6 +632,897 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+type MonitorPlanFormState = {
+  status: string;
+  baselinePrice: string;
+  baselinePriceSource: string;
+  entryLow: string;
+  entryHigh: string;
+  invalidationLevel: string;
+  invalidationDirection: 'below' | 'above';
+  targetsText: string;
+  scenarioTriggersText: string;
+  priceIntervalMinutes: string;
+  watchDistancePct: string;
+  reviewDistancePct: string;
+  consecutiveInvalidationToRerun: string;
+  runMemoOnReview: boolean;
+  runMemoOnRerunFull: boolean;
+  skipMemoIfNoNewPulses: boolean;
+};
+
+function ThesisMonitorSection({
+  error,
+  isError,
+  isLoading,
+  isRunningMemo,
+  isRunning,
+  isSavingPlan,
+  memoRunResult,
+  memos,
+  onRunMemo,
+  onRunPulse,
+  onSavePlan,
+  plan,
+  pulses,
+}: {
+  error: unknown;
+  isError: boolean;
+  isLoading: boolean;
+  isRunningMemo: boolean;
+  isRunning: boolean;
+  isSavingPlan: boolean;
+  memoRunResult: RunThesisPulseMemoResponse | null;
+  memos: ThesisPulseMemoResponse[];
+  onRunMemo: () => void;
+  onRunPulse: () => void;
+  onSavePlan: (request: PatchThesisMonitorPlanRequest) => Promise<unknown>;
+  plan: ThesisMonitorPlanResponse | null;
+  pulses: ThesisPulseResponse[];
+}) {
+  const latestPulse = pulses.at(-1) ?? null;
+  const sortedMemos = [...memos].sort((a, b) =>
+    String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')),
+  );
+  const latestMemo = sortedMemos[0] ?? null;
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [form, setForm] = useState<MonitorPlanFormState>(() =>
+    monitorPlanToForm(plan),
+  );
+
+  useEffect(() => {
+    setForm(monitorPlanToForm(plan));
+    setFormError('');
+  }, [plan]);
+
+  if (isLoading) {
+    return <LoadingState label="Loading monitor..." />;
+  }
+
+  async function submitPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!plan) {
+      return;
+    }
+    const parsed = monitorPlanFormToRequest(form);
+    if ('error' in parsed) {
+      setFormError(parsed.error);
+      return;
+    }
+    setFormError('');
+    await onSavePlan(parsed.request);
+    setIsEditingPlan(false);
+  }
+
+  return (
+    <div className="thesis-monitor">
+      <div className="thesis-monitor-summary">
+        <MonitorMetric
+          icon={<Activity aria-hidden size={15} />}
+          label="Plan"
+          tone={monitorStatusTone(plan?.status)}
+          value={plan?.status ?? 'missing'}
+        />
+        <MonitorMetric
+          icon={<ShieldAlert aria-hidden size={15} />}
+          label="Latest"
+          tone={monitorStatusTone(plan?.latest_status ?? latestPulse?.status)}
+          value={plan?.latest_status ?? latestPulse?.status ?? 'no pulse'}
+        />
+        <MonitorMetric
+          icon={<Target aria-hidden size={15} />}
+          label="Price"
+          value={numberLabel(plan?.latest_price ?? latestPulse?.current_price)}
+        />
+        <MonitorMetric
+          icon={<GitBranch aria-hidden size={15} />}
+          label="Action"
+          tone={monitorActionTone(latestPulse?.suggested_action)}
+          value={latestPulse?.suggested_action ?? 'none'}
+        />
+      </div>
+
+      <div className="thesis-monitor-toolbar">
+        <button
+          className="button primary"
+          disabled={isRunning || !plan || plan.status !== 'active'}
+          onClick={onRunPulse}
+          type="button"
+        >
+          <RefreshCw aria-hidden size={15} />
+          {isRunning ? 'Running pulse' : 'Run pulse now'}
+        </button>
+        <button
+          className="button"
+          disabled={isRunningMemo || !plan || plan.status !== 'active'}
+          onClick={onRunMemo}
+          type="button"
+        >
+          <Brain aria-hidden size={15} />
+          {isRunningMemo ? 'Running memo' : 'Run memo now'}
+        </button>
+        <button
+          className="button"
+          disabled={!plan || isSavingPlan}
+          onClick={() => setIsEditingPlan((value) => !value)}
+          type="button"
+        >
+          <SlidersHorizontal aria-hidden size={15} />
+          {isEditingPlan ? 'Close editor' : 'Edit plan'}
+        </button>
+        {plan?.missing_fields.length ? (
+          <div className="top-strip-meta">
+            {plan.missing_fields.map((field) => (
+              <span className="badge warning" key={field}>
+                {field}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {memoRunResult?.skipped ? (
+          <span className="badge warning">
+            Memo skipped: {memoRunResult.skip_reason ?? 'no new pulses'}
+          </span>
+        ) : null}
+        {memoRunResult && !memoRunResult.skipped && !memoRunResult.created ? (
+          <span className="badge constructive">Memo already current</span>
+        ) : null}
+        {isError ? <span className="badge risk">{errorMessage(error)}</span> : null}
+      </div>
+
+      {plan && isEditingPlan ? (
+        <form className="monitor-plan-editor" onSubmit={submitPlan}>
+          <div className="monitor-plan-editor-header">
+            <div>
+              <strong>Monitor plan editor</strong>
+              <p>
+                Changes update the thesis monitoring contract used by manual
+                pulses.
+              </p>
+            </div>
+            <span className={`badge ${monitorStatusTone(plan.status)}`}>
+              {plan.status}
+            </span>
+          </div>
+          <div className="form-grid">
+            <label className="label">
+              Status
+              <select
+                className="select"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, status: event.target.value }))
+                }
+                value={form.status}
+              >
+                <option value="active">active</option>
+                <option value="draft">draft</option>
+                <option value="paused">paused</option>
+                <option value="invalid">invalid</option>
+              </select>
+            </label>
+            <label className="label">
+              Baseline source
+              <input
+                className="input"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    baselinePriceSource: event.target.value,
+                  }))
+                }
+                value={form.baselinePriceSource}
+              />
+            </label>
+            <NumberInput
+              label="Baseline price"
+              onChange={(value) =>
+                setForm((current) => ({ ...current, baselinePrice: value }))
+              }
+              value={form.baselinePrice}
+            />
+            <NumberInput
+              label="Entry low"
+              onChange={(value) =>
+                setForm((current) => ({ ...current, entryLow: value }))
+              }
+              value={form.entryLow}
+            />
+            <NumberInput
+              label="Entry high"
+              onChange={(value) =>
+                setForm((current) => ({ ...current, entryHigh: value }))
+              }
+              value={form.entryHigh}
+            />
+            <NumberInput
+              label="Invalidation level"
+              onChange={(value) =>
+                setForm((current) => ({ ...current, invalidationLevel: value }))
+              }
+              value={form.invalidationLevel}
+            />
+            <label className="label">
+              Invalidation direction
+              <select
+                className="select"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    invalidationDirection: event.target.value as 'below' | 'above',
+                  }))
+                }
+                value={form.invalidationDirection}
+              >
+                <option value="below">below</option>
+                <option value="above">above</option>
+              </select>
+            </label>
+            <NumberInput
+              label="Pulse bucket minutes"
+              min={1}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, priceIntervalMinutes: value }))
+              }
+              step={1}
+              value={form.priceIntervalMinutes}
+            />
+            <NumberInput
+              label="Watch band %"
+              min={0.25}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, watchDistancePct: value }))
+              }
+              value={form.watchDistancePct}
+            />
+            <NumberInput
+              label="Review band %"
+              min={0.1}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, reviewDistancePct: value }))
+              }
+              value={form.reviewDistancePct}
+            />
+            <NumberInput
+              label="Invalidations to rerun"
+              min={1}
+              onChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  consecutiveInvalidationToRerun: value,
+                }))
+              }
+              step={1}
+              value={form.consecutiveInvalidationToRerun}
+            />
+            <label className="label">
+              Run memo on review
+              <input
+                checked={form.runMemoOnReview}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    runMemoOnReview: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+            </label>
+            <label className="label">
+              Run memo on rerun full
+              <input
+                checked={form.runMemoOnRerunFull}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    runMemoOnRerunFull: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+            </label>
+            <label className="label">
+              Skip memo if no new pulses
+              <input
+                checked={form.skipMemoIfNoNewPulses}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    skipMemoIfNoNewPulses: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+            </label>
+          </div>
+          <div className="grid two">
+            <label className="label">
+              Targets
+              <textarea
+                className="textarea compact"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    targetsText: event.target.value,
+                  }))
+                }
+                placeholder={'target_1: 2600\ntarget_2: 3000'}
+                value={form.targetsText}
+              />
+            </label>
+            <label className="label">
+              Scenario triggers
+              <textarea
+                className="textarea compact"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    scenarioTriggersText: event.target.value,
+                  }))
+                }
+                placeholder={'funding spike\nrange breakdown'}
+                value={form.scenarioTriggersText}
+              />
+            </label>
+          </div>
+          <div className="thesis-monitor-toolbar">
+            <button className="button primary" disabled={isSavingPlan} type="submit">
+              <Save aria-hidden size={15} />
+              {isSavingPlan ? 'Saving plan' : 'Save plan'}
+            </button>
+            <button
+              className="button"
+              disabled={isSavingPlan}
+              onClick={() => {
+                setForm(monitorPlanToForm(plan));
+                setFormError('');
+              }}
+              type="button"
+            >
+              Reset
+            </button>
+            {formError ? <span className="badge risk">{formError}</span> : null}
+          </div>
+        </form>
+      ) : null}
+
+      {plan ? (
+        <>
+          <div className="thesis-monitor-grid">
+            <PriceToThesisChart plan={plan} pulses={pulses} />
+            <PulseTimeline pulses={pulses} />
+          </div>
+          <PulseMemoPanel latestMemo={latestMemo} memos={sortedMemos} />
+        </>
+      ) : (
+        <EmptyState label="No monitor plan is available for this thesis." />
+      )}
+    </div>
+  );
+}
+
+function NumberInput({
+  label,
+  min,
+  onChange,
+  step = 0.0001,
+  value,
+}: {
+  label: string;
+  min?: number;
+  onChange: (value: string) => void;
+  step?: number;
+  value: string;
+}) {
+  return (
+    <label className="label">
+      {label}
+      <input
+        className="input"
+        inputMode="decimal"
+        min={min}
+        onChange={(event) => onChange(event.target.value)}
+        step={step}
+        type="number"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function monitorPlanToForm(
+  plan: ThesisMonitorPlanResponse | null,
+): MonitorPlanFormState {
+  return {
+    status: plan?.status ?? 'draft',
+    baselinePrice: formNumber(plan?.baseline_price),
+    baselinePriceSource: plan?.baseline_price_source || 'manual',
+    entryLow: formNumber(plan?.entry_low),
+    entryHigh: formNumber(plan?.entry_high),
+    invalidationLevel: formNumber(plan?.invalidation_level),
+    invalidationDirection:
+      plan?.invalidation_direction === 'above' ? 'above' : 'below',
+    targetsText:
+      plan?.targets
+        .map((target, index) => `${target.label || `target_${index + 1}`}: ${target.price}`)
+        .join('\n') ?? '',
+    scenarioTriggersText: plan?.scenario_triggers.join('\n') ?? '',
+    priceIntervalMinutes: formNumber(plan?.price_interval_minutes),
+    watchDistancePct: formNumber(plan?.watch_distance_pct),
+    reviewDistancePct: formNumber(plan?.review_distance_pct),
+    consecutiveInvalidationToRerun: formNumber(
+      plan?.consecutive_invalidation_to_rerun,
+    ),
+    runMemoOnReview: plan?.run_memo_on_review ?? true,
+    runMemoOnRerunFull: plan?.run_memo_on_rerun_full ?? true,
+    skipMemoIfNoNewPulses: plan?.skip_memo_if_no_new_pulses ?? true,
+  };
+}
+
+function monitorPlanFormToRequest(
+  form: MonitorPlanFormState,
+): { request: PatchThesisMonitorPlanRequest } | { error: string } {
+  const baselinePrice = parseNullableFormNumber(form.baselinePrice);
+  const entryLow = parseNullableFormNumber(form.entryLow);
+  const entryHigh = parseNullableFormNumber(form.entryHigh);
+  const invalidationLevel = parseNullableFormNumber(form.invalidationLevel);
+  const priceIntervalMinutes = parseRequiredFormNumber(
+    form.priceIntervalMinutes,
+    'Pulse bucket minutes',
+  );
+  const watchDistancePct = parseRequiredFormNumber(
+    form.watchDistancePct,
+    'Watch band',
+  );
+  const reviewDistancePct = parseRequiredFormNumber(
+    form.reviewDistancePct,
+    'Review band',
+  );
+  const consecutiveInvalidationToRerun = parseRequiredFormNumber(
+    form.consecutiveInvalidationToRerun,
+    'Invalidations to rerun',
+  );
+  const targets = parseMonitorTargets(form.targetsText);
+  if (baselinePrice === 'invalid') {
+    return { error: 'Baseline price must be numeric.' };
+  }
+  if (entryLow === 'invalid' || entryHigh === 'invalid') {
+    return { error: 'Entry levels must be numeric.' };
+  }
+  if (invalidationLevel === 'invalid') {
+    return { error: 'Invalidation level must be numeric.' };
+  }
+  if ('error' in priceIntervalMinutes) {
+    return priceIntervalMinutes;
+  }
+  if ('error' in watchDistancePct) {
+    return watchDistancePct;
+  }
+  if ('error' in reviewDistancePct) {
+    return reviewDistancePct;
+  }
+  if ('error' in consecutiveInvalidationToRerun) {
+    return consecutiveInvalidationToRerun;
+  }
+  if ('error' in targets) {
+    return targets;
+  }
+  return {
+    request: {
+      status: form.status,
+      baseline_price: baselinePrice,
+      baseline_price_source: form.baselinePriceSource.trim() || 'manual',
+      entry_low: entryLow,
+      entry_high: entryHigh,
+      invalidation_level: invalidationLevel,
+      invalidation_direction: form.invalidationDirection,
+      targets: targets.targets,
+      scenario_triggers: lines(form.scenarioTriggersText),
+      price_interval_minutes: priceIntervalMinutes.value,
+      watch_distance_pct: watchDistancePct.value,
+      review_distance_pct: reviewDistancePct.value,
+      consecutive_invalidation_to_rerun: consecutiveInvalidationToRerun.value,
+      run_memo_on_review: form.runMemoOnReview,
+      run_memo_on_rerun_full: form.runMemoOnRerunFull,
+      skip_memo_if_no_new_pulses: form.skipMemoIfNoNewPulses,
+    },
+  };
+}
+
+function formNumber(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? ''
+    : String(value);
+}
+
+function parseNullableFormNumber(value: string): number | null | 'invalid' {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : 'invalid';
+}
+
+function parseRequiredFormNumber(
+  value: string,
+  label: string,
+): { value: number } | { error: string } {
+  const parsed = parseNullableFormNumber(value);
+  if (parsed === null) {
+    return { error: `${label} is required.` };
+  }
+  if (parsed === 'invalid') {
+    return { error: `${label} must be numeric.` };
+  }
+  return { value: parsed };
+}
+
+function parseMonitorTargets(
+  value: string,
+): { targets: Array<{ label: string; price: number }> } | { error: string } {
+  const targets: Array<{ label: string; price: number }> = [];
+  for (const [index, rawLine] of lines(value).entries()) {
+    const [labelRaw, priceRaw] = rawLine.includes(':')
+      ? rawLine.split(':', 2)
+      : [`target_${index + 1}`, rawLine];
+    const price = Number(priceRaw.trim());
+    if (!Number.isFinite(price)) {
+      return { error: `Target ${index + 1} must have a numeric price.` };
+    }
+    targets.push({
+      label: labelRaw.trim() || `target_${index + 1}`,
+      price,
+    });
+  }
+  return { targets };
+}
+
+function lines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function MonitorMetric({
+  icon,
+  label,
+  tone = 'primary',
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  tone?: 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
+  value: ReactNode;
+}) {
+  return (
+    <div className="thesis-monitor-metric">
+      <span>
+        {icon}
+        {label}
+      </span>
+      <strong className={`tone-${tone}`}>{value}</strong>
+    </div>
+  );
+}
+
+function PriceToThesisChart({
+  plan,
+  pulses,
+}: {
+  plan: ThesisMonitorPlanResponse;
+  pulses: ThesisPulseResponse[];
+}) {
+  const prices = pulses
+    .map((pulse) => pulse.current_price)
+    .filter((price): price is number => price !== null);
+  const overlayValues = [
+    plan.baseline_price,
+    plan.entry_low,
+    plan.entry_high,
+    plan.invalidation_level,
+    ...plan.targets.map((target) => target.price),
+  ].filter((value): value is number => value !== null && Number.isFinite(value));
+  const values = [...prices, ...overlayValues];
+  if (values.length === 0) {
+    return <EmptyState label="No chartable monitor levels yet." />;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const padding = Math.max((max - min) * 0.16, max * 0.01, 1);
+  const yMin = min - padding;
+  const yMax = max + padding;
+  const xFor = (index: number) =>
+    pulses.length <= 1 ? 56 : 56 + (index / (pulses.length - 1)) * 572;
+  const yFor = (value: number) => 238 - ((value - yMin) / (yMax - yMin)) * 186;
+  const linePoints = pulses
+    .map((pulse, index) =>
+      pulse.current_price === null ? null : `${xFor(index)},${yFor(pulse.current_price)}`,
+    )
+    .filter((point): point is string => point !== null)
+    .join(' ');
+  const overlays = [
+    plan.baseline_price === null
+      ? null
+      : { label: 'baseline', value: plan.baseline_price, className: 'baseline' },
+    plan.entry_low === null
+      ? null
+      : { label: 'entry low', value: plan.entry_low, className: 'entry' },
+    plan.entry_high === null
+      ? null
+      : { label: 'entry high', value: plan.entry_high, className: 'entry' },
+    plan.invalidation_level === null
+      ? null
+      : {
+          label: 'invalidation',
+          value: plan.invalidation_level,
+          className: 'invalidation',
+        },
+    ...plan.targets.map((target) => ({
+      label: target.label || 'target',
+      value: target.price,
+      className: 'target',
+    })),
+  ].filter((item): item is { label: string; value: number; className: string } => item !== null);
+
+  return (
+    <div className="thesis-monitor-chart">
+      <div className="row">
+        <strong>Price-to-thesis chart</strong>
+        <span className="small muted">{pulses.length} pulse rows</span>
+      </div>
+      <svg aria-label="Price-to-thesis chart" role="img" viewBox="0 0 680 280">
+        <rect className="chart-bg" height="236" rx="8" width="636" x="22" y="22" />
+        {[0, 1, 2, 3].map((line) => {
+          const y = 52 + line * 52;
+          return <line className="chart-grid" key={line} x1="48" x2="636" y1={y} y2={y} />;
+        })}
+        {overlays.map((overlay) => {
+          const y = yFor(overlay.value);
+          return (
+            <g key={`${overlay.className}-${overlay.label}-${overlay.value}`}>
+              <line
+                className={`thesis-chart-level ${overlay.className}`}
+                x1="48"
+                x2="636"
+                y1={y}
+                y2={y}
+              />
+              <text className="thesis-chart-label" x="52" y={Math.max(34, y - 5)}>
+                {overlay.label} {numberLabel(overlay.value)}
+              </text>
+            </g>
+          );
+        })}
+        {linePoints ? <polyline className="thesis-price-line" points={linePoints} /> : null}
+        {pulses.map((pulse, index) =>
+          pulse.current_price === null ? null : (
+            <circle
+              className={`thesis-pulse-marker marker-${pulse.status}`}
+              cx={xFor(index)}
+              cy={yFor(pulse.current_price)}
+              key={pulse.id ?? `${pulse.observed_at}-${index}`}
+              r="5"
+            />
+          ),
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function PulseTimeline({ pulses }: { pulses: ThesisPulseResponse[] }) {
+  if (pulses.length === 0) {
+    return <EmptyState label="No pulses yet." />;
+  }
+  return (
+    <div className="thesis-pulse-timeline">
+      <div className="row">
+        <strong>Pulse timeline</strong>
+        <span className="small muted">latest {Math.min(pulses.length, 8)}</span>
+      </div>
+      <div className="thesis-pulse-list">
+        {pulses.slice(-8).reverse().map((pulse) => (
+          <article className="thesis-pulse-row" key={pulse.id ?? pulse.observed_at}>
+            <span className={`pulse-status-dot marker-${pulse.status}`} />
+            <div>
+              <div className="row">
+                <strong>{pulse.status}</strong>
+                <span className="small muted">{formatDateTime(pulse.observed_at)}</span>
+              </div>
+              <p>
+                {numberLabel(pulse.current_price)} · score {pulse.score} ·{' '}
+                {pulse.suggested_action}
+              </p>
+              {pulse.trigger_reasons.length ? (
+                <div className="top-strip-meta">
+                  {pulse.trigger_reasons.slice(0, 4).map((reason) => (
+                    <span className={`badge ${monitorStatusTone(pulse.status)}`} key={reason}>
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PulseMemoPanel({
+  latestMemo,
+  memos,
+}: {
+  latestMemo: ThesisPulseMemoResponse | null;
+  memos: ThesisPulseMemoResponse[];
+}) {
+  return (
+    <div className="thesis-memo-grid">
+      <section className="thesis-memo-card">
+        <div className="row">
+          <div className="row">
+            <Sparkles aria-hidden size={15} />
+            <strong>Latest memo</strong>
+          </div>
+          {latestMemo ? (
+            <span className={`badge ${monitorStatusTone(latestMemo.status)}`}>
+              {latestMemo.status}
+            </span>
+          ) : null}
+        </div>
+        {latestMemo ? (
+          <>
+            <p className="thesis-memo-summary">{latestMemo.summary}</p>
+            <div className="thesis-memo-facts">
+              <span>{latestMemo.recommended_action}</span>
+              <span>{percentLabel(latestMemo.confidence)} confidence</span>
+              <span>{latestMemo.provider}</span>
+            </div>
+            <div className="thesis-memo-sections">
+              <MemoList title="Changed" values={latestMemo.what_changed} />
+              <MemoList title="Matters" values={latestMemo.why_it_matters} />
+              <MemoList title="Watch" values={latestMemo.what_to_watch_next} />
+            </div>
+            {latestMemo.referenced_pulse_ids.length ? (
+              <div className="top-strip-meta">
+                {latestMemo.referenced_pulse_ids.slice(0, 6).map((pulseId) => (
+                  <span className="badge primary" key={pulseId}>
+                    {pulseId}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState label="No memo has been generated yet." />
+        )}
+      </section>
+
+      <section className="thesis-memo-card">
+        <div className="row">
+          <div className="row">
+            <FileText aria-hidden size={15} />
+            <strong>Memo history</strong>
+          </div>
+          <span className="small muted">{memos.length} memos</span>
+        </div>
+        {memos.length === 0 ? (
+          <EmptyState label="Memo history is empty." />
+        ) : (
+          <div className="thesis-memo-history">
+            {memos.slice(0, 6).map((memo) => (
+              <article className="thesis-memo-row" key={memo.id ?? memo.created_at}>
+                <div className="row">
+                  <strong>{memo.status}</strong>
+                  <span className="small muted">{formatDateTime(memo.created_at)}</span>
+                </div>
+                <p>{memo.summary}</p>
+                <div className="top-strip-meta">
+                  <span className={`badge ${monitorActionTone(memo.recommended_action)}`}>
+                    {memo.recommended_action}
+                  </span>
+                  {memo.rerun_full_recommended ? (
+                    <span className="badge risk">rerun recommended</span>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MemoList({ title, values }: { title: string; values: string[] }) {
+  return (
+    <div className="thesis-memo-section">
+      <span>{title}</span>
+      {values.length ? (
+        <ul>
+          {values.slice(0, 4).map((value) => (
+            <li key={value}>{value}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>n/a</p>
+      )}
+    </div>
+  );
+}
+
+function numberLabel(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+  return Intl.NumberFormat(undefined, {
+    maximumFractionDigits: value >= 100 ? 0 : 4,
+  }).format(value);
+}
+
+function percentLabel(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function monitorStatusTone(
+  status: string | null | undefined,
+): 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded' {
+  if (status === 'active' || status === 'calm') {
+    return 'constructive';
+  }
+  if (status === 'watch' || status === 'draft') {
+    return 'warning';
+  }
+  if (status === 'review' || status === 'invalid' || status === 'paused') {
+    return 'warning';
+  }
+  if (status === 'rerun_full') {
+    return 'risk';
+  }
+  return 'primary';
+}
+
+function monitorActionTone(
+  action: string | null | undefined,
+): 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded' {
+  if (action === 'rerun_full_research') {
+    return 'risk';
+  }
+  if (action === 'inspect_chart' || action === 'record_review') {
+    return 'warning';
+  }
+  if (action === 'none') {
+    return 'constructive';
+  }
+  return 'primary';
 }
 
 function ScenarioRadarCard({

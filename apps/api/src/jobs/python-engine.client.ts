@@ -17,22 +17,76 @@ export interface PythonEngineRunOptions {
   timeoutMs?: number;
 }
 
+export interface EngineMonitorPlanRequest {
+  thesis_id: string;
+  workspace_id: string;
+  updates?: JsonRecord;
+  metadata?: JsonRecord;
+}
+
+export interface EnginePulseRequest {
+  thesis_id: string;
+  workspace_id: string;
+  force?: boolean;
+  observed_at?: string;
+  metadata?: JsonRecord;
+}
+
+export interface EnginePulseMemoRequest {
+  thesis_id: string;
+  workspace_id: string;
+  window_minutes?: number;
+  force?: boolean;
+  observed_at?: string;
+  metadata?: JsonRecord;
+}
+
 @Injectable()
 export class PythonEngineClient {
   async runInline(
     request: EngineRunRequest,
     options: PythonEngineRunOptions = {},
   ): Promise<JsonRecord> {
-    const dir = await mkdtemp(join(tmpdir(), 'lunacrypto-engine-'));
-    const requestPath = join(dir, `${request.run_id}.json`);
-    await writeFile(requestPath, JSON.stringify(request), 'utf8');
+    return runEngineRequestFile(
+      request,
+      `${request.run_id}.json`,
+      resolveEngineInvocation(),
+      options,
+    );
+  }
 
-    const invocation = resolveEngineInvocation();
-    return runJsonInvocation(
-      {
-        ...invocation,
-        args: [...invocation.args, requestPath],
-      },
+  async monitorPlan(
+    request: EngineMonitorPlanRequest,
+    options: PythonEngineRunOptions = {},
+  ): Promise<JsonRecord> {
+    return runEngineRequestFile(
+      request,
+      `${request.thesis_id}-monitor-plan.json`,
+      resolveCliInvocation(['engine', 'monitor-plan', '--request']),
+      options,
+    );
+  }
+
+  async runPulse(
+    request: EnginePulseRequest,
+    options: PythonEngineRunOptions = {},
+  ): Promise<JsonRecord> {
+    return runEngineRequestFile(
+      request,
+      `${request.thesis_id}-pulse.json`,
+      resolveCliInvocation(['engine', 'pulse', '--request']),
+      options,
+    );
+  }
+
+  async runPulseMemo(
+    request: EnginePulseMemoRequest,
+    options: PythonEngineRunOptions = {},
+  ): Promise<JsonRecord> {
+    return runEngineRequestFile(
+      request,
+      `${request.thesis_id}-pulse-memo.json`,
+      resolveCliInvocation(['engine', 'pulse-memo', '--request']),
       options,
     );
   }
@@ -115,6 +169,24 @@ function runJsonInvocation(
       }
     });
   });
+}
+
+async function runEngineRequestFile(
+  request: unknown,
+  fileName: string,
+  invocation: EngineInvocation,
+  options: PythonEngineRunOptions,
+): Promise<JsonRecord> {
+  const dir = await mkdtemp(join(tmpdir(), 'lunacrypto-engine-'));
+  const requestPath = join(dir, fileName.replace(/[^a-z0-9._-]+/gi, '-'));
+  await writeFile(requestPath, JSON.stringify(request), 'utf8');
+  return runJsonInvocation(
+    {
+      ...invocation,
+      args: [...invocation.args, requestPath],
+    },
+    options,
+  );
 }
 
 function resolveEngineInvocation(): EngineInvocation {

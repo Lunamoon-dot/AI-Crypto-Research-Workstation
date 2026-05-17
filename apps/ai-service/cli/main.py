@@ -397,15 +397,93 @@ def engine_run(
         raise typer.Exit(1)
 
 
+@engine_app.command("monitor-plan")
+def engine_monitor_plan(
+    request: Path = typer.Option(
+        ...,
+        "--request",
+        "-r",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON request file for monitor plan read/update.",
+    ),
+) -> None:
+    """Create, read, or update a thesis monitor plan from a structured request."""
+    from tradingagents.engine import run_monitor_plan_request_file
+
+    result = run_monitor_plan_request_file(request)
+    console.print_json(data=result.model_dump(mode="json"))
+    if result.error_type:
+        raise typer.Exit(1)
+
+
+@engine_app.command("pulse")
+def engine_pulse(
+    request: Path = typer.Option(
+        ...,
+        "--request",
+        "-r",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON request file for deterministic thesis pulse.",
+    ),
+) -> None:
+    """Run a deterministic manual thesis pulse from a structured request."""
+    from tradingagents.engine import run_pulse_request_file
+
+    result = run_pulse_request_file(request)
+    console.print_json(data=result.model_dump(mode="json"))
+    if result.error_type:
+        raise typer.Exit(1)
+
+
+@engine_app.command("pulse-memo")
+def engine_pulse_memo(
+    request: Path = typer.Option(
+        ...,
+        "--request",
+        "-r",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON request file for a structured thesis pulse memo.",
+    ),
+) -> None:
+    """Run a manual structured memo over recent thesis pulses."""
+    from tradingagents.engine import run_pulse_memo_request_file
+
+    result = run_pulse_memo_request_file(request)
+    console.print_json(data=result.model_dump(mode="json"))
+    if result.error_type:
+        raise typer.Exit(1)
+
+
 @engine_app.command("schema")
 def engine_schema() -> None:
     """Emit the JSON schemas used by the worker engine contract."""
-    from tradingagents.engine import EngineRunRequest, EngineRunResult
+    from tradingagents.engine import (
+        EngineMonitorPlanRequest,
+        EngineMonitorPlanResult,
+        EnginePulseMemoRequest,
+        EnginePulseMemoResult,
+        EnginePulseRequest,
+        EnginePulseResult,
+        EngineRunRequest,
+        EngineRunResult,
+    )
 
     console.print_json(
         data={
             "request": EngineRunRequest.model_json_schema(),
             "result": EngineRunResult.model_json_schema(),
+            "monitor_plan_request": EngineMonitorPlanRequest.model_json_schema(),
+            "monitor_plan_result": EngineMonitorPlanResult.model_json_schema(),
+            "pulse_request": EnginePulseRequest.model_json_schema(),
+            "pulse_result": EnginePulseResult.model_json_schema(),
+            "pulse_memo_request": EnginePulseMemoRequest.model_json_schema(),
+            "pulse_memo_result": EnginePulseMemoResult.model_json_schema(),
         }
     )
 

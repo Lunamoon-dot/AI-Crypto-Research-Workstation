@@ -5,6 +5,7 @@ from __future__ import annotations
 from .base import JournalRepositoryBase
 from .briefs import BriefsRepositoryMixin
 from .evaluations import EvaluationsRepositoryMixin
+from .monitoring import MonitoringRepositoryMixin
 from .observability import ObservabilityRepositoryMixin
 from .runs import RunsRepositoryMixin
 from .signals import SignalsRepositoryMixin
@@ -16,6 +17,7 @@ class JournalRepository(
     RunsRepositoryMixin,
     SignalsRepositoryMixin,
     ThesesRepositoryMixin,
+    MonitoringRepositoryMixin,
     WatchlistsRepositoryMixin,
     BriefsRepositoryMixin,
     EvaluationsRepositoryMixin,

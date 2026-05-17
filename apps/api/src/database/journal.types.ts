@@ -72,6 +72,20 @@ export interface JournalRepository {
   ): Promise<JsonRecord[]>;
   listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]>;
   getThesis(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getThesisMonitorPlan?(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  listThesisPulses?(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]>;
+  listThesisPulseMemos?(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]>;
   listScenarios(thesisId: string, workspaceId: string): Promise<JsonRecord[]>;
   recordThesisDecision(
     thesisId: string,

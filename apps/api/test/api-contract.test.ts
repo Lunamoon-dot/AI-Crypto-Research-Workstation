@@ -36,6 +36,11 @@ import { MarketDataGuardService } from '../src/research-runs/market-data-guard.s
 import { ResearchRunsService } from '../src/research-runs/research-runs.service';
 import { SignalsController } from '../src/signals/signals.controller';
 import { SignalsService } from '../src/signals/signals.service';
+import {
+  PatchThesisMonitorPlanDto,
+  RunThesisPulseMemoDto,
+  RunThesisPulseDto,
+} from '../src/theses/dto/thesis-monitoring.dto';
 import { ThesesController } from '../src/theses/theses.controller';
 import { ThesesService } from '../src/theses/theses.service';
 import { MarketPriceService } from '../src/market-data/market-price.service';
@@ -57,6 +62,9 @@ class FakeJournalRepository implements JournalRepository {
   readonly debates = new Map<string, JsonRecord>();
   readonly agentOpinions = new Map<string, JsonRecord[]>();
   readonly theses = new Map<string, JsonRecord>();
+  readonly monitorPlans = new Map<string, JsonRecord>();
+  readonly thesisPulses = new Map<string, JsonRecord[]>();
+  readonly thesisPulseMemos = new Map<string, JsonRecord[]>();
   readonly scenarios = new Map<string, JsonRecord[]>();
   readonly signals: JsonRecord[] = [];
   readonly watchlists: JsonRecord[] = [];
@@ -216,6 +224,35 @@ class FakeJournalRepository implements JournalRepository {
 
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getThesisMonitorPlan(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.monitorPlans.get(key(thesisId, workspaceId)) ?? null;
+  }
+
+  async listThesisPulses(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    return (this.thesisPulses.get(key(thesisId, workspaceId)) ?? []).slice(
+      0,
+      limit,
+    );
+  }
+
+  async listThesisPulseMemos(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    return (this.thesisPulseMemos.get(key(thesisId, workspaceId)) ?? []).slice(
+      0,
+      limit,
+    );
   }
 
   async listScenarios(
@@ -843,7 +880,7 @@ test('GET /research-runs includes active jobs before run artifacts persist', asy
             workspace_id: request.workspace_id,
           };
         },
-      } as PythonEngineClient);
+      } as unknown as PythonEngineClient);
       const researchRuns = new ResearchRunsService(
         journal,
         jobs,
@@ -984,6 +1021,62 @@ test('CreateResearchRunDto rejects invalid boundary payloads', async () => {
   assert.deepEqual(dto.metadata, { source: 'api-contract-test' });
 });
 
+test('thesis monitoring DTOs accept whitelisted pulse and plan fields', async () => {
+  const pulseDto = await validateRunThesisPulse({
+    force: true,
+    observed_at: '2026-05-18T01:00:00.000Z',
+  });
+  const memoDto = await validateRunThesisPulseMemo({
+    force: true,
+    window_minutes: 240,
+    observed_at: '2026-05-18T01:00:00.000Z',
+  });
+  assert.equal(pulseDto.force, true);
+  assert.equal(pulseDto.observed_at, '2026-05-18T01:00:00.000Z');
+  assert.equal(memoDto.force, true);
+  assert.equal(memoDto.window_minutes, 240);
+
+  const planDto = await validatePatchThesisMonitorPlan({
+    status: 'active',
+    baseline_price: 2186,
+    baseline_price_source: 'manual',
+    baseline_observed_at: '2026-05-18T01:00:00.000Z',
+    entry_low: 2100,
+    entry_high: 2200,
+    invalidation_level: 1400,
+    invalidation_direction: 'below',
+    targets: [{ label: 'target_1', price: 2600 }],
+    scenario_triggers: ['funding spike'],
+    price_interval_minutes: 5,
+    signal_interval_minutes: 15,
+    memo_interval_minutes: 240,
+    run_memo_on_review: true,
+    run_memo_on_rerun_full: false,
+    skip_memo_if_no_new_pulses: true,
+    watch_distance_pct: 5,
+    review_distance_pct: 2,
+    consecutive_review_to_rerun: 3,
+    consecutive_invalidation_to_rerun: 2,
+    enabled_signal_factors: ['regime'],
+    scheduler_enabled: false,
+  });
+  assert.equal(planDto.status, 'active');
+  assert.equal(planDto.invalidation_direction, 'below');
+  assert.deepEqual(planDto.scenario_triggers, ['funding spike']);
+  assert.equal(planDto.run_memo_on_review, true);
+  assert.equal(planDto.run_memo_on_rerun_full, false);
+  assert.equal(planDto.skip_memo_if_no_new_pulses, true);
+
+  await assert.rejects(
+    () => validateRunThesisPulse({ force: true, unexpected: true }),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () => validateRunThesisPulseMemo({ window_minutes: 240, unexpected: true }),
+    isException(BadRequestException),
+  );
+});
+
 test('OpenAPI contract exposes the worker engine request fields', () => {
   const engineProperties =
     openApiDocument.components.schemas.EngineRunRequest.properties;
@@ -1028,6 +1121,11 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/theses', ['get']],
     ['/theses/{id}', ['get']],
     ['/theses/{id}/scenarios', ['get']],
+    ['/theses/{id}/monitor-plan', ['get', 'patch']],
+    ['/theses/{id}/pulses/run', ['post']],
+    ['/theses/{id}/pulses', ['get']],
+    ['/theses/{id}/pulse-memos/run', ['post']],
+    ['/theses/{id}/pulse-memos', ['get']],
     ['/theses/{id}/decision', ['post']],
     ['/theses/{id}/review', ['post']],
     ['/watchlists', ['get', 'post']],
@@ -1078,7 +1176,7 @@ test('JobsService inline mode returns engine result without memory queue', async
             workspace_id: request.workspace_id,
           };
         },
-      } as PythonEngineClient);
+      } as unknown as PythonEngineClient);
 
       const result = await jobs.enqueueResearchRun(engineRequest('run_inline'));
 
@@ -1110,7 +1208,7 @@ test('JobsService defaults to memory mode when no execution mode is configured',
             workspace_id: request.workspace_id,
           };
         },
-      } as PythonEngineClient);
+      } as unknown as PythonEngineClient);
 
       const result = await jobs.enqueueResearchRun(
         engineRequest('run_default_memory'),
@@ -1142,7 +1240,7 @@ test('JobsService memory mode queues requests when explicitly configured', async
         runInline: async () => {
           throw new Error('inline engine should not run');
         },
-      } as PythonEngineClient);
+      } as unknown as PythonEngineClient);
       const request = engineRequest('run_memory');
 
       const result = await jobs.enqueueResearchRun(request);
@@ -1174,7 +1272,7 @@ test('JobsService memory mode processes queued requests in the API process', asy
             workspace_id: request.workspace_id,
           };
         },
-      } as PythonEngineClient);
+      } as unknown as PythonEngineClient);
 
       const result = await jobs.enqueueResearchRun(
         engineRequest('run_memory_background'),
@@ -1234,7 +1332,7 @@ test('JobsService reads lifecycle state after replacing the service instance', a
           runInline: async () => {
             throw new Error('memory worker should be stopped before running');
           },
-        } as PythonEngineClient,
+        } as unknown as PythonEngineClient,
         undefined,
         lifecycle,
       );
@@ -1248,7 +1346,7 @@ test('JobsService reads lifecycle state after replacing the service instance', a
             status: 'completed',
             run_id: request.run_id,
           }),
-        } as PythonEngineClient,
+        } as unknown as PythonEngineClient,
         undefined,
         lifecycle,
       );
@@ -1292,7 +1390,7 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
           run_id: engineRequest.run_id,
           workspace_id: engineRequest.workspace_id,
         }),
-      } as PythonEngineClient,
+      } as unknown as PythonEngineClient,
       lifecycle,
       sqliteSync,
     );
@@ -1345,7 +1443,7 @@ test('ResearchJobProcessor marks timed out jobs and aborts the engine process', 
               { once: true },
             );
           }),
-      } as PythonEngineClient,
+      } as unknown as PythonEngineClient,
       lifecycle,
     );
 
@@ -1380,7 +1478,7 @@ test('POST /jobs/:id/cancel records durable cancellation for queued jobs', async
           runInline: async () => {
             throw new Error('cancelled job should not run');
           },
-        } as PythonEngineClient,
+        } as unknown as PythonEngineClient,
         undefined,
         lifecycle,
       );
@@ -1569,7 +1667,7 @@ test('ResearchRunsService workspace falls back to SQLite export artifacts', asyn
       status: 'completed',
       run_id: request.run_id,
     }),
-  } as PythonEngineClient);
+  } as unknown as PythonEngineClient);
   const sqliteSync = {
     exportRun: async (runId: string) =>
       runId === 'run_sqlite'
@@ -1771,7 +1869,7 @@ test('ResearchRunsService keeps active runs when durable job lifecycle exists', 
           status: 'completed',
           run_id: request.run_id,
         }),
-      } as PythonEngineClient,
+      } as unknown as PythonEngineClient,
       undefined,
       lifecycle,
     );
@@ -1843,7 +1941,7 @@ test('ResearchRunsService marks orphaned SQLite fallback runs as failed in works
       status: 'completed',
       run_id: request.run_id,
     }),
-  } as PythonEngineClient);
+  } as unknown as PythonEngineClient);
   const sqliteSync = {
     exportRun: async (runId: string) =>
       runId === 'run_sqlite_orphaned'
@@ -1903,7 +2001,7 @@ test('ResearchRunsService keeps SQLite fallback usable when Postgres failure mar
       status: 'completed',
       run_id: request.run_id,
     }),
-  } as PythonEngineClient);
+  } as unknown as PythonEngineClient);
   const sqliteSync = {
     exportRun: async (runId: string) =>
       runId === 'run_sqlite_unavailable_mark'
@@ -2176,6 +2274,132 @@ test('thesis decision and review verify workspace before writing', async () => {
     max_favorable_excursion: 0.04,
     max_adverse_excursion: -0.07,
   });
+});
+
+test('thesis monitor plan endpoint creates stable DTO through engine fallback', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_monitor_plan', 'workspace_a'), {
+    id: 'thesis_monitor_plan',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Monitor this thesis.',
+  });
+
+  const plan = await theses.monitorPlan(
+    'thesis_monitor_plan',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(plan.thesis_id, 'thesis_monitor_plan');
+  assert.equal(plan.status, 'active');
+  assert.equal(plan.baseline_price, 100000);
+  assert.equal(plan.invalidation_direction, 'below');
+  assert.equal(plan.targets[0]?.price, 110000);
+});
+
+test('run pulse endpoint returns DTO and pulse list is chart-friendly', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_pulse', 'workspace_a'), {
+    id: 'thesis_pulse',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Monitor pulse.',
+  });
+
+  const run = await theses.runPulse(
+    'thesis_pulse',
+    { force: false },
+    'user_1',
+    'workspace_a',
+  );
+  const pulses = await theses.pulses('thesis_pulse', 20, 'user_1', 'workspace_a');
+
+  assert.equal(run.created, true);
+  assert.equal(run.pulse.id, 'pulse_1');
+  assert.equal(run.pulse.status, 'watch');
+  assert.equal(pulses.length, 1);
+  assert.equal(pulses[0]?.current_price, 103000);
+  assert.deepEqual(pulses[0]?.trigger_reasons, ['price_near_target_watch_band']);
+});
+
+test('run pulse memo endpoint returns DTO and memo history', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_pulse_memo', 'workspace_a'), {
+    id: 'thesis_pulse_memo',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Monitor pulse memo.',
+  });
+
+  await theses.runPulse('thesis_pulse_memo', { force: false }, 'user_1', 'workspace_a');
+  const run = await theses.runPulseMemo(
+    'thesis_pulse_memo',
+    { force: false, window_minutes: 240 },
+    'user_1',
+    'workspace_a',
+  );
+  const memos = await theses.pulseMemos(
+    'thesis_pulse_memo',
+    20,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(run.created, true);
+  assert.equal(run.skipped, false);
+  assert.equal(run.memo?.id, 'memo_1');
+  assert.equal(run.memo?.status, 'watch');
+  assert.deepEqual(run.memo?.referenced_pulse_ids, ['pulse_1']);
+  assert.equal(memos.length, 1);
+  assert.equal(memos[0]?.recommended_action, 'inspect_chart');
+});
+
+test('run pulse memo endpoint returns skipped no-op when no pulses exist', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_memo_empty', 'workspace_a'), {
+    id: 'thesis_memo_empty',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'No pulses yet.',
+  });
+
+  const run = await theses.runPulseMemo(
+    'thesis_memo_empty',
+    { force: false, window_minutes: 240 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(run.created, false);
+  assert.equal(run.skipped, true);
+  assert.equal(run.skip_reason, 'no_pulses');
+  assert.equal(run.memo, null);
+});
+
+test('thesis monitor endpoints reject missing thesis', async () => {
+  const { theses } = buildHarness();
+
+  await assert.rejects(
+    () => theses.monitorPlan('missing_thesis', 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
+  await assert.rejects(
+    () => theses.runPulse('missing_thesis', {}, 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
+  await assert.rejects(
+    () => theses.runPulseMemo('missing_thesis', {}, 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
+  await assert.rejects(
+    () => theses.pulseMemos('missing_thesis', 20, 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
 });
 
 test('frontend contract responses are normalized for thesis, watchlist, and brief', async () => {
@@ -3801,6 +4025,24 @@ const createResearchRunMetadata: ArgumentMetadata = {
   data: '',
 };
 
+const runThesisPulseMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: RunThesisPulseDto,
+  data: '',
+};
+
+const runThesisPulseMemoMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: RunThesisPulseMemoDto,
+  data: '',
+};
+
+const patchThesisMonitorPlanMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: PatchThesisMonitorPlanDto,
+  data: '',
+};
+
 const createResearchRunPipe = new ValidationPipe({
   whitelist: true,
   forbidNonWhitelisted: true,
@@ -3814,6 +4056,33 @@ async function validateCreateResearchRun(
     payload,
     createResearchRunMetadata,
   )) as CreateResearchRunDto;
+}
+
+async function validateRunThesisPulse(
+  payload: JsonRecord,
+): Promise<RunThesisPulseDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    runThesisPulseMetadata,
+  )) as RunThesisPulseDto;
+}
+
+async function validateRunThesisPulseMemo(
+  payload: JsonRecord,
+): Promise<RunThesisPulseMemoDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    runThesisPulseMemoMetadata,
+  )) as RunThesisPulseMemoDto;
+}
+
+async function validatePatchThesisMonitorPlan(
+  payload: JsonRecord,
+): Promise<PatchThesisMonitorPlanDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    patchThesisMonitorPlanMetadata,
+  )) as PatchThesisMonitorPlanDto;
 }
 
 function engineRequest(runId: string): EngineRunRequest {
@@ -3896,7 +4165,132 @@ function buildHarness() {
       status: 'completed',
       run_id: request.run_id,
     }),
-  });
+  } as unknown as PythonEngineClient);
+  const thesisEngine = {
+    monitorPlan: async (request: JsonRecord) => {
+      const thesisId = String(request.thesis_id);
+      const workspaceId = String(request.workspace_id ?? 'local');
+      const existing = journal.monitorPlans.get(key(thesisId, workspaceId));
+      const plan = {
+        id: 'plan_1',
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+        baseline_run_id: 'run_1',
+        symbol: 'BTC/USDT',
+        market_type: 'spot',
+        status: 'active',
+        created_at: '2026-05-12T00:00:00.000Z',
+        updated_at: '2026-05-12T00:00:00.000Z',
+        baseline_price: 100000,
+        baseline_price_source: 'test',
+        baseline_observed_at: '2026-05-12T00:00:00.000Z',
+        entry_low: 99000,
+        entry_high: 101000,
+        invalidation_level: 95000,
+        invalidation_direction: 'below',
+        targets: [{ label: 'target_1', price: 110000 }],
+        scenario_triggers: [],
+        missing_fields: [],
+        price_interval_minutes: 5,
+        signal_interval_minutes: 15,
+        memo_interval_minutes: 240,
+        watch_distance_pct: 5,
+        review_distance_pct: 2,
+        consecutive_review_to_rerun: 3,
+        consecutive_invalidation_to_rerun: 2,
+        enabled_signal_factors: ['regime'],
+        scheduler_enabled: false,
+        ...(existing ?? {}),
+        ...(request.updates as JsonRecord | undefined),
+      };
+      journal.monitorPlans.set(key(thesisId, workspaceId), plan);
+      return {
+        thesis_id: thesisId,
+        workspace_id: workspaceId,
+        monitor_plan_id: plan.id,
+        status: plan.status,
+        monitor_plan: plan,
+      };
+    },
+    runPulse: async (request: JsonRecord) => {
+      const thesisId = String(request.thesis_id);
+      const workspaceId = String(request.workspace_id ?? 'local');
+      const pulse = {
+        id: 'pulse_1',
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+        monitor_plan_id: 'plan_1',
+        baseline_run_id: 'run_1',
+        symbol: 'BTC/USDT',
+        market_type: 'spot',
+        pulse_type: 'manual',
+        bucket_start: '2026-05-12T00:00:00.000Z',
+        observed_at: '2026-05-12T00:01:00.000Z',
+        current_price: 103000,
+        baseline_price: 100000,
+        price_change_pct: 3,
+        distance_to_invalidation_pct: 7.8,
+        nearest_target: 110000,
+        distance_to_nearest_target_pct: 6.8,
+        signal_bias: 'bullish',
+        signal_confidence: 0.64,
+        signal_delta: 0.02,
+        scenario_status: 'none',
+        score: 42,
+        status: 'watch',
+        suggested_action: 'inspect_chart',
+        trigger_reasons: ['price_near_target_watch_band'],
+        hard_triggers: [],
+        missing_data: [],
+        payload: {},
+      };
+      journal.thesisPulses.set(key(thesisId, workspaceId), [pulse]);
+      return { created: true, pulse, ...pulse };
+    },
+    runPulseMemo: async (request: JsonRecord) => {
+      const thesisId = String(request.thesis_id);
+      const workspaceId = String(request.workspace_id ?? 'local');
+      const pulses = journal.thesisPulses.get(key(thesisId, workspaceId)) ?? [];
+      if (pulses.length === 0) {
+        return {
+          thesis_id: thesisId,
+          workspace_id: workspaceId,
+          status: 'skipped',
+          created: false,
+          skipped: true,
+          skip_reason: 'no_pulses',
+        };
+      }
+      const memo = {
+        id: 'memo_1',
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+        monitor_plan_id: 'plan_1',
+        baseline_run_id: 'run_1',
+        memo_type: 'manual',
+        window_start: '2026-05-12T00:00:00.000Z',
+        window_end: '2026-05-12T04:00:00.000Z',
+        created_at: '2026-05-12T00:03:00.000Z',
+        status: 'watch',
+        summary: 'Pulse memo summary.',
+        what_changed: ['price_near_target_watch_band'],
+        why_it_matters: ['Closer to target review band.'],
+        what_to_watch_next: ['Watch invalidation distance.'],
+        recommended_action: 'inspect_chart',
+        rerun_full_recommended: false,
+        confidence: 0.72,
+        referenced_pulse_ids: pulses
+          .map((pulse) => String(pulse.id ?? ''))
+          .filter(Boolean),
+        prompt_version: 'pulse_memo.v1',
+        provider: 'fake_llm',
+        model: 'fake-memo-v1',
+        payload: {},
+      };
+      journal.thesisPulseMemos.set(key(thesisId, workspaceId), [memo]);
+      return { created: true, skipped: false, memo, ...memo };
+    },
+  } as unknown as PythonEngineClient;
   const marketPrices = {
     resolveFreshPrice: async (
       symbol: string,
@@ -3927,7 +4321,7 @@ function buildHarness() {
     researchRunsController: new ResearchRunsController(researchRuns),
     jobsController: new JobsController(jobs, auth, workspaces),
     signals: new SignalsService(journal, auth, workspaces),
-    theses: new ThesesService(journal, auth, workspaces),
+    theses: new ThesesService(journal, auth, workspaces, thesisEngine),
     watchlists,
     briefs: new BriefsService(journal, auth, workspaces),
     alerts: new AlertsService(journal, auth, workspaces),

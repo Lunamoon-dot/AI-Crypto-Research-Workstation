@@ -198,6 +198,120 @@ export interface ThesisResponse {
   monitor_next: string[];
 }
 
+export interface ThesisTargetLevelResponse {
+  label: string;
+  price: number;
+}
+
+export interface ThesisMonitorPlanResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  baseline_run_id: string | null;
+  symbol: string;
+  market_type: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  baseline_price: number | null;
+  baseline_price_source: string;
+  baseline_observed_at: string | null;
+  entry_low: number | null;
+  entry_high: number | null;
+  invalidation_level: number | null;
+  invalidation_direction: string | null;
+  targets: ThesisTargetLevelResponse[];
+  scenario_triggers: string[];
+  missing_fields: string[];
+  price_interval_minutes: number;
+  signal_interval_minutes: number;
+  memo_interval_minutes: number;
+  run_memo_on_review: boolean;
+  run_memo_on_rerun_full: boolean;
+  skip_memo_if_no_new_pulses: boolean;
+  watch_distance_pct: number;
+  review_distance_pct: number;
+  consecutive_review_to_rerun: number;
+  consecutive_invalidation_to_rerun: number;
+  enabled_signal_factors: string[];
+  scheduler_enabled: boolean;
+  latest_pulse_id: string | null;
+  latest_status: string | null;
+  latest_price: number | null;
+  latest_trigger_reasons: string[];
+  last_pulse_at: string | null;
+  next_pulse_due_at: string | null;
+  payload: JsonRecord;
+}
+
+export interface ThesisPulseResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  monitor_plan_id: string;
+  baseline_run_id: string | null;
+  symbol: string;
+  market_type: string;
+  pulse_type: string;
+  bucket_start: string | null;
+  observed_at: string | null;
+  current_price: number | null;
+  baseline_price: number | null;
+  price_change_pct: number | null;
+  distance_to_entry_pct: number | null;
+  distance_to_invalidation_pct: number | null;
+  nearest_target: number | null;
+  distance_to_nearest_target_pct: number | null;
+  signal_bias: string;
+  signal_confidence: number | null;
+  signal_delta: number | null;
+  scenario_status: string;
+  score: number;
+  status: string;
+  suggested_action: string;
+  trigger_reasons: string[];
+  hard_triggers: string[];
+  missing_data: string[];
+  payload: JsonRecord;
+}
+
+export interface RunThesisPulseResponse {
+  created: boolean;
+  pulse: ThesisPulseResponse;
+}
+
+export interface ThesisPulseMemoResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  monitor_plan_id: string;
+  baseline_run_id: string | null;
+  memo_type: string;
+  window_start: string | null;
+  window_end: string | null;
+  created_at: string | null;
+  status: string;
+  summary: string;
+  what_changed: string[];
+  why_it_matters: string[];
+  what_to_watch_next: string[];
+  recommended_action: string;
+  rerun_full_recommended: boolean;
+  confidence: number | null;
+  referenced_pulse_ids: string[];
+  prompt_version: string;
+  provider: string;
+  model: string;
+  payload: JsonRecord;
+}
+
+export interface RunThesisPulseMemoResponse {
+  created: boolean;
+  skipped: boolean;
+  skip_reason: string | null;
+  memo: ThesisPulseMemoResponse | null;
+}
+
 export interface ScenarioResponse {
   id: string | null;
   workspace_id: string;
@@ -686,6 +800,42 @@ export type RecordThesisReviewRequest = {
   notes?: string;
   max_favorable_excursion?: number;
   max_adverse_excursion?: number;
+};
+
+export type RunThesisPulseRequest = {
+  force?: boolean;
+  observed_at?: string;
+};
+
+export type RunThesisPulseMemoRequest = {
+  force?: boolean;
+  window_minutes?: number;
+  observed_at?: string;
+};
+
+export type PatchThesisMonitorPlanRequest = {
+  status?: string;
+  baseline_price?: number | null;
+  baseline_price_source?: string;
+  baseline_observed_at?: string | null;
+  entry_low?: number | null;
+  entry_high?: number | null;
+  invalidation_level?: number | null;
+  invalidation_direction?: 'below' | 'above' | null;
+  targets?: Array<{ label?: string; price: number } | number | string>;
+  scenario_triggers?: string[];
+  price_interval_minutes?: number;
+  signal_interval_minutes?: number;
+  memo_interval_minutes?: number;
+  run_memo_on_review?: boolean;
+  run_memo_on_rerun_full?: boolean;
+  skip_memo_if_no_new_pulses?: boolean;
+  watch_distance_pct?: number;
+  review_distance_pct?: number;
+  consecutive_review_to_rerun?: number;
+  consecutive_invalidation_to_rerun?: number;
+  enabled_signal_factors?: string[];
+  scheduler_enabled?: boolean;
 };
 
 export type AddWatchlistItemRequest = {

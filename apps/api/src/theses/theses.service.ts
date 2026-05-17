@@ -1,4 +1,11 @@
-import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   JOURNAL_REPOSITORY,
   JournalRepository,
@@ -15,10 +22,21 @@ import {
 import {
   toScenarioResponse,
   toThesisDecisionResponse,
+  toRunThesisPulseResponse,
+  toRunThesisPulseMemoResponse,
   toThesisResponse,
+  toThesisMonitorPlanResponse,
+  toThesisPulseMemoResponse,
+  toThesisPulseResponse,
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
 import { clampListLimit } from '../common/query-limit';
+import { PythonEngineClient } from '../jobs/python-engine.client';
+import {
+  PatchThesisMonitorPlanDto,
+  RunThesisPulseMemoDto,
+  RunThesisPulseDto,
+} from './dto/thesis-monitoring.dto';
 
 @Injectable()
 export class ThesesService {
@@ -27,6 +45,8 @@ export class ThesesService {
     private readonly journal: JournalRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
+    @Optional()
+    private readonly pythonEngine?: PythonEngineClient,
     @Optional()
     private readonly sqliteSync?: SqliteJournalSyncService,
   ) {}
@@ -70,6 +90,148 @@ export class ThesesService {
       throw new NotFoundException(`Thesis ${id} not found`);
     }
     return scenariosFromExport(sqlite!, id, workspaceId).map(toScenarioResponse);
+  }
+
+  async monitorPlan(id: string, userId?: string, workspaceHeader?: string) {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    await this.assertThesisReadable(id, workspaceId);
+    const existing = await this.monitorPlanFromStorage(id, workspaceId);
+    if (existing) {
+      return toThesisMonitorPlanResponse(existing);
+    }
+    const result = await this.runMonitorPlanEngine(id, workspaceId);
+    if (result.error_type) {
+      throw engineError(result, `Monitor plan for thesis ${id} is unavailable`);
+    }
+    const plan = recordFromValue(result.monitor_plan);
+    if (!plan) {
+      throw new ServiceUnavailableException(
+        `Monitor plan for thesis ${id} was not returned by the engine`,
+      );
+    }
+    return toThesisMonitorPlanResponse(plan);
+  }
+
+  async updateMonitorPlan(
+    id: string,
+    dto: PatchThesisMonitorPlanDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    await this.assertThesisReadable(id, workspaceId);
+    const result = await this.runMonitorPlanEngine(id, workspaceId, dto as JsonRecord);
+    if (result.error_type) {
+      throw engineError(result, `Monitor plan for thesis ${id} was not updated`);
+    }
+    const plan = recordFromValue(result.monitor_plan);
+    if (!plan) {
+      throw new ServiceUnavailableException(
+        `Monitor plan for thesis ${id} was not returned by the engine`,
+      );
+    }
+    return toThesisMonitorPlanResponse(plan);
+  }
+
+  async runPulse(
+    id: string,
+    dto: RunThesisPulseDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    await this.assertThesisReadable(id, workspaceId);
+    if (!this.pythonEngine) {
+      throw new ServiceUnavailableException('Python engine client is unavailable.');
+    }
+    const result = await this.pythonEngine.runPulse({
+      thesis_id: id,
+      workspace_id: workspaceId,
+      force: dto?.force ?? false,
+      observed_at: dto?.observed_at,
+      metadata: { source: 'api' },
+    });
+    if (result.error_type) {
+      throw engineError(result, `Pulse for thesis ${id} failed`);
+    }
+    return toRunThesisPulseResponse(result);
+  }
+
+  async pulses(
+    id: string,
+    limit = 200,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    await this.assertThesisReadable(id, workspaceId);
+    const rows = await this.pulsesFromStorage(
+      id,
+      workspaceId,
+      clampListLimit(limit, { defaultLimit: 200, maxLimit: 1000 }),
+    );
+    return rows
+      .map(toThesisPulseResponse)
+      .sort((a, b) =>
+        String(a.observed_at ?? '').localeCompare(String(b.observed_at ?? '')),
+      );
+  }
+
+  async runPulseMemo(
+    id: string,
+    dto: RunThesisPulseMemoDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    await this.assertThesisReadable(id, workspaceId);
+    if (!this.pythonEngine) {
+      throw new ServiceUnavailableException('Python engine client is unavailable.');
+    }
+    const result = await this.pythonEngine.runPulseMemo({
+      thesis_id: id,
+      workspace_id: workspaceId,
+      force: dto?.force ?? false,
+      window_minutes: dto?.window_minutes,
+      observed_at: dto?.observed_at,
+      metadata: { source: 'api', pulse_memo: { llm_enabled: true } },
+    });
+    if (result.error_type) {
+      throw engineError(result, `Pulse memo for thesis ${id} failed`);
+    }
+    return toRunThesisPulseMemoResponse(result);
+  }
+
+  async pulseMemos(
+    id: string,
+    limit = 50,
+    userId?: string,
+    workspaceHeader?: string,
+  ) {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    await this.assertThesisReadable(id, workspaceId);
+    const rows = await this.pulseMemosFromStorage(
+      id,
+      workspaceId,
+      clampListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
+    );
+    return rows
+      .map(toThesisPulseMemoResponse)
+      .sort((a, b) =>
+        String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')),
+      );
   }
 
   async decide(
@@ -137,6 +299,105 @@ export class ThesesService {
   ): Promise<JsonRecord | null> {
     const exported = await this.sqliteSync?.exportThesis(id);
     return exported ? thesisFromExport(exported, id, workspaceId) : null;
+  }
+
+  private async assertThesisReadable(
+    id: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const thesis = await this.journal.getThesis(id, workspaceId);
+    if (thesis) {
+      return;
+    }
+    const sqliteThesis = await this.thesisFromSqlite(id, workspaceId);
+    if (sqliteThesis) {
+      return;
+    }
+    throw new NotFoundException(`Thesis ${id} not found`);
+  }
+
+  private async monitorPlanFromStorage(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const fromJournal = await this.journal.getThesisMonitorPlan?.(id, workspaceId);
+    if (fromJournal) {
+      return fromJournal;
+    }
+    const sqlite = await this.sqliteSync?.exportThesis(id);
+    return sqlite
+      ? rows(sqlite, 'thesis_monitor_plans').find(
+          (plan) =>
+            stringField(plan.thesis_id) === id &&
+            stringField(plan.workspace_id ?? 'local') === workspaceId,
+        ) ?? null
+      : null;
+  }
+
+  private async pulsesFromStorage(
+    id: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    const fromJournal = await this.journal.listThesisPulses?.(
+      id,
+      workspaceId,
+      limit,
+    );
+    if (fromJournal) {
+      return fromJournal;
+    }
+    const sqlite = await this.sqliteSync?.exportThesis(id);
+    return sqlite
+      ? rows(sqlite, 'thesis_pulses')
+          .filter(
+            (pulse) =>
+              stringField(pulse.thesis_id) === id &&
+              stringField(pulse.workspace_id ?? 'local') === workspaceId,
+          )
+          .slice(0, limit)
+      : [];
+  }
+
+  private async pulseMemosFromStorage(
+    id: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    const fromJournal = await this.journal.listThesisPulseMemos?.(
+      id,
+      workspaceId,
+      limit,
+    );
+    if (fromJournal) {
+      return fromJournal;
+    }
+    const sqlite = await this.sqliteSync?.exportThesis(id);
+    return sqlite
+      ? rows(sqlite, 'thesis_pulse_memos')
+          .filter(
+            (memo) =>
+              stringField(memo.thesis_id) === id &&
+              stringField(memo.workspace_id ?? 'local') === workspaceId,
+          )
+          .slice(0, limit)
+      : [];
+  }
+
+  private async runMonitorPlanEngine(
+    id: string,
+    workspaceId: string,
+    updates: JsonRecord = {},
+  ): Promise<JsonRecord> {
+    if (!this.pythonEngine) {
+      throw new ServiceUnavailableException('Python engine client is unavailable.');
+    }
+    return this.pythonEngine.monitorPlan({
+      thesis_id: id,
+      workspace_id: workspaceId,
+      updates,
+      metadata: { source: 'api' },
+    });
   }
 }
 
@@ -210,4 +471,13 @@ function stringField(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+function engineError(result: JsonRecord, fallback: string): Error {
+  const message = String(result.error ?? fallback);
+  const type = String(result.error_type ?? '');
+  if (type.includes('ValueError')) {
+    return new BadRequestException(message);
+  }
+  return new ServiceUnavailableException(message);
 }

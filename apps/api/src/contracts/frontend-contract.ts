@@ -183,6 +183,120 @@ export interface ThesisResponse {
   monitor_next: string[];
 }
 
+export interface ThesisTargetLevelResponse {
+  label: string;
+  price: number;
+}
+
+export interface ThesisMonitorPlanResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  baseline_run_id: string | null;
+  symbol: string;
+  market_type: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  baseline_price: number | null;
+  baseline_price_source: string;
+  baseline_observed_at: string | null;
+  entry_low: number | null;
+  entry_high: number | null;
+  invalidation_level: number | null;
+  invalidation_direction: string | null;
+  targets: ThesisTargetLevelResponse[];
+  scenario_triggers: string[];
+  missing_fields: string[];
+  price_interval_minutes: number;
+  signal_interval_minutes: number;
+  memo_interval_minutes: number;
+  run_memo_on_review: boolean;
+  run_memo_on_rerun_full: boolean;
+  skip_memo_if_no_new_pulses: boolean;
+  watch_distance_pct: number;
+  review_distance_pct: number;
+  consecutive_review_to_rerun: number;
+  consecutive_invalidation_to_rerun: number;
+  enabled_signal_factors: string[];
+  scheduler_enabled: boolean;
+  latest_pulse_id: string | null;
+  latest_status: string | null;
+  latest_price: number | null;
+  latest_trigger_reasons: string[];
+  last_pulse_at: string | null;
+  next_pulse_due_at: string | null;
+  payload: JsonRecord;
+}
+
+export interface ThesisPulseResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  monitor_plan_id: string;
+  baseline_run_id: string | null;
+  symbol: string;
+  market_type: string;
+  pulse_type: string;
+  bucket_start: string | null;
+  observed_at: string | null;
+  current_price: number | null;
+  baseline_price: number | null;
+  price_change_pct: number | null;
+  distance_to_entry_pct: number | null;
+  distance_to_invalidation_pct: number | null;
+  nearest_target: number | null;
+  distance_to_nearest_target_pct: number | null;
+  signal_bias: string;
+  signal_confidence: number | null;
+  signal_delta: number | null;
+  scenario_status: string;
+  score: number;
+  status: string;
+  suggested_action: string;
+  trigger_reasons: string[];
+  hard_triggers: string[];
+  missing_data: string[];
+  payload: JsonRecord;
+}
+
+export interface RunThesisPulseResponse {
+  created: boolean;
+  pulse: ThesisPulseResponse;
+}
+
+export interface ThesisPulseMemoResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  monitor_plan_id: string;
+  baseline_run_id: string | null;
+  memo_type: string;
+  window_start: string | null;
+  window_end: string | null;
+  created_at: string | null;
+  status: string;
+  summary: string;
+  what_changed: string[];
+  why_it_matters: string[];
+  what_to_watch_next: string[];
+  recommended_action: string;
+  rerun_full_recommended: boolean;
+  confidence: number | null;
+  referenced_pulse_ids: string[];
+  prompt_version: string;
+  provider: string;
+  model: string;
+  payload: JsonRecord;
+}
+
+export interface RunThesisPulseMemoResponse {
+  created: boolean;
+  skipped: boolean;
+  skip_reason: string | null;
+  memo: ThesisPulseMemoResponse | null;
+}
+
 export interface ScenarioResponse {
   id: string | null;
   workspace_id: string;
@@ -1126,6 +1240,166 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   };
 }
 
+export function toThesisMonitorPlanResponse(
+  plan: JsonRecord,
+): ThesisMonitorPlanResponse {
+  const payload = recordValue(plan.payload ?? plan.payload_json);
+  return {
+    id: nullableString(plan.id),
+    workspace_id: stringValue(plan.workspace_id, 'local'),
+    thesis_id: stringValue(plan.thesis_id),
+    baseline_run_id: nullableString(plan.baseline_run_id),
+    symbol: stringValue(plan.symbol),
+    market_type: stringValue(plan.market_type, 'spot'),
+    status: stringValue(plan.status, 'unknown'),
+    created_at: nullableString(plan.created_at),
+    updated_at: nullableString(plan.updated_at),
+    baseline_price: nullableNumber(plan.baseline_price),
+    baseline_price_source: stringValue(plan.baseline_price_source),
+    baseline_observed_at: nullableString(plan.baseline_observed_at),
+    entry_low: nullableNumber(plan.entry_low),
+    entry_high: nullableNumber(plan.entry_high),
+    invalidation_level: nullableNumber(plan.invalidation_level),
+    invalidation_direction: nullableString(plan.invalidation_direction),
+    targets: targetLevels(plan.targets ?? plan.targets_json),
+    scenario_triggers: stringList(
+      plan.scenario_triggers ?? plan.scenario_triggers_json,
+    ),
+    missing_fields: stringList(plan.missing_fields ?? plan.missing_fields_json),
+    price_interval_minutes: numberValue(plan.price_interval_minutes, 5),
+    signal_interval_minutes: numberValue(plan.signal_interval_minutes, 15),
+    memo_interval_minutes: numberValue(plan.memo_interval_minutes, 240),
+    run_memo_on_review: booleanValue(plan.run_memo_on_review, true),
+    run_memo_on_rerun_full: booleanValue(plan.run_memo_on_rerun_full, true),
+    skip_memo_if_no_new_pulses: booleanValue(
+      plan.skip_memo_if_no_new_pulses ?? plan.skip_memo_if_no_new_pulses_json,
+      true,
+    ),
+    watch_distance_pct: numberValue(plan.watch_distance_pct, 5),
+    review_distance_pct: numberValue(plan.review_distance_pct, 2),
+    consecutive_review_to_rerun: numberValue(
+      plan.consecutive_review_to_rerun,
+      3,
+    ),
+    consecutive_invalidation_to_rerun: numberValue(
+      plan.consecutive_invalidation_to_rerun,
+      2,
+    ),
+    enabled_signal_factors: stringList(
+      plan.enabled_signal_factors ?? plan.enabled_signal_factors_json,
+    ),
+    scheduler_enabled: booleanValue(plan.scheduler_enabled),
+    latest_pulse_id: nullableString(plan.latest_pulse_id),
+    latest_status: nullableString(plan.latest_status),
+    latest_price: nullableNumber(plan.latest_price),
+    latest_trigger_reasons: stringList(
+      plan.latest_trigger_reasons ?? plan.latest_trigger_reasons_json,
+    ),
+    last_pulse_at: nullableString(plan.last_pulse_at),
+    next_pulse_due_at: nullableString(plan.next_pulse_due_at),
+    payload,
+  };
+}
+
+export function toThesisPulseResponse(pulse: JsonRecord): ThesisPulseResponse {
+  const payload = recordValue(pulse.payload ?? pulse.payload_json);
+  return {
+    id: nullableString(pulse.id),
+    workspace_id: stringValue(pulse.workspace_id, 'local'),
+    thesis_id: stringValue(pulse.thesis_id),
+    monitor_plan_id: stringValue(pulse.monitor_plan_id),
+    baseline_run_id: nullableString(pulse.baseline_run_id),
+    symbol: stringValue(pulse.symbol),
+    market_type: stringValue(pulse.market_type, 'spot'),
+    pulse_type: stringValue(pulse.pulse_type, 'manual'),
+    bucket_start: nullableString(pulse.bucket_start),
+    observed_at: nullableString(pulse.observed_at),
+    current_price: nullableNumber(pulse.current_price),
+    baseline_price: nullableNumber(pulse.baseline_price),
+    price_change_pct: nullableNumber(pulse.price_change_pct),
+    distance_to_entry_pct: nullableNumber(pulse.distance_to_entry_pct),
+    distance_to_invalidation_pct: nullableNumber(
+      pulse.distance_to_invalidation_pct,
+    ),
+    nearest_target: nullableNumber(pulse.nearest_target),
+    distance_to_nearest_target_pct: nullableNumber(
+      pulse.distance_to_nearest_target_pct,
+    ),
+    signal_bias: stringValue(pulse.signal_bias, 'unknown'),
+    signal_confidence: nullableNumber(pulse.signal_confidence),
+    signal_delta: nullableNumber(pulse.signal_delta),
+    scenario_status: stringValue(pulse.scenario_status, 'none'),
+    score: numberValue(pulse.score),
+    status: stringValue(pulse.status, 'unknown'),
+    suggested_action: stringValue(pulse.suggested_action, 'none'),
+    trigger_reasons: stringList(
+      pulse.trigger_reasons ?? pulse.trigger_reasons_json,
+    ),
+    hard_triggers: stringList(pulse.hard_triggers ?? pulse.hard_triggers_json),
+    missing_data: stringList(pulse.missing_data ?? pulse.missing_data_json),
+    payload,
+  };
+}
+
+export function toRunThesisPulseResponse(
+  result: JsonRecord,
+): RunThesisPulseResponse {
+  const pulse = recordValue(result.pulse);
+  return {
+    created: booleanValue(result.created),
+    pulse: toThesisPulseResponse(Object.keys(pulse).length > 0 ? pulse : result),
+  };
+}
+
+export function toThesisPulseMemoResponse(
+  memo: JsonRecord,
+): ThesisPulseMemoResponse {
+  const payload = recordValue(memo.payload ?? memo.payload_json);
+  return {
+    id: nullableString(memo.id),
+    workspace_id: stringValue(memo.workspace_id, 'local'),
+    thesis_id: stringValue(memo.thesis_id),
+    monitor_plan_id: stringValue(memo.monitor_plan_id),
+    baseline_run_id: nullableString(memo.baseline_run_id),
+    memo_type: stringValue(memo.memo_type, 'manual'),
+    window_start: nullableString(memo.window_start),
+    window_end: nullableString(memo.window_end),
+    created_at: nullableString(memo.created_at),
+    status: stringValue(memo.status, 'unknown'),
+    summary: stringValue(memo.summary),
+    what_changed: stringList(memo.what_changed ?? memo.what_changed_json),
+    why_it_matters: stringList(memo.why_it_matters ?? memo.why_it_matters_json),
+    what_to_watch_next: stringList(
+      memo.what_to_watch_next ?? memo.what_to_watch_next_json,
+    ),
+    recommended_action: stringValue(memo.recommended_action, 'none'),
+    rerun_full_recommended: booleanValue(memo.rerun_full_recommended),
+    confidence: nullableNumber(memo.confidence),
+    referenced_pulse_ids: stringList(
+      memo.referenced_pulse_ids ?? memo.referenced_pulse_ids_json,
+    ),
+    prompt_version: stringValue(memo.prompt_version, 'pulse_memo.v1'),
+    provider: stringValue(memo.provider, 'unknown'),
+    model: stringValue(memo.model, 'unknown'),
+    payload,
+  };
+}
+
+export function toRunThesisPulseMemoResponse(
+  result: JsonRecord,
+): RunThesisPulseMemoResponse {
+  const memo = recordValue(result.memo);
+  const hasMemo = Object.keys(memo).length > 0 || Boolean(result.memo_id);
+  return {
+    created: booleanValue(result.created),
+    skipped: booleanValue(result.skipped),
+    skip_reason: nullableString(result.skip_reason),
+    memo: hasMemo
+      ? toThesisPulseMemoResponse(Object.keys(memo).length > 0 ? memo : result)
+      : null,
+  };
+}
+
 export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   return {
@@ -1648,6 +1922,28 @@ function firstStringList(...values: unknown[]): string[] {
     }
   }
   return [];
+}
+
+function targetLevels(value: unknown): ThesisTargetLevelResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item, index) => {
+      if (typeof item === 'number') {
+        return { label: `target_${index + 1}`, price: item };
+      }
+      const target = recordValue(item);
+      const price = nullableNumber(target.price ?? target.level);
+      if (price === null) {
+        return null;
+      }
+      return {
+        label: stringValue(target.label, `target_${index + 1}`),
+        price,
+      };
+    })
+    .filter((item): item is ThesisTargetLevelResponse => item !== null);
 }
 
 function booleanValue(value: unknown, fallback = false): boolean {

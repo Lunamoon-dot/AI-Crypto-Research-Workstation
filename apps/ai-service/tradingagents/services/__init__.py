@@ -4,6 +4,11 @@ from .brief_service import BriefService
 from .async_journal_service import AsyncJournalService
 from .evaluation_service import EvaluationService
 from .journal_service import JournalService
+from .monitoring_service import (
+    ThesisMonitorPlanService,
+    ThesisPulseMemoService,
+    ThesisPulseService,
+)
 from .performance_tracker import PerformanceTracker
 from .research_service import ResearchRunResult, ResearchService
 from .signal_service import SignalService
@@ -21,5 +26,8 @@ __all__ = [
     "ResearchService",
     "SignalService",
     "ThesisService",
+    "ThesisMonitorPlanService",
+    "ThesisPulseMemoService",
+    "ThesisPulseService",
     "WatchlistService",
 ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,12 @@ from tradingagents.config.models import ProviderRuntimeConfig
 from tradingagents.dataflows.interface import TOOLS_CATEGORIES, VENDOR_LIST
 from tradingagents.services.journal_service import resolve_journal_db_path
 from tradingagents.storage.migrations import HARDENING_SQL, index_names
+
+
+_INDEX_NAME_RE = re.compile(
+    r"INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<name>[A-Za-z0-9_]+)\s+ON",
+    re.IGNORECASE,
+)
 
 
 class ProviderStatus(BaseModel):
@@ -126,7 +133,11 @@ def build_system_health_report(
 
 def journal_schema_health(config: dict) -> HealthCheckItem:
     path = resolve_journal_db_path(config)
-    required_indexes = {sql.split()[5] for sql in HARDENING_SQL}
+    required_indexes = set()
+    for sql in HARDENING_SQL:
+        match = _INDEX_NAME_RE.search(sql)
+        if match:
+            required_indexes.add(match.group("name"))
     try:
         if not Path(path).exists():
             return HealthCheckItem(

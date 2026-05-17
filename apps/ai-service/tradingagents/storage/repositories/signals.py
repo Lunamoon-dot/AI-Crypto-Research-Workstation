@@ -91,6 +91,44 @@ class SignalsRepositoryMixin(RepositoryMixinBase):
         )
         return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
 
+    def get_latest_market_snapshot_before(
+        self,
+        symbol: str,
+        before,
+        *,
+        workspace_id: str | None = None,
+    ) -> MarketSnapshot | None:
+        before_iso = _iso(before)
+        if workspace_id:
+            row = self.store.fetchone(
+                """
+                SELECT market_snapshots.payload_json
+                FROM market_snapshots
+                LEFT JOIN research_runs
+                  ON research_runs.id = market_snapshots.research_run_id
+                WHERE market_snapshots.symbol = ?
+                  AND market_snapshots.current_price IS NOT NULL
+                  AND market_snapshots.captured_at <= ?
+                  AND COALESCE(research_runs.workspace_id, 'local') = ?
+                ORDER BY market_snapshots.captured_at DESC
+                LIMIT 1
+                """,
+                (symbol, before_iso, workspace_id),
+            )
+            return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
+        row = self.store.fetchone(
+            """
+            SELECT payload_json FROM market_snapshots
+            WHERE symbol = ?
+              AND current_price IS NOT NULL
+              AND captured_at <= ?
+            ORDER BY captured_at DESC
+            LIMIT 1
+            """,
+            (symbol, before_iso),
+        )
+        return model_from_json(MarketSnapshot, row["payload_json"]) if row else None
+
     def get_latest_market_snapshots_by_symbols(
         self, symbols: list[str], *, workspace_id: str | None = None
     ) -> dict[str, MarketSnapshot]:

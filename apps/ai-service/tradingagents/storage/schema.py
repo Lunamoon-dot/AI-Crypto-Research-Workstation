@@ -157,6 +157,132 @@ ON trade_theses(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_trade_theses_run
 ON trade_theses(research_run_id);
 
+CREATE TABLE IF NOT EXISTS thesis_monitor_plans (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    thesis_id TEXT NOT NULL,
+    baseline_run_id TEXT,
+    symbol TEXT NOT NULL,
+    market_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    baseline_price REAL,
+    baseline_price_source TEXT,
+    baseline_observed_at TEXT,
+    entry_low REAL,
+    entry_high REAL,
+    invalidation_level REAL,
+    invalidation_direction TEXT,
+    targets_json TEXT NOT NULL DEFAULT '[]',
+    scenario_triggers_json TEXT NOT NULL DEFAULT '[]',
+    missing_fields_json TEXT NOT NULL DEFAULT '[]',
+    price_interval_minutes INTEGER NOT NULL,
+    signal_interval_minutes INTEGER NOT NULL,
+    memo_interval_minutes INTEGER NOT NULL,
+    watch_distance_pct REAL NOT NULL,
+    review_distance_pct REAL NOT NULL,
+    consecutive_review_to_rerun INTEGER NOT NULL,
+    consecutive_invalidation_to_rerun INTEGER NOT NULL,
+    run_memo_on_review INTEGER NOT NULL,
+    run_memo_on_rerun_full INTEGER NOT NULL,
+    skip_memo_if_no_new_pulses INTEGER NOT NULL,
+    enabled_signal_factors_json TEXT NOT NULL DEFAULT '[]',
+    scheduler_enabled INTEGER NOT NULL,
+    latest_pulse_id TEXT,
+    latest_memo_id TEXT,
+    latest_status TEXT,
+    latest_price REAL,
+    latest_trigger_reasons_json TEXT NOT NULL DEFAULT '[]',
+    last_pulse_at TEXT,
+    next_pulse_due_at TEXT,
+    last_memo_at TEXT,
+    next_memo_due_at TEXT,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id),
+    FOREIGN KEY(baseline_run_id) REFERENCES research_runs(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_monitor_plans_thesis
+ON thesis_monitor_plans(workspace_id, thesis_id);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_monitor_plans_status
+ON thesis_monitor_plans(workspace_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS thesis_pulses (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    thesis_id TEXT NOT NULL,
+    monitor_plan_id TEXT NOT NULL,
+    baseline_run_id TEXT,
+    symbol TEXT NOT NULL,
+    market_type TEXT NOT NULL,
+    pulse_type TEXT NOT NULL,
+    bucket_start TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    current_price REAL,
+    baseline_price REAL,
+    price_change_pct REAL,
+    distance_to_entry_pct REAL,
+    distance_to_invalidation_pct REAL,
+    nearest_target REAL,
+    distance_to_nearest_target_pct REAL,
+    signal_bias TEXT,
+    signal_confidence REAL,
+    signal_delta REAL,
+    scenario_status TEXT,
+    score INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    suggested_action TEXT NOT NULL,
+    trigger_reasons_json TEXT NOT NULL DEFAULT '[]',
+    hard_triggers_json TEXT NOT NULL DEFAULT '[]',
+    missing_data_json TEXT NOT NULL DEFAULT '[]',
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id),
+    FOREIGN KEY(monitor_plan_id) REFERENCES thesis_monitor_plans(id),
+    FOREIGN KEY(baseline_run_id) REFERENCES research_runs(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_pulses_bucket
+ON thesis_pulses(thesis_id, bucket_start, pulse_type);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_pulses_thesis_observed
+ON thesis_pulses(workspace_id, thesis_id, observed_at);
+
+CREATE TABLE IF NOT EXISTS thesis_pulse_memos (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    thesis_id TEXT NOT NULL,
+    monitor_plan_id TEXT NOT NULL,
+    baseline_run_id TEXT,
+    memo_type TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    what_changed_json TEXT NOT NULL DEFAULT '[]',
+    why_it_matters_json TEXT NOT NULL DEFAULT '[]',
+    what_to_watch_next_json TEXT NOT NULL DEFAULT '[]',
+    recommended_action TEXT NOT NULL,
+    rerun_full_recommended INTEGER NOT NULL,
+    confidence REAL NOT NULL,
+    referenced_pulse_ids_json TEXT NOT NULL DEFAULT '[]',
+    prompt_version TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(thesis_id) REFERENCES trade_theses(id),
+    FOREIGN KEY(monitor_plan_id) REFERENCES thesis_monitor_plans(id),
+    FOREIGN KEY(baseline_run_id) REFERENCES research_runs(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_pulse_memos_window
+ON thesis_pulse_memos(workspace_id, thesis_id, window_start, window_end, memo_type);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_pulse_memos_thesis_created
+ON thesis_pulse_memos(workspace_id, thesis_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS scenarios (
     id TEXT PRIMARY KEY,
     thesis_id TEXT NOT NULL,
