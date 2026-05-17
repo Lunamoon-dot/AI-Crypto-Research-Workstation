@@ -4,6 +4,10 @@ import { randomUUID } from 'node:crypto';
 import {
   JournalRepository,
   JsonRecord,
+  MonitoringJobClaimInput,
+  MonitoringJobFailure,
+  MonitoringJobInput,
+  MonitoringRetentionPolicy,
   ResearchRunFailure,
   SignalSummary,
   ThesisDecisionIntent,
@@ -423,6 +427,810 @@ export class PostgresJournalRepository implements JournalRepository {
       'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
       [id, workspaceId],
     );
+  }
+
+  async getThesisMonitorPlan(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${monitorPlanPayloadSql('p')} AS payload_json
+       FROM thesis_monitor_plans p
+       WHERE p.thesis_id = $1 AND p.workspace_id = $2`,
+      [thesisId, workspaceId],
+    );
+  }
+
+  async saveThesisMonitorPlan(
+    plan: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const now = new Date().toISOString();
+    const payload = { ...plan, workspace_id: workspaceId };
+    const saved = await this.one(
+      `INSERT INTO thesis_monitor_plans (
+         id, workspace_id, thesis_id, baseline_run_id, symbol, market_type,
+         status, created_at, updated_at, baseline_price, baseline_price_source,
+         baseline_observed_at, entry_low, entry_high, invalidation_level,
+         invalidation_direction, targets_json, scenario_triggers_json,
+         missing_fields_json, price_interval_minutes, signal_interval_minutes,
+         memo_interval_minutes, watch_distance_pct, review_distance_pct,
+         consecutive_review_to_rerun, consecutive_invalidation_to_rerun,
+         run_memo_on_review, run_memo_on_rerun_full, skip_memo_if_no_new_pulses,
+         enabled_signal_factors_json, scheduler_enabled, latest_pulse_id,
+         latest_memo_id, latest_status, latest_price, latest_trigger_reasons_json,
+         last_pulse_at, next_pulse_due_at, last_memo_at, next_memo_due_at,
+         payload_json
+       )
+       VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+         $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20, $21, $22,
+         $23, $24, $25, $26, $27, $28, $29, $30::jsonb, $31, $32, $33,
+         $34, $35, $36::jsonb, $37, $38, $39, $40, $41::jsonb
+       )
+       ON CONFLICT (workspace_id, thesis_id) DO UPDATE SET
+         baseline_run_id = EXCLUDED.baseline_run_id,
+         symbol = EXCLUDED.symbol,
+         market_type = EXCLUDED.market_type,
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at,
+         baseline_price = EXCLUDED.baseline_price,
+         baseline_price_source = EXCLUDED.baseline_price_source,
+         baseline_observed_at = EXCLUDED.baseline_observed_at,
+         entry_low = EXCLUDED.entry_low,
+         entry_high = EXCLUDED.entry_high,
+         invalidation_level = EXCLUDED.invalidation_level,
+         invalidation_direction = EXCLUDED.invalidation_direction,
+         targets_json = EXCLUDED.targets_json,
+         scenario_triggers_json = EXCLUDED.scenario_triggers_json,
+         missing_fields_json = EXCLUDED.missing_fields_json,
+         price_interval_minutes = EXCLUDED.price_interval_minutes,
+         signal_interval_minutes = EXCLUDED.signal_interval_minutes,
+         memo_interval_minutes = EXCLUDED.memo_interval_minutes,
+         watch_distance_pct = EXCLUDED.watch_distance_pct,
+         review_distance_pct = EXCLUDED.review_distance_pct,
+         consecutive_review_to_rerun = EXCLUDED.consecutive_review_to_rerun,
+         consecutive_invalidation_to_rerun = EXCLUDED.consecutive_invalidation_to_rerun,
+         run_memo_on_review = EXCLUDED.run_memo_on_review,
+         run_memo_on_rerun_full = EXCLUDED.run_memo_on_rerun_full,
+         skip_memo_if_no_new_pulses = EXCLUDED.skip_memo_if_no_new_pulses,
+         enabled_signal_factors_json = EXCLUDED.enabled_signal_factors_json,
+         scheduler_enabled = EXCLUDED.scheduler_enabled,
+         latest_pulse_id = EXCLUDED.latest_pulse_id,
+         latest_memo_id = EXCLUDED.latest_memo_id,
+         latest_status = EXCLUDED.latest_status,
+         latest_price = EXCLUDED.latest_price,
+         latest_trigger_reasons_json = EXCLUDED.latest_trigger_reasons_json,
+         last_pulse_at = EXCLUDED.last_pulse_at,
+         next_pulse_due_at = EXCLUDED.next_pulse_due_at,
+         last_memo_at = EXCLUDED.last_memo_at,
+         next_memo_due_at = EXCLUDED.next_memo_due_at,
+         payload_json = EXCLUDED.payload_json
+       RETURNING ${monitorPlanPayloadSql()} AS payload_json`,
+      [
+        stringValue(plan.id, `monitor_plan_${randomUUID().replaceAll('-', '')}`),
+        workspaceId,
+        stringValue(plan.thesis_id, ''),
+        nullableString(plan.baseline_run_id),
+        stringValue(plan.symbol, ''),
+        stringValue(plan.market_type, 'spot'),
+        stringValue(plan.status, 'draft'),
+        nullableString(plan.created_at) ?? now,
+        nullableString(plan.updated_at) ?? now,
+        numberValue(plan.baseline_price),
+        stringValue(plan.baseline_price_source, 'missing'),
+        nullableString(plan.baseline_observed_at),
+        numberValue(plan.entry_low),
+        numberValue(plan.entry_high),
+        numberValue(plan.invalidation_level),
+        nullableString(plan.invalidation_direction),
+        jsonArrayParam(plan.targets ?? plan.targets_json),
+        jsonArrayParam(plan.scenario_triggers ?? plan.scenario_triggers_json),
+        jsonArrayParam(plan.missing_fields ?? plan.missing_fields_json),
+        integerValue(plan.price_interval_minutes, 5),
+        integerValue(plan.signal_interval_minutes, 15),
+        integerValue(plan.memo_interval_minutes, 240),
+        numberValue(plan.watch_distance_pct) ?? 5,
+        numberValue(plan.review_distance_pct) ?? 2,
+        integerValue(plan.consecutive_review_to_rerun, 3),
+        integerValue(plan.consecutive_invalidation_to_rerun, 2),
+        booleanValue(plan.run_memo_on_review, true),
+        booleanValue(plan.run_memo_on_rerun_full, true),
+        booleanValue(plan.skip_memo_if_no_new_pulses, true),
+        jsonArrayParam(
+          plan.enabled_signal_factors ?? plan.enabled_signal_factors_json,
+        ),
+        booleanValue(plan.scheduler_enabled, false),
+        nullableString(plan.latest_pulse_id),
+        nullableString(plan.latest_memo_id),
+        nullableString(plan.latest_status),
+        numberValue(plan.latest_price),
+        jsonArrayParam(
+          plan.latest_trigger_reasons ?? plan.latest_trigger_reasons_json,
+        ),
+        nullableString(plan.last_pulse_at),
+        nullableString(plan.next_pulse_due_at),
+        nullableString(plan.last_memo_at),
+        nullableString(plan.next_memo_due_at),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Monitor plan was not persisted.');
+    }
+    return saved;
+  }
+
+  async listThesisPulses(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT ${pulsePayloadSql('p')} AS payload_json
+       FROM thesis_pulses p
+       WHERE p.thesis_id = $1 AND p.workspace_id = $2
+       ORDER BY p.observed_at DESC, p.id DESC
+       LIMIT $3`,
+      [thesisId, workspaceId, limit],
+    );
+  }
+
+  async saveThesisPulse(
+    pulse: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const pool = this.requirePool();
+    const client = await pool.connect();
+    const payload = { ...pulse, workspace_id: workspaceId };
+    const pulseId = stringValue(
+      pulse.id,
+      `pulse_${randomUUID().replaceAll('-', '')}`,
+    );
+    const observedAt = nullableString(pulse.observed_at) ?? new Date().toISOString();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<PayloadRow>(
+        `INSERT INTO thesis_pulses (
+           id, workspace_id, thesis_id, monitor_plan_id, baseline_run_id, symbol,
+           market_type, pulse_type, bucket_start, observed_at, current_price,
+           baseline_price, price_change_pct, distance_to_entry_pct,
+           distance_to_invalidation_pct, nearest_target,
+           distance_to_nearest_target_pct, signal_bias, signal_confidence,
+           signal_delta, scenario_status, score, status, suggested_action,
+           trigger_reasons_json, hard_triggers_json, missing_data_json,
+           payload_json
+         )
+         VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+           $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb,
+           $26::jsonb, $27::jsonb, $28::jsonb
+         )
+         ON CONFLICT (workspace_id, thesis_id, bucket_start, pulse_type)
+         DO UPDATE SET
+           monitor_plan_id = EXCLUDED.monitor_plan_id,
+           baseline_run_id = EXCLUDED.baseline_run_id,
+           symbol = EXCLUDED.symbol,
+           market_type = EXCLUDED.market_type,
+           observed_at = EXCLUDED.observed_at,
+           current_price = EXCLUDED.current_price,
+           baseline_price = EXCLUDED.baseline_price,
+           price_change_pct = EXCLUDED.price_change_pct,
+           distance_to_entry_pct = EXCLUDED.distance_to_entry_pct,
+           distance_to_invalidation_pct = EXCLUDED.distance_to_invalidation_pct,
+           nearest_target = EXCLUDED.nearest_target,
+           distance_to_nearest_target_pct = EXCLUDED.distance_to_nearest_target_pct,
+           signal_bias = EXCLUDED.signal_bias,
+           signal_confidence = EXCLUDED.signal_confidence,
+           signal_delta = EXCLUDED.signal_delta,
+           scenario_status = EXCLUDED.scenario_status,
+           score = EXCLUDED.score,
+           status = EXCLUDED.status,
+           suggested_action = EXCLUDED.suggested_action,
+           trigger_reasons_json = EXCLUDED.trigger_reasons_json,
+           hard_triggers_json = EXCLUDED.hard_triggers_json,
+           missing_data_json = EXCLUDED.missing_data_json,
+           payload_json = EXCLUDED.payload_json
+         RETURNING ${pulsePayloadSql()} AS payload_json`,
+        [
+          pulseId,
+          workspaceId,
+          stringValue(pulse.thesis_id, ''),
+          stringValue(pulse.monitor_plan_id, ''),
+          nullableString(pulse.baseline_run_id),
+          stringValue(pulse.symbol, ''),
+          stringValue(pulse.market_type, 'spot'),
+          stringValue(pulse.pulse_type, 'manual'),
+          nullableString(pulse.bucket_start) ?? observedAt,
+          observedAt,
+          numberValue(pulse.current_price),
+          numberValue(pulse.baseline_price),
+          numberValue(pulse.price_change_pct),
+          numberValue(pulse.distance_to_entry_pct),
+          numberValue(pulse.distance_to_invalidation_pct),
+          numberValue(pulse.nearest_target),
+          numberValue(pulse.distance_to_nearest_target_pct),
+          stringValue(pulse.signal_bias, 'unknown'),
+          numberValue(pulse.signal_confidence),
+          numberValue(pulse.signal_delta),
+          stringValue(pulse.scenario_status, 'none'),
+          integerValue(pulse.score, 0),
+          stringValue(pulse.status, 'watch'),
+          stringValue(pulse.suggested_action, 'inspect_chart'),
+          jsonArrayParam(pulse.trigger_reasons ?? pulse.trigger_reasons_json),
+          jsonArrayParam(pulse.hard_triggers ?? pulse.hard_triggers_json),
+          jsonArrayParam(pulse.missing_data ?? pulse.missing_data_json),
+          JSON.stringify(payload),
+        ],
+      );
+      const saved = parsePayload(result.rows[0]!.payload_json);
+      await client.query(
+        `UPDATE thesis_monitor_plans
+         SET latest_pulse_id = $1,
+             latest_status = $2,
+             latest_price = $3,
+             latest_trigger_reasons_json = $4::jsonb,
+             last_pulse_at = $5,
+             next_pulse_due_at = COALESCE($6::timestamptz, next_pulse_due_at),
+             updated_at = now(),
+             payload_json = payload_json || jsonb_build_object(
+               'latest_pulse_id', $1,
+               'latest_status', $2,
+               'latest_price', $3,
+               'latest_trigger_reasons', $4::jsonb,
+               'last_pulse_at', $5::timestamptz,
+               'next_pulse_due_at', COALESCE($6::timestamptz, next_pulse_due_at)
+             )
+         WHERE workspace_id = $7 AND thesis_id = $8`,
+        [
+          stringValue(saved.id, pulseId),
+          stringValue(saved.status, 'watch'),
+          numberValue(saved.current_price),
+          jsonArrayParam(saved.trigger_reasons),
+          observedAt,
+          nullableString(pulse.next_pulse_due_at),
+          workspaceId,
+          stringValue(saved.thesis_id, ''),
+        ],
+      );
+      await client.query('COMMIT');
+      return saved;
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listThesisPulseMemos(
+    thesisId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT ${memoPayloadSql('m')} AS payload_json
+       FROM thesis_pulse_memos m
+       WHERE m.thesis_id = $1 AND m.workspace_id = $2
+       ORDER BY m.created_at DESC, m.id DESC
+       LIMIT $3`,
+      [thesisId, workspaceId, limit],
+    );
+  }
+
+  async saveThesisPulseMemo(
+    memo: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const pool = this.requirePool();
+    const client = await pool.connect();
+    const payload = { ...memo, workspace_id: workspaceId };
+    const memoId = stringValue(
+      memo.id,
+      `pulse_memo_${randomUUID().replaceAll('-', '')}`,
+    );
+    const createdAt = nullableString(memo.created_at) ?? new Date().toISOString();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<PayloadRow>(
+        `INSERT INTO thesis_pulse_memos (
+           id, workspace_id, thesis_id, monitor_plan_id, baseline_run_id,
+           memo_type, window_start, window_end, created_at, status, summary,
+           what_changed_json, why_it_matters_json, what_to_watch_next_json,
+           recommended_action, rerun_full_recommended, confidence,
+           referenced_pulse_ids_json, prompt_version, provider, model,
+           payload_json
+         )
+         VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb,
+           $13::jsonb, $14::jsonb, $15, $16, $17, $18::jsonb, $19, $20,
+           $21, $22::jsonb
+         )
+         ON CONFLICT (workspace_id, thesis_id, window_start, window_end, memo_type)
+         DO UPDATE SET
+           monitor_plan_id = EXCLUDED.monitor_plan_id,
+           baseline_run_id = EXCLUDED.baseline_run_id,
+           created_at = EXCLUDED.created_at,
+           status = EXCLUDED.status,
+           summary = EXCLUDED.summary,
+           what_changed_json = EXCLUDED.what_changed_json,
+           why_it_matters_json = EXCLUDED.why_it_matters_json,
+           what_to_watch_next_json = EXCLUDED.what_to_watch_next_json,
+           recommended_action = EXCLUDED.recommended_action,
+           rerun_full_recommended = EXCLUDED.rerun_full_recommended,
+           confidence = EXCLUDED.confidence,
+           referenced_pulse_ids_json = EXCLUDED.referenced_pulse_ids_json,
+           prompt_version = EXCLUDED.prompt_version,
+           provider = EXCLUDED.provider,
+           model = EXCLUDED.model,
+           payload_json = EXCLUDED.payload_json
+         RETURNING ${memoPayloadSql()} AS payload_json`,
+        [
+          memoId,
+          workspaceId,
+          stringValue(memo.thesis_id, ''),
+          stringValue(memo.monitor_plan_id, ''),
+          nullableString(memo.baseline_run_id),
+          stringValue(memo.memo_type, 'manual'),
+          nullableString(memo.window_start) ?? createdAt,
+          nullableString(memo.window_end) ?? createdAt,
+          createdAt,
+          stringValue(memo.status, 'watch'),
+          stringValue(memo.summary, ''),
+          jsonArrayParam(memo.what_changed ?? memo.what_changed_json),
+          jsonArrayParam(memo.why_it_matters ?? memo.why_it_matters_json),
+          jsonArrayParam(memo.what_to_watch_next ?? memo.what_to_watch_next_json),
+          stringValue(memo.recommended_action, 'inspect_chart'),
+          booleanValue(memo.rerun_full_recommended, false),
+          numberValue(memo.confidence),
+          jsonArrayParam(
+            memo.referenced_pulse_ids ?? memo.referenced_pulse_ids_json,
+          ),
+          stringValue(memo.prompt_version, 'pulse_memo.v1'),
+          stringValue(memo.provider, 'unknown'),
+          stringValue(memo.model, 'unknown'),
+          JSON.stringify(payload),
+        ],
+      );
+      const saved = parsePayload(result.rows[0]!.payload_json);
+      await client.query(
+        `UPDATE thesis_monitor_plans
+         SET latest_memo_id = $1,
+             last_memo_at = $2,
+             next_memo_due_at = COALESCE($3::timestamptz, next_memo_due_at),
+             updated_at = now(),
+             payload_json = payload_json || jsonb_build_object(
+               'latest_memo_id', $1,
+               'last_memo_at', $2::timestamptz,
+               'next_memo_due_at', COALESCE($3::timestamptz, next_memo_due_at)
+             )
+         WHERE workspace_id = $4 AND thesis_id = $5`,
+        [
+          stringValue(saved.id, memoId),
+          createdAt,
+          nullableString(memo.next_memo_due_at),
+          workspaceId,
+          stringValue(saved.thesis_id, ''),
+        ],
+      );
+      await client.query('COMMIT');
+      return saved;
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async enqueueMonitoringJob(input: MonitoringJobInput): Promise<JsonRecord> {
+    const saved = await this.one(
+      `INSERT INTO monitoring_jobs (
+         id, workspace_id, thesis_id, job_type, status, priority, run_after,
+         attempt_count, max_attempts, idempotency_key, request_json, created_at,
+         updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, 'queued', $5, $6, 0, $7, $8, $9::jsonb, now(), now()
+       )
+       ON CONFLICT (workspace_id, idempotency_key) DO UPDATE SET
+         request_json = monitoring_jobs.request_json,
+         updated_at = monitoring_jobs.updated_at
+       RETURNING ${monitoringJobPayloadSql()} AS payload_json`,
+      [
+        `monitor_job_${randomUUID().replaceAll('-', '')}`,
+        input.workspaceId,
+        input.thesisId ?? null,
+        input.jobType,
+        input.priority ?? 0,
+        input.runAfter ?? new Date().toISOString(),
+        input.maxAttempts ?? 3,
+        input.idempotencyKey,
+        JSON.stringify(input.request),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Monitoring job was not enqueued.');
+    }
+    return saved;
+  }
+
+  async claimMonitoringJobs(
+    workspaceId: string,
+    input: MonitoringJobClaimInput,
+  ): Promise<JsonRecord[]> {
+    const now = input.now ?? new Date().toISOString();
+    return this.many(
+      `WITH claimed AS (
+         SELECT id
+         FROM monitoring_jobs
+         WHERE workspace_id = $1
+           AND status = 'queued'
+           AND run_after <= $2
+         ORDER BY priority DESC, run_after ASC, created_at ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT $3
+       )
+       UPDATE monitoring_jobs j
+       SET status = 'running',
+           locked_at = $2,
+           locked_by = $4,
+           started_at = COALESCE(started_at, $2),
+           attempt_count = attempt_count + 1,
+           error_type = NULL,
+           error_message = NULL,
+           updated_at = $2
+       FROM claimed
+       WHERE j.id = claimed.id
+       RETURNING ${monitoringJobPayloadSql('j')} AS payload_json`,
+      [workspaceId, now, Math.max(1, input.limit), input.workerId],
+    );
+  }
+
+  async completeMonitoringJob(
+    id: string,
+    workspaceId: string,
+    result: JsonRecord,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `UPDATE monitoring_jobs
+       SET status = 'succeeded',
+           locked_at = NULL,
+           locked_by = NULL,
+           completed_at = now(),
+           result_json = $3::jsonb,
+           error_type = NULL,
+           error_message = NULL,
+           updated_at = now()
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING ${monitoringJobPayloadSql()} AS payload_json`,
+      [id, workspaceId, JSON.stringify(result)],
+    );
+  }
+
+  async failMonitoringJob(
+    id: string,
+    workspaceId: string,
+    failure: MonitoringJobFailure,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `UPDATE monitoring_jobs
+       SET status =
+             CASE
+               WHEN $5::boolean AND attempt_count < max_attempts THEN 'queued'
+               WHEN attempt_count >= max_attempts THEN 'dead_letter'
+               ELSE 'failed'
+             END,
+           run_after =
+             CASE
+               WHEN $5::boolean AND attempt_count < max_attempts
+                 THEN COALESCE($6::timestamptz, now() + make_interval(secs => LEAST(3600, attempt_count * 60)))
+               ELSE run_after
+             END,
+           locked_at = NULL,
+           locked_by = NULL,
+           completed_at =
+             CASE
+               WHEN $5::boolean AND attempt_count < max_attempts THEN NULL
+               ELSE now()
+             END,
+           error_type = $3,
+           error_message = $4,
+           result_json = $7::jsonb,
+           updated_at = now()
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING ${monitoringJobPayloadSql()} AS payload_json`,
+      [
+        id,
+        workspaceId,
+        failure.errorType,
+        failure.errorMessage,
+        failure.retryable,
+        failure.runAfter ?? null,
+        JSON.stringify(failure.result ?? {}),
+      ],
+    );
+  }
+
+  async runMonitoringRetention(
+    workspaceId: string,
+    policy: MonitoringRetentionPolicy,
+  ): Promise<JsonRecord> {
+    const pool = this.requirePool();
+    const client = await pool.connect();
+    const startedAt = policy.now ?? new Date().toISOString();
+    const runId = `monitor_retention_${randomUUID().replaceAll('-', '')}`;
+    const pulseCutoff = addDaysIso(startedAt, -policy.pulseKeepDays);
+    const memoCutoff = addDaysIso(startedAt, -policy.memoKeepDays);
+    const succeededJobCutoff = addDaysIso(startedAt, -policy.succeededJobKeepDays);
+    const failedJobCutoff = addDaysIso(startedAt, -policy.failedJobKeepDays);
+    try {
+      await client.query('BEGIN');
+      const pulseCount = await countRetentionCandidates(
+        client,
+        `WITH ranked AS (
+           SELECT id,
+             row_number() OVER (
+               PARTITION BY workspace_id, thesis_id
+               ORDER BY observed_at DESC, id DESC
+             ) AS row_number
+           FROM thesis_pulses
+           WHERE workspace_id = $1
+         )
+         SELECT COUNT(*)::int AS count
+         FROM thesis_pulses p
+         JOIN ranked r ON r.id = p.id
+         WHERE p.workspace_id = $1
+           AND p.observed_at < $2
+           AND r.row_number > $3`,
+        [workspaceId, pulseCutoff, policy.pulseKeepLatestPerThesis],
+      );
+      const memoCount = await countRetentionCandidates(
+        client,
+        `SELECT COUNT(*)::int AS count
+         FROM thesis_pulse_memos
+         WHERE workspace_id = $1 AND created_at < $2`,
+        [workspaceId, memoCutoff],
+      );
+      const jobCount = await countRetentionCandidates(
+        client,
+        `SELECT COUNT(*)::int AS count
+         FROM monitoring_jobs
+         WHERE workspace_id = $1
+           AND (
+             (status = 'succeeded' AND COALESCE(completed_at, updated_at) < $2)
+             OR (status IN ('failed', 'dead_letter', 'cancelled') AND COALESCE(completed_at, updated_at) < $3)
+           )`,
+        [workspaceId, succeededJobCutoff, failedJobCutoff],
+      );
+
+      if (!policy.dryRun) {
+        await client.query(
+          `WITH ranked AS (
+             SELECT id,
+               row_number() OVER (
+                 PARTITION BY workspace_id, thesis_id
+                 ORDER BY observed_at DESC, id DESC
+               ) AS row_number
+             FROM thesis_pulses
+             WHERE workspace_id = $1
+           )
+           DELETE FROM thesis_pulses p
+           USING ranked r
+           WHERE p.id = r.id
+             AND p.workspace_id = $1
+             AND p.observed_at < $2
+             AND r.row_number > $3`,
+          [workspaceId, pulseCutoff, policy.pulseKeepLatestPerThesis],
+        );
+        await client.query(
+          `DELETE FROM thesis_pulse_memos
+           WHERE workspace_id = $1 AND created_at < $2`,
+          [workspaceId, memoCutoff],
+        );
+        await client.query(
+          `DELETE FROM monitoring_jobs
+           WHERE workspace_id = $1
+             AND (
+               (status = 'succeeded' AND COALESCE(completed_at, updated_at) < $2)
+               OR (status IN ('failed', 'dead_letter', 'cancelled') AND COALESCE(completed_at, updated_at) < $3)
+             )`,
+          [workspaceId, succeededJobCutoff, failedJobCutoff],
+        );
+      }
+
+      const completedAt = new Date().toISOString();
+      const payload: JsonRecord = {
+        id: runId,
+        workspace_id: workspaceId,
+        started_at: startedAt,
+        completed_at: completedAt,
+        dry_run: policy.dryRun,
+        deleted_pulses: pulseCount,
+        deleted_memos: memoCount,
+        deleted_jobs: jobCount,
+        protected_tables: [
+          'trade_theses',
+          'research_runs',
+          'user_decisions',
+          'outcome_reviews',
+          'market_snapshots',
+          'signal_snapshots',
+        ],
+        policy,
+      };
+      const result = await client.query<PayloadRow>(
+        `INSERT INTO monitoring_retention_runs (
+           id, workspace_id, started_at, completed_at, dry_run, deleted_pulses,
+           deleted_memos, deleted_jobs, error, policy_json, payload_json
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9::jsonb, $10::jsonb)
+         RETURNING payload_json AS payload_json`,
+        [
+          runId,
+          workspaceId,
+          startedAt,
+          completedAt,
+          policy.dryRun,
+          pulseCount,
+          memoCount,
+          jobCount,
+          JSON.stringify(policy),
+          JSON.stringify(payload),
+        ],
+      );
+      await client.query('COMMIT');
+      return parsePayload(result.rows[0]!.payload_json);
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getMonitoringOperationsHealth(
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const pool = this.requirePool();
+    const [queue, scheduler, workers, retention, memoHealth] =
+      await Promise.all([
+        pool.query<{
+          queued: string;
+          running: string;
+          failed: string;
+          dead_letter: string;
+          oldest_queued_at: Date | string | null;
+        }>(
+          `SELECT
+             COUNT(*) FILTER (WHERE status = 'queued')::text AS queued,
+             COUNT(*) FILTER (WHERE status = 'running')::text AS running,
+             COUNT(*) FILTER (WHERE status = 'failed')::text AS failed,
+             COUNT(*) FILTER (WHERE status = 'dead_letter')::text AS dead_letter,
+             MIN(created_at) FILTER (WHERE status = 'queued') AS oldest_queued_at
+           FROM monitoring_jobs
+           WHERE workspace_id = $1`,
+          [workspaceId],
+        ),
+        pool.query<{
+          enabled_plans: string;
+          due_plans: string;
+          last_enqueue_at: Date | string | null;
+          last_enqueue_error: string | null;
+        }>(
+          `SELECT
+             (SELECT COUNT(*)::text FROM thesis_monitor_plans
+              WHERE workspace_id = $1 AND scheduler_enabled = true AND status = 'active') AS enabled_plans,
+             (SELECT COUNT(*)::text FROM thesis_monitor_plans
+              WHERE workspace_id = $1 AND scheduler_enabled = true AND status = 'active'
+                AND (COALESCE(next_pulse_due_at, now()) <= now()
+                  OR COALESCE(next_memo_due_at, now()) <= now())) AS due_plans,
+             (SELECT MAX(created_at) FROM monitoring_jobs
+              WHERE workspace_id = $1 AND job_type IN ('thesis_pulse_run', 'thesis_pulse_memo_run')) AS last_enqueue_at,
+             (SELECT error_message FROM monitoring_jobs
+              WHERE workspace_id = $1
+                AND job_type IN ('thesis_pulse_run', 'thesis_pulse_memo_run')
+                AND status IN ('failed', 'dead_letter')
+              ORDER BY updated_at DESC LIMIT 1) AS last_enqueue_error`,
+          [workspaceId],
+        ),
+        pool.query<{
+          active_workers: string;
+          last_success_at: Date | string | null;
+          last_error_at: Date | string | null;
+          recent_error_types: unknown;
+        }>(
+          `SELECT
+             COUNT(DISTINCT locked_by) FILTER (WHERE status = 'running' AND locked_by IS NOT NULL)::text AS active_workers,
+             MAX(completed_at) FILTER (WHERE status = 'succeeded') AS last_success_at,
+             MAX(updated_at) FILTER (WHERE status IN ('failed', 'dead_letter')) AS last_error_at,
+             COALESCE(jsonb_agg(DISTINCT error_type) FILTER (WHERE error_type IS NOT NULL), '[]'::jsonb) AS recent_error_types
+           FROM monitoring_jobs
+           WHERE workspace_id = $1`,
+          [workspaceId],
+        ),
+        pool.query<{
+          last_run_at: Date | string | null;
+          last_deleted_counts: unknown;
+          last_error: string | null;
+        }>(
+          `SELECT
+             completed_at AS last_run_at,
+             jsonb_build_object(
+               'deleted_pulses', deleted_pulses,
+               'deleted_memos', deleted_memos,
+               'deleted_jobs', deleted_jobs,
+               'dry_run', dry_run
+             ) AS last_deleted_counts,
+             error AS last_error
+           FROM monitoring_retention_runs
+           WHERE workspace_id = $1
+           ORDER BY started_at DESC
+           LIMIT 1`,
+          [workspaceId],
+        ),
+        pool.query<{
+          recent_calls: string;
+          failed_calls: string;
+          average_latency_ms: string | null;
+        }>(
+          `SELECT
+             COUNT(*)::text AS recent_calls,
+             COUNT(*) FILTER (WHERE status NOT IN ('success', 'ok'))::text AS failed_calls,
+             AVG(latency_ms)::text AS average_latency_ms
+           FROM llm_calls c
+           LEFT JOIN trade_theses t ON t.id = c.thesis_id
+           WHERE COALESCE(t.workspace_id, $1) = $1
+             AND COALESCE(c.stage, '') IN ('pulse_memo', 'thesis_pulse_memo', 'memo')`,
+          [workspaceId],
+        ),
+      ]);
+    const queueRow = queue.rows[0];
+    const schedulerRow = scheduler.rows[0];
+    const workersRow = workers.rows[0];
+    const retentionRow = retention.rows[0];
+    const memoRow = memoHealth.rows[0];
+    const recentCalls = integerValue(memoRow?.recent_calls, 0);
+    const failedCalls = integerValue(memoRow?.failed_calls, 0);
+    return {
+      monitoring_queue: {
+        queued: integerValue(queueRow?.queued, 0),
+        running: integerValue(queueRow?.running, 0),
+        failed: integerValue(queueRow?.failed, 0),
+        dead_letter: integerValue(queueRow?.dead_letter, 0),
+        oldest_queued_at: isoStringOrNull(queueRow?.oldest_queued_at),
+      },
+      monitoring_scheduler: {
+        enabled_plans: integerValue(schedulerRow?.enabled_plans, 0),
+        due_plans: integerValue(schedulerRow?.due_plans, 0),
+        last_enqueue_at: isoStringOrNull(schedulerRow?.last_enqueue_at),
+        last_enqueue_error: schedulerRow?.last_enqueue_error ?? null,
+      },
+      monitoring_workers: {
+        active_workers: integerValue(workersRow?.active_workers, 0),
+        last_success_at: isoStringOrNull(workersRow?.last_success_at),
+        last_error_at: isoStringOrNull(workersRow?.last_error_at),
+        recent_error_types: arrayFromUnknown(workersRow?.recent_error_types),
+      },
+      monitoring_retention: {
+        last_run_at: isoStringOrNull(retentionRow?.last_run_at),
+        last_deleted_counts: recordOrDefault(
+          retentionRow?.last_deleted_counts,
+          {
+            deleted_pulses: 0,
+            deleted_memos: 0,
+            deleted_jobs: 0,
+            dry_run: true,
+          },
+        ),
+        last_error: retentionRow?.last_error ?? null,
+      },
+      llm_memo_health: {
+        recent_calls: recentCalls,
+        failure_rate: recentCalls > 0 ? failedCalls / recentCalls : null,
+        average_latency_ms: numberValue(memoRow?.average_latency_ms),
+      },
+    };
   }
 
   async listScenarios(
@@ -1404,6 +2212,63 @@ function numberValue(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function integerValue(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function jsonArrayParam(value: unknown): string {
+  const parsed = parseJsonValue(value);
+  return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function isoStringOrNull(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function addDaysIso(value: string, days: number): string {
+  return new Date(new Date(value).getTime() + days * 86_400_000).toISOString();
+}
+
+function arrayFromUnknown(value: unknown): unknown[] {
+  const parsed = parseJsonValue(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function recordOrDefault(
+  value: unknown,
+  fallback: JsonRecord,
+): JsonRecord {
+  const parsed = parseJsonValue(value);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as JsonRecord;
+  }
+  return fallback;
+}
+
+async function countRetentionCandidates(
+  client: PoolClient,
+  sql: string,
+  params: unknown[],
+): Promise<number> {
+  const result = await client.query<{ count: number | string }>(sql, params);
+  return integerValue(result.rows[0]?.count, 0);
+}
+
 async function rollbackQuietly(client: PoolClient): Promise<void> {
   try {
     await client.query('ROLLBACK');
@@ -1430,4 +2295,153 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function monitorPlanPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'thesis_id', ${p}thesis_id,
+    'baseline_run_id', ${p}baseline_run_id,
+    'symbol', ${p}symbol,
+    'market_type', ${p}market_type,
+    'status', ${p}status,
+    'created_at', ${p}created_at,
+    'updated_at', ${p}updated_at,
+    'baseline_price', ${p}baseline_price,
+    'baseline_price_source', ${p}baseline_price_source,
+    'baseline_observed_at', ${p}baseline_observed_at,
+    'entry_low', ${p}entry_low,
+    'entry_high', ${p}entry_high,
+    'invalidation_level', ${p}invalidation_level,
+    'invalidation_direction', ${p}invalidation_direction,
+    'targets', ${p}targets_json,
+    'targets_json', ${p}targets_json,
+    'scenario_triggers', ${p}scenario_triggers_json,
+    'scenario_triggers_json', ${p}scenario_triggers_json,
+    'missing_fields', ${p}missing_fields_json,
+    'missing_fields_json', ${p}missing_fields_json,
+    'price_interval_minutes', ${p}price_interval_minutes,
+    'signal_interval_minutes', ${p}signal_interval_minutes,
+    'memo_interval_minutes', ${p}memo_interval_minutes,
+    'watch_distance_pct', ${p}watch_distance_pct,
+    'review_distance_pct', ${p}review_distance_pct,
+    'consecutive_review_to_rerun', ${p}consecutive_review_to_rerun,
+    'consecutive_invalidation_to_rerun', ${p}consecutive_invalidation_to_rerun,
+    'run_memo_on_review', ${p}run_memo_on_review,
+    'run_memo_on_rerun_full', ${p}run_memo_on_rerun_full,
+    'skip_memo_if_no_new_pulses', ${p}skip_memo_if_no_new_pulses,
+    'enabled_signal_factors', ${p}enabled_signal_factors_json,
+    'enabled_signal_factors_json', ${p}enabled_signal_factors_json,
+    'scheduler_enabled', ${p}scheduler_enabled,
+    'latest_pulse_id', ${p}latest_pulse_id,
+    'latest_memo_id', ${p}latest_memo_id,
+    'latest_status', ${p}latest_status,
+    'latest_price', ${p}latest_price,
+    'latest_trigger_reasons', ${p}latest_trigger_reasons_json,
+    'latest_trigger_reasons_json', ${p}latest_trigger_reasons_json,
+    'last_pulse_at', ${p}last_pulse_at,
+    'next_pulse_due_at', ${p}next_pulse_due_at,
+    'last_memo_at', ${p}last_memo_at,
+    'next_memo_due_at', ${p}next_memo_due_at,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function pulsePayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'thesis_id', ${p}thesis_id,
+    'monitor_plan_id', ${p}monitor_plan_id,
+    'baseline_run_id', ${p}baseline_run_id,
+    'symbol', ${p}symbol,
+    'market_type', ${p}market_type,
+    'pulse_type', ${p}pulse_type,
+    'bucket_start', ${p}bucket_start,
+    'observed_at', ${p}observed_at,
+    'current_price', ${p}current_price,
+    'baseline_price', ${p}baseline_price,
+    'price_change_pct', ${p}price_change_pct,
+    'distance_to_entry_pct', ${p}distance_to_entry_pct,
+    'distance_to_invalidation_pct', ${p}distance_to_invalidation_pct,
+    'nearest_target', ${p}nearest_target,
+    'distance_to_nearest_target_pct', ${p}distance_to_nearest_target_pct,
+    'signal_bias', ${p}signal_bias,
+    'signal_confidence', ${p}signal_confidence,
+    'signal_delta', ${p}signal_delta,
+    'scenario_status', ${p}scenario_status,
+    'score', ${p}score,
+    'status', ${p}status,
+    'suggested_action', ${p}suggested_action,
+    'trigger_reasons', ${p}trigger_reasons_json,
+    'trigger_reasons_json', ${p}trigger_reasons_json,
+    'hard_triggers', ${p}hard_triggers_json,
+    'hard_triggers_json', ${p}hard_triggers_json,
+    'missing_data', ${p}missing_data_json,
+    'missing_data_json', ${p}missing_data_json,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function memoPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'thesis_id', ${p}thesis_id,
+    'monitor_plan_id', ${p}monitor_plan_id,
+    'baseline_run_id', ${p}baseline_run_id,
+    'memo_type', ${p}memo_type,
+    'window_start', ${p}window_start,
+    'window_end', ${p}window_end,
+    'created_at', ${p}created_at,
+    'status', ${p}status,
+    'summary', ${p}summary,
+    'what_changed', ${p}what_changed_json,
+    'what_changed_json', ${p}what_changed_json,
+    'why_it_matters', ${p}why_it_matters_json,
+    'why_it_matters_json', ${p}why_it_matters_json,
+    'what_to_watch_next', ${p}what_to_watch_next_json,
+    'what_to_watch_next_json', ${p}what_to_watch_next_json,
+    'recommended_action', ${p}recommended_action,
+    'rerun_full_recommended', ${p}rerun_full_recommended,
+    'confidence', ${p}confidence,
+    'referenced_pulse_ids', ${p}referenced_pulse_ids_json,
+    'referenced_pulse_ids_json', ${p}referenced_pulse_ids_json,
+    'prompt_version', ${p}prompt_version,
+    'provider', ${p}provider,
+    'model', ${p}model,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function monitoringJobPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'thesis_id', ${p}thesis_id,
+    'job_type', ${p}job_type,
+    'status', ${p}status,
+    'priority', ${p}priority,
+    'run_after', ${p}run_after,
+    'attempt_count', ${p}attempt_count,
+    'max_attempts', ${p}max_attempts,
+    'locked_at', ${p}locked_at,
+    'locked_by', ${p}locked_by,
+    'started_at', ${p}started_at,
+    'completed_at', ${p}completed_at,
+    'error_type', ${p}error_type,
+    'error_message', ${p}error_message,
+    'idempotency_key', ${p}idempotency_key,
+    'request', ${p}request_json,
+    'request_json', ${p}request_json,
+    'result', ${p}result_json,
+    'result_json', ${p}result_json,
+    'created_at', ${p}created_at,
+    'updated_at', ${p}updated_at
+  )`;
 }

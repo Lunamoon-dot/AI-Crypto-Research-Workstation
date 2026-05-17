@@ -73,6 +73,9 @@ model ResearchRun {
   agentOpinions       AgentOpinion[]
   runEvents           RunEvent[]
   tradeTheses         TradeThesis[]
+  thesisMonitorPlans  ThesisMonitorPlan[]
+  thesisPulses        ThesisPulse[]
+  thesisPulseMemos    ThesisPulseMemo[]
   llmCalls            LlmCall[]
   dataFreshnessChecks DataFreshnessCheck[]
 
@@ -221,9 +224,189 @@ model TradeThesis {
   userDecisions  UserDecision[]
   outcomeReviews OutcomeReview[]
   llmCalls       LlmCall[]
+  monitorPlans   ThesisMonitorPlan[]
+  pulses         ThesisPulse[]
+  pulseMemos     ThesisPulseMemo[]
+  monitoringJobs MonitoringJob[]
 
   @@index([workspaceId, createdAt(sort: Desc)], map: "idx_trade_theses_workspace_created")
   @@map("trade_theses")
+}
+
+model ThesisMonitorPlan {
+  id                            String    @id
+  workspaceId                   String    @default("local") @map("workspace_id")
+  thesisId                      String    @map("thesis_id")
+  baselineRunId                 String?   @map("baseline_run_id")
+  symbol                        String
+  marketType                    String    @map("market_type")
+  status                        String
+  createdAt                     DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime  @map("updated_at") @db.Timestamptz(6)
+  baselinePrice                 Float?    @map("baseline_price")
+  baselinePriceSource           String?   @map("baseline_price_source")
+  baselineObservedAt            DateTime? @map("baseline_observed_at") @db.Timestamptz(6)
+  entryLow                      Float?    @map("entry_low")
+  entryHigh                     Float?    @map("entry_high")
+  invalidationLevel             Float?    @map("invalidation_level")
+  invalidationDirection         String?   @map("invalidation_direction")
+  targetsJson                   Json      @default("[]") @map("targets_json")
+  scenarioTriggersJson          Json      @default("[]") @map("scenario_triggers_json")
+  missingFieldsJson             Json      @default("[]") @map("missing_fields_json")
+  priceIntervalMinutes          Int       @map("price_interval_minutes")
+  signalIntervalMinutes         Int       @map("signal_interval_minutes")
+  memoIntervalMinutes           Int       @map("memo_interval_minutes")
+  watchDistancePct              Float     @map("watch_distance_pct")
+  reviewDistancePct             Float     @map("review_distance_pct")
+  consecutiveReviewToRerun      Int       @map("consecutive_review_to_rerun")
+  consecutiveInvalidationToRerun Int       @map("consecutive_invalidation_to_rerun")
+  runMemoOnReview               Boolean   @default(true) @map("run_memo_on_review")
+  runMemoOnRerunFull            Boolean   @default(true) @map("run_memo_on_rerun_full")
+  skipMemoIfNoNewPulses         Boolean   @default(true) @map("skip_memo_if_no_new_pulses")
+  enabledSignalFactorsJson      Json      @default("[]") @map("enabled_signal_factors_json")
+  schedulerEnabled              Boolean   @default(false) @map("scheduler_enabled")
+  latestPulseId                 String?   @map("latest_pulse_id")
+  latestMemoId                  String?   @map("latest_memo_id")
+  latestStatus                  String?   @map("latest_status")
+  latestPrice                   Float?    @map("latest_price")
+  latestTriggerReasonsJson      Json      @default("[]") @map("latest_trigger_reasons_json")
+  lastPulseAt                   DateTime? @map("last_pulse_at") @db.Timestamptz(6)
+  nextPulseDueAt                DateTime? @map("next_pulse_due_at") @db.Timestamptz(6)
+  lastMemoAt                    DateTime? @map("last_memo_at") @db.Timestamptz(6)
+  nextMemoDueAt                 DateTime? @map("next_memo_due_at") @db.Timestamptz(6)
+  payloadJson                   Json      @map("payload_json")
+
+  thesis      TradeThesis  @relation(fields: [thesisId], references: [id])
+  baselineRun ResearchRun? @relation(fields: [baselineRunId], references: [id])
+  pulses      ThesisPulse[]
+  memos       ThesisPulseMemo[]
+
+  @@unique([workspaceId, thesisId], map: "idx_thesis_monitor_plans_thesis")
+  @@index([workspaceId, status, updatedAt(sort: Desc)], map: "idx_thesis_monitor_plans_status")
+  @@index([workspaceId, schedulerEnabled, status, nextPulseDueAt, nextMemoDueAt], map: "idx_thesis_monitor_plans_due")
+  @@map("thesis_monitor_plans")
+}
+
+model ThesisPulse {
+  id                           String   @id
+  workspaceId                  String   @default("local") @map("workspace_id")
+  thesisId                     String   @map("thesis_id")
+  monitorPlanId                String   @map("monitor_plan_id")
+  baselineRunId                String?  @map("baseline_run_id")
+  symbol                       String
+  marketType                   String   @map("market_type")
+  pulseType                    String   @map("pulse_type")
+  bucketStart                  DateTime @map("bucket_start") @db.Timestamptz(6)
+  observedAt                   DateTime @map("observed_at") @db.Timestamptz(6)
+  currentPrice                 Float?   @map("current_price")
+  baselinePrice                Float?   @map("baseline_price")
+  priceChangePct               Float?   @map("price_change_pct")
+  distanceToEntryPct           Float?   @map("distance_to_entry_pct")
+  distanceToInvalidationPct    Float?   @map("distance_to_invalidation_pct")
+  nearestTarget                Float?   @map("nearest_target")
+  distanceToNearestTargetPct   Float?   @map("distance_to_nearest_target_pct")
+  signalBias                   String?  @map("signal_bias")
+  signalConfidence             Float?   @map("signal_confidence")
+  signalDelta                  Float?   @map("signal_delta")
+  scenarioStatus               String?  @map("scenario_status")
+  score                        Int
+  status                       String
+  suggestedAction              String   @map("suggested_action")
+  triggerReasonsJson           Json     @default("[]") @map("trigger_reasons_json")
+  hardTriggersJson             Json     @default("[]") @map("hard_triggers_json")
+  missingDataJson              Json     @default("[]") @map("missing_data_json")
+  payloadJson                  Json     @map("payload_json")
+
+  thesis      TradeThesis       @relation(fields: [thesisId], references: [id])
+  monitorPlan ThesisMonitorPlan @relation(fields: [monitorPlanId], references: [id])
+  baselineRun ResearchRun?      @relation(fields: [baselineRunId], references: [id])
+
+  @@unique([workspaceId, thesisId, bucketStart, pulseType], map: "idx_thesis_pulses_bucket")
+  @@index([workspaceId, thesisId, observedAt(sort: Desc)], map: "idx_thesis_pulses_thesis_observed")
+  @@index([workspaceId, status, observedAt(sort: Desc)], map: "idx_thesis_pulses_status")
+  @@map("thesis_pulses")
+}
+
+model ThesisPulseMemo {
+  id                         String   @id
+  workspaceId                String   @default("local") @map("workspace_id")
+  thesisId                   String   @map("thesis_id")
+  monitorPlanId              String   @map("monitor_plan_id")
+  baselineRunId              String?  @map("baseline_run_id")
+  memoType                   String   @map("memo_type")
+  windowStart                DateTime @map("window_start") @db.Timestamptz(6)
+  windowEnd                  DateTime @map("window_end") @db.Timestamptz(6)
+  createdAt                  DateTime @map("created_at") @db.Timestamptz(6)
+  status                     String
+  summary                    String
+  whatChangedJson            Json     @default("[]") @map("what_changed_json")
+  whyItMattersJson           Json     @default("[]") @map("why_it_matters_json")
+  whatToWatchNextJson        Json     @default("[]") @map("what_to_watch_next_json")
+  recommendedAction          String   @map("recommended_action")
+  rerunFullRecommended       Boolean  @default(false) @map("rerun_full_recommended")
+  confidence                 Float?
+  referencedPulseIdsJson     Json     @default("[]") @map("referenced_pulse_ids_json")
+  promptVersion              String   @map("prompt_version")
+  provider                   String
+  model                      String
+  payloadJson                Json     @map("payload_json")
+
+  thesis      TradeThesis       @relation(fields: [thesisId], references: [id])
+  monitorPlan ThesisMonitorPlan @relation(fields: [monitorPlanId], references: [id])
+  baselineRun ResearchRun?      @relation(fields: [baselineRunId], references: [id])
+
+  @@unique([workspaceId, thesisId, windowStart, windowEnd, memoType], map: "idx_thesis_pulse_memos_window")
+  @@index([workspaceId, thesisId, createdAt(sort: Desc)], map: "idx_thesis_pulse_memos_thesis_created")
+  @@index([workspaceId, status, createdAt(sort: Desc)], map: "idx_thesis_pulse_memos_status")
+  @@map("thesis_pulse_memos")
+}
+
+model MonitoringJob {
+  id             String    @id
+  workspaceId    String    @map("workspace_id")
+  thesisId       String?   @map("thesis_id")
+  jobType        String    @map("job_type")
+  status         String
+  priority       Int       @default(0)
+  runAfter       DateTime  @default(now()) @map("run_after") @db.Timestamptz(6)
+  attemptCount   Int       @default(0) @map("attempt_count")
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy       String?   @map("locked_by")
+  startedAt      DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  errorType      String?   @map("error_type")
+  errorMessage   String?   @map("error_message")
+  idempotencyKey String    @map("idempotency_key")
+  requestJson    Json      @map("request_json")
+  resultJson     Json?     @map("result_json")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  thesis TradeThesis? @relation(fields: [thesisId], references: [id])
+
+  @@unique([workspaceId, idempotencyKey], map: "idx_monitoring_jobs_idempotency")
+  @@index([workspaceId, status, runAfter, priority(sort: Desc), createdAt], map: "idx_monitoring_jobs_due")
+  @@index([workspaceId, thesisId, createdAt(sort: Desc)], map: "idx_monitoring_jobs_thesis")
+  @@index([status, lockedBy, lockedAt], map: "idx_monitoring_jobs_workers")
+  @@map("monitoring_jobs")
+}
+
+model MonitoringRetentionRun {
+  id            String    @id
+  workspaceId   String    @map("workspace_id")
+  startedAt     DateTime  @map("started_at") @db.Timestamptz(6)
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz(6)
+  dryRun        Boolean   @map("dry_run")
+  deletedPulses Int       @default(0) @map("deleted_pulses")
+  deletedMemos  Int       @default(0) @map("deleted_memos")
+  deletedJobs   Int       @default(0) @map("deleted_jobs")
+  error         String?
+  policyJson    Json      @map("policy_json")
+  payloadJson   Json      @map("payload_json")
+
+  @@index([workspaceId, startedAt(sort: Desc)], map: "idx_monitoring_retention_runs_workspace_started")
+  @@map("monitoring_retention_runs")
 }
 
 model Scenario {

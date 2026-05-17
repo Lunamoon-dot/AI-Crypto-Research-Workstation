@@ -1,5 +1,54 @@
 export type JsonRecord = Record<string, unknown>;
 
+export type MonitoringJobType =
+  | 'monitor_plan_build'
+  | 'thesis_pulse_run'
+  | 'thesis_pulse_memo_run'
+  | 'monitoring_retention_run';
+
+export type MonitoringJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'dead_letter';
+
+export interface MonitoringJobInput {
+  workspaceId: string;
+  thesisId?: string | null;
+  jobType: MonitoringJobType;
+  runAfter?: string | null;
+  priority?: number;
+  maxAttempts?: number;
+  idempotencyKey: string;
+  request: JsonRecord;
+}
+
+export interface MonitoringJobClaimInput {
+  limit: number;
+  workerId: string;
+  now?: string;
+}
+
+export interface MonitoringJobFailure {
+  errorType: string;
+  errorMessage: string;
+  retryable: boolean;
+  runAfter?: string | null;
+  result?: JsonRecord | null;
+}
+
+export interface MonitoringRetentionPolicy {
+  dryRun: boolean;
+  pulseKeepDays: number;
+  pulseKeepLatestPerThesis: number;
+  memoKeepDays: number;
+  succeededJobKeepDays: number;
+  failedJobKeepDays: number;
+  now?: string;
+}
+
 export interface SignalSummary {
   total: number;
   bullish: number;
@@ -76,16 +125,45 @@ export interface JournalRepository {
     thesisId: string,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
+  saveThesisMonitorPlan?(
+    plan: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
   listThesisPulses?(
     thesisId: string,
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]>;
+  saveThesisPulse?(pulse: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   listThesisPulseMemos?(
     thesisId: string,
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]>;
+  saveThesisPulseMemo?(
+    memo: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  enqueueMonitoringJob?(input: MonitoringJobInput): Promise<JsonRecord>;
+  claimMonitoringJobs?(
+    workspaceId: string,
+    input: MonitoringJobClaimInput,
+  ): Promise<JsonRecord[]>;
+  completeMonitoringJob?(
+    id: string,
+    workspaceId: string,
+    result: JsonRecord,
+  ): Promise<JsonRecord | null>;
+  failMonitoringJob?(
+    id: string,
+    workspaceId: string,
+    failure: MonitoringJobFailure,
+  ): Promise<JsonRecord | null>;
+  runMonitoringRetention?(
+    workspaceId: string,
+    policy: MonitoringRetentionPolicy,
+  ): Promise<JsonRecord>;
+  getMonitoringOperationsHealth?(workspaceId: string): Promise<JsonRecord>;
   listScenarios(thesisId: string, workspaceId: string): Promise<JsonRecord[]>;
   recordThesisDecision(
     thesisId: string,

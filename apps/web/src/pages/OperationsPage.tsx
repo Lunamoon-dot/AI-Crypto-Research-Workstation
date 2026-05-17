@@ -53,10 +53,10 @@ export function OperationsPage() {
               },
               {
                 icon: <Activity aria-hidden size={14} />,
-                label: 'Queue',
-                meta: data?.queue.redis_configured ? 'Redis configured' : 'No Redis URL',
-                tone: data?.queue.backend === 'bullmq' && !data.queue.redis_configured ? 'warning' : 'primary',
-                value: data?.queue.backend ?? '...',
+                label: 'Monitor jobs',
+                meta: `${data?.monitoring_queue.running ?? 0} running`,
+                tone: (data?.monitoring_queue.dead_letter ?? 0) > 0 ? 'risk' : 'primary',
+                value: data?.monitoring_queue.queued ?? '...',
               },
             ]}
           />
@@ -99,6 +99,82 @@ export function OperationsPage() {
             <DataPair label="Avg latency" value={formatNumber(data?.llm.average_latency_ms)} />
             <DataPair label="Recent errors" value={data?.llm.recent_errors ?? 0} />
             <JsonView value={data?.llm.by_provider ?? {}} />
+          </div>
+        </Panel>
+
+        <Panel className="span-6" title="Monitoring Queue">
+          <div className="grid two">
+            <DataPair label="Queued" value={data?.monitoring_queue.queued ?? 0} />
+            <DataPair label="Running" value={data?.monitoring_queue.running ?? 0} />
+            <DataPair label="Failed" value={data?.monitoring_queue.failed ?? 0} />
+            <DataPair label="Dead letter" value={data?.monitoring_queue.dead_letter ?? 0} />
+            <DataPair
+              label="Oldest queued"
+              value={formatDateTime(data?.monitoring_queue.oldest_queued_at)}
+            />
+            <DataPair label="Backend" value={data?.queue.backend ?? 'memory'} />
+          </div>
+        </Panel>
+
+        <Panel className="span-6" title="Monitoring Scheduler">
+          <div className="grid two">
+            <DataPair label="Enabled plans" value={data?.monitoring_scheduler.enabled_plans ?? 0} />
+            <DataPair label="Due plans" value={data?.monitoring_scheduler.due_plans ?? 0} />
+            <DataPair
+              label="Last enqueue"
+              value={formatDateTime(data?.monitoring_scheduler.last_enqueue_at)}
+            />
+            <DataPair
+              label="Last error"
+              value={data?.monitoring_scheduler.last_enqueue_error ?? 'none'}
+            />
+          </div>
+        </Panel>
+
+        <Panel className="span-6" title="Monitoring Workers">
+          <div className="grid two">
+            <DataPair label="Active workers" value={data?.monitoring_workers.active_workers ?? 0} />
+            <DataPair
+              label="Last success"
+              value={formatDateTime(data?.monitoring_workers.last_success_at)}
+            />
+            <DataPair
+              label="Last error"
+              value={formatDateTime(data?.monitoring_workers.last_error_at)}
+            />
+            <DataPair
+              label="Error types"
+              value={data?.monitoring_workers.recent_error_types.join(', ') || 'none'}
+            />
+          </div>
+        </Panel>
+
+        <Panel className="span-6" title="Monitoring Retention">
+          <div className="grid two">
+            <DataPair
+              label="Last run"
+              value={formatDateTime(data?.monitoring_retention.last_run_at)}
+            />
+            <DataPair
+              label="Pulses"
+              value={data?.monitoring_retention.last_deleted_counts.deleted_pulses ?? 0}
+            />
+            <DataPair
+              label="Memos"
+              value={data?.monitoring_retention.last_deleted_counts.deleted_memos ?? 0}
+            />
+            <DataPair
+              label="Jobs"
+              value={data?.monitoring_retention.last_deleted_counts.deleted_jobs ?? 0}
+            />
+            <DataPair
+              label="Dry run"
+              value={data?.monitoring_retention.last_deleted_counts.dry_run ? 'yes' : 'no'}
+            />
+            <DataPair
+              label="LLM memo failures"
+              value={formatConfidence(data?.llm_memo_health.failure_rate)}
+            />
           </div>
         </Panel>
 

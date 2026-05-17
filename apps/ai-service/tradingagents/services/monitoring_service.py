@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,6 +20,8 @@ from tradingagents.domain import (
     ThesisTargetLevel,
     TradeThesis,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ThesisMonitorPlanService:
@@ -45,7 +48,9 @@ class ThesisMonitorPlanService:
 
     def build_from_thesis(self, thesis: TradeThesis) -> ThesisMonitorPlan:
         summary = thesis.structured_summary
-        entry_text = first_text(thesis.entry_zone, summary.entry_zone if summary else "")
+        entry_text = first_text(
+            thesis.entry_zone, summary.entry_zone if summary else ""
+        )
         invalidation_text = first_text(
             thesis.invalidation_level,
             thesis.invalidation,
@@ -165,9 +170,15 @@ class ThesisMonitorPlanService:
                 if str(item).strip()
             ],
         )
-        if data["missing_fields"] and data.get("status") == ThesisMonitorPlanStatus.ACTIVE:
+        if (
+            data["missing_fields"]
+            and data.get("status") == ThesisMonitorPlanStatus.ACTIVE
+        ):
             data["status"] = ThesisMonitorPlanStatus.INVALID
-        if not data["missing_fields"] and str(data.get("status")) in {"draft", "invalid"}:
+        if not data["missing_fields"] and str(data.get("status")) in {
+            "draft",
+            "invalid",
+        }:
             data["status"] = ThesisMonitorPlanStatus.ACTIVE
         updated = ThesisMonitorPlan.model_validate(data)
         return self.journal.repo.save_thesis_monitor_plan(updated)
@@ -187,7 +198,9 @@ class ThesisMonitorPlanService:
                 signal_snapshot = self.journal.repo.get_signal_snapshot(
                     run.signal_snapshot_id
                 )
-                price = payload_number(signal_snapshot.payload if signal_snapshot else {})
+                price = payload_number(
+                    signal_snapshot.payload if signal_snapshot else {}
+                )
                 if price is not None:
                     return {
                         "price": price,
@@ -264,6 +277,9 @@ class ThesisPulseService:
         )
         if existing:
             pulse.id = existing.id
+        plan.next_pulse_due_at = next_due_at(
+            pulse.observed_at, plan.price_interval_minutes
+        )
         with self.journal.store.transaction() as conn:
             saved = self.journal.repo.save_thesis_pulse(pulse, _conn=conn)
             self.journal.repo.update_monitor_plan_latest_state(plan, saved, _conn=conn)
@@ -333,7 +349,9 @@ class ThesisPulseMemoService:
             raise ValueError(f"Thesis {thesis_id} not found")
 
         interval = clamp_int(
-            window_minutes if window_minutes is not None else plan.memo_interval_minutes,
+            window_minutes
+            if window_minutes is not None
+            else plan.memo_interval_minutes,
             minimum=30,
             maximum=1440,
         )
@@ -446,9 +464,13 @@ def build_pulse(
     if baseline_price is None:
         missing_data.append("baseline_price")
     price_change_pct = pct_change(current_price, baseline_price)
-    distance_to_entry_pct = distance_to_entry(current_price, plan.entry_low, plan.entry_high)
+    distance_to_entry_pct = distance_to_entry(
+        current_price, plan.entry_low, plan.entry_high
+    )
     distance_to_invalidation_pct = distance_pct(current_price, plan.invalidation_level)
-    nearest_target = nearest_level(current_price, [target.price for target in plan.targets])
+    nearest_target = nearest_level(
+        current_price, [target.price for target in plan.targets]
+    )
     distance_to_nearest_target_pct = distance_pct(current_price, nearest_target)
     invalidation_touched = touches_invalidation(
         current_price,
@@ -596,7 +618,9 @@ class DeterministicPulseMemoGenerator:
         )
         if reasons:
             summary = f"{summary} Main trigger: {reasons[0]}."
-        what_changed = reasons[:4] or ["No material trigger changed in the pulse window."]
+        what_changed = reasons[:4] or [
+            "No material trigger changed in the pulse window."
+        ]
         invalidation = plan.get("invalidation_level")
         targets = plan.get("targets") or []
         why_it_matters = []
@@ -617,7 +641,9 @@ class DeterministicPulseMemoGenerator:
         if targets:
             what_to_watch_next.append("Watch progress toward target levels.")
         if not what_to_watch_next:
-            what_to_watch_next.append("Run another pulse after fresh market data lands.")
+            what_to_watch_next.append(
+                "Run another pulse after fresh market data lands."
+            )
         confidence = min(0.9, 0.55 + min(len(pulses), 8) * 0.04)
         return {
             "status": highest,
@@ -655,15 +681,25 @@ class LLMPulseMemoGenerator:
         )
         llm = client.get_llm()
         prompt = render_pulse_memo_prompt(memo_input)
-        structured = bind_structured(llm, ThesisPulseMemoDraft, "ThesisPulseMemo")
+        structured = (
+            None
+            if skips_structured_tool_calling(self.model)
+            else bind_structured(llm, ThesisPulseMemoDraft, "ThesisPulseMemo")
+        )
         if structured is not None:
-            result = structured.invoke(prompt)
-            if isinstance(result, ThesisPulseMemoDraft):
-                return result.model_dump(mode="json")
-            if hasattr(result, "model_dump"):
-                return result.model_dump(mode="json")
-            if isinstance(result, dict):
-                return result
+            try:
+                result = structured.invoke(prompt)
+                if isinstance(result, ThesisPulseMemoDraft):
+                    return result.model_dump(mode="json")
+                if hasattr(result, "model_dump"):
+                    return result.model_dump(mode="json")
+                if isinstance(result, dict):
+                    return result
+            except Exception as exc:
+                logger.warning(
+                    "ThesisPulseMemo: structured LLM call failed; retrying as JSON text: %s",
+                    exc,
+                )
         response = llm.invoke(prompt)
         return parse_json_object(getattr(response, "content", response))
 
@@ -694,6 +730,12 @@ def build_pulse_memo_generator(config: dict[str, Any]) -> Any:
                 base_url=memo_cfg.get("backend_url") or config.get("backend_url"),
             )
     return DeterministicPulseMemoGenerator()
+
+
+def skips_structured_tool_calling(model: str) -> bool:
+    normalized = str(model or "").lower().strip()
+    slug = normalized.rsplit("/", 1)[-1]
+    return slug in {"deepseek-reasoner", "deepseek-v4-pro"}
 
 
 def build_pulse_memo_input(
@@ -850,7 +892,9 @@ def parse_json_object(value: Any) -> dict[str, Any]:
     return parsed
 
 
-def memo_window_for(observed_at: datetime, window_minutes: int) -> tuple[datetime, datetime]:
+def memo_window_for(
+    observed_at: datetime, window_minutes: int
+) -> tuple[datetime, datetime]:
     start = bucket_for(observed_at, window_minutes)
     return start, start + timedelta(minutes=window_minutes)
 

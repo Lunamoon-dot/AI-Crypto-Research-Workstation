@@ -11,6 +11,7 @@ from tradingagents.domain import (
     TradeThesis,
 )
 from tradingagents.services import JournalService, ThesisPulseMemoService
+from tradingagents.services.monitoring_service import LLMPulseMemoGenerator
 
 
 def test_valid_long_thesis_monitor_plan(tmp_path):
@@ -106,6 +107,7 @@ def test_calm_pulse_persists_separate_monitor_row(tmp_path):
     assert pulse.thesis_id == thesis.id
     assert pulse.monitor_plan_id == plan.id
     assert plan.latest_pulse_id == pulse.id
+    assert plan.next_pulse_due_at == _dt("2026-05-18T00:07:00+00:00")
     assert run_after.user_decision_id is None
     assert run_after.outcome_review_id is None
 
@@ -292,6 +294,64 @@ def test_pulse_memo_rejects_references_outside_selected_window(tmp_path):
     )
 
 
+def test_llm_pulse_memo_skips_structured_tools_for_deepseek_reasoner(monkeypatch):
+    llm = _FakeJsonMemoLlm()
+    bind_calls = []
+
+    class _Client:
+        def get_llm(self):
+            return llm
+
+    def _bind_structured(*args, **kwargs):
+        bind_calls.append((args, kwargs))
+        raise AssertionError("deepseek-reasoner should skip structured binding")
+
+    import tradingagents.agents.utils.structured as structured_utils
+    import tradingagents.llm_clients as llm_clients
+
+    monkeypatch.setattr(
+        llm_clients, "create_llm_client", lambda *args, **kwargs: _Client()
+    )
+    monkeypatch.setattr(structured_utils, "bind_structured", _bind_structured)
+
+    result = LLMPulseMemoGenerator("deepseek", "deepseek-reasoner").generate(
+        {"pulses": []}
+    )
+
+    assert result["summary"] == "Plain JSON memo."
+    assert bind_calls == []
+    assert len(llm.calls) == 1
+
+
+def test_llm_pulse_memo_retries_plain_json_when_structured_call_fails(monkeypatch):
+    llm = _FakeJsonMemoLlm()
+
+    class _Client:
+        def get_llm(self):
+            return llm
+
+    class _Structured:
+        def invoke(self, _prompt):
+            raise RuntimeError("deepseek-reasoner does not support this tool_choice")
+
+    import tradingagents.agents.utils.structured as structured_utils
+    import tradingagents.llm_clients as llm_clients
+
+    monkeypatch.setattr(
+        llm_clients, "create_llm_client", lambda *args, **kwargs: _Client()
+    )
+    monkeypatch.setattr(
+        structured_utils,
+        "bind_structured",
+        lambda *args, **kwargs: _Structured(),
+    )
+
+    result = LLMPulseMemoGenerator("deepseek", "deepseek-chat").generate({"pulses": []})
+
+    assert result["summary"] == "Plain JSON memo."
+    assert len(llm.calls) == 1
+
+
 def _journal_with_run(tmp_path):
     db_path = tmp_path / "journal.sqlite"
     journal = JournalService(
@@ -397,3 +457,28 @@ class _FakeMemoGenerator:
         }
         payload.update(self.overrides)
         return payload
+
+
+class _FakeJsonMemoResponse:
+    content = """
+    {
+      "status": "watch",
+      "summary": "Plain JSON memo.",
+      "what_changed": ["price_near_invalidation_review_band"],
+      "why_it_matters": ["The thesis needs review."],
+      "what_to_watch_next": ["Watch invalidation."],
+      "recommended_action": "inspect_chart",
+      "rerun_full_recommended": false,
+      "referenced_pulse_ids": [],
+      "confidence": 0.71
+    }
+    """
+
+
+class _FakeJsonMemoLlm:
+    def __init__(self):
+        self.calls = []
+
+    def invoke(self, prompt):
+        self.calls.append(prompt)
+        return _FakeJsonMemoResponse()

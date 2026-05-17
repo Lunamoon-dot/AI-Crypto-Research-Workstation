@@ -236,11 +236,14 @@ export interface ThesisMonitorPlanResponse {
   enabled_signal_factors: string[];
   scheduler_enabled: boolean;
   latest_pulse_id: string | null;
+  latest_memo_id: string | null;
   latest_status: string | null;
   latest_price: number | null;
   latest_trigger_reasons: string[];
   last_pulse_at: string | null;
   next_pulse_due_at: string | null;
+  last_memo_at: string | null;
+  next_memo_due_at: string | null;
   payload: JsonRecord;
 }
 
@@ -277,7 +280,10 @@ export interface ThesisPulseResponse {
 
 export interface RunThesisPulseResponse {
   created: boolean;
-  pulse: ThesisPulseResponse;
+  queued?: boolean;
+  job_id?: string | null;
+  queue_backend?: string | null;
+  pulse: ThesisPulseResponse | null;
 }
 
 export interface ThesisPulseMemoResponse {
@@ -309,7 +315,47 @@ export interface RunThesisPulseMemoResponse {
   created: boolean;
   skipped: boolean;
   skip_reason: string | null;
+  queued?: boolean;
+  job_id?: string | null;
+  queue_backend?: string | null;
   memo: ThesisPulseMemoResponse | null;
+}
+
+export interface ThesisSchedulerRunResponse {
+  workspace_id: string;
+  thesis_id: string;
+  checked_at: string;
+  skipped_reason: string | null;
+  queued: boolean;
+  queued_job_ids: string[];
+  queue_backend: string | null;
+  ran_pulse: boolean;
+  ran_memo: boolean;
+  pulse: RunThesisPulseResponse | null;
+  memo: RunThesisPulseMemoResponse | null;
+  plan: ThesisMonitorPlanResponse | null;
+}
+
+export interface ThesisSchedulerStatusResponse {
+  workspace_id: string;
+  thesis_id: string;
+  enabled: boolean;
+  scheduled: boolean;
+  running: boolean;
+  product_mode: boolean;
+  queue_backend: string | null;
+  plan_status: string;
+  scheduler_enabled: boolean;
+  price_interval_minutes: number;
+  signal_interval_minutes: number;
+  memo_interval_minutes: number;
+  next_pulse_due_at: string | null;
+  next_signal_due_at: string | null;
+  next_memo_due_at: string | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_error: string | null;
+  last_result: ThesisSchedulerRunResponse | null;
 }
 
 export interface ScenarioResponse {
@@ -525,6 +571,40 @@ export interface OperationsHealthResponse {
   queue: {
     backend: string;
     redis_configured: boolean;
+  };
+  monitoring_queue: {
+    queued: number;
+    running: number;
+    failed: number;
+    dead_letter: number;
+    oldest_queued_at: string | null;
+  };
+  monitoring_scheduler: {
+    enabled_plans: number;
+    due_plans: number;
+    last_enqueue_at: string | null;
+    last_enqueue_error: string | null;
+  };
+  monitoring_workers: {
+    active_workers: number;
+    last_success_at: string | null;
+    last_error_at: string | null;
+    recent_error_types: string[];
+  };
+  monitoring_retention: {
+    last_run_at: string | null;
+    last_deleted_counts: {
+      deleted_pulses: number;
+      deleted_memos: number;
+      deleted_jobs: number;
+      dry_run: boolean;
+    };
+    last_error: string | null;
+  };
+  llm_memo_health: {
+    recent_calls: number;
+    failure_rate: number | null;
+    average_latency_ms: number | null;
   };
 }
 
@@ -810,6 +890,10 @@ export type RunThesisPulseRequest = {
 export type RunThesisPulseMemoRequest = {
   force?: boolean;
   window_minutes?: number;
+  observed_at?: string;
+};
+
+export type RunThesisSchedulerRequest = {
   observed_at?: string;
 };
 

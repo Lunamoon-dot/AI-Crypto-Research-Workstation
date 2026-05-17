@@ -15,6 +15,7 @@ import { SignalDetailPage } from '@/pages/SignalDetailPage';
 import { SignalsPage } from '@/pages/SignalsPage';
 import { ThesisDetailPage } from '@/pages/ThesisDetailPage';
 import { ThesisLibraryPage } from '@/pages/ThesisLibraryPage';
+import { ThesisMonitorPage } from '@/pages/ThesisMonitorPage';
 import { WatchlistsPage } from '@/pages/WatchlistsPage';
 import { WorkbenchPage } from '@/pages/WorkbenchPage';
 
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: 'research/runs/:id', element: <ResearchRunWorkspacePage /> },
       { path: 'journal/runs/:id', element: <ResearchRunWorkspacePage journal /> },
       { path: 'theses', element: <ThesisLibraryPage /> },
+      { path: 'theses/:id/monitor', element: <ThesisMonitorPage /> },
       { path: 'theses/:id', element: <ThesisDetailPage /> },
       { path: 'signals', element: <SignalsPage /> },
       { path: 'signals/:id', element: <SignalDetailPage /> },

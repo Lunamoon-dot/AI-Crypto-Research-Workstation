@@ -351,6 +351,54 @@ export const openApiDocument = {
         ),
       },
     },
+    '/theses/{id}/scheduler': {
+      get: {
+        operationId: 'getThesisSchedulerStatus',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Per-thesis scheduler status.',
+          'ThesisSchedulerStatusResponse',
+        ),
+      },
+    },
+    '/theses/{id}/scheduler/resume': {
+      post: {
+        operationId: 'resumeThesisScheduler',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Per-thesis scheduler resume result.',
+          'ThesisSchedulerStatusResponse',
+          '201',
+        ),
+      },
+    },
+    '/theses/{id}/scheduler/pause': {
+      post: {
+        operationId: 'pauseThesisScheduler',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Per-thesis scheduler pause result.',
+          'ThesisSchedulerStatusResponse',
+          '201',
+        ),
+      },
+    },
+    '/theses/{id}/scheduler/run-due': {
+      post: {
+        operationId: 'runThesisSchedulerDue',
+        tags: ['theses'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('RunThesisSchedulerRequest'),
+        responses: jsonResponse(
+          'Per-thesis scheduler due check result.',
+          'ThesisSchedulerRunResponse',
+          '201',
+        ),
+      },
+    },
     '/theses/{id}/decision': {
       post: {
         operationId: 'recordThesisDecision',
@@ -682,6 +730,22 @@ export const openApiDocument = {
           'Data freshness checks.',
           'DataFreshnessResponse',
         ),
+      },
+    },
+    '/operations/monitoring/retention/dry-run': {
+      post: {
+        operationId: 'runMonitoringRetentionDryRun',
+        tags: ['operations'],
+        responses: {
+          '201': {
+            description: 'Monitoring retention dry-run summary.',
+            content: {
+              'application/json': {
+                schema: { type: 'object', additionalProperties: true },
+              },
+            },
+          },
+        },
       },
     },
     '/jobs/{id}': {
@@ -1378,11 +1442,14 @@ export const openApiDocument = {
           'enabled_signal_factors',
           'scheduler_enabled',
           'latest_pulse_id',
+          'latest_memo_id',
           'latest_status',
           'latest_price',
           'latest_trigger_reasons',
           'last_pulse_at',
           'next_pulse_due_at',
+          'last_memo_at',
+          'next_memo_due_at',
           'payload',
         ],
         properties: {
@@ -1421,11 +1488,14 @@ export const openApiDocument = {
           enabled_signal_factors: { type: 'array', items: { type: 'string' } },
           scheduler_enabled: { type: 'boolean' },
           latest_pulse_id: { type: ['string', 'null'] },
+          latest_memo_id: { type: ['string', 'null'] },
           latest_status: { type: ['string', 'null'] },
           latest_price: { type: ['number', 'null'] },
           latest_trigger_reasons: { type: 'array', items: { type: 'string' } },
           last_pulse_at: { type: ['string', 'null'] },
           next_pulse_due_at: { type: ['string', 'null'] },
+          last_memo_at: { type: ['string', 'null'] },
+          next_memo_due_at: { type: ['string', 'null'] },
           payload: { type: 'object', additionalProperties: true },
         },
       },
@@ -1497,7 +1567,15 @@ export const openApiDocument = {
         required: ['created', 'pulse'],
         properties: {
           created: { type: 'boolean' },
-          pulse: { $ref: '#/components/schemas/ThesisPulseResponse' },
+          queued: { type: 'boolean' },
+          job_id: { type: ['string', 'null'] },
+          queue_backend: { type: ['string', 'null'] },
+          pulse: {
+            anyOf: [
+              { $ref: '#/components/schemas/ThesisPulseResponse' },
+              { type: 'null' },
+            ],
+          },
         },
       },
       RunThesisPulseRequest: {
@@ -1565,6 +1643,9 @@ export const openApiDocument = {
           created: { type: 'boolean' },
           skipped: { type: 'boolean' },
           skip_reason: { type: ['string', 'null'] },
+          queued: { type: 'boolean' },
+          job_id: { type: ['string', 'null'] },
+          queue_backend: { type: ['string', 'null'] },
           memo: {
             anyOf: [
               { $ref: '#/components/schemas/ThesisPulseMemoResponse' },
@@ -1578,6 +1659,108 @@ export const openApiDocument = {
         properties: {
           force: { type: 'boolean' },
           window_minutes: { type: 'integer', minimum: 30, maximum: 1440 },
+          observed_at: { type: 'string', format: 'date-time' },
+        },
+      },
+      ThesisSchedulerRunResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'thesis_id',
+          'checked_at',
+          'skipped_reason',
+          'queued',
+          'queued_job_ids',
+          'queue_backend',
+          'ran_pulse',
+          'ran_memo',
+          'pulse',
+          'memo',
+          'plan',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          checked_at: { type: 'string', format: 'date-time' },
+          skipped_reason: { type: ['string', 'null'] },
+          queued: { type: 'boolean' },
+          queued_job_ids: { type: 'array', items: { type: 'string' } },
+          queue_backend: { type: ['string', 'null'] },
+          ran_pulse: { type: 'boolean' },
+          ran_memo: { type: 'boolean' },
+          pulse: {
+            anyOf: [
+              { $ref: '#/components/schemas/RunThesisPulseResponse' },
+              { type: 'null' },
+            ],
+          },
+          memo: {
+            anyOf: [
+              { $ref: '#/components/schemas/RunThesisPulseMemoResponse' },
+              { type: 'null' },
+            ],
+          },
+          plan: {
+            anyOf: [
+              { $ref: '#/components/schemas/ThesisMonitorPlanResponse' },
+              { type: 'null' },
+            ],
+          },
+        },
+      },
+      ThesisSchedulerStatusResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'thesis_id',
+          'enabled',
+          'scheduled',
+          'running',
+          'product_mode',
+          'queue_backend',
+          'plan_status',
+          'scheduler_enabled',
+          'price_interval_minutes',
+          'signal_interval_minutes',
+          'memo_interval_minutes',
+          'next_pulse_due_at',
+          'next_signal_due_at',
+          'next_memo_due_at',
+          'next_run_at',
+          'last_run_at',
+          'last_error',
+          'last_result',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          enabled: { type: 'boolean' },
+          scheduled: { type: 'boolean' },
+          running: { type: 'boolean' },
+          product_mode: { type: 'boolean' },
+          queue_backend: { type: ['string', 'null'] },
+          plan_status: { type: 'string' },
+          scheduler_enabled: { type: 'boolean' },
+          price_interval_minutes: { type: 'integer', minimum: 1, maximum: 60 },
+          signal_interval_minutes: { type: 'integer', minimum: 5, maximum: 240 },
+          memo_interval_minutes: { type: 'integer', minimum: 30, maximum: 1440 },
+          next_pulse_due_at: { type: ['string', 'null'], format: 'date-time' },
+          next_signal_due_at: { type: ['string', 'null'], format: 'date-time' },
+          next_memo_due_at: { type: ['string', 'null'], format: 'date-time' },
+          next_run_at: { type: ['string', 'null'], format: 'date-time' },
+          last_run_at: { type: ['string', 'null'], format: 'date-time' },
+          last_error: { type: ['string', 'null'] },
+          last_result: {
+            anyOf: [
+              { $ref: '#/components/schemas/ThesisSchedulerRunResponse' },
+              { type: 'null' },
+            ],
+          },
+        },
+      },
+      RunThesisSchedulerRequest: {
+        type: 'object',
+        properties: {
           observed_at: { type: 'string', format: 'date-time' },
         },
       },
@@ -2083,13 +2266,82 @@ export const openApiDocument = {
       },
       OperationsHealthResponse: {
         type: 'object',
-        required: ['generated_at', 'providers', 'llm', 'freshness', 'queue'],
+        required: [
+          'generated_at',
+          'providers',
+          'llm',
+          'freshness',
+          'queue',
+          'monitoring_queue',
+          'monitoring_scheduler',
+          'monitoring_workers',
+          'monitoring_retention',
+          'llm_memo_health',
+        ],
         properties: {
           generated_at: { type: 'string' },
           providers: { type: 'array', items: { $ref: '#/components/schemas/ProviderHealthResponse' } },
           llm: { $ref: '#/components/schemas/LlmHealthSummaryResponse' },
           freshness: { type: 'object', additionalProperties: true },
           queue: { type: 'object', additionalProperties: true },
+          monitoring_queue: {
+            type: 'object',
+            required: ['queued', 'running', 'failed', 'dead_letter', 'oldest_queued_at'],
+            properties: {
+              queued: { type: 'integer' },
+              running: { type: 'integer' },
+              failed: { type: 'integer' },
+              dead_letter: { type: 'integer' },
+              oldest_queued_at: { type: ['string', 'null'], format: 'date-time' },
+            },
+          },
+          monitoring_scheduler: {
+            type: 'object',
+            required: ['enabled_plans', 'due_plans', 'last_enqueue_at', 'last_enqueue_error'],
+            properties: {
+              enabled_plans: { type: 'integer' },
+              due_plans: { type: 'integer' },
+              last_enqueue_at: { type: ['string', 'null'], format: 'date-time' },
+              last_enqueue_error: { type: ['string', 'null'] },
+            },
+          },
+          monitoring_workers: {
+            type: 'object',
+            required: ['active_workers', 'last_success_at', 'last_error_at', 'recent_error_types'],
+            properties: {
+              active_workers: { type: 'integer' },
+              last_success_at: { type: ['string', 'null'], format: 'date-time' },
+              last_error_at: { type: ['string', 'null'], format: 'date-time' },
+              recent_error_types: { type: 'array', items: { type: 'string' } },
+            },
+          },
+          monitoring_retention: {
+            type: 'object',
+            required: ['last_run_at', 'last_deleted_counts', 'last_error'],
+            properties: {
+              last_run_at: { type: ['string', 'null'], format: 'date-time' },
+              last_deleted_counts: {
+                type: 'object',
+                required: ['deleted_pulses', 'deleted_memos', 'deleted_jobs', 'dry_run'],
+                properties: {
+                  deleted_pulses: { type: 'integer' },
+                  deleted_memos: { type: 'integer' },
+                  deleted_jobs: { type: 'integer' },
+                  dry_run: { type: 'boolean' },
+                },
+              },
+              last_error: { type: ['string', 'null'] },
+            },
+          },
+          llm_memo_health: {
+            type: 'object',
+            required: ['recent_calls', 'failure_rate', 'average_latency_ms'],
+            properties: {
+              recent_calls: { type: 'integer' },
+              failure_rate: { type: ['number', 'null'] },
+              average_latency_ms: { type: ['number', 'null'] },
+            },
+          },
         },
       },
       JournalRunWorkspaceResponse: {

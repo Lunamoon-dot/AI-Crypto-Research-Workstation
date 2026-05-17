@@ -13,6 +13,7 @@ import {
   PatchThesisMonitorPlanDto,
   RunThesisPulseMemoDto,
   RunThesisPulseDto,
+  RunThesisSchedulerDto,
 } from './dto/thesis-monitoring.dto';
 import { ThesisReviewDto } from './dto/thesis-review.dto';
 import { ThesesService } from './theses.service';
@@ -120,6 +121,43 @@ export class ThesesController {
       userId,
       workspaceId,
     );
+  }
+
+  @Get(':id/scheduler')
+  schedulerStatus(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.theses.schedulerStatus(id, userId, workspaceId);
+  }
+
+  @Post(':id/scheduler/resume')
+  resumeScheduler(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.theses.resumeScheduler(id, userId, workspaceId);
+  }
+
+  @Post(':id/scheduler/pause')
+  pauseScheduler(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.theses.pauseScheduler(id, userId, workspaceId);
+  }
+
+  @Post(':id/scheduler/run-due')
+  runSchedulerDue(
+    @Param('id') id: string,
+    @Body() dto: RunThesisSchedulerDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.theses.runSchedulerDue(id, dto, userId, workspaceId);
   }
 
   @Post(':id/decision')

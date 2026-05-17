@@ -1093,7 +1093,7 @@ a {
 
 .thesis-monitor-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1134,6 +1134,25 @@ a {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.thesis-scheduler-strip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid rgba(39, 39, 42, 0.82);
+  border-radius: 8px;
+  background: rgba(9, 9, 11, 0.28);
+  padding: 9px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.thesis-scheduler-strip strong {
+  color: var(--text);
+  font-weight: 760;
 }
 
 .monitor-plan-editor {

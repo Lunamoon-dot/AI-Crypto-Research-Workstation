@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import {
   JOURNAL_REPOSITORY,
@@ -37,6 +37,7 @@ export class OperationsService {
       this.llmCallsForWorkspace(limit, workspaceId),
       this.dataFreshnessForWorkspace(limit, workspaceId),
     ]);
+    const monitoring = await this.monitoringHealthForWorkspace(workspaceId);
     return {
       generated_at: new Date().toISOString(),
       providers,
@@ -51,6 +52,7 @@ export class OperationsService {
         backend: (process.env.JOBS_EXECUTION_MODE ?? 'memory').toLowerCase(),
         redis_configured: Boolean(process.env.REDIS_URL?.trim()),
       },
+      ...monitoring,
     };
   }
 
@@ -88,6 +90,36 @@ export class OperationsService {
     return this.dataFreshnessForWorkspace(limit, workspaceId);
   }
 
+  async monitoringRetentionDryRun(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<JsonRecord> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    if (!this.journal.runMonitoringRetention) {
+      throw new ServiceUnavailableException(
+        'Monitoring retention requires Postgres repository support.',
+      );
+    }
+    return this.journal.runMonitoringRetention(workspaceId, {
+      dryRun: true,
+      pulseKeepDays: intFromEnv('MONITORING_RETENTION_PULSE_DAYS', 30),
+      pulseKeepLatestPerThesis: intFromEnv(
+        'MONITORING_RETENTION_PULSE_KEEP_LATEST',
+        10_000,
+      ),
+      memoKeepDays: intFromEnv('MONITORING_RETENTION_MEMO_DAYS', 180),
+      succeededJobKeepDays: intFromEnv(
+        'MONITORING_RETENTION_SUCCEEDED_JOB_DAYS',
+        30,
+      ),
+      failedJobKeepDays: intFromEnv('MONITORING_RETENTION_FAILED_JOB_DAYS', 180),
+    });
+  }
+
   private async llmCallsForWorkspace(
     limit: number,
     workspaceId: string,
@@ -118,13 +150,141 @@ export class OperationsService {
     return rows.map(toDataFreshnessResponse);
   }
 
+  private async monitoringHealthForWorkspace(
+    workspaceId: string,
+  ): Promise<Pick<
+    OperationsHealthResponse,
+    | 'monitoring_queue'
+    | 'monitoring_scheduler'
+    | 'monitoring_workers'
+    | 'monitoring_retention'
+    | 'llm_memo_health'
+  >> {
+    try {
+      const health =
+        await this.journal.getMonitoringOperationsHealth?.(workspaceId);
+      if (health) {
+        return {
+          monitoring_queue: {
+            queued: numberValue(
+              recordValue(health.monitoring_queue).queued,
+              0,
+            ),
+            running: numberValue(
+              recordValue(health.monitoring_queue).running,
+              0,
+            ),
+            failed: numberValue(
+              recordValue(health.monitoring_queue).failed,
+              0,
+            ),
+            dead_letter: numberValue(
+              recordValue(health.monitoring_queue).dead_letter,
+              0,
+            ),
+            oldest_queued_at: nullableString(
+              recordValue(health.monitoring_queue).oldest_queued_at,
+            ),
+          },
+          monitoring_scheduler: {
+            enabled_plans: numberValue(
+              recordValue(health.monitoring_scheduler).enabled_plans,
+              0,
+            ),
+            due_plans: numberValue(
+              recordValue(health.monitoring_scheduler).due_plans,
+              0,
+            ),
+            last_enqueue_at: nullableString(
+              recordValue(health.monitoring_scheduler).last_enqueue_at,
+            ),
+            last_enqueue_error: nullableString(
+              recordValue(health.monitoring_scheduler).last_enqueue_error,
+            ),
+          },
+          monitoring_workers: {
+            active_workers: numberValue(
+              recordValue(health.monitoring_workers).active_workers,
+              0,
+            ),
+            last_success_at: nullableString(
+              recordValue(health.monitoring_workers).last_success_at,
+            ),
+            last_error_at: nullableString(
+              recordValue(health.monitoring_workers).last_error_at,
+            ),
+            recent_error_types: stringList(
+              recordValue(health.monitoring_workers).recent_error_types,
+            ),
+          },
+          monitoring_retention: {
+            last_run_at: nullableString(
+              recordValue(health.monitoring_retention).last_run_at,
+            ),
+            last_deleted_counts: {
+              deleted_pulses: numberValue(
+                recordValue(
+                  recordValue(health.monitoring_retention)
+                    .last_deleted_counts,
+                ).deleted_pulses,
+                0,
+              ),
+              deleted_memos: numberValue(
+                recordValue(
+                  recordValue(health.monitoring_retention)
+                    .last_deleted_counts,
+                ).deleted_memos,
+                0,
+              ),
+              deleted_jobs: numberValue(
+                recordValue(
+                  recordValue(health.monitoring_retention)
+                    .last_deleted_counts,
+                ).deleted_jobs,
+                0,
+              ),
+              dry_run: booleanValue(
+                recordValue(
+                  recordValue(health.monitoring_retention)
+                    .last_deleted_counts,
+                ).dry_run,
+                true,
+              ),
+            },
+            last_error: nullableString(
+              recordValue(health.monitoring_retention).last_error,
+            ),
+          },
+          llm_memo_health: {
+            recent_calls: numberValue(
+              recordValue(health.llm_memo_health).recent_calls,
+              0,
+            ),
+            failure_rate: nullableNumber(
+              recordValue(health.llm_memo_health).failure_rate,
+            ),
+            average_latency_ms: nullableNumber(
+              recordValue(health.llm_memo_health).average_latency_ms,
+            ),
+          },
+        };
+      }
+    } catch (error) {
+      if (!isRepositoryUnavailable(error)) {
+        throw error;
+      }
+    }
+    return defaultMonitoringHealth();
+  }
+
   private async resolveWorkspace(
     userId?: string,
     workspaceHeader?: string,
+    requiredRole: 'viewer' | 'editor' = 'viewer',
   ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
   }
 }
@@ -207,6 +367,111 @@ function countBy<T>(values: T[], keyFn: (value: T) => string): Record<string, nu
 function staleStatus(status: string): boolean {
   const normalized = status.toLowerCase();
   return normalized.includes('stale') || normalized.includes('expired') || normalized.includes('failed');
+}
+
+function defaultMonitoringHealth(): Pick<
+  OperationsHealthResponse,
+  | 'monitoring_queue'
+  | 'monitoring_scheduler'
+  | 'monitoring_workers'
+  | 'monitoring_retention'
+  | 'llm_memo_health'
+> {
+  return {
+    monitoring_queue: {
+      queued: 0,
+      running: 0,
+      failed: 0,
+      dead_letter: 0,
+      oldest_queued_at: null,
+    },
+    monitoring_scheduler: {
+      enabled_plans: 0,
+      due_plans: 0,
+      last_enqueue_at: null,
+      last_enqueue_error: null,
+    },
+    monitoring_workers: {
+      active_workers: 0,
+      last_success_at: null,
+      last_error_at: null,
+      recent_error_types: [],
+    },
+    monitoring_retention: {
+      last_run_at: null,
+      last_deleted_counts: {
+        deleted_pulses: 0,
+        deleted_memos: 0,
+        deleted_jobs: 0,
+        dry_run: true,
+      },
+      last_error: null,
+    },
+    llm_memo_health: {
+      recent_calls: 0,
+      failure_rate: null,
+      average_latency_ms: null,
+    },
+  };
+}
+
+function recordValue(value: unknown): JsonRecord {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as JsonRecord;
+  }
+  return {};
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const parsed = nullableNumber(value);
+  return parsed ?? fallback;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  const normalized = String(value).toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function intFromEnv(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
 function isRepositoryUnavailable(error: unknown): boolean {

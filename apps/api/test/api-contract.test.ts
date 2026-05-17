@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,8 +41,10 @@ import {
   PatchThesisMonitorPlanDto,
   RunThesisPulseMemoDto,
   RunThesisPulseDto,
+  RunThesisSchedulerDto,
 } from '../src/theses/dto/thesis-monitoring.dto';
 import { ThesesController } from '../src/theses/theses.controller';
+import { MonitoringJobsService } from '../src/theses/monitoring-jobs.service';
 import { ThesesService } from '../src/theses/theses.service';
 import { MarketPriceService } from '../src/market-data/market-price.service';
 import { WatchlistsService } from '../src/watchlists/watchlists.service';
@@ -52,7 +55,14 @@ import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
-import { openApiDocument } from '../src/contracts/openapi.generated';
+import {
+  openApiDocument,
+} from '../src/contracts/openapi.generated';
+import {
+  toThesisMonitorPlanResponse,
+  toThesisPulseMemoResponse,
+  toThesisPulseResponse,
+} from '../src/contracts/frontend-contract';
 
 class FakeJournalRepository implements JournalRepository {
   readonly researchRuns = new Map<string, JsonRecord>();
@@ -65,6 +75,9 @@ class FakeJournalRepository implements JournalRepository {
   readonly monitorPlans = new Map<string, JsonRecord>();
   readonly thesisPulses = new Map<string, JsonRecord[]>();
   readonly thesisPulseMemos = new Map<string, JsonRecord[]>();
+  readonly monitoringJobs: JsonRecord[] = [];
+  readonly monitoringRetentionRuns: JsonRecord[] = [];
+  monitoringHealth: JsonRecord | null = null;
   readonly scenarios = new Map<string, JsonRecord[]>();
   readonly signals: JsonRecord[] = [];
   readonly watchlists: JsonRecord[] = [];
@@ -252,6 +265,263 @@ class FakeJournalRepository implements JournalRepository {
     return (this.thesisPulseMemos.get(key(thesisId, workspaceId)) ?? []).slice(
       0,
       limit,
+    );
+  }
+
+  async saveThesisMonitorPlan(
+    plan: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...plan, workspace_id: workspaceId };
+    this.monitorPlans.set(key(String(saved.thesis_id), workspaceId), saved);
+    return saved;
+  }
+
+  async saveThesisPulse(
+    pulse: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...pulse, workspace_id: workspaceId };
+    const thesisId = String(saved.thesis_id);
+    const current = this.thesisPulses.get(key(thesisId, workspaceId)) ?? [];
+    const bucketStart = String(saved.bucket_start ?? '');
+    const pulseType = String(saved.pulse_type ?? 'manual');
+    const filtered = current.filter(
+      (row) =>
+        String(row.bucket_start ?? '') !== bucketStart ||
+        String(row.pulse_type ?? 'manual') !== pulseType,
+    );
+    this.thesisPulses.set(key(thesisId, workspaceId), [saved, ...filtered]);
+    const plan = this.monitorPlans.get(key(thesisId, workspaceId));
+    if (plan) {
+      plan.latest_pulse_id = saved.id;
+      plan.latest_status = saved.status;
+      plan.latest_price = saved.current_price;
+      plan.latest_trigger_reasons = saved.trigger_reasons ?? [];
+      plan.last_pulse_at = saved.observed_at;
+    }
+    return saved;
+  }
+
+  async saveThesisPulseMemo(
+    memo: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...memo, workspace_id: workspaceId };
+    const thesisId = String(saved.thesis_id);
+    const current = this.thesisPulseMemos.get(key(thesisId, workspaceId)) ?? [];
+    const filtered = current.filter(
+      (row) =>
+        String(row.window_start ?? '') !== String(saved.window_start ?? '') ||
+        String(row.window_end ?? '') !== String(saved.window_end ?? '') ||
+        String(row.memo_type ?? 'manual') !== String(saved.memo_type ?? 'manual'),
+    );
+    this.thesisPulseMemos.set(key(thesisId, workspaceId), [saved, ...filtered]);
+    const plan = this.monitorPlans.get(key(thesisId, workspaceId));
+    if (plan) {
+      plan.latest_memo_id = saved.id;
+      plan.last_memo_at = saved.created_at;
+    }
+    return saved;
+  }
+
+  async enqueueMonitoringJob(input: {
+    workspaceId: string;
+    thesisId?: string | null;
+    jobType: string;
+    runAfter?: string | null;
+    priority?: number;
+    maxAttempts?: number;
+    idempotencyKey: string;
+    request: JsonRecord;
+  }): Promise<JsonRecord> {
+    const existing = this.monitoringJobs.find(
+      (job) =>
+        job.workspace_id === input.workspaceId &&
+        job.idempotency_key === input.idempotencyKey,
+    );
+    if (existing) {
+      return existing;
+    }
+    const now = '2026-05-12T00:00:00.000Z';
+    const job: JsonRecord = {
+      id: `monitor_job_${this.monitoringJobs.length + 1}`,
+      workspace_id: input.workspaceId,
+      thesis_id: input.thesisId ?? null,
+      job_type: input.jobType,
+      status: 'queued',
+      priority: input.priority ?? 0,
+      run_after: input.runAfter ?? now,
+      attempt_count: 0,
+      max_attempts: input.maxAttempts ?? 3,
+      locked_at: null,
+      locked_by: null,
+      started_at: null,
+      completed_at: null,
+      error_type: null,
+      error_message: null,
+      idempotency_key: input.idempotencyKey,
+      request: input.request,
+      request_json: input.request,
+      result: null,
+      result_json: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.monitoringJobs.push(job);
+    return job;
+  }
+
+  async claimMonitoringJobs(
+    workspaceId: string,
+    input: { limit: number; workerId: string; now?: string },
+  ): Promise<JsonRecord[]> {
+    const now = input.now ?? '2026-05-12T00:01:00.000Z';
+    const claimed = this.monitoringJobs
+      .filter(
+        (job) =>
+          job.workspace_id === workspaceId &&
+          job.status === 'queued' &&
+          String(job.run_after ?? '') <= now,
+      )
+      .slice(0, input.limit);
+    for (const job of claimed) {
+      job.status = 'running';
+      job.locked_at = now;
+      job.locked_by = input.workerId;
+      job.started_at ??= now;
+      job.attempt_count = Number(job.attempt_count ?? 0) + 1;
+      job.updated_at = now;
+    }
+    return claimed;
+  }
+
+  async completeMonitoringJob(
+    id: string,
+    workspaceId: string,
+    result: JsonRecord,
+  ): Promise<JsonRecord | null> {
+    const job = this.monitoringJobs.find(
+      (row) => row.id === id && row.workspace_id === workspaceId,
+    );
+    if (!job) {
+      return null;
+    }
+    job.status = 'succeeded';
+    job.completed_at = '2026-05-12T00:02:00.000Z';
+    job.result = result;
+    job.result_json = result;
+    job.locked_at = null;
+    job.locked_by = null;
+    return job;
+  }
+
+  async failMonitoringJob(
+    id: string,
+    workspaceId: string,
+    failure: {
+      errorType: string;
+      errorMessage: string;
+      retryable: boolean;
+      runAfter?: string | null;
+      result?: JsonRecord | null;
+    },
+  ): Promise<JsonRecord | null> {
+    const job = this.monitoringJobs.find(
+      (row) => row.id === id && row.workspace_id === workspaceId,
+    );
+    if (!job) {
+      return null;
+    }
+    const attempts = Number(job.attempt_count ?? 0);
+    const maxAttempts = Number(job.max_attempts ?? 1);
+    job.status =
+      failure.retryable && attempts < maxAttempts
+        ? 'queued'
+        : attempts >= maxAttempts
+          ? 'dead_letter'
+          : 'failed';
+    job.run_after = failure.runAfter ?? job.run_after;
+    job.error_type = failure.errorType;
+    job.error_message = failure.errorMessage;
+    job.result = failure.result ?? null;
+    job.locked_at = null;
+    job.locked_by = null;
+    return job;
+  }
+
+  async runMonitoringRetention(
+    workspaceId: string,
+    policy: { dryRun: boolean; pulseKeepDays: number; memoKeepDays: number },
+  ): Promise<JsonRecord> {
+    const run = {
+      id: `monitor_retention_${this.monitoringRetentionRuns.length + 1}`,
+      workspace_id: workspaceId,
+      started_at: '2026-05-12T00:00:00.000Z',
+      completed_at: '2026-05-12T00:00:01.000Z',
+      dry_run: policy.dryRun,
+      deleted_pulses: 0,
+      deleted_memos: 0,
+      deleted_jobs: 0,
+      protected_tables: ['trade_theses', 'research_runs', 'user_decisions'],
+      policy,
+    };
+    this.monitoringRetentionRuns.push(run);
+    return run;
+  }
+
+  async getMonitoringOperationsHealth(
+    workspaceId = 'workspace_a',
+  ): Promise<JsonRecord> {
+    const workspaceJobs = this.monitoringJobs.filter(
+      (job) => job.workspace_id === workspaceId,
+    );
+    const workspacePlans = [...this.monitorPlans.values()].filter(
+      (plan) => plan.workspace_id === workspaceId,
+    );
+
+    return (
+      this.monitoringHealth ?? {
+        monitoring_queue: {
+          queued: workspaceJobs.filter((job) => job.status === 'queued').length,
+          running: workspaceJobs.filter((job) => job.status === 'running')
+            .length,
+          failed: workspaceJobs.filter((job) => job.status === 'failed').length,
+          dead_letter: workspaceJobs.filter(
+            (job) => job.status === 'dead_letter',
+          ).length,
+          oldest_queued_at: null,
+        },
+        monitoring_scheduler: {
+          enabled_plans: workspacePlans.filter(
+            (plan) => plan.status === 'active' && plan.scheduler_enabled === true,
+          ).length,
+          due_plans: 0,
+          last_enqueue_at: null,
+          last_enqueue_error: null,
+        },
+        monitoring_workers: {
+          active_workers: 0,
+          last_success_at: null,
+          last_error_at: null,
+          recent_error_types: [],
+        },
+        monitoring_retention: {
+          last_run_at: null,
+          last_deleted_counts: {
+            deleted_pulses: 0,
+            deleted_memos: 0,
+            deleted_jobs: 0,
+            dry_run: true,
+          },
+          last_error: null,
+        },
+        llm_memo_health: {
+          recent_calls: 0,
+          failure_rate: null,
+          average_latency_ms: null,
+        },
+      }
     );
   }
 
@@ -1031,10 +1301,14 @@ test('thesis monitoring DTOs accept whitelisted pulse and plan fields', async ()
     window_minutes: 240,
     observed_at: '2026-05-18T01:00:00.000Z',
   });
+  const schedulerDto = await validateRunThesisScheduler({
+    observed_at: '2026-05-18T01:00:00.000Z',
+  });
   assert.equal(pulseDto.force, true);
   assert.equal(pulseDto.observed_at, '2026-05-18T01:00:00.000Z');
   assert.equal(memoDto.force, true);
   assert.equal(memoDto.window_minutes, 240);
+  assert.equal(schedulerDto.observed_at, '2026-05-18T01:00:00.000Z');
 
   const planDto = await validatePatchThesisMonitorPlan({
     status: 'active',
@@ -1073,6 +1347,14 @@ test('thesis monitoring DTOs accept whitelisted pulse and plan fields', async ()
   );
   await assert.rejects(
     () => validateRunThesisPulseMemo({ window_minutes: 240, unexpected: true }),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () => validatePatchThesisMonitorPlan({ price_interval_minutes: 0 }),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () => validateRunThesisScheduler({ observed_at: 'not-a-date' }),
     isException(BadRequestException),
   );
 });
@@ -1126,6 +1408,10 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/theses/{id}/pulses', ['get']],
     ['/theses/{id}/pulse-memos/run', ['post']],
     ['/theses/{id}/pulse-memos', ['get']],
+    ['/theses/{id}/scheduler', ['get']],
+    ['/theses/{id}/scheduler/resume', ['post']],
+    ['/theses/{id}/scheduler/pause', ['post']],
+    ['/theses/{id}/scheduler/run-due', ['post']],
     ['/theses/{id}/decision', ['post']],
     ['/theses/{id}/review', ['post']],
     ['/watchlists', ['get', 'post']],
@@ -1150,6 +1436,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/operations/provider-health', ['get']],
     ['/operations/llm-calls', ['get']],
     ['/operations/data-freshness', ['get']],
+    ['/operations/monitoring/retention/dry-run', ['post']],
     ['/jobs/{id}', ['get']],
     ['/jobs/{id}/cancel', ['post']],
   ];
@@ -2318,8 +2605,8 @@ test('run pulse endpoint returns DTO and pulse list is chart-friendly', async ()
   const pulses = await theses.pulses('thesis_pulse', 20, 'user_1', 'workspace_a');
 
   assert.equal(run.created, true);
-  assert.equal(run.pulse.id, 'pulse_1');
-  assert.equal(run.pulse.status, 'watch');
+  assert.equal(run.pulse?.id, 'pulse_1');
+  assert.equal(run.pulse?.status, 'watch');
   assert.equal(pulses.length, 1);
   assert.equal(pulses[0]?.current_price, 103000);
   assert.deepEqual(pulses[0]?.trigger_reasons, ['price_near_target_watch_band']);
@@ -2400,6 +2687,464 @@ test('thesis monitor endpoints reject missing thesis', async () => {
     () => theses.pulseMemos('missing_thesis', 20, 'user_1', 'workspace_a'),
     isException(NotFoundException),
   );
+});
+
+test('thesis scheduler controls run only active enabled thesis plans', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_scheduler', 'workspace_a'), {
+    id: 'thesis_scheduler',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Schedule this thesis only.',
+  });
+  journal.theses.set(key('thesis_scheduler_other', 'workspace_b'), {
+    id: 'thesis_scheduler_other',
+    workspace_id: 'workspace_b',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Different workspace.',
+  });
+
+  const resumed = await theses.resumeScheduler(
+    'thesis_scheduler',
+    'user_1',
+    'workspace_a',
+  );
+  const run = await theses.runSchedulerDue(
+    'thesis_scheduler',
+    { observed_at: '2026-05-12T00:10:00.000Z' },
+    'user_1',
+    'workspace_a',
+  );
+  const paused = await theses.pauseScheduler(
+    'thesis_scheduler',
+    'user_1',
+    'workspace_a',
+  );
+  const manual = await theses.runPulse(
+    'thesis_scheduler',
+    { force: false },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(resumed.enabled, true);
+  assert.equal(resumed.price_interval_minutes, 5);
+  assert.equal(resumed.signal_interval_minutes, 15);
+  assert.equal(resumed.memo_interval_minutes, 240);
+  assert.equal(run.skipped_reason, null);
+  assert.equal(run.ran_pulse, true);
+  assert.equal(run.plan?.scheduler_enabled, true);
+  assert.equal(paused.enabled, false);
+  assert.equal(paused.scheduler_enabled, false);
+  assert.equal(manual.created, true);
+  assert.equal(
+    journal.thesisPulses.get(key('thesis_scheduler_other', 'workspace_b')),
+    undefined,
+  );
+});
+
+test('thesis scheduler skips disabled or non-active plans without engine work', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_scheduler_skip', 'workspace_a'), {
+    id: 'thesis_scheduler_skip',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Do not schedule yet.',
+  });
+  journal.monitorPlans.set(key('thesis_scheduler_skip', 'workspace_a'), {
+    id: 'plan_skip',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_scheduler_skip',
+    status: 'paused',
+    scheduler_enabled: true,
+    price_interval_minutes: 5,
+    signal_interval_minutes: 15,
+    memo_interval_minutes: 240,
+  });
+
+  const paused = await theses.runSchedulerDue(
+    'thesis_scheduler_skip',
+    { observed_at: '2026-05-12T00:10:00.000Z' },
+    'user_1',
+    'workspace_a',
+  );
+  await theses.updateMonitorPlan(
+    'thesis_scheduler_skip',
+    { status: 'active', scheduler_enabled: false },
+    'user_1',
+    'workspace_a',
+  );
+  const disabled = await theses.runSchedulerDue(
+    'thesis_scheduler_skip',
+    { observed_at: '2026-05-12T00:10:00.000Z' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(paused.skipped_reason, 'plan_paused');
+  assert.equal(disabled.skipped_reason, 'scheduler_disabled');
+  assert.equal(
+    journal.thesisPulses.get(key('thesis_scheduler_skip', 'workspace_a')),
+    undefined,
+  );
+});
+
+test('product monitoring mode enqueues durable scheduler jobs without memory timer work', async () => {
+  await withEnv(
+    { MONITORING_PERSISTENCE: 'postgres', MONITORING_SQLITE_FALLBACK: undefined },
+    async () => {
+      const { journal, theses } = buildHarness();
+      journal.theses.set(key('thesis_product_scheduler', 'workspace_a'), {
+        id: 'thesis_product_scheduler',
+        workspace_id: 'workspace_a',
+        symbol: 'BTC/USDT',
+        direction: 'long',
+        thesis_text: 'Product scheduler should enqueue durable jobs.',
+      });
+      journal.monitorPlans.set(key('thesis_product_scheduler', 'workspace_a'), {
+        id: 'plan_product',
+        workspace_id: 'workspace_a',
+        thesis_id: 'thesis_product_scheduler',
+        baseline_run_id: 'run_1',
+        symbol: 'BTC/USDT',
+        market_type: 'spot',
+        status: 'active',
+        scheduler_enabled: true,
+        latest_pulse_id: 'pulse_latest',
+        latest_status: 'review',
+        price_interval_minutes: 5,
+        signal_interval_minutes: 15,
+        memo_interval_minutes: 240,
+        run_memo_on_review: true,
+        run_memo_on_rerun_full: true,
+        last_pulse_at: '2026-05-12T00:00:00.000Z',
+        last_memo_at: '2026-05-11T20:00:00.000Z',
+        next_pulse_due_at: '2026-05-12T00:05:00.000Z',
+        next_memo_due_at: '2026-05-12T00:00:00.000Z',
+      });
+
+      const status = await theses.schedulerStatus(
+        'thesis_product_scheduler',
+        'user_1',
+        'workspace_a',
+      );
+      const run = await theses.runSchedulerDue(
+        'thesis_product_scheduler',
+        { observed_at: '2026-05-12T00:10:00.000Z' },
+        'user_1',
+        'workspace_a',
+      );
+
+      assert.equal(status.product_mode, true);
+      assert.equal(status.scheduled, false);
+      assert.equal(run.queued, true);
+      assert.equal(run.queue_backend, 'postgres');
+      assert.equal(run.ran_pulse, false);
+      assert.equal(run.ran_memo, false);
+      assert.equal(journal.monitoringJobs.length, 2);
+      assert.ok(
+        journal.monitoringJobs.every(
+          (job) => job.workspace_id === 'workspace_a',
+        ),
+      );
+      assert.deepEqual(
+        journal.monitoringJobs.map((job) => job.job_type).sort(),
+        ['thesis_pulse_memo_run', 'thesis_pulse_run'],
+      );
+    },
+  );
+});
+
+test('monitoring worker claims, persists, and completes durable pulse jobs', async () => {
+  await withEnv({ MONITORING_PERSISTENCE: 'postgres' }, async () => {
+    const { journal, monitoringJobs } = buildHarness();
+    journal.theses.set(key('thesis_worker', 'workspace_a'), {
+      id: 'thesis_worker',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      direction: 'long',
+      thesis_text: 'Worker thesis.',
+    });
+    journal.monitorPlans.set(key('thesis_worker', 'workspace_a'), {
+      id: 'plan_1',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_worker',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      status: 'active',
+      scheduler_enabled: true,
+      price_interval_minutes: 5,
+      signal_interval_minutes: 15,
+      memo_interval_minutes: 240,
+    });
+    await journal.enqueueMonitoringJob({
+      workspaceId: 'workspace_a',
+      thesisId: 'thesis_worker',
+      jobType: 'thesis_pulse_run',
+      idempotencyKey: 'pulse:worker',
+      request: {
+        thesis_id: 'thesis_worker',
+        workspace_id: 'workspace_a',
+        force: false,
+      },
+    });
+
+    const result = await monitoringJobs.runClaimedJobs('workspace_a', {
+      workerId: 'worker_test',
+      now: '2026-05-12T00:01:00.000Z',
+    });
+
+    assert.equal(result.claimed, 1);
+    assert.equal(result.succeeded, 1);
+    assert.equal(journal.monitoringJobs[0]?.status, 'succeeded');
+    assert.equal(
+      journal.thesisPulses.get(key('thesis_worker', 'workspace_a'))?.[0]?.id,
+      'pulse_1',
+    );
+  });
+});
+
+test('monitoring queue records exhausted jobs as dead-letter visible state', async () => {
+  const { journal } = buildHarness();
+  const job = await journal.enqueueMonitoringJob({
+    workspaceId: 'workspace_a',
+    thesisId: 'thesis_dead_letter',
+    jobType: 'thesis_pulse_run',
+    maxAttempts: 1,
+    idempotencyKey: 'pulse:dead-letter',
+    request: {
+      thesis_id: 'thesis_dead_letter',
+      workspace_id: 'workspace_a',
+    },
+  });
+  await journal.claimMonitoringJobs('workspace_a', {
+    limit: 1,
+    workerId: 'worker_dead_letter',
+    now: '2026-05-12T00:01:00.000Z',
+  });
+
+  const failed = await journal.failMonitoringJob(
+    String(job.id),
+    'workspace_a',
+    {
+      errorType: 'TimeoutError',
+      errorMessage: 'provider timeout',
+      retryable: true,
+    },
+  );
+  const health = await journal.getMonitoringOperationsHealth('workspace_a');
+
+  assert.equal(failed?.status, 'dead_letter');
+  assert.equal(
+    (health.monitoring_queue as JsonRecord).dead_letter,
+    1,
+  );
+});
+
+test('monitoring retention dry-run preserves protected baseline tables', async () => {
+  const { journal, monitoringJobs, operations } = buildHarness();
+  journal.theses.set(key('protected_thesis', 'workspace_a'), {
+    id: 'protected_thesis',
+    workspace_id: 'workspace_a',
+  });
+  const retention = await monitoringJobs.runRetention('workspace_a', {
+    dryRun: true,
+    now: '2026-05-12T00:00:00.000Z',
+  });
+
+  assert.equal(retention.dry_run, true);
+  assert.equal(journal.theses.has(key('protected_thesis', 'workspace_a')), true);
+  assert.ok(
+    Array.isArray(retention.protected_tables) &&
+      retention.protected_tables.includes('trade_theses'),
+  );
+
+  const apiDryRun = await operations.monitoringRetentionDryRun(
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(apiDryRun.dry_run, true);
+});
+
+test('operations health exposes monitoring queue, worker, retention, and memo health', async () => {
+  const { journal, operations } = buildHarness();
+  journal.monitoringHealth = {
+    monitoring_queue: {
+      queued: 3,
+      running: 1,
+      failed: 2,
+      dead_letter: 1,
+      oldest_queued_at: '2026-05-12T00:00:00.000Z',
+    },
+    monitoring_scheduler: {
+      enabled_plans: 4,
+      due_plans: 2,
+      last_enqueue_at: '2026-05-12T00:02:00.000Z',
+      last_enqueue_error: null,
+    },
+    monitoring_workers: {
+      active_workers: 1,
+      last_success_at: '2026-05-12T00:03:00.000Z',
+      last_error_at: '2026-05-12T00:04:00.000Z',
+      recent_error_types: ['timeout'],
+    },
+    monitoring_retention: {
+      last_run_at: '2026-05-12T00:05:00.000Z',
+      last_deleted_counts: {
+        deleted_pulses: 10,
+        deleted_memos: 2,
+        deleted_jobs: 5,
+        dry_run: false,
+      },
+      last_error: null,
+    },
+    llm_memo_health: {
+      recent_calls: 8,
+      failure_rate: 0.25,
+      average_latency_ms: 900,
+    },
+  };
+
+  const health = await operations.health(20, 'user_1', 'workspace_a');
+
+  assert.equal(health.monitoring_queue.dead_letter, 1);
+  assert.equal(health.monitoring_scheduler.due_plans, 2);
+  assert.equal(health.monitoring_workers.recent_error_types[0], 'timeout');
+  assert.equal(health.monitoring_retention.last_deleted_counts.deleted_jobs, 5);
+  assert.equal(health.llm_memo_health.failure_rate, 0.25);
+});
+
+test('monitoring DTO parity keeps SQLite export and Postgres rows equivalent', () => {
+  const sqlitePlan = {
+    id: 'plan_parity',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_parity',
+    baseline_run_id: 'run_1',
+    symbol: 'WRONG',
+    market_type: 'spot',
+    status: 'active',
+    targets_json: JSON.stringify([{ label: 't1', price: 110 }]),
+    scenario_triggers_json: JSON.stringify(['trigger']),
+    missing_fields_json: JSON.stringify([]),
+    enabled_signal_factors_json: JSON.stringify(['regime']),
+    latest_trigger_reasons_json: JSON.stringify(['near_target']),
+    scheduler_enabled: 1,
+    price_interval_minutes: '5',
+    signal_interval_minutes: '15',
+    memo_interval_minutes: '240',
+    payload_json: JSON.stringify({
+      symbol: 'SHOULD_NOT_OVERRIDE',
+      targets: [],
+    }),
+  };
+  const postgresPlan = {
+    ...sqlitePlan,
+    symbol: 'BTC/USDT',
+    scheduler_enabled: true,
+    targets: [{ label: 't1', price: 110 }],
+    scenario_triggers: ['trigger'],
+    missing_fields: [],
+    enabled_signal_factors: ['regime'],
+    latest_trigger_reasons: ['near_target'],
+    payload: { symbol: 'SHOULD_NOT_OVERRIDE', targets: [] },
+  };
+  const normalizedSqlitePlan = normalizeSqliteFixture(sqlitePlan);
+  normalizedSqlitePlan.symbol = 'BTC/USDT';
+
+  assert.deepEqual(
+    toThesisMonitorPlanResponse(normalizedSqlitePlan),
+    toThesisMonitorPlanResponse(postgresPlan),
+  );
+
+  const sqlitePulse = normalizeSqliteFixture({
+    id: 'pulse_parity',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_parity',
+    monitor_plan_id: 'plan_parity',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    pulse_type: 'manual',
+    bucket_start: '2026-05-12T00:00:00.000Z',
+    observed_at: '2026-05-12T00:01:00.000Z',
+    score: '42',
+    status: 'watch',
+    suggested_action: 'inspect_chart',
+    trigger_reasons_json: JSON.stringify(['near_target']),
+    hard_triggers_json: JSON.stringify([]),
+    missing_data_json: JSON.stringify([]),
+    payload_json: JSON.stringify({ status: 'SHOULD_NOT_OVERRIDE' }),
+  });
+  const postgresPulse = {
+    ...sqlitePulse,
+    trigger_reasons: ['near_target'],
+    hard_triggers: [],
+    missing_data: [],
+    payload: { status: 'SHOULD_NOT_OVERRIDE' },
+  };
+  assert.deepEqual(
+    toThesisPulseResponse(sqlitePulse),
+    toThesisPulseResponse(postgresPulse),
+  );
+
+  const sqliteMemo = normalizeSqliteFixture({
+    id: 'memo_parity',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_parity',
+    monitor_plan_id: 'plan_parity',
+    memo_type: 'manual',
+    window_start: '2026-05-12T00:00:00.000Z',
+    window_end: '2026-05-12T04:00:00.000Z',
+    created_at: '2026-05-12T04:00:00.000Z',
+    status: 'watch',
+    summary: 'Summary',
+    recommended_action: 'inspect_chart',
+    rerun_full_recommended: 0,
+    confidence: '0.7',
+    what_changed_json: JSON.stringify(['price']),
+    why_it_matters_json: JSON.stringify(['risk']),
+    what_to_watch_next_json: JSON.stringify(['level']),
+    referenced_pulse_ids_json: JSON.stringify(['pulse_parity']),
+    prompt_version: 'pulse_memo.v1',
+    provider: 'fake',
+    model: 'fake-v1',
+    payload_json: JSON.stringify({ summary: 'SHOULD_NOT_OVERRIDE' }),
+  });
+  const postgresMemo = {
+    ...sqliteMemo,
+    what_changed: ['price'],
+    why_it_matters: ['risk'],
+    what_to_watch_next: ['level'],
+    referenced_pulse_ids: ['pulse_parity'],
+    payload: { summary: 'SHOULD_NOT_OVERRIDE' },
+  };
+  assert.deepEqual(
+    toThesisPulseMemoResponse(sqliteMemo),
+    toThesisPulseMemoResponse(postgresMemo),
+  );
+});
+
+test('postgres monitoring schema declares normalized tables and idempotency indexes', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  );
+  for (const fragment of [
+    'CREATE TABLE IF NOT EXISTS thesis_monitor_plans',
+    'CREATE TABLE IF NOT EXISTS thesis_pulses',
+    'CREATE TABLE IF NOT EXISTS thesis_pulse_memos',
+    'CREATE TABLE IF NOT EXISTS monitoring_jobs',
+    'CREATE TABLE IF NOT EXISTS monitoring_retention_runs',
+    'idx_thesis_pulses_bucket',
+    'idx_thesis_pulse_memos_window',
+    'idx_monitoring_jobs_idempotency',
+    'idx_monitoring_jobs_due',
+    'idx_monitoring_retention_runs_workspace_started',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
 });
 
 test('frontend contract responses are normalized for thesis, watchlist, and brief', async () => {
@@ -4037,6 +4782,12 @@ const runThesisPulseMemoMetadata: ArgumentMetadata = {
   data: '',
 };
 
+const runThesisSchedulerMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: RunThesisSchedulerDto,
+  data: '',
+};
+
 const patchThesisMonitorPlanMetadata: ArgumentMetadata = {
   type: 'body',
   metatype: PatchThesisMonitorPlanDto,
@@ -4074,6 +4825,15 @@ async function validateRunThesisPulseMemo(
     payload,
     runThesisPulseMemoMetadata,
   )) as RunThesisPulseMemoDto;
+}
+
+async function validateRunThesisScheduler(
+  payload: JsonRecord,
+): Promise<RunThesisSchedulerDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    runThesisSchedulerMetadata,
+  )) as RunThesisSchedulerDto;
 }
 
 async function validatePatchThesisMonitorPlan(
@@ -4200,6 +4960,15 @@ function buildHarness() {
         consecutive_invalidation_to_rerun: 2,
         enabled_signal_factors: ['regime'],
         scheduler_enabled: false,
+        latest_pulse_id: null,
+        latest_memo_id: null,
+        latest_status: null,
+        latest_price: null,
+        latest_trigger_reasons: [],
+        last_pulse_at: null,
+        next_pulse_due_at: null,
+        last_memo_at: null,
+        next_memo_due_at: null,
         ...(existing ?? {}),
         ...(request.updates as JsonRecord | undefined),
       };
@@ -4215,6 +4984,9 @@ function buildHarness() {
     runPulse: async (request: JsonRecord) => {
       const thesisId = String(request.thesis_id);
       const workspaceId = String(request.workspace_id ?? 'local');
+      const observedAt = String(
+        request.observed_at ?? '2026-05-12T00:01:00.000Z',
+      );
       const pulse = {
         id: 'pulse_1',
         workspace_id: workspaceId,
@@ -4225,7 +4997,7 @@ function buildHarness() {
         market_type: 'spot',
         pulse_type: 'manual',
         bucket_start: '2026-05-12T00:00:00.000Z',
-        observed_at: '2026-05-12T00:01:00.000Z',
+        observed_at: observedAt,
         current_price: 103000,
         baseline_price: 100000,
         price_change_pct: 3,
@@ -4244,7 +5016,23 @@ function buildHarness() {
         missing_data: [],
         payload: {},
       };
-      journal.thesisPulses.set(key(thesisId, workspaceId), [pulse]);
+      const current = journal.thesisPulses.get(key(thesisId, workspaceId)) ?? [];
+      journal.thesisPulses.set(key(thesisId, workspaceId), [...current, pulse]);
+      const plan = journal.monitorPlans.get(key(thesisId, workspaceId)) ?? {
+        id: 'plan_1',
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+      };
+      plan.latest_pulse_id = pulse.id;
+      plan.latest_status = pulse.status;
+      plan.latest_price = pulse.current_price;
+      plan.latest_trigger_reasons = pulse.trigger_reasons;
+      plan.last_pulse_at = observedAt;
+      plan.next_pulse_due_at = addMinutesIso(
+        observedAt,
+        Number(plan.price_interval_minutes ?? 5),
+      );
+      journal.monitorPlans.set(key(thesisId, workspaceId), plan);
       return { created: true, pulse, ...pulse };
     },
     runPulseMemo: async (request: JsonRecord) => {
@@ -4288,6 +5076,18 @@ function buildHarness() {
         payload: {},
       };
       journal.thesisPulseMemos.set(key(thesisId, workspaceId), [memo]);
+      const plan = journal.monitorPlans.get(key(thesisId, workspaceId)) ?? {
+        id: 'plan_1',
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+      };
+      plan.latest_memo_id = memo.id;
+      plan.last_memo_at = memo.created_at;
+      plan.next_memo_due_at = addMinutesIso(
+        memo.created_at,
+        Number(plan.memo_interval_minutes ?? 240),
+      );
+      journal.monitorPlans.set(key(thesisId, workspaceId), plan);
       return { created: true, skipped: false, memo, ...memo };
     },
   } as unknown as PythonEngineClient;
@@ -4314,6 +5114,7 @@ function buildHarness() {
   } as unknown as MarketPriceService;
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
   const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
+  const monitoringJobs = new MonitoringJobsService(journal, thesisEngine);
   return {
     journal,
     jobs,
@@ -4321,7 +5122,15 @@ function buildHarness() {
     researchRunsController: new ResearchRunsController(researchRuns),
     jobsController: new JobsController(jobs, auth, workspaces),
     signals: new SignalsService(journal, auth, workspaces),
-    theses: new ThesesService(journal, auth, workspaces, thesisEngine),
+    theses: new ThesesService(
+      journal,
+      auth,
+      workspaces,
+      thesisEngine,
+      undefined,
+      monitoringJobs,
+    ),
+    monitoringJobs,
     watchlists,
     briefs: new BriefsService(journal, auth, workspaces),
     alerts: new AlertsService(journal, auth, workspaces),
@@ -4337,11 +5146,43 @@ function key(id: string, workspaceId: string): string {
   return `${workspaceId}:${id}`;
 }
 
+function addMinutesIso(value: string, minutes: number): string {
+  return new Date(new Date(value).getTime() + minutes * 60_000).toISOString();
+}
+
 function appendUniqueString(value: unknown, item: string): string[] {
   const current = Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
   return current.includes(item) ? current : [...current, item];
+}
+
+function normalizeSqliteFixture(row: JsonRecord): JsonRecord {
+  const normalized: JsonRecord = {};
+  for (const [name, value] of Object.entries(row)) {
+    normalized[name] = name.endsWith('_json') ? parseJsonFixture(value) : value;
+  }
+  const payload = parseJsonFixture(normalized.payload_json);
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    Object.assign(normalized, payload, { ...normalized, payload });
+  }
+  for (const [name, value] of Object.entries(normalized)) {
+    if (name.endsWith('_json') && name !== 'payload_json') {
+      normalized[name.slice(0, -5)] = value;
+    }
+  }
+  return normalized;
+}
+
+function parseJsonFixture(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 function localDateStringForTest(date: Date): string {

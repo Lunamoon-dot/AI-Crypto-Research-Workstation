@@ -6,6 +6,8 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
 } from 'class-validator';
 
 export class RunThesisPulseDto {
@@ -25,6 +27,8 @@ export class RunThesisPulseMemoDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(30)
+  @Max(1440)
   window_minutes?: number;
 
   @IsOptional()
@@ -76,30 +80,44 @@ export class PatchThesisMonitorPlanDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(60)
   price_interval_minutes?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(5)
+  @Max(240)
   signal_interval_minutes?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(30)
+  @Max(1440)
   memo_interval_minutes?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(20)
   watch_distance_pct?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0.25)
+  @Max(10)
   review_distance_pct?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(10)
   consecutive_review_to_rerun?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(10)
   consecutive_invalidation_to_rerun?: number;
 
   @IsOptional()
@@ -122,4 +140,10 @@ export class PatchThesisMonitorPlanDto {
   @IsOptional()
   @IsBoolean()
   scheduler_enabled?: boolean;
+}
+
+export class RunThesisSchedulerDto {
+  @IsOptional()
+  @IsISO8601()
+  observed_at?: string;
 }

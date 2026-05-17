@@ -6,9 +6,12 @@ import {
   RunThesisPulseMemoResponse,
   RunThesisPulseRequest,
   RunThesisPulseResponse,
+  RunThesisSchedulerRequest,
   ThesisMonitorPlanResponse,
   ThesisPulseMemoResponse,
   ThesisPulseResponse,
+  ThesisSchedulerRunResponse,
+  ThesisSchedulerStatusResponse,
 } from '@/types';
 
 export function getThesisMonitorPlan(
@@ -78,6 +81,51 @@ export function updateThesisMonitorPlan(
   return apiRequest<ThesisMonitorPlanResponse>(
     `/theses/${encodeURIComponent(id)}/monitor-plan`,
     { method: 'PATCH', body: request },
+    auth,
+  );
+}
+
+export function getThesisSchedulerStatus(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ThesisSchedulerStatusResponse>(
+    `/theses/${encodeURIComponent(id)}/scheduler`,
+    {},
+    auth,
+  );
+}
+
+export function resumeThesisScheduler(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ThesisSchedulerStatusResponse>(
+    `/theses/${encodeURIComponent(id)}/scheduler/resume`,
+    { method: 'POST' },
+    auth,
+  );
+}
+
+export function pauseThesisScheduler(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ThesisSchedulerStatusResponse>(
+    `/theses/${encodeURIComponent(id)}/scheduler/pause`,
+    { method: 'POST' },
+    auth,
+  );
+}
+
+export function runThesisSchedulerDue(
+  id: string,
+  request: RunThesisSchedulerRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ThesisSchedulerRunResponse>(
+    `/theses/${encodeURIComponent(id)}/scheduler/run-due`,
+    { method: 'POST', body: request },
     auth,
   );
 }

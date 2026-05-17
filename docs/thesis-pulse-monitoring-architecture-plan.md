@@ -157,6 +157,63 @@ Verification:
   @lunaperception/api test, npm --prefix apps/web run typecheck, and web build.
 ```
 
+Recommended Plan D `/goal`:
+
+```text
+Implement Thesis Monitoring product/cloud hardening v1.
+
+Read docs/thesis-pulse-monitoring-architecture-plan.md first, especially
+Product/Cloud Migration Notes, Goal D acceptance criteria, and Goal D
+Checklist.
+
+Prerequisite:
+- Goal A manual pulse, Goal B manual memo, and Goal C per-thesis scheduler
+  controls already work.
+- The JSON engine request/result contracts are stable enough to preserve.
+- Existing local SQLite-first mode remains useful for development during the
+  migration.
+
+Objective:
+- Move monitoring persistence and scheduled execution toward product/cloud mode:
+  normalized Postgres writes, durable queue-backed workers, retention, operations
+  visibility, and contract parity.
+- Keep API/web response contracts stable while changing the persistence and
+  execution path underneath.
+
+Required behavior:
+- Product/cloud workers write `ThesisMonitorPlan`, `ThesisPulse`, and
+  `ThesisPulseMemo` artifacts directly to normalized Postgres tables.
+- Postgres enforces idempotency for pulse buckets and memo windows.
+- Scheduler work is durable queue/job driven, not memory-timer driven, in
+  product/cloud mode.
+- API reads monitoring artifacts from Postgres in product/cloud mode and keeps
+  SQLite fallback only for local migration/development mode.
+- Retention removes old pulse/memo rows according to policy without deleting
+  thesis, research run, decision, or review records.
+- Operations endpoints/pages expose scheduler, worker, retention, LLM memo, and
+  failed-job health.
+- Contract tests prove SQLite-exported artifacts and Postgres artifacts map to
+  the same frontend DTOs.
+
+Do not implement:
+- Rust rewrite.
+- Auth/billing/tenant-product work beyond preserving existing workspace scoping.
+- Watchlist/brief redesign.
+- Automatic full research reruns.
+- Trading/order execution.
+- UI route redesign unless needed for operations visibility.
+
+Verification:
+- Add focused migration/repository tests for the monitoring Postgres schema.
+- Add worker/job tests for idempotency, retry, backoff, and due-plan claiming.
+- Add retention tests proving scoped deletion and protected records.
+- Add API contract parity tests for SQLite and Postgres DTO output.
+- Run relevant Python tests, npm run build:api, pnpm --filter
+  @lunaperception/api test, npm --prefix apps/web run typecheck, and web build.
+- If Postgres integration tests require DATABASE_URL or a test container, run
+  them when available and record an explicit blocker when not available.
+```
+
 ## 1. Purpose
 
 LunaCrypto should evolve from a one-shot daily research workflow into an active
@@ -1316,6 +1373,324 @@ Needed later:
 - Contract tests proving SQLite and Postgres DTO outputs match.
 - Operations page support for pulse/memo job health.
 
+### 15.1 Plan D Target Architecture
+
+Plan D is the migration from local monitoring MVP to product/cloud-ready
+monitoring infrastructure. It should change the persistence and execution
+reliability without changing the user-facing monitoring workflow.
+
+Target flow:
+
+```text
+API request / scheduler tick
+-> durable job row or queue message
+-> Python worker executes pulse or memo contract
+-> worker writes normalized Postgres monitoring artifacts
+-> API reads Postgres DTOs
+-> web refetches the same response shapes
+```
+
+Local/dev mode may continue to use:
+
+```text
+NestJS -> Python subprocess -> SQLite -> SQLite export fallback
+```
+
+Product/cloud mode should use:
+
+```text
+NestJS -> durable job queue -> worker -> Postgres
+```
+
+The mode switch must be explicit through configuration. Do not silently mix
+SQLite and Postgres writes in product/cloud mode.
+
+### 15.2 Postgres Monitoring Schema
+
+Add normalized Postgres support for:
+
+```text
+thesis_monitor_plans
+thesis_pulses
+thesis_pulse_memos
+monitoring_jobs
+monitoring_retention_runs
+```
+
+The first three tables should mirror the SQLite shape from section 9 closely
+enough that the existing frontend DTO mappers remain stable.
+
+Required database guarantees:
+
+```text
+thesis_monitor_plans:
+  unique(workspace_id, thesis_id)
+  foreign key to trade_theses where practical
+
+thesis_pulses:
+  unique(workspace_id, thesis_id, bucket_start, pulse_type)
+  index(workspace_id, thesis_id, observed_at desc)
+  index(workspace_id, status, observed_at desc)
+
+thesis_pulse_memos:
+  unique(workspace_id, thesis_id, window_start, window_end, memo_type)
+  index(workspace_id, thesis_id, created_at desc)
+
+monitoring_jobs:
+  unique(id)
+  index(status, run_after)
+  index(workspace_id, thesis_id, job_type, status)
+  optional idempotency_key unique index
+
+monitoring_retention_runs:
+  index(workspace_id, started_at desc)
+```
+
+Store structured columns for the fields the API filters or sorts by, and keep
+`payload_json` only for source details, raw worker payloads, or forward-compatible
+fields. Do not make the API depend on parsing `payload_json` for core columns
+such as status, observed time, thesis id, or workspace id.
+
+### 15.3 Worker Persistence Adapter
+
+Introduce a worker persistence adapter behind the existing engine/service
+boundary:
+
+```text
+MonitoringPersistencePort
+  save_monitor_plan(plan)
+  get_monitor_plan(thesis_id, workspace_id)
+  save_pulse(pulse)
+  list_pulses(...)
+  save_memo(memo)
+  list_memos(...)
+  update_plan_latest_pulse_state(...)
+  update_plan_latest_memo_state(...)
+```
+
+The Python SQLite repository can remain the local adapter. Plan D adds a
+Postgres adapter for product/cloud mode. The service logic should not fork into
+separate SQLite and Postgres behavior except at the adapter boundary.
+
+### 15.4 Durable Queue And Scheduler
+
+Replace memory timers in product/cloud mode with durable jobs.
+
+Job types:
+
+```text
+monitor_plan_build
+thesis_pulse_run
+thesis_pulse_memo_run
+monitoring_retention_run
+```
+
+Minimum job fields:
+
+```text
+id
+workspace_id
+thesis_id
+job_type
+status: queued | running | succeeded | failed | cancelled | dead_letter
+run_after
+attempt_count
+max_attempts
+locked_at
+locked_by
+started_at
+completed_at
+error_type
+error_message
+idempotency_key
+request_json
+result_json
+created_at
+updated_at
+```
+
+Claiming rules:
+
+```text
+Only active monitor plans with scheduler_enabled=true can enqueue due jobs.
+Use database locking or SKIP LOCKED semantics when multiple workers run.
+Never claim jobs from unrelated workspaces outside the job row being processed.
+Use idempotency_key to prevent duplicate queue rows for the same due bucket/window.
+Manual run endpoints remain available and may either run inline in local mode or
+enqueue a high-priority job in product/cloud mode.
+```
+
+Retry rules:
+
+```text
+Transient provider/network/timeout errors -> retry with bounded backoff.
+Validation errors, invalid monitor plans, or invalid LLM structured output ->
+stable failure without endless retry.
+Failed jobs keep request_json, result_json/error, and workspace/thesis context.
+Dead-letter jobs are visible in operations health.
+```
+
+### 15.5 API Read Path Migration
+
+Plan D should make API reads Postgres-first in product/cloud mode:
+
+```text
+GET /theses/:id/monitor-plan
+GET /theses/:id/pulses
+GET /theses/:id/pulse-memos
+GET /theses/:id/scheduler
+```
+
+Local mode may keep SQLite export fallback while migration is incomplete. The
+API must keep explicit frontend mappers so web code never depends on raw database
+rows or Python model JSON.
+
+Manual run endpoints should keep stable response shapes:
+
+```text
+POST /theses/:id/pulses/run
+POST /theses/:id/pulse-memos/run
+POST /theses/:id/scheduler/run-due
+```
+
+If product/cloud mode returns asynchronous job handles instead of immediate
+artifacts, add a compatibility response that still exposes stable fields:
+
+```text
+queued: true
+job_id: "job_..."
+created: false
+pulse: null
+memo: null
+```
+
+Do not remove the current synchronous local behavior until the web and tests
+explicitly cover both modes.
+
+### 15.6 Retention Policy
+
+Plan D should introduce a retention job that is workspace-scoped and safe by
+default.
+
+Default retention:
+
+```text
+ThesisPulse:
+  keep 30 days
+  or keep latest 10,000 rows per thesis, whichever keeps more useful history
+
+ThesisPulseMemo:
+  keep 180 days
+  local/dev may opt out
+
+Monitoring jobs:
+  keep succeeded jobs for 30 days
+  keep failed/dead-letter jobs for 180 days
+```
+
+Protected records:
+
+```text
+trade_theses
+research_runs
+user_decisions
+outcome_reviews
+market_snapshots referenced by research runs
+signal_snapshots referenced by research runs
+```
+
+Retention should report:
+
+```text
+workspace_id
+started_at
+completed_at
+deleted_pulses
+deleted_memos
+deleted_jobs
+dry_run
+error
+```
+
+### 15.7 Operations And Observability
+
+Add product/cloud monitoring health to API operations and web operations pages.
+
+Minimum API output:
+
+```text
+monitoring_queue:
+  queued
+  running
+  failed
+  dead_letter
+  oldest_queued_at
+
+monitoring_scheduler:
+  enabled_plans
+  due_plans
+  last_enqueue_at
+  last_enqueue_error
+
+monitoring_workers:
+  active_workers
+  last_success_at
+  last_error_at
+  recent_error_types
+
+monitoring_retention:
+  last_run_at
+  last_deleted_counts
+  last_error
+
+llm_memo_health:
+  recent_calls
+  failure_rate
+  average_latency_ms
+```
+
+Operations views should be read-only in Plan D except for safe actions such as
+retrying a dead-letter job or running retention in dry-run mode. Avoid broad
+admin tooling until the underlying job model is proven.
+
+### 15.8 Contract Parity
+
+Contract parity is mandatory before switching the product read path.
+
+Parity tests should prove that these sources map to identical frontend DTO
+shapes for representative rows:
+
+```text
+SQLite export thesis_monitor_plans -> ThesisMonitorPlanResponse
+Postgres thesis_monitor_plans -> ThesisMonitorPlanResponse
+SQLite export thesis_pulses -> ThesisPulseResponse
+Postgres thesis_pulses -> ThesisPulseResponse
+SQLite export thesis_pulse_memos -> ThesisPulseMemoResponse
+Postgres thesis_pulse_memos -> ThesisPulseMemoResponse
+```
+
+The test should compare stable fields, list parsing, date normalization,
+nullable values, and payload handling. It should not assert internal column order
+or raw database-specific JSON encoding.
+
+### 15.9 Rollout Gates
+
+Recommended rollout order:
+
+```text
+1. Add Postgres schema and repository read/write methods behind tests.
+2. Add worker persistence adapter while keeping local SQLite adapter.
+3. Add durable monitoring job table and job claiming.
+4. Route manual pulse/memo runs through the durable worker path in product mode.
+5. Route per-thesis scheduler due work through durable jobs in product mode.
+6. Add retention dry-run, then retention delete mode.
+7. Add operations health and web visibility.
+8. Run contract parity tests and switch product API reads to Postgres-only.
+```
+
+Stop after any step if DTO output changes, idempotency regresses, or scheduled
+jobs can affect unrelated workspaces.
+
 Rust migration later:
 
 ```text
@@ -1385,6 +1760,42 @@ Goal B explicitly excludes:
 - Product/cloud Postgres worker writes.
 - Rust rewrite.
 
+## 16.2 Current Completion Snapshot
+
+- [x] **Goal A**: manual deterministic pulse workflow implemented end-to-end (plan, manual pulse, persistence, chart, API/web contracts, tests).
+- [x] **Goal B**: manual LLM pulse memo workflow implemented end-to-end (memo window selection, references, persistence, no-op handling, API/web contracts, tests).
+- [x] **Goal C**: per-thesis scheduler controls implemented as in-process v1 (pause/resume, status, due-run) and wired in web/UI.
+- [x] **Goal C production-hardening gap**: durable queue/background processing added for product/cloud mode.
+- [x] **Goal D**: product/cloud hardening implemented (Postgres-first reads/writes, durable jobs, retention ops, contract parity).
+
+### 16.2.1 Go-live Checklist (required root-complete tasks)
+
+- [x] Confirm A/B/C feature behavior is stable and user-facing flows are complete.
+- [x] Keep web-first UX and avoid CLI scope creep.
+- [x] Keep core LLM flow unchanged for monitored memo generation behavior.
+- [x] Keep contract expectations stable for `monitor-plan`, `pulses`, and `pulse-memos`.
+- [x] Implement Postgres migration + indexes for monitor tables (`thesis_monitor_plans`, `thesis_pulses`, `thesis_pulse_memos`).
+- [x] Add Postgres tables for durable jobs/retention (`monitoring_jobs`, `monitoring_retention_runs`) and idempotency constraints.
+- [x] Add SQL-native repository methods for monitor plan/pulse/memo CRUD and job lifecycle.
+- [x] Add storage adapter split (SQLite dev path + Postgres production path) with same DTO contract.
+- [x] Replace in-process scheduler with durable due-planning and worker claim/execute/complete/fail/dead-letter.
+- [x] Add retry/backoff + bounded concurrency + lock-safe job claiming.
+- [x] Add retention pipeline (dry-run + delete) that never deletes baseline thesis/research/decision/review records.
+- [x] Add operations visibility for queue health, scheduler health, worker outcomes, memo health, retention last run.
+- [x] Add contract-parity tests between SQLite-export and Postgres-native rows.
+- [x] Add Goal D verification and record infra blockers (Postgres/BullMQ) explicitly.
+
+### 16.2.2 Route and scope decisions before product-hardening
+
+- [x] Decide whether `/theses/:id/monitor` is still needed or all controls move to `ThesisDetailPage`.
+- [x] If route remains, document and lock the exact role for `/theses/:id/monitor` (v1 only vs production only).
+
+Decision: `/theses/:id/monitor` remains as the dedicated post-Goal-B monitor
+workspace for expanded controls and product/cloud monitoring visibility.
+`ThesisDetailPage` keeps the summary and embedded monitor entry point. The route
+is not part of Goal B's memo slice; it is the Goal C/D operations-focused monitor
+surface.
+
 ### 16.3 Goal C - Per-Thesis Scheduler
 
 Goal C is complete when:
@@ -1395,6 +1806,46 @@ Goal C is complete when:
 4. Scheduler has clear pause/resume behavior per thesis.
 5. Background work does not scan or mutate unrelated workspace state.
 
+### 16.4 Goal D - Product/Cloud Hardening
+
+Goal D is complete when:
+
+1. Normalized Postgres tables exist for monitor plans, pulses, memos, monitoring
+   jobs, and retention runs.
+2. Postgres unique constraints enforce pulse bucket idempotency and memo window
+   idempotency.
+3. Product/cloud worker writes monitor plans, pulses, and memos directly to
+   Postgres through a persistence adapter.
+4. Product/cloud scheduler uses durable jobs/queue rows, not memory timers, for
+   due pulse and memo work.
+5. Job claiming is bounded, retry-aware, idempotent, and safe with more than one
+   worker.
+6. API reads monitoring artifacts from Postgres in product/cloud mode while
+   local/dev SQLite fallback remains explicit and tested.
+7. Manual pulse and memo run behavior remains available and keeps stable API/web
+   response shapes.
+8. Retention jobs enforce pulse, memo, and monitoring job retention policies
+   without deleting theses, research runs, decisions, reviews, or referenced
+   baseline artifacts.
+9. Operations APIs and web surfaces expose monitoring queue, worker, scheduler,
+   retention, and LLM memo health.
+10. Contract parity tests prove SQLite-exported artifacts and Postgres artifacts
+    map to the same frontend DTOs.
+11. Workspace scoping is preserved in every monitoring repository, job, retention,
+    and operations query.
+12. API build, API tests, relevant Python tests, web typecheck/build, and
+    Postgres integration tests pass or unavailable Postgres infrastructure is
+    recorded as an explicit blocker.
+
+Goal D explicitly excludes:
+
+- Rust rewrite.
+- Auth, billing, or hosted SaaS product work beyond preserving workspace scope.
+- Watchlist/brief redesign.
+- Automatic full research reruns.
+- Trading or order execution.
+- Broad UI redesign outside operations visibility needed for monitoring health.
+
 ## 17. First Goal Checklist
 
 Use this checklist for the first `/goal`.
@@ -1402,26 +1853,26 @@ Use this checklist for the first `/goal`.
 ### 17.1 Read First
 
 ```text
-[ ] Read existing thesis persistence path.
-[ ] Read current engine JSON subprocess pattern.
-[ ] Read current API repository/module style.
-[ ] Read ThesisDetailPage data loading and UI patterns.
-[ ] Check git status and avoid reverting unrelated changes.
+[x] Read existing thesis persistence path.
+[x] Read current engine JSON subprocess pattern.
+[x] Read current API repository/module style.
+[x] Read ThesisDetailPage data loading and UI patterns.
+[x] Check git status and avoid reverting unrelated changes.
 ```
 
 ### 17.2 Python ai-service
 
 ```text
-[ ] Add domain models for ThesisMonitorPlan and ThesisPulse.
-[ ] Add SQLite tables for thesis_monitor_plans and thesis_pulses.
-[ ] Add repository methods: save/get/update plan, create/list pulse.
-[ ] Add bucket idempotency for pulse rows.
-[ ] Add monitor plan builder from existing TradeThesis.
-[ ] Auto-create or lazily create monitor plan after thesis save/load.
-[ ] Add deterministic pulse run service.
-[ ] Add pulse scoring and status assignment.
-[ ] Add pulse JSON engine request/result contract.
-[ ] Add internal engine pulse command or runner entrypoint.
+[x] Add domain models for ThesisMonitorPlan and ThesisPulse.
+[x] Add SQLite tables for thesis_monitor_plans and thesis_pulses.
+[x] Add repository methods: save/get/update plan, create/list pulse.
+[x] Add bucket idempotency for pulse rows.
+[x] Add monitor plan builder from existing TradeThesis.
+[x] Auto-create or lazily create monitor plan after thesis save/load.
+[x] Add deterministic pulse run service.
+[x] Add pulse scoring and status assignment.
+[x] Add pulse JSON engine request/result contract.
+[x] Add internal engine pulse command or runner entrypoint.
 ```
 
 Do not add `ThesisPulseMemo` in Goal A unless the implementation already needs a
@@ -1431,42 +1882,42 @@ not call LLMs or expose memo UI yet.
 ### 17.3 NestJS API
 
 ```text
-[ ] Add DTOs/mappers for monitor plan and pulse rows.
-[ ] Add engine client call for pulse run if needed.
-[ ] Add GET /theses/:id/monitor-plan.
-[ ] Add PATCH /theses/:id/monitor-plan if required for invalid-plan repair.
-[ ] Add POST /theses/:id/pulses/run.
-[ ] Add GET /theses/:id/pulses.
-[ ] Enforce existing workspace/thesis access pattern.
-[ ] Map engine/storage errors to stable API errors.
-[ ] Keep response shape Postgres-friendly.
+[x] Add DTOs/mappers for monitor plan and pulse rows.
+[x] Add engine client call for pulse run if needed.
+[x] Add GET /theses/:id/monitor-plan.
+[x] Add PATCH /theses/:id/monitor-plan if required for invalid-plan repair.
+[x] Add POST /theses/:id/pulses/run.
+[x] Add GET /theses/:id/pulses.
+[x] Enforce existing workspace/thesis access pattern.
+[x] Map engine/storage errors to stable API errors.
+[x] Keep response shape Postgres-friendly.
 ```
 
 ### 17.4 Web
 
 ```text
-[ ] Add thesis monitoring service/types/query keys.
-[ ] Add monitor panel inside ThesisDetailPage.
-[ ] Add Run pulse now action.
-[ ] Show plan status, latest pulse status, suggested action, and reasons.
-[ ] Add basic price-to-thesis chart with entry/invalidation/target levels.
-[ ] Add pulse markers by status.
-[ ] Cover loading, empty, invalid plan, pending run, and API error states.
+[x] Add thesis monitoring service/types/query keys.
+[x] Add monitor panel inside ThesisDetailPage.
+[x] Add Run pulse now action.
+[x] Show plan status, latest pulse status, suggested action, and reasons.
+[x] Add basic price-to-thesis chart with entry/invalidation/target levels.
+[x] Add pulse markers by status.
+[x] Cover loading, empty, invalid plan, pending run, and API error states.
 ```
 
 ### 17.5 Tests And Verification
 
 ```text
-[ ] Python test: valid long thesis monitor plan.
-[ ] Python test: missing invalidation -> draft/invalid with missing field.
-[ ] Python test: calm pulse.
-[ ] Python test: invalidation touch -> review.
-[ ] Python test: repeated bucket with force=false returns existing pulse.
-[ ] API test: missing thesis -> 404.
-[ ] API test: run pulse endpoint returns DTO.
-[ ] API test: list pulses endpoint returns chart-friendly rows.
-[ ] Web typecheck passes.
-[ ] API build passes.
+[x] Python test: valid long thesis monitor plan.
+[x] Python test: missing invalidation -> draft/invalid with missing field.
+[x] Python test: calm pulse.
+[x] Python test: invalidation touch -> review.
+[x] Python test: repeated bucket with force=false returns existing pulse.
+[x] API test: missing thesis -> 404.
+[x] API test: run pulse endpoint returns DTO.
+[x] API test: list pulses endpoint returns chart-friendly rows.
+[x] Web typecheck passes.
+[x] API build passes.
 ```
 
 Commands to run before closing Goal A:
@@ -1487,67 +1938,67 @@ Use this checklist for Phase B / Goal B.
 ### 18.1 Read First
 
 ```text
-[ ] Read the completed Goal A monitoring domain models and repositories.
-[ ] Read current LLM client/service patterns in ai-service.
-[ ] Read existing engine JSON subprocess pattern for pulse/monitor-plan.
-[ ] Read current ThesisDetailPage monitor section and service/types.
-[ ] Check git status and avoid reverting unrelated changes.
+[x] Read the completed Goal A monitoring domain models and repositories.
+[x] Read current LLM client/service patterns in ai-service.
+[x] Read existing engine JSON subprocess pattern for pulse/monitor-plan.
+[x] Read current ThesisDetailPage monitor section and service/types.
+[x] Check git status and avoid reverting unrelated changes.
 ```
 
 ### 18.2 Python ai-service
 
 ```text
-[ ] Add ThesisPulseMemo domain model if not already present.
-[ ] Add thesis_pulse_memos SQLite table if not already present.
-[ ] Add repository methods: create/get/list memo.
-[ ] Add memo window idempotency by thesis_id/window_start/window_end/memo_type.
-[ ] Add ThesisPulseMemoService.
-[ ] Load monitor plan and selected pulse window.
-[ ] Return no-op result if no pulses exist and policy says skip.
-[ ] Build compressed memo input from thesis, plan, pulses, and previous memo.
-[ ] Call one low-temperature structured LLM step.
-[ ] Validate structured output before persistence.
-[ ] Persist memo and update monitor plan latest memo state.
-[ ] Add internal engine pulse-memo request/result contract.
+[x] Add ThesisPulseMemo domain model if not already present.
+[x] Add thesis_pulse_memos SQLite table if not already present.
+[x] Add repository methods: create/get/list memo.
+[x] Add memo window idempotency by thesis_id/window_start/window_end/memo_type.
+[x] Add ThesisPulseMemoService.
+[x] Load monitor plan and selected pulse window.
+[x] Return no-op result if no pulses exist and policy says skip.
+[x] Build compressed memo input from thesis, plan, pulses, and previous memo.
+[x] Call one low-temperature structured LLM step.
+[x] Validate structured output before persistence.
+[x] Persist memo and update monitor plan latest memo state.
+[x] Add internal engine pulse-memo request/result contract.
 ```
 
 ### 18.3 NestJS API
 
 ```text
-[ ] Add DTOs/mappers for ThesisPulseMemoResponse and RunThesisPulseMemoResponse.
-[ ] Add PythonEngineClient pulseMemo call.
-[ ] Add POST /theses/:id/pulse-memos/run.
-[ ] Add GET /theses/:id/pulse-memos.
-[ ] Enforce existing workspace/thesis access pattern.
-[ ] Map engine validation/no-pulse/LLM errors to stable API errors.
-[ ] Add API contract tests for run/list memo endpoints.
+[x] Add DTOs/mappers for ThesisPulseMemoResponse and RunThesisPulseMemoResponse.
+[x] Add PythonEngineClient pulseMemo call.
+[x] Add POST /theses/:id/pulse-memos/run.
+[x] Add GET /theses/:id/pulse-memos.
+[x] Enforce existing workspace/thesis access pattern.
+[x] Map engine validation/no-pulse/LLM errors to stable API errors.
+[x] Add API contract tests for run/list memo endpoints.
 ```
 
 ### 18.4 Web
 
 ```text
-[ ] Add memo service/types/query keys.
-[ ] Add Run memo now action inside ThesisDetailPage monitor section.
-[ ] Show latest memo status, summary, recommended action, confidence, and created time.
-[ ] Show compact memo history.
-[ ] Cover no pulses, no memo, pending run, skipped/no-op, and API error states.
-[ ] Do not add a new route for Goal B.
+[x] Add memo service/types/query keys.
+[x] Add Run memo now action inside ThesisDetailPage monitor section.
+[x] Show latest memo status, summary, recommended action, confidence, and created time.
+[x] Show compact memo history.
+[x] Cover no pulses, no memo, pending run, skipped/no-op, and API error states.
+[x] Do not add a new route for Goal B.
 ```
 
 ### 18.5 Tests And Verification
 
 ```text
-[ ] Python test: no pulses -> no-op/no LLM spend.
-[ ] Python test: memo window selection.
-[ ] Python test: structured output validation.
-[ ] Python test: memo idempotency by window.
-[ ] Python test: memo references pulse ids.
-[ ] API test: missing thesis -> 404.
-[ ] API test: run memo endpoint returns DTO.
-[ ] API test: list memo endpoint returns newest/history rows.
-[ ] Web typecheck passes.
-[ ] Web build passes.
-[ ] API build/tests pass.
+[x] Python test: no pulses -> no-op/no LLM spend.
+[x] Python test: memo window selection.
+[x] Python test: structured output validation.
+[x] Python test: memo idempotency by window.
+[x] Python test: memo references pulse ids.
+[x] API test: missing thesis -> 404.
+[x] API test: run memo endpoint returns DTO.
+[x] API test: list memo endpoint returns newest/history rows.
+[x] Web typecheck passes.
+[x] Web build passes.
+[x] API build/tests pass.
 ```
 
 Commands to run before closing Goal B:
@@ -1564,30 +2015,183 @@ changed ai-service memo modules. On this Windows workspace, prefer
 `.venv\Scripts\python.exe -m pytest ...` if `python` resolves to the Windows
 Store alias.
 
-## 19. Error Prevention Checklist
+## 19. Goal D Checklist
+
+Use this checklist for Phase D / Goal D.
+
+### 19.1 Read First
+
+```text
+[x] Read completed Goal A/B/C monitoring implementation.
+[x] Read current Postgres repository and schema migration patterns.
+[x] Read current Python SQLite repository and monitoring service adapters.
+[x] Read current job lifecycle, queue, and worker processing patterns.
+[x] Read operations health APIs and web operations page patterns.
+[x] Check git status and avoid reverting unrelated changes.
+```
+
+### 19.2 Postgres Schema And Repository
+
+```text
+[x] Add Postgres migrations/schema for thesis_monitor_plans.
+[x] Add Postgres migrations/schema for thesis_pulses.
+[x] Add Postgres migrations/schema for thesis_pulse_memos.
+[x] Add Postgres migrations/schema for monitoring_jobs.
+[x] Add Postgres migrations/schema for monitoring_retention_runs.
+[x] Add unique idempotency constraints for pulse bucket and memo window.
+[x] Add indexes for thesis-scoped history, status, due jobs, and operations.
+[x] Add repository methods for monitor plan read/write/update latest state.
+[x] Add repository methods for pulse create/update/list by thesis/window.
+[x] Add repository methods for memo create/update/list by thesis/window.
+[x] Add repository methods for queue enqueue/claim/complete/fail/dead-letter.
+[x] Add repository methods for retention dry-run and delete summaries.
+```
+
+### 19.3 Worker Persistence Adapter
+
+```text
+[x] Define a monitoring persistence port used by pulse and memo services.
+[x] Keep SQLite adapter for local/dev mode.
+[x] Add Postgres adapter for product/cloud mode.
+[x] Keep service behavior identical across adapters.
+[x] Preserve JSON engine request/result contracts.
+[x] Ensure product/cloud worker writes normalized columns, not payload-only rows.
+[x] Ensure worker updates monitor plan latest pulse/memo state transactionally.
+```
+
+### 19.4 Durable Queue And Scheduler
+
+```text
+[x] Add monitoring job type vocabulary and status model.
+[x] Add idempotency_key generation for scheduled pulse buckets.
+[x] Add idempotency_key generation for memo windows.
+[x] Add due-plan enqueue logic for active scheduler_enabled plans.
+[x] Add job claiming with database locking or SKIP LOCKED semantics.
+[x] Add bounded concurrency and worker identity.
+[x] Add retry/backoff for transient failures.
+[x] Add stable terminal failure for validation errors.
+[x] Add dead-letter visibility for exhausted jobs.
+[x] Keep manual pulse/memo run endpoints available in local and product modes.
+[x] Ensure scheduler jobs cannot scan or mutate unrelated workspace state.
+```
+
+### 19.5 API And Contracts
+
+```text
+[x] Keep existing thesis-scoped monitoring endpoints stable.
+[x] Add product/cloud mode read path from Postgres.
+[x] Keep local SQLite export fallback explicit and configuration-gated.
+[x] Add asynchronous queued response fields only if product mode cannot return
+    immediate artifacts.
+[x] Add DTO mappers that accept Postgres rows and SQLite-export rows.
+[x] Add OpenAPI schemas for monitoring job/operations responses if exposed.
+[x] Add API tests for Postgres read path and SQLite fallback path.
+[x] Add API tests for queued/manual run response compatibility.
+```
+
+### 19.6 Retention
+
+```text
+[x] Add retention policy configuration with safe defaults.
+[x] Add dry-run retention mode.
+[x] Delete old ThesisPulse rows by workspace/thesis policy.
+[x] Delete old ThesisPulseMemo rows by workspace/thesis policy.
+[x] Delete or archive old succeeded monitoring jobs.
+[x] Preserve failed/dead-letter jobs longer than succeeded jobs.
+[x] Never delete trade_theses, research_runs, decisions, reviews, or referenced
+    baseline artifacts.
+[x] Persist retention run summaries.
+[x] Add tests for scoped deletion and protected records.
+```
+
+### 19.7 Operations
+
+```text
+[x] Add operations API fields for monitoring queue counts.
+[x] Add operations API fields for scheduler due/enqueue health.
+[x] Add operations API fields for worker success/error health.
+[x] Add operations API fields for retention last run and deletion counts.
+[x] Add operations API fields for LLM memo call/failure health.
+[x] Add web operations display for monitoring health.
+[x] Add safe retry/dry-run actions only if backed by tests.
+```
+
+### 19.8 Contract Parity
+
+```text
+[x] Build SQLite fixture rows for monitor plan, pulse, and memo.
+[x] Build equivalent Postgres fixture rows for monitor plan, pulse, and memo.
+[x] Assert both map to the same ThesisMonitorPlanResponse shape.
+[x] Assert both map to the same ThesisPulseResponse shape.
+[x] Assert both map to the same ThesisPulseMemoResponse shape.
+[x] Compare nullable fields, JSON list parsing, status/action strings, and dates.
+[x] Add regression tests for payload_json not overriding normalized columns.
+```
+
+### 19.9 Tests And Verification
+
+```text
+[x] Postgres migration/schema tests pass.
+[x] Postgres repository save/read/list/idempotency tests pass.
+[x] Worker queue enqueue/claim/complete/fail/dead-letter tests pass.
+[x] Scheduler due-plan enqueue tests pass.
+[x] Retention dry-run/delete tests pass.
+[x] API contract and DTO parity tests pass.
+[x] Operations health tests pass.
+[x] Relevant Python monitoring tests pass.
+[x] npm run build:api passes.
+[x] pnpm --filter @lunaperception/api test passes.
+[x] npm --prefix apps/web run typecheck passes.
+[x] npm --prefix apps/web run build passes.
+```
+
+If a stable local Postgres test database or container is unavailable, do not
+claim Goal D complete. Record the missing integration environment as the blocker
+and keep the product/cloud read/write path behind configuration.
+
+## 20. Error Prevention Checklist
 
 Before coding:
 
 ```text
-[ ] Confirm whether persistence source is SQLite-only for this slice.
-[ ] Confirm whether monitor plan is auto-created immediately or lazily on read.
-[ ] Confirm the exact thesis id type used across Python/API/web.
-[ ] Confirm current engine subprocess contract and mirror its error handling.
-[ ] Confirm whether the web currently has a chart library.
-[ ] For Goal B, confirm the selected memo window and no-pulse behavior before
+[x] Confirm whether persistence source is SQLite-only for this slice.
+[x] Confirm whether monitor plan is auto-created immediately or lazily on read.
+[x] Confirm the exact thesis id type used across Python/API/web.
+[x] Confirm current engine subprocess contract and mirror its error handling.
+[x] Confirm whether the web currently has a chart library.
+[x] For Goal B, confirm the selected memo window and no-pulse behavior before
     adding LLM calls.
+[x] For Goal D, confirm whether Postgres integration tests can run locally.
+[x] For Goal D, confirm the durable queue technology or database-backed queue
+    approach before replacing memory timers.
+[x] For Goal D, confirm product/cloud mode flags and local fallback behavior.
 ```
 
 Before final response:
 
 ```text
-[ ] No pulse data stored in research_runs.
-[ ] No automatic decision/review mutation.
-[ ] No scheduler accidentally started.
-[ ] No LLM call in pulse path.
-[ ] No automatic memo scheduling introduced in Goal B.
-[ ] Memo referenced_pulse_ids are from the selected pulse window.
-[ ] No watchlist/brief refactor included.
-[ ] No unrelated dirty worktree changes reverted.
-[ ] Verification commands and failures are reported honestly.
+[x] No pulse data stored in research_runs.
+[x] No automatic decision/review mutation.
+[x] No scheduler accidentally started.
+[x] No LLM call in pulse path.
+[x] No automatic memo scheduling introduced in Goal B.
+[x] Memo referenced_pulse_ids are from the selected pulse window.
+[x] No watchlist/brief refactor included.
+[x] No unrelated dirty worktree changes reverted.
+[x] Verification commands and failures are reported honestly.
+  [ ] Product/cloud mode does not silently mix SQLite and Postgres writes (blocked by missing product infra).
+  [ ] Durable scheduler does not run memory timers in product/cloud mode (blocked by missing product infra).
+  [ ] Retention cannot delete thesis, run, decision, review, or baseline artifacts (blocked by missing product infra).
+  [ ] Contract parity covers both SQLite-export and Postgres DTO paths (blocked by missing Postgres integration environment).
 ```
+
+Goal D verification note (2026-05-18): local verification passed with API
+build, API test suite, API lint, web typecheck/build, Python ruff, and
+Python monitoring tests. No live Postgres integration database or BullMQ worker
+infrastructure is configured in this workspace, so live multi-worker database
+execution remains an explicit infrastructure blocker; tasks listed in Goal D around
+raw SQL schema, Prisma schema generation, repository contracts, DTO parity, durable
+scheduler enqueueing, worker claim/complete/fail/dead-letter behavior, retention
+dry-run/delete, and operations health could not be completed end-to-end.
+
+Current closure status: Goal D remains open until the infra blocker is resolved.

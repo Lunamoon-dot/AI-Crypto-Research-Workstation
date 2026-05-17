@@ -45,6 +45,8 @@ export const queryKeys = {
     ['thesis-pulses', queryIdentity(), id] as const,
   thesisPulseMemos: (id: string) =>
     ['thesis-pulse-memos', queryIdentity(), id] as const,
+  thesisScheduler: (id: string) =>
+    ['thesis-scheduler', queryIdentity(), id] as const,
   thesisScenarios: (id: string) =>
     ['thesis-scenarios', queryIdentity(), id] as const,
   scenarioMonitor: (filters: Record<string, unknown>) =>
