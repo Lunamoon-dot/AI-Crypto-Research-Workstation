@@ -137,7 +137,7 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Watchlist ${id} not found`);
     }
     const items = await this.journal.listWatchlistItems(id, workspaceId);
-    return items.map(toWatchlistItemResponse);
+    return uniqueWatchlistItems(items).map(toWatchlistItemResponse);
   }
 
   async addItem(
@@ -152,6 +152,13 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
       'editor',
     );
     const itemInput = await this.normalizeItemInput(dto, workspaceId);
+    const existing = findExistingWatchlistItem(
+      await this.journal.listWatchlistItems(id, workspaceId),
+      itemInput,
+    );
+    if (existing) {
+      return toWatchlistItemResponse(existing);
+    }
     const item = await this.journal.addWatchlistItem(id, itemInput, workspaceId);
     return toWatchlistItemResponse(item);
   }
@@ -327,7 +334,9 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Watchlist ${id} not found`);
     }
     const prices = normalizePrices(dto.prices);
-    const items = await this.journal.listWatchlistItems(id, workspaceId);
+    const items = uniqueWatchlistItems(
+      await this.journal.listWatchlistItems(id, workspaceId),
+    );
     const alerts: JsonRecord[] = [];
     const skipped: string[] = [];
     const priceCache = new Map<string, PriceResolution>();
@@ -720,6 +729,55 @@ function booleanValue(value: unknown, fallback = false): boolean {
     return false;
   }
   return fallback;
+}
+
+function findExistingWatchlistItem(
+  items: JsonRecord[],
+  candidate: JsonRecord,
+): JsonRecord | null {
+  const candidateKey = watchlistItemKey(candidate);
+  if (!candidateKey) {
+    return null;
+  }
+  return (
+    items.find(
+      (item) =>
+        booleanValue(item.enabled, true) && watchlistItemKey(item) === candidateKey,
+    ) ?? null
+  );
+}
+
+function uniqueWatchlistItems(items: JsonRecord[]): JsonRecord[] {
+  const seen = new Set<string>();
+  const deduped: JsonRecord[] = [];
+  for (const item of items) {
+    const key = watchlistItemKey(item);
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function watchlistItemKey(item: JsonRecord): string | null {
+  const itemType = stringValue(item.item_type, 'symbol').trim();
+  if (itemType === 'thesis') {
+    const thesisId = nullableString(item.thesis_id);
+    return thesisId ? `thesis:${thesisId}` : null;
+  }
+  if (itemType === 'symbol') {
+    const symbol = nullableString(item.symbol)?.trim().toUpperCase();
+    return symbol ? `symbol:${symbol}` : null;
+  }
+  if (itemType === 'setup_type') {
+    const setupType = nullableString(item.setup_type)?.trim().toLowerCase();
+    return setupType ? `setup_type:${setupType}` : null;
+  }
+  return null;
 }
 
 function envFlag(name: string, fallback: boolean): boolean {

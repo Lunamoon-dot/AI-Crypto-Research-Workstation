@@ -2210,7 +2210,29 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
     title: 'Daily Brief',
     summary: 'Risk-on tone.',
     key_points: ['Liquidity improving'],
-    thesis_ids: ['thesis_2'],
+    thesis_ids: ['thesis_2', 'thesis_2'],
+    thesis_updates: [
+      {
+        thesis_id: 'thesis_2',
+        symbol: 'SOL/USDT',
+        direction: 'short',
+        setup_type: 'agent_debate',
+        confidence: '0.7',
+        status: 'review',
+        update: 'Fade failed reclaim.',
+        recent_alerts: ['Review failed reclaim', 'Review failed reclaim'],
+      },
+      {
+        thesis_id: 'thesis_2',
+        symbol: 'SOL/USDT',
+        direction: 'short',
+        setup_type: 'agent_debate',
+        confidence: '0.7',
+        status: 'review',
+        update: 'Fade failed reclaim.',
+        recent_alerts: ['Review failed reclaim'],
+      },
+    ],
   });
 
   const thesis = await theses.get('thesis_2', 'user_1', 'workspace_a');
@@ -2264,6 +2286,10 @@ test('frontend contract responses are normalized for thesis, watchlist, and brie
   assert.equal(removedWatchlist.removed_item_count, 0);
   assert.equal(dailyBriefs[0]?.summary, 'Risk-on tone.');
   assert.deepEqual(dailyBriefs[0]?.thesis_ids, ['thesis_2']);
+  assert.equal(dailyBriefs[0]?.thesis_updates.length, 1);
+  assert.deepEqual(dailyBriefs[0]?.thesis_updates[0]?.recent_alerts, [
+    'Review failed reclaim',
+  ]);
 });
 
 test('watchlist thesis tracking rejects pasted run IDs with a useful correction', async () => {
@@ -2335,6 +2361,55 @@ test('watchlist symbol tracking normalizes common crypto input', async () => {
   assert.equal(item.item_type, 'symbol');
 });
 
+test('watchlist tracking reuses existing logical tracks', async () => {
+  const { journal, watchlists } = buildHarness();
+  journal.watchlists.push({
+    id: 'watch_1',
+    workspace_id: 'workspace_a',
+    name: 'Core',
+    enabled: true,
+  });
+  journal.theses.set(key('thesis_1', 'workspace_a'), {
+    id: 'thesis_1',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+  });
+
+  const firstSymbol = await watchlists.addItem(
+    'watch_1',
+    { item_type: 'symbol', symbol: 'btc' },
+    'user_1',
+    'workspace_a',
+  );
+  const secondSymbol = await watchlists.addItem(
+    'watch_1',
+    { item_type: 'symbol', symbol: 'BTC/USDT' },
+    'user_1',
+    'workspace_a',
+  );
+  const firstThesis = await watchlists.addItem(
+    'watch_1',
+    { item_type: 'thesis', thesis_id: 'thesis_1' },
+    'user_1',
+    'workspace_a',
+  );
+  const secondThesis = await watchlists.addItem(
+    'watch_1',
+    { item_type: 'thesis', thesis_id: 'thesis_1' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(secondSymbol.id, firstSymbol.id);
+  assert.equal(secondThesis.id, firstThesis.id);
+  assert.equal(journal.watchlistItems.length, 2);
+  assert.equal(
+    (await watchlists.items('watch_1', 'user_1', 'workspace_a')).length,
+    2,
+  );
+});
+
 test('watchlist removal deletes tracks and keeps alert history', async () => {
   const { journal, watchlists } = buildHarness();
   journal.watchlists.push({
@@ -2388,6 +2463,16 @@ test('watchlist check creates deduped alerts from latest snapshots', async () =>
     symbol: 'BTC/USDT',
     enabled: true,
     created_at: '2026-05-12T00:00:00.000Z',
+  });
+  journal.watchlistItems.push({
+    id: 'watch_item_duplicate',
+    workspace_id: 'workspace_a',
+    watchlist_id: 'watch_1',
+    item_type: 'thesis',
+    thesis_id: 'thesis_1',
+    symbol: 'BTC/USDT',
+    enabled: true,
+    created_at: '2026-05-12T00:01:00.000Z',
   });
   journal.theses.set(key('thesis_1', 'workspace_a'), {
     id: 'thesis_1',
@@ -2510,6 +2595,16 @@ test('watchlist alert poll checks enabled watchlists across workspaces', async (
     symbol: 'BTC/USDT',
     enabled: true,
     created_at: '2026-05-12T00:00:00.000Z',
+  });
+  journal.watchlistItems.push({
+    id: 'watch_item_duplicate',
+    workspace_id: 'workspace_a',
+    watchlist_id: 'watch_1',
+    item_type: 'thesis',
+    thesis_id: 'thesis_1',
+    symbol: 'BTC/USDT',
+    enabled: true,
+    created_at: '2026-05-12T00:01:00.000Z',
   });
   journal.theses.set(key('thesis_1', 'workspace_a'), {
     id: 'thesis_1',
@@ -2643,6 +2738,16 @@ test('daily brief generation persists a usable watchlist brief', async () => {
     enabled: true,
     created_at: '2026-05-12T00:00:00.000Z',
   });
+  journal.watchlistItems.push({
+    id: 'watch_item_brief_duplicate',
+    workspace_id: 'workspace_a',
+    watchlist_id: 'watch_1',
+    item_type: 'thesis',
+    thesis_id: 'thesis_1',
+    symbol: 'BTC/USDT',
+    enabled: true,
+    created_at: '2026-05-12T00:01:00.000Z',
+  });
   journal.theses.set(key('thesis_1', 'workspace_a'), {
     id: 'thesis_1',
     workspace_id: 'workspace_a',
@@ -2655,6 +2760,30 @@ test('daily brief generation persists a usable watchlist brief', async () => {
     invalidation_level: '95000',
     supporting_signal_ids: ['sig_1'],
   });
+  journal.alerts.push(
+    {
+      id: 'alert_1',
+      workspace_id: 'workspace_a',
+      alert_type: 'target_zone_reached',
+      symbol: 'BTC/USDT',
+      thesis_id: 'thesis_1',
+      watchlist_item_id: 'watch_item_1',
+      trigger_key: 'target_zone_reached:thesis_1:110000',
+      created_at: '2026-05-12T02:00:00.000Z',
+      message: 'Target reached',
+    },
+    {
+      id: 'alert_duplicate',
+      workspace_id: 'workspace_a',
+      alert_type: 'target_zone_reached',
+      symbol: 'BTC/USDT',
+      thesis_id: 'thesis_1',
+      watchlist_item_id: 'watch_item_brief_duplicate',
+      trigger_key: 'target_zone_reached:thesis_1:110000',
+      created_at: '2026-05-12T02:01:00.000Z',
+      message: 'Target reached',
+    },
+  );
   journal.marketSnapshots.set(key('market_1', 'workspace_a'), {
     id: 'market_1',
     workspace_id: 'workspace_a',
@@ -2675,8 +2804,17 @@ test('daily brief generation persists a usable watchlist brief', async () => {
   assert.equal(brief.watchlist_name, 'Core');
   assert.equal(brief.brief_date, '2026-05-14');
   assert.deepEqual(brief.thesis_ids, ['thesis_1']);
+  assert.equal(brief.thesis_updates.length, 1);
+  assert.deepEqual(brief.thesis_updates[0]?.recent_alerts, ['Target reached']);
   assert.deepEqual(brief.signal_ids, ['sig_1']);
-  assert.equal(brief.asset_summaries.some((asset) => asset.symbol === 'BTC/USDT'), true);
+  assert.deepEqual(
+    brief.asset_summaries.map((asset) => asset.symbol),
+    ['BTC/USDT'],
+  );
+  assert.deepEqual(brief.watchlist_changes, [
+    "Watchlist 'Core' has 1 active item(s).",
+    '1 thesis-backed watch(es), 0 symbol-only watch(es).',
+  ]);
   assert.equal(journal.briefs.length, 1);
 });
 

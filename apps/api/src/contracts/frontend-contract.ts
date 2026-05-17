@@ -1397,19 +1397,24 @@ export function toWatchlistItemResponse(
 
 export function toBriefResponse(brief: JsonRecord): BriefResponse {
   const payload = recordValue(brief.payload ?? brief.payload_json);
-  const assetSummaries = toBriefAssetSummaryResponses(
-    brief.asset_summaries ?? payload.asset_summaries,
+  const assetSummaries = uniqueBriefAssetSummaries(
+    toBriefAssetSummaryResponses(brief.asset_summaries ?? payload.asset_summaries),
   );
-  const thesisUpdates = toBriefThesisUpdateResponses(
-    brief.thesis_updates ?? payload.thesis_updates,
+  const thesisUpdates = uniqueBriefThesisUpdates(
+    toBriefThesisUpdateResponses(brief.thesis_updates ?? payload.thesis_updates),
   );
-  const watchlistChanges = firstStringList(
-    brief.watchlist_changes,
-    payload.watchlist_changes,
+  const watchlistChanges = uniqueStrings(
+    firstStringList(brief.watchlist_changes, payload.watchlist_changes),
   );
-  const topSetups = firstStringList(brief.top_setups, payload.top_setups);
-  const topRisks = firstStringList(brief.top_risks, payload.top_risks);
-  const memoryNotes = firstStringList(brief.memory_notes, payload.memory_notes);
+  const topSetups = uniqueStrings(
+    firstStringList(brief.top_setups, payload.top_setups),
+  );
+  const topRisks = uniqueStrings(
+    firstStringList(brief.top_risks, payload.top_risks),
+  );
+  const memoryNotes = uniqueStrings(
+    firstStringList(brief.memory_notes, payload.memory_notes),
+  );
   return {
     id: nullableString(brief.id),
     workspace_id: stringValue(brief.workspace_id, 'local'),
@@ -1421,17 +1426,23 @@ export function toBriefResponse(brief: JsonRecord): BriefResponse {
     summary: stringValue(
       brief.summary ?? brief.action_summary ?? brief.regime_summary,
     ),
-    key_points: firstStringList(
-      brief.key_points,
-      payload.key_points,
-      [...watchlistChanges, ...topSetups, ...topRisks].slice(0, 8),
+    key_points: uniqueStrings(
+      firstStringList(
+        brief.key_points,
+        payload.key_points,
+        [...watchlistChanges, ...topSetups, ...topRisks].slice(0, 8),
+      ),
     ),
-    thesis_ids: firstStringList(
-      brief.thesis_ids,
-      payload.thesis_ids,
-      thesisUpdates.map((update) => update.thesis_id),
+    thesis_ids: uniqueStrings(
+      firstStringList(
+        brief.thesis_ids,
+        payload.thesis_ids,
+        thesisUpdates.map((update) => update.thesis_id),
+      ),
     ),
-    signal_ids: firstStringList(brief.signal_ids, payload.signal_ids),
+    signal_ids: uniqueStrings(
+      firstStringList(brief.signal_ids, payload.signal_ids),
+    ),
     asset_summaries: assetSummaries,
     thesis_updates: thesisUpdates,
     watchlist_changes: watchlistChanges,
@@ -1524,6 +1535,56 @@ function toBriefThesisUpdateResponses(value: unknown): BriefThesisUpdateResponse
       recent_alerts: stringList(update.recent_alerts),
     };
   });
+}
+
+function uniqueBriefAssetSummaries(
+  assets: BriefAssetSummaryResponse[],
+): BriefAssetSummaryResponse[] {
+  const seen = new Set<string>();
+  const deduped: BriefAssetSummaryResponse[] = [];
+  for (const asset of assets) {
+    const key = asset.symbol.trim().toUpperCase();
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    deduped.push(asset);
+  }
+  return deduped;
+}
+
+function uniqueBriefThesisUpdates(
+  updates: BriefThesisUpdateResponse[],
+): BriefThesisUpdateResponse[] {
+  const seen = new Set<string>();
+  const deduped: BriefThesisUpdateResponse[] = [];
+  for (const update of updates) {
+    const key =
+      update.thesis_id ||
+      [
+        update.symbol,
+        update.direction,
+        update.setup_type,
+        update.update,
+      ].join(':');
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    deduped.push({
+      ...update,
+      recent_alerts: uniqueStrings(update.recent_alerts),
+    });
+  }
+  return deduped;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function recordValue(value: unknown): JsonRecord {

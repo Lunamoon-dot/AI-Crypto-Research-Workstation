@@ -135,6 +135,13 @@ class WatchlistService:
         watchlist = self.get_or_create_watchlist(watchlist_name)
         if not watchlist.id:
             raise RuntimeError("Watchlist is missing an id after get_or_create")
+        for item in self.list_items(watchlist_name=watchlist_name, enabled_only=True):
+            if (
+                item.item_type == WatchlistItemType.SYMBOL
+                and item.symbol
+                and item.symbol.upper() == symbol.upper()
+            ):
+                return item
         return self.repo.save_watchlist_item(
             WatchlistItem(
                 workspace_id=self.workspace_id,
@@ -153,6 +160,9 @@ class WatchlistService:
         watchlist = self.get_or_create_watchlist(watchlist_name)
         if not watchlist.id:
             raise RuntimeError("Watchlist is missing an id after get_or_create")
+        for item in self.list_items(watchlist_name=watchlist_name, enabled_only=True):
+            if item.item_type == WatchlistItemType.THESIS and item.thesis_id == thesis.id:
+                return item
         return self.repo.save_watchlist_item(
             WatchlistItem(
                 workspace_id=self.workspace_id,
@@ -223,7 +233,9 @@ class WatchlistService:
     ) -> WatchlistBrief:
         """Build a read-only watchlist brief from persisted journal data."""
 
-        items = self.list_items(watchlist_name=watchlist_name, enabled_only=True)
+        items = _unique_watchlist_items(
+            self.list_items(watchlist_name=watchlist_name, enabled_only=True)
+        )
         thesis_items = [
             item
             for item in items
@@ -321,7 +333,9 @@ class WatchlistService:
     ) -> MonitoringResult:
         """Evaluate active thesis watches once and persist newly triggered alerts."""
 
-        items = self.list_items(watchlist_name=watchlist_name, enabled_only=True)
+        items = _unique_watchlist_items(
+            self.list_items(watchlist_name=watchlist_name, enabled_only=True)
+        )
         current_prices = current_prices or {}
         alerts: list[Alert] = []
         skipped: list[str] = []
@@ -390,12 +404,14 @@ class WatchlistService:
         unread_only: bool,
         limit: int,
     ) -> list[Alert]:
-        return self.repo.list_alerts_for_scope(
-            watchlist_item_ids=list(item_ids),
-            thesis_ids=list(thesis_ids),
-            unread_only=unread_only,
-            limit=limit,
-            workspace_id=self.workspace_id,
+        return _unique_alerts(
+            self.repo.list_alerts_for_scope(
+                watchlist_item_ids=list(item_ids),
+                thesis_ids=list(thesis_ids),
+                unread_only=unread_only,
+                limit=limit,
+                workspace_id=self.workspace_id,
+            )
         )
 
     def _brief_scenarios_for_thesis(
@@ -594,6 +610,54 @@ class WatchlistService:
 def _extract_first_level(value: str | None) -> float | None:
     levels = _extract_levels([value] if value else [])
     return levels[0] if levels else None
+
+
+def _unique_watchlist_items(items: list[WatchlistItem]) -> list[WatchlistItem]:
+    seen: set[str] = set()
+    deduped: list[WatchlistItem] = []
+    for item in items:
+        key = _watchlist_item_key(item)
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _watchlist_item_key(item: WatchlistItem) -> str | None:
+    if item.item_type == WatchlistItemType.THESIS:
+        return f"thesis:{item.thesis_id}" if item.thesis_id else None
+    if item.item_type == WatchlistItemType.SYMBOL:
+        return f"symbol:{item.symbol.upper()}" if item.symbol else None
+    if item.item_type == WatchlistItemType.SETUP_TYPE:
+        return f"setup_type:{item.setup_type.lower()}" if item.setup_type else None
+    return None
+
+
+def _unique_alerts(alerts: list[Alert]) -> list[Alert]:
+    seen: set[str] = set()
+    deduped: list[Alert] = []
+    for alert in alerts:
+        key = _alert_key(alert)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(alert)
+    return deduped
+
+
+def _alert_key(alert: Alert) -> str:
+    trigger_key = alert.trigger_key or alert.payload.get("trigger_key") or ""
+    return ":".join(
+        [
+            alert.alert_type.value,
+            str(trigger_key),
+            alert.thesis_id or "",
+            alert.symbol,
+            alert.message,
+        ]
+    )
 
 
 def _brief_alert(alert: Alert) -> BriefAlertRow:

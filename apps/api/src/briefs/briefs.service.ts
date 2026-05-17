@@ -68,7 +68,9 @@ export class BriefsService {
     const watchlistId = stringValue(watchlist.id);
     const watchlistName = stringValue(watchlist.name, 'default');
     const items = await this.journal.listWatchlistItems(watchlistId, workspaceId);
-    const activeItems = items.filter((item) => booleanValue(item.enabled, true));
+    const activeItems = uniqueWatchlistItems(
+      items.filter((item) => booleanValue(item.enabled, true)),
+    );
     const thesisRows = await this.resolveThesisRows(activeItems, workspaceId);
     const thesisIds = thesisRows.map((row) => stringValue(row.thesis.id));
     const itemIds = new Set(
@@ -79,14 +81,14 @@ export class BriefsService {
       briefDate,
       workspaceId,
     );
-    const symbols = unique([
-      ...DEFAULT_BRIEF_SYMBOLS,
+    const scopedSymbols = unique([
       ...activeItems
         .filter((item) => stringValue(item.item_type, 'symbol') === 'symbol')
         .map((item) => nullableString(item.symbol))
         .filter(isString),
       ...thesisRows.map((row) => stringValue(row.thesis.symbol)),
     ]);
+    const symbols = scopedSymbols.length > 0 ? scopedSymbols : DEFAULT_BRIEF_SYMBOLS;
     const assetSummaries = await Promise.all(
       symbols.map((symbol) => this.assetSummary(symbol, previous, workspaceId)),
     );
@@ -196,6 +198,7 @@ export class BriefsService {
     workspaceId: string,
   ): Promise<Array<{ item: JsonRecord; thesis: JsonRecord }>> {
     const rows: Array<{ item: JsonRecord; thesis: JsonRecord }> = [];
+    const seen = new Set<string>();
     for (const item of items) {
       if (stringValue(item.item_type, 'symbol') !== 'thesis') {
         continue;
@@ -204,6 +207,10 @@ export class BriefsService {
       if (!thesisId) {
         continue;
       }
+      if (seen.has(thesisId)) {
+        continue;
+      }
+      seen.add(thesisId);
       const thesis = await this.journal.getThesis(thesisId, workspaceId);
       if (thesis) {
         rows.push({ item, thesis });
@@ -278,7 +285,7 @@ export class BriefsService {
       Math.max(limit, 50),
       workspaceId,
     );
-    return alerts
+    const scoped = alerts
       .filter((alert) => {
         const itemId = nullableString(alert.watchlist_item_id);
         const thesisId = nullableString(alert.thesis_id);
@@ -286,8 +293,8 @@ export class BriefsService {
           (itemId !== null && itemIds.has(itemId)) ||
           (thesisId !== null && thesisIds.has(thesisId))
         );
-      })
-      .slice(0, limit);
+      });
+    return uniqueAlerts(scoped).slice(0, limit);
   }
 }
 
@@ -406,6 +413,74 @@ function stringList(value: unknown): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim()))];
+}
+
+function uniqueWatchlistItems(items: JsonRecord[]): JsonRecord[] {
+  const seen = new Set<string>();
+  const deduped: JsonRecord[] = [];
+  for (const item of items) {
+    const key = watchlistItemKey(item);
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function watchlistItemKey(item: JsonRecord): string | null {
+  const itemType = stringValue(item.item_type, 'symbol').trim();
+  if (itemType === 'thesis') {
+    const thesisId = nullableString(item.thesis_id);
+    return thesisId ? `thesis:${thesisId}` : null;
+  }
+  if (itemType === 'symbol') {
+    const symbol = nullableString(item.symbol)?.trim().toUpperCase();
+    return symbol ? `symbol:${symbol}` : null;
+  }
+  if (itemType === 'setup_type') {
+    const setupType = nullableString(item.setup_type)?.trim().toLowerCase();
+    return setupType ? `setup_type:${setupType}` : null;
+  }
+  return null;
+}
+
+function uniqueAlerts(alerts: JsonRecord[]): JsonRecord[] {
+  const seen = new Set<string>();
+  const deduped: JsonRecord[] = [];
+  for (const alert of alerts) {
+    const key = alertKey(alert);
+    if (key && seen.has(key)) {
+      continue;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    deduped.push(alert);
+  }
+  return deduped;
+}
+
+function alertKey(alert: JsonRecord): string | null {
+  const payload = recordValue(alert.payload ?? alert.payload_json);
+  const triggerKey = nullableString(alert.trigger_key ?? payload.trigger_key);
+  const alertType = nullableString(alert.alert_type);
+  const thesisId = nullableString(alert.thesis_id);
+  const symbol = nullableString(alert.symbol);
+  const message = nullableString(alert.message);
+  if (!alertType && !triggerKey && !thesisId && !symbol && !message) {
+    return nullableString(alert.id);
+  }
+  return [
+    alertType ?? '',
+    triggerKey ?? '',
+    thesisId ?? '',
+    symbol ?? '',
+    message ?? '',
+  ].join(':');
 }
 
 function symbolOnlyCount(items: JsonRecord[]): number {

@@ -9,6 +9,7 @@ from tradingagents.domain import (
     ScenarioProbabilityBand,
     ThesisDirection,
     TradeThesis,
+    WatchlistItem,
     WatchlistItemType,
 )
 from tradingagents.services import JournalService, WatchlistService
@@ -34,14 +35,36 @@ def test_watchlist_service_adds_lists_and_removes_items(tmp_path):
     service = WatchlistService(_config(tmp_path))
 
     symbol_item = service.add_symbol("BTC/USDT")
+    duplicate_symbol = service.add_symbol("btc/usdt")
     items = service.list_items(enabled_only=True)
     removed = service.remove_item(symbol_item.id)
 
     assert symbol_item.id.startswith("watch_item_")
+    assert duplicate_symbol.id == symbol_item.id
+    assert len(items) == 1
     assert items[0].symbol == "BTC/USDT"
     assert items[0].item_type == WatchlistItemType.SYMBOL
     assert removed.enabled is False
     assert service.list_items(enabled_only=True) == []
+
+
+def test_watchlist_service_reuses_existing_thesis_track(tmp_path):
+    config = _config(tmp_path)
+    journal = JournalService(config)
+    service = WatchlistService(config)
+    thesis = journal.save_thesis(
+        TradeThesis(
+            symbol="BTC/USDT",
+            direction=ThesisDirection.WATCH,
+            thesis_text="Watch reclaim confirmation.",
+        )
+    )
+
+    first = service.add_thesis(thesis.id)
+    second = service.add_thesis(thesis.id)
+
+    assert second.id == first.id
+    assert len(service.list_items(enabled_only=True)) == 1
 
 
 def test_watchlist_check_creates_invalidation_alert_and_timeline_event(tmp_path):
@@ -244,6 +267,17 @@ def test_watchlist_brief_scopes_theses_scenarios_and_alerts(tmp_path):
     )
     watchlists.add_symbol("SOL/USDT")
     watchlists.add_thesis(thesis.id)
+    watchlist = watchlists.get_or_create_watchlist()
+    watchlists.repo.save_watchlist_item(
+        WatchlistItem(
+            workspace_id=watchlists.workspace_id,
+            watchlist_id=watchlist.id,
+            item_type=WatchlistItemType.THESIS,
+            symbol=thesis.symbol,
+            thesis_id=thesis.id,
+            setup_type=thesis.setup_type,
+        )
+    )
     watchlists.check_once(current_prices={"BTC/USDT": 110100.0})
 
     other_thesis = journal.save_thesis(
