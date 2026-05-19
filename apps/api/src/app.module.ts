@@ -7,6 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import { JobsController } from './jobs/jobs.controller';
 import { JobsModule } from './jobs/jobs.module';
 import { JournalModule } from './journal/journal.module';
+import { MarketDataModule } from './market-data/market-data.module';
 import { OperationsModule } from './operations/operations.module';
 import { PerformanceModule } from './performance/performance.module';
 import { ResearchRunsModule } from './research-runs/research-runs.module';
@@ -28,6 +29,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     JobsModule,
     ResearchRunsModule,
     JournalModule,
+    MarketDataModule,
     ThesesModule,
     SignalsModule,
     WatchlistsModule,

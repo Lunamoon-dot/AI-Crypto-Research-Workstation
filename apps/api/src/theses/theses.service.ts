@@ -37,6 +37,7 @@ import {
 } from '../contracts/frontend-contract';
 import { clampListLimit } from '../common/query-limit';
 import { PythonEngineClient } from '../jobs/python-engine.client';
+import { MarketPriceService } from '../market-data/market-price.service';
 import { MonitoringJobsService } from './monitoring-jobs.service';
 import {
   PatchThesisMonitorPlanDto,
@@ -56,6 +57,10 @@ type ThesisSchedulerRuntime = {
 
 const MIN_SCHEDULER_DELAY_MS = 1_000;
 const MAX_SCHEDULER_DELAY_MS = 2_147_483_647;
+type MonitoringTableName =
+  | 'thesis_monitor_plans'
+  | 'thesis_pulses'
+  | 'thesis_pulse_memos';
 
 @Injectable()
 export class ThesesService implements OnModuleDestroy {
@@ -73,6 +78,8 @@ export class ThesesService implements OnModuleDestroy {
     private readonly sqliteSync?: SqliteJournalSyncService,
     @Optional()
     private readonly monitoringJobs?: MonitoringJobsService,
+    @Optional()
+    private readonly marketPrices?: MarketPriceService,
   ) {}
 
   onModuleDestroy(): void {
@@ -182,6 +189,7 @@ export class ThesesService implements OnModuleDestroy {
     if (monitoringProductMode()) {
       await this.ensureMonitorPlanRecord(id, workspaceId);
     }
+    await this.refreshMarketSnapshotForPulse(id, workspaceId);
     const result = await this.pythonEngine.runPulse({
       thesis_id: id,
       workspace_id: workspaceId,
@@ -468,7 +476,13 @@ export class ThesesService implements OnModuleDestroy {
     id: string,
     workspaceId: string,
   ): Promise<JsonRecord | null> {
-    const fromJournal = await this.journal.getThesisMonitorPlan?.(id, workspaceId);
+    const fromJournal = await this.safeJournalMonitoringRead(
+      'thesis_monitor_plans',
+      async () =>
+        this.journal.getThesisMonitorPlan
+          ? this.journal.getThesisMonitorPlan(id, workspaceId)
+          : null,
+    );
     if (fromJournal) {
       return fromJournal;
     }
@@ -490,10 +504,12 @@ export class ThesesService implements OnModuleDestroy {
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]> {
-    const fromJournal = await this.journal.listThesisPulses?.(
-      id,
-      workspaceId,
-      limit,
+    const fromJournal = await this.safeJournalMonitoringRead(
+      'thesis_pulses',
+      async () =>
+        this.journal.listThesisPulses
+          ? this.journal.listThesisPulses(id, workspaceId, limit)
+          : null,
     );
     if (fromJournal) {
       return fromJournal;
@@ -518,10 +534,12 @@ export class ThesesService implements OnModuleDestroy {
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]> {
-    const fromJournal = await this.journal.listThesisPulseMemos?.(
-      id,
-      workspaceId,
-      limit,
+    const fromJournal = await this.safeJournalMonitoringRead(
+      'thesis_pulse_memos',
+      async () =>
+        this.journal.listThesisPulseMemos
+          ? this.journal.listThesisPulseMemos(id, workspaceId, limit)
+          : null,
     );
     if (fromJournal) {
       return fromJournal;
@@ -539,6 +557,23 @@ export class ThesesService implements OnModuleDestroy {
           )
           .slice(0, limit)
       : [];
+  }
+
+  private async safeJournalMonitoringRead<T>(
+    tableName: MonitoringTableName,
+    read: () => Promise<T | null>,
+  ): Promise<T | null> {
+    try {
+      return await read();
+    } catch (error) {
+      if (
+        isMissingMonitoringTableError(error, tableName) &&
+        (!monitoringProductMode() || allowSqliteMonitoringFallback())
+      ) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async persistMonitorPlanIfNeeded(
@@ -591,6 +626,36 @@ export class ThesesService implements OnModuleDestroy {
     }
     const saved = await this.journal.saveThesisPulseMemo(memo, workspaceId);
     return { ...result, memo: saved };
+  }
+
+  private async refreshMarketSnapshotForPulse(
+    thesisId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    if (!this.marketPrices) {
+      return;
+    }
+    const plan = await this.monitorPlanFromStorage(thesisId, workspaceId);
+    const symbol = stringField(plan?.symbol);
+    if (!symbol) {
+      return;
+    }
+    try {
+      const resolution = await this.marketPrices.resolveFreshPrice(
+        symbol,
+        workspaceId,
+        {},
+      );
+      if (resolution.warning) {
+        this.logger.warn(
+          `Pulse price refresh warning for ${workspaceId}/${thesisId}: ${resolution.warning}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Pulse price refresh failed for ${workspaceId}/${thesisId}: ${errorMessage(error)}`,
+      );
+    }
   }
 
   private requireProductMonitoringRead(tableName: string): never {
@@ -699,6 +764,7 @@ export class ThesesService implements OnModuleDestroy {
 
       let pulse = null;
       if (pulseDueReason) {
+        await this.refreshMarketSnapshotForPulse(id, workspaceId);
         const pulseResult = await this.pythonEngine.runPulse({
           thesis_id: id,
           workspace_id: workspaceId,
@@ -1027,6 +1093,24 @@ function monitoringProductMode(): boolean {
 
 function allowSqliteMonitoringFallback(): boolean {
   return process.env.MONITORING_SQLITE_FALLBACK === 'true';
+}
+
+function isMissingMonitoringTableError(
+  error: unknown,
+  tableName: MonitoringTableName,
+): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const record = error as { code?: unknown; message?: unknown };
+  const message = String(record.message ?? '').toLowerCase();
+  const table = tableName.toLowerCase();
+  return (
+    record.code === '42P01' &&
+    (message.includes(`"${table}"`) ||
+      message.includes(`relation ${table}`) ||
+      message.includes(table))
+  );
 }
 
 function monitoringQueueBackend(): string {

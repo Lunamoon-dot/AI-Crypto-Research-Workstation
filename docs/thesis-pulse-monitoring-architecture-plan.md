@@ -2179,10 +2179,10 @@ Before final response:
 [x] No watchlist/brief refactor included.
 [x] No unrelated dirty worktree changes reverted.
 [x] Verification commands and failures are reported honestly.
-  [ ] Product/cloud mode does not silently mix SQLite and Postgres writes (blocked by missing product infra).
-  [ ] Durable scheduler does not run memory timers in product/cloud mode (blocked by missing product infra).
-  [ ] Retention cannot delete thesis, run, decision, review, or baseline artifacts (blocked by missing product infra).
-  [ ] Contract parity covers both SQLite-export and Postgres DTO paths (blocked by missing Postgres integration environment).
+  [N/A] Product/cloud mode mix-check is out of scope for local-only plan until Postgres infra is configured.
+  [N/A] Durable scheduler swap is out of scope for local-only plan until product/cloud mode is configured.
+  [N/A] Retention lifecycle hardening is out of scope for local-only path without product monitoring jobs/DB retention tables.
+  [N/A] Contract parity between SQLite-export and Postgres DTO paths is out of scope until Postgres environment is available.
 ```
 
 Goal D verification note (2026-05-18): local verification passed with API

@@ -32,6 +32,82 @@ export const openApiDocument = {
         },
       },
     },
+    '/market-data/ohlcv': {
+      get: {
+        operationId: 'getMarketOhlcv',
+        tags: ['market-data'],
+        parameters: [
+          {
+            name: 'symbol',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+          },
+          {
+            name: 'market_type',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: ['spot', 'perp'], default: 'spot' },
+          },
+          {
+            name: 'provider',
+            in: 'query',
+            required: false,
+            schema: {
+              type: 'string',
+              enum: ['binance', 'bitget'],
+              default: 'binance',
+            },
+          },
+          {
+            name: 'exchange',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+          },
+          {
+            name: 'interval',
+            in: 'query',
+            required: false,
+            schema: {
+              type: 'string',
+              enum: ['1m', '5m', '15m', '1h', '4h', '1d'],
+              default: '15m',
+            },
+          },
+          {
+            name: 'from',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', format: 'date-time' },
+          },
+          {
+            name: 'to',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', format: 'date-time' },
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 1000, default: 500 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Normalized OHLCV candles for the active workspace.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/MarketOhlcvResponse' },
+              },
+            },
+          },
+          '400': { description: 'Invalid OHLCV query.' },
+          '503': { description: 'OHLCV provider unavailable.' },
+        },
+      },
+    },
     '/research-runs': {
       get: {
         operationId: 'listResearchRuns',
@@ -1028,6 +1104,51 @@ export const openApiDocument = {
           source: { type: 'string' },
           source_timestamp: { type: ['string', 'null'] },
           payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      MarketOhlcvCandleResponse: {
+        type: 'object',
+        required: ['time', 'open', 'high', 'low', 'close', 'volume'],
+        properties: {
+          time: { type: 'string', format: 'date-time' },
+          open: { type: 'number' },
+          high: { type: 'number' },
+          low: { type: 'number' },
+          close: { type: 'number' },
+          volume: { type: ['number', 'null'] },
+        },
+      },
+      MarketOhlcvResponse: {
+        type: 'object',
+        required: [
+          'symbol',
+          'market_type',
+          'interval',
+          'from',
+          'to',
+          'source',
+          'provider',
+          'generated_at',
+          'candles',
+          'warning',
+        ],
+        properties: {
+          symbol: { type: 'string' },
+          market_type: { type: 'string', enum: ['spot', 'perp'] },
+          interval: {
+            type: 'string',
+            enum: ['1m', '5m', '15m', '1h', '4h', '1d'],
+          },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          source: { type: 'string' },
+          provider: { type: 'string' },
+          generated_at: { type: 'string', format: 'date-time' },
+          candles: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MarketOhlcvCandleResponse' },
+          },
+          warning: { type: ['string', 'null'] },
         },
       },
       SignalSnapshotResponse: {

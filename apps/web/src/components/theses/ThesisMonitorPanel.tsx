@@ -1,5 +1,13 @@
 import { Link } from 'react-router-dom';
-import { FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  FormEvent,
+  type ReactNode,
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+} from 'react';
 import {
   Activity,
   Brain,
@@ -16,9 +24,18 @@ import {
   Target,
 } from 'lucide-react';
 import { errorMessage } from '@/services/client';
+import type {
+  MarketChartRange,
+  ThesisChartOverlays,
+} from '@/components/theses/ThesisMarketChart';
 import { EmptyState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
+import { getMarketOhlcv } from '@/services/market-data';
+import { queryKeys } from '@/services/query-keys';
+import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type {
+  MarketChartInterval,
+  MarketChartType,
   PatchThesisMonitorPlanRequest,
   RunThesisPulseMemoResponse,
   ThesisMonitorPlanResponse,
@@ -28,6 +45,13 @@ import type {
 } from '@/types';
 
 type MonitorTone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
+
+const ThesisMarketChart = lazy(() =>
+  import('@/components/theses/ThesisMarketChart').then((module) => ({
+    default: module.ThesisMarketChart,
+  })),
+);
+const MARKET_CHART_PROVIDER = 'binance' as const;
 
 export function ThesisMonitorSummaryCard({
   error,
@@ -146,6 +170,7 @@ export function ThesisMonitorSection({
   plan,
   pulses,
   scheduler,
+  thesisId,
 }: {
   error: unknown;
   isError: boolean;
@@ -166,6 +191,7 @@ export function ThesisMonitorSection({
   plan: ThesisMonitorPlanResponse | null;
   pulses: ThesisPulseResponse[];
   scheduler: ThesisSchedulerStatusResponse | null;
+  thesisId: string;
 }) {
   const latestPulse = pulses.at(-1) ?? null;
   const sortedMemos = [...memos].sort((a, b) =>
@@ -177,14 +203,97 @@ export function ThesisMonitorSection({
   const [form, setForm] = useState<MonitorPlanFormState>(() =>
     monitorPlanToForm(plan),
   );
+  const auth = useWorkspaceStore();
+  const queryClient = useQueryClient();
+  const [chartInterval, setChartInterval] =
+    useState<MarketChartInterval>('15m');
+  const [chartRange, setChartRange] = useState<MarketChartRange>('7D');
+  const [chartType, setChartType] = useState<MarketChartType>('candles');
+  const [selectedPulseId, setSelectedPulseId] = useState<string | null>(null);
+  const [visibleOverlays, setVisibleOverlays] = useState<ThesisChartOverlays>({
+    thesisLevels: true,
+    pulses: true,
+    memos: true,
+    volume: true,
+  });
+  const marketType = plan?.market_type === 'perp' ? 'perp' : 'spot';
+  const marketProvider = MARKET_CHART_PROVIDER;
+  const candleRangeKey = marketWindowQueryKey(
+    thesisId,
+    chartRange,
+    chartInterval,
+    plan,
+    pulses,
+    memos,
+  );
+  const candlesQuery = useQuery({
+    enabled: Boolean(plan?.symbol),
+    queryKey: queryKeys.marketOhlcv(
+      plan?.symbol ?? '',
+      marketType,
+      marketProvider ?? 'default',
+      chartInterval,
+      candleRangeKey,
+    ),
+    queryFn: () => {
+      const candleWindow = marketWindowForRange(
+        chartRange,
+        chartInterval,
+        plan,
+        pulses,
+        memos,
+      );
+      return getMarketOhlcv(auth, {
+        symbol: plan?.symbol ?? '',
+        market_type: marketType,
+        provider: marketProvider,
+        interval: chartInterval,
+        from: candleWindow.from,
+        to: candleWindow.to,
+      });
+    },
+    refetchInterval: scheduler?.enabled ? 60_000 : false,
+    retry: false,
+    staleTime: scheduler?.enabled ? 20_000 : 60_000,
+  });
+  const realtimeProvider = marketProvider;
 
   useEffect(() => {
     setForm(monitorPlanToForm(plan));
     setFormError('');
   }, [plan]);
 
+  useEffect(() => {
+    if (
+      selectedPulseId &&
+      !pulses.some((pulse) => pulse.id === selectedPulseId)
+    ) {
+      setSelectedPulseId(null);
+    }
+  }, [pulses, selectedPulseId]);
+
   if (isLoading) {
     return <LoadingState label="Loading monitor..." />;
+  }
+
+  function toggleOverlay(overlay: keyof ThesisChartOverlays) {
+    setVisibleOverlays((current) => ({
+      ...current,
+      [overlay]: !current[overlay],
+    }));
+  }
+
+  function refreshMarketChart() {
+    void candlesQuery.refetch();
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.thesisPulses(thesisId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.thesisPulseMemos(thesisId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.thesisMonitorPlan(thesisId),
+    });
   }
 
   async function submitPlan(event: FormEvent<HTMLFormElement>) {
@@ -571,10 +680,44 @@ export function ThesisMonitorSection({
       {plan ? (
         <>
           <div className="thesis-monitor-grid">
-            <PriceToThesisChart plan={plan} pulses={pulses} />
-            <PulseTimeline pulses={pulses} />
+            <Suspense fallback={<LoadingState label="Loading market chart..." />}>
+              <ThesisMarketChart
+                candleError={candlesQuery.error}
+                candleWarning={candlesQuery.data?.warning}
+                candles={candlesQuery.data?.candles ?? []}
+                chartType={chartType}
+                interval={chartInterval}
+                isLoadingCandles={candlesQuery.isLoading || candlesQuery.isFetching}
+                marketType={marketType}
+                memos={sortedMemos}
+                onChartTypeChange={setChartType}
+                onIntervalChange={setChartInterval}
+                onRangeChange={setChartRange}
+                onRefresh={refreshMarketChart}
+                onSelectPulse={setSelectedPulseId}
+                onToggleOverlay={toggleOverlay}
+                plan={plan}
+                pulses={pulses}
+                range={chartRange}
+                realtimeProvider={realtimeProvider}
+                selectedPulseId={selectedPulseId}
+                visibleOverlays={visibleOverlays}
+              />
+            </Suspense>
+            <PulseTimeline
+              onSelectPulse={setSelectedPulseId}
+              pulses={pulses}
+              selectedPulseId={selectedPulseId}
+            />
           </div>
-          <PulseMemoPanel latestMemo={latestMemo} memos={sortedMemos} />
+          <PulseMemoPanel
+            latestMemo={latestMemo}
+            memos={sortedMemos}
+            onSelectPulse={setSelectedPulseId}
+            selectablePulseIds={pulses
+              .map((pulse) => pulse.id)
+              .filter((id): id is string => Boolean(id))}
+          />
         </>
       ) : (
         <EmptyState label="No monitor plan is available for this thesis." />
@@ -613,6 +756,95 @@ function NumberInput({
       />
     </label>
   );
+}
+
+function marketWindowQueryKey(
+  thesisId: string,
+  range: MarketChartRange,
+  interval: MarketChartInterval,
+  plan: ThesisMonitorPlanResponse | null,
+  pulses: ThesisPulseResponse[],
+  memos: ThesisPulseMemoResponse[],
+): string {
+  const anchors = marketWindowAnchors(plan, pulses, memos);
+  return [
+    thesisId,
+    range,
+    interval,
+    anchors.length ? Math.min(...anchors) : 'none',
+    anchors.length ? Math.max(...anchors) : 'none',
+    pulses.length,
+    memos.length,
+  ].join(':');
+}
+
+function marketWindowForRange(
+  range: MarketChartRange,
+  interval: MarketChartInterval,
+  plan: ThesisMonitorPlanResponse | null,
+  pulses: ThesisPulseResponse[],
+  memos: ThesisPulseMemoResponse[],
+): { from: string; to: string } {
+  const now = new Date();
+  const anchors = marketWindowAnchors(plan, pulses, memos);
+  const latestAnchor = anchors.length ? Math.max(...anchors) : now.getTime();
+  const to = new Date(Math.max(now.getTime(), latestAnchor));
+
+  if (range === 'THESIS' || range === 'ALL') {
+    const earliestAnchor = anchors.length
+      ? Math.min(...anchors)
+      : now.getTime() - 7 * 24 * 60 * 60_000;
+    const padding = range === 'THESIS' ? 6 * 60 * 60_000 : 24 * 60 * 60_000;
+    return boundedMarketWindow(
+      new Date(earliestAnchor - padding),
+      new Date(to.getTime() + padding),
+      interval,
+    );
+  }
+
+  const days = range === '1D' ? 1 : range === '7D' ? 7 : 30;
+  return boundedMarketWindow(
+    new Date(to.getTime() - days * 24 * 60 * 60_000),
+    to,
+    interval,
+  );
+}
+
+function marketWindowAnchors(
+  plan: ThesisMonitorPlanResponse | null,
+  pulses: ThesisPulseResponse[],
+  memos: ThesisPulseMemoResponse[],
+): number[] {
+  return [
+    plan?.baseline_observed_at,
+    plan?.created_at,
+    plan?.last_pulse_at,
+    ...pulses.map((pulse) => pulse.observed_at),
+    ...memos.map((memo) => memo.created_at),
+  ]
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
+    .filter(Number.isFinite);
+}
+
+function boundedMarketWindow(
+  from: Date,
+  to: Date,
+  interval: MarketChartInterval,
+): { from: string; to: string } {
+  const maxRangeMs: Record<MarketChartInterval, number> = {
+    '1m': 2 * 24 * 60 * 60_000,
+    '5m': 10 * 24 * 60 * 60_000,
+    '15m': 30 * 24 * 60 * 60_000,
+    '1h': 120 * 24 * 60 * 60_000,
+    '4h': 365 * 24 * 60 * 60_000,
+    '1d': 5 * 365 * 24 * 60 * 60_000,
+  };
+  const maxRange = maxRangeMs[interval];
+  const safeFrom =
+    to.getTime() - from.getTime() > maxRange
+      ? new Date(to.getTime() - maxRange)
+      : from;
+  return { from: safeFrom.toISOString(), to: to.toISOString() };
 }
 
 function monitorPlanToForm(
@@ -823,112 +1055,15 @@ function MonitorMetric({
   );
 }
 
-function PriceToThesisChart({
-  plan,
+function PulseTimeline({
+  onSelectPulse,
   pulses,
+  selectedPulseId,
 }: {
-  plan: ThesisMonitorPlanResponse;
+  onSelectPulse: (pulseId: string | null) => void;
   pulses: ThesisPulseResponse[];
+  selectedPulseId: string | null;
 }) {
-  const prices = pulses
-    .map((pulse) => pulse.current_price)
-    .filter((price): price is number => price !== null);
-  const overlayValues = [
-    plan.baseline_price,
-    plan.entry_low,
-    plan.entry_high,
-    plan.invalidation_level,
-    ...plan.targets.map((target) => target.price),
-  ].filter((value): value is number => value !== null && Number.isFinite(value));
-  const values = [...prices, ...overlayValues];
-  if (values.length === 0) {
-    return <EmptyState label="No chartable monitor levels yet." />;
-  }
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const padding = Math.max((max - min) * 0.16, max * 0.01, 1);
-  const yMin = min - padding;
-  const yMax = max + padding;
-  const xFor = (index: number) =>
-    pulses.length <= 1 ? 56 : 56 + (index / (pulses.length - 1)) * 572;
-  const yFor = (value: number) => 238 - ((value - yMin) / (yMax - yMin)) * 186;
-  const linePoints = pulses
-    .map((pulse, index) =>
-      pulse.current_price === null ? null : `${xFor(index)},${yFor(pulse.current_price)}`,
-    )
-    .filter((point): point is string => point !== null)
-    .join(' ');
-  const overlays = [
-    plan.baseline_price === null
-      ? null
-      : { label: 'baseline', value: plan.baseline_price, className: 'baseline' },
-    plan.entry_low === null
-      ? null
-      : { label: 'entry low', value: plan.entry_low, className: 'entry' },
-    plan.entry_high === null
-      ? null
-      : { label: 'entry high', value: plan.entry_high, className: 'entry' },
-    plan.invalidation_level === null
-      ? null
-      : {
-          label: 'invalidation',
-          value: plan.invalidation_level,
-          className: 'invalidation',
-        },
-    ...plan.targets.map((target) => ({
-      label: target.label || 'target',
-      value: target.price,
-      className: 'target',
-    })),
-  ].filter((item): item is { label: string; value: number; className: string } => item !== null);
-
-  return (
-    <div className="thesis-monitor-chart">
-      <div className="row">
-        <strong>Price-to-thesis chart</strong>
-        <span className="small muted">{pulses.length} pulse rows</span>
-      </div>
-      <svg aria-label="Price-to-thesis chart" role="img" viewBox="0 0 680 280">
-        <rect className="chart-bg" height="236" rx="8" width="636" x="22" y="22" />
-        {[0, 1, 2, 3].map((line) => {
-          const y = 52 + line * 52;
-          return <line className="chart-grid" key={line} x1="48" x2="636" y1={y} y2={y} />;
-        })}
-        {overlays.map((overlay) => {
-          const y = yFor(overlay.value);
-          return (
-            <g key={`${overlay.className}-${overlay.label}-${overlay.value}`}>
-              <line
-                className={`thesis-chart-level ${overlay.className}`}
-                x1="48"
-                x2="636"
-                y1={y}
-                y2={y}
-              />
-              <text className="thesis-chart-label" x="52" y={Math.max(34, y - 5)}>
-                {overlay.label} {numberLabel(overlay.value)}
-              </text>
-            </g>
-          );
-        })}
-        {linePoints ? <polyline className="thesis-price-line" points={linePoints} /> : null}
-        {pulses.map((pulse, index) =>
-          pulse.current_price === null ? null : (
-            <circle
-              className={`thesis-pulse-marker marker-${pulse.status}`}
-              cx={xFor(index)}
-              cy={yFor(pulse.current_price)}
-              key={pulse.id ?? `${pulse.observed_at}-${index}`}
-              r="5"
-            />
-          ),
-        )}
-      </svg>
-    </div>
-  );
-}
-
-function PulseTimeline({ pulses }: { pulses: ThesisPulseResponse[] }) {
   if (pulses.length === 0) {
     return <EmptyState label="No pulses yet." />;
   }
@@ -936,33 +1071,41 @@ function PulseTimeline({ pulses }: { pulses: ThesisPulseResponse[] }) {
     <div className="thesis-pulse-timeline">
       <div className="row">
         <strong>Pulse timeline</strong>
-        <span className="small muted">latest {Math.min(pulses.length, 8)}</span>
+        <span className="small muted">latest {Math.min(pulses.length, 10)}</span>
       </div>
       <div className="thesis-pulse-list">
-        {pulses.slice(-8).reverse().map((pulse) => (
-          <article className="thesis-pulse-row" key={pulse.id ?? pulse.observed_at}>
+        {pulses.slice(-10).reverse().map((pulse) => {
+          const selected = Boolean(pulse.id && pulse.id === selectedPulseId);
+          return (
+          <button
+            className={`thesis-pulse-row ${selected ? 'active' : ''}`}
+            key={pulse.id ?? pulse.observed_at}
+            onClick={() => onSelectPulse(selected ? null : pulse.id)}
+            type="button"
+          >
             <span className={`pulse-status-dot marker-${pulse.status}`} />
-            <div>
-              <div className="row">
+            <span>
+              <span className="row">
                 <strong>{pulse.status}</strong>
                 <span className="small muted">{formatDateTime(pulse.observed_at)}</span>
-              </div>
-              <p>
+              </span>
+              <span className="thesis-pulse-row-copy">
                 {numberLabel(pulse.current_price)} · score {pulse.score} ·{' '}
                 {pulse.suggested_action}
-              </p>
+              </span>
               {pulse.trigger_reasons.length ? (
-                <div className="top-strip-meta">
+                <span className="top-strip-meta">
                   {pulse.trigger_reasons.slice(0, 4).map((reason) => (
                     <span className={`badge ${monitorStatusTone(pulse.status)}`} key={reason}>
                       {reason}
                     </span>
                   ))}
-                </div>
+                </span>
               ) : null}
-            </div>
-          </article>
-        ))}
+            </span>
+          </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -971,10 +1114,15 @@ function PulseTimeline({ pulses }: { pulses: ThesisPulseResponse[] }) {
 function PulseMemoPanel({
   latestMemo,
   memos,
+  onSelectPulse,
+  selectablePulseIds,
 }: {
   latestMemo: ThesisPulseMemoResponse | null;
   memos: ThesisPulseMemoResponse[];
+  onSelectPulse: (pulseId: string | null) => void;
+  selectablePulseIds: string[];
 }) {
+  const selectablePulseIdSet = new Set(selectablePulseIds);
   return (
     <div className="thesis-memo-grid">
       <section className="thesis-memo-card">
@@ -1005,9 +1153,15 @@ function PulseMemoPanel({
             {latestMemo.referenced_pulse_ids.length ? (
               <div className="top-strip-meta">
                 {latestMemo.referenced_pulse_ids.slice(0, 6).map((pulseId) => (
-                  <span className="badge primary" key={pulseId}>
+                  <button
+                    className="badge primary pulse-reference-button"
+                    disabled={!selectablePulseIdSet.has(pulseId)}
+                    key={pulseId}
+                    onClick={() => onSelectPulse(pulseId)}
+                    type="button"
+                  >
                     {pulseId}
-                  </span>
+                  </button>
                 ))}
               </div>
             ) : null}

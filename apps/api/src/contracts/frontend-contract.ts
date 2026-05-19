@@ -69,6 +69,30 @@ export interface MarketSnapshotResponse {
   payload: JsonRecord;
 }
 
+export type MarketChartInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+
+export interface MarketOhlcvCandleResponse {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+}
+
+export interface MarketOhlcvResponse {
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  interval: MarketChartInterval;
+  from: string;
+  to: string;
+  source: string;
+  provider: string;
+  generated_at: string;
+  candles: MarketOhlcvCandleResponse[];
+  warning: string | null;
+}
+
 export interface SignalSnapshotResponse {
   id: string | null;
   workspace_id: string;

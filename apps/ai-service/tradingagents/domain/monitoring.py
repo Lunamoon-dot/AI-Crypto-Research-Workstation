@@ -173,6 +173,11 @@ class ThesisPulse(BaseModel):
             return "perp"
         return "spot"
 
+    @field_validator("suggested_action", mode="before")
+    @classmethod
+    def _normalize_suggested_action(cls, value: Any) -> ThesisPulseSuggestedAction:
+        return _coerce_suggested_action(value)
+
     @model_validator(mode="after")
     def _dedupe_lists(self) -> "ThesisPulse":
         self.trigger_reasons = _dedupe(self.trigger_reasons)
@@ -193,6 +198,22 @@ class ThesisPulseMemoDraft(BaseModel):
     rerun_full_recommended: bool = False
     referenced_pulse_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @field_validator(
+        "what_changed",
+        "why_it_matters",
+        "what_to_watch_next",
+        "referenced_pulse_ids",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_llm_list(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("recommended_action", mode="before")
+    @classmethod
+    def _normalize_recommended_action(cls, value: Any) -> ThesisPulseSuggestedAction:
+        return _coerce_suggested_action(value)
 
     @model_validator(mode="after")
     def _clean_lists(self) -> "ThesisPulseMemoDraft":
@@ -241,6 +262,22 @@ class ThesisPulseMemo(BaseModel):
     def _normalize_memo_type(cls, value: str | None) -> str:
         return str(value or "manual").strip().lower() or "manual"
 
+    @field_validator(
+        "what_changed",
+        "why_it_matters",
+        "what_to_watch_next",
+        "referenced_pulse_ids",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_llm_list(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @field_validator("recommended_action", mode="before")
+    @classmethod
+    def _normalize_recommended_action(cls, value: Any) -> ThesisPulseSuggestedAction:
+        return _coerce_suggested_action(value)
+
     @model_validator(mode="after")
     def _validate_window_and_lists(self) -> "ThesisPulseMemo":
         if self.window_end < self.window_start:
@@ -262,3 +299,45 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item or "").strip()]
+    return [str(value).strip()] if str(value or "").strip() else []
+
+
+def _coerce_suggested_action(value: Any) -> ThesisPulseSuggestedAction:
+    if isinstance(value, ThesisPulseSuggestedAction):
+        return value
+    text = str(value or "").strip().lower()
+    normalized = text.replace("-", "_").replace(" ", "_")
+    for action in ThesisPulseSuggestedAction:
+        if normalized == action.value:
+            return action
+    if not text or any(
+        phrase in text
+        for phrase in (
+            "none",
+            "no action",
+            "no immediate",
+            "continue passive",
+            "passive monitoring",
+            "hold",
+        )
+    ):
+        return ThesisPulseSuggestedAction.NONE
+    if "rerun" in text or "full research" in text:
+        return ThesisPulseSuggestedAction.RERUN_FULL_RESEARCH
+    if "memo" in text:
+        return ThesisPulseSuggestedAction.RUN_MEMO
+    if "review" in text or "record" in text:
+        return ThesisPulseSuggestedAction.RECORD_REVIEW
+    if "inspect" in text or "chart" in text or "watch" in text or "monitor" in text:
+        return ThesisPulseSuggestedAction.INSPECT_CHART
+    return ThesisPulseSuggestedAction.NONE

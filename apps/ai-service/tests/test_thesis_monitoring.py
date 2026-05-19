@@ -259,6 +259,47 @@ def test_pulse_memo_persists_structured_artifact_and_is_idempotent(tmp_path):
     assert len(generator.calls) == 1
 
 
+def test_pulse_memo_coerces_llm_string_lists(tmp_path):
+    journal, run = _journal_with_run(tmp_path)
+    thesis = _active_long_thesis(journal, run)
+    _save_market(journal, run, 101.0, "2026-05-18T00:02:00+00:00")
+    pulse, _ = journal.run_thesis_pulse(
+        thesis.id,
+        workspace_id="workspace_1",
+        observed_at=_dt("2026-05-18T00:02:00+00:00"),
+    )
+    generator = _FakeMemoGenerator(
+        {
+            "what_changed": "Price unchanged; signal watch band remains active.",
+            "why_it_matters": "The thesis is still close enough to monitor.",
+            "what_to_watch_next": "Watch distance to invalidation.",
+            "recommended_action": "Continue passive monitoring.",
+            "referenced_pulse_ids": pulse.id,
+        }
+    )
+    service = ThesisPulseMemoService(journal, memo_generator=generator)
+
+    memo, created, reason = service.run_memo(
+        thesis.id,
+        workspace_id="workspace_1",
+        observed_at=_dt("2026-05-18T00:10:00+00:00"),
+        window_minutes=240,
+    )
+
+    assert memo is not None
+    assert created is True
+    assert reason is None
+    assert memo.what_changed == [
+        "Price unchanged; signal watch band remains active."
+    ]
+    assert memo.why_it_matters == [
+        "The thesis is still close enough to monitor."
+    ]
+    assert memo.what_to_watch_next == ["Watch distance to invalidation."]
+    assert memo.recommended_action.value == "none"
+    assert memo.referenced_pulse_ids == [pulse.id]
+
+
 def test_pulse_memo_rejects_references_outside_selected_window(tmp_path):
     journal, run = _journal_with_run(tmp_path)
     thesis = _active_long_thesis(journal, run)

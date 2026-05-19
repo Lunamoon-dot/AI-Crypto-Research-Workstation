@@ -180,6 +180,7 @@ export function ThesisMonitorPage() {
           plan={monitorPlanQuery.data ?? null}
           pulses={pulsesQuery.data ?? []}
           scheduler={schedulerQuery.data ?? null}
+          thesisId={thesisId}
         />
       </Panel>
     </main>

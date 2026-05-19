@@ -46,6 +46,8 @@ import {
 import { ThesesController } from '../src/theses/theses.controller';
 import { MonitoringJobsService } from '../src/theses/monitoring-jobs.service';
 import { ThesesService } from '../src/theses/theses.service';
+import { MarketDataController } from '../src/market-data/market-data.controller';
+import { MarketOhlcvService } from '../src/market-data/market-ohlcv.service';
 import { MarketPriceService } from '../src/market-data/market-price.service';
 import { WatchlistsService } from '../src/watchlists/watchlists.service';
 import { BriefsService } from '../src/briefs/briefs.service';
@@ -1388,6 +1390,7 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
   const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
   const expectedRoutes: Array<[string, string[]]> = [
+    ['/market-data/ohlcv', ['get']],
     ['/research-runs', ['get', 'post']],
     ['/research-runs/{id}', ['get']],
     ['/research-runs/{id}/events', ['get']],
@@ -2587,7 +2590,7 @@ test('thesis monitor plan endpoint creates stable DTO through engine fallback', 
 });
 
 test('run pulse endpoint returns DTO and pulse list is chart-friendly', async () => {
-  const { journal, theses } = buildHarness();
+  const { journal, marketPriceCalls, theses } = buildHarness();
   journal.theses.set(key('thesis_pulse', 'workspace_a'), {
     id: 'thesis_pulse',
     workspace_id: 'workspace_a',
@@ -2596,6 +2599,7 @@ test('run pulse endpoint returns DTO and pulse list is chart-friendly', async ()
     thesis_text: 'Monitor pulse.',
   });
 
+  await theses.monitorPlan('thesis_pulse', 'user_1', 'workspace_a');
   const run = await theses.runPulse(
     'thesis_pulse',
     { force: false },
@@ -2605,11 +2609,66 @@ test('run pulse endpoint returns DTO and pulse list is chart-friendly', async ()
   const pulses = await theses.pulses('thesis_pulse', 20, 'user_1', 'workspace_a');
 
   assert.equal(run.created, true);
+  assert.deepEqual(marketPriceCalls[0], {
+    overrides: {},
+    symbol: 'BTC/USDT',
+    workspaceId: 'workspace_a',
+  });
   assert.equal(run.pulse?.id, 'pulse_1');
   assert.equal(run.pulse?.status, 'watch');
   assert.equal(pulses.length, 1);
   assert.equal(pulses[0]?.current_price, 103000);
   assert.deepEqual(pulses[0]?.trigger_reasons, ['price_near_target_watch_band']);
+});
+
+test('thesis monitoring reads fall back when Postgres monitoring tables are missing in local mode', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_missing_monitor_tables', 'workspace_a'), {
+    id: 'thesis_missing_monitor_tables',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    thesis_text: 'Local fallback should still work.',
+  });
+  const missingTableError = (table: string) => {
+    const error = new Error(`relation "${table}" does not exist`) as Error & {
+      code?: string;
+    };
+    error.code = '42P01';
+    return error;
+  };
+  journal.getThesisMonitorPlan = async () => {
+    throw missingTableError('thesis_monitor_plans');
+  };
+  journal.listThesisPulses = async () => {
+    throw missingTableError('thesis_pulses');
+  };
+  journal.listThesisPulseMemos = async () => {
+    throw missingTableError('thesis_pulse_memos');
+  };
+
+  const plan = await theses.monitorPlan(
+    'thesis_missing_monitor_tables',
+    'user_1',
+    'workspace_a',
+  );
+  const pulses = await theses.pulses(
+    'thesis_missing_monitor_tables',
+    20,
+    'user_1',
+    'workspace_a',
+  );
+  const memos = await theses.pulseMemos(
+    'thesis_missing_monitor_tables',
+    20,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(plan.thesis_id, 'thesis_missing_monitor_tables');
+  assert.equal(plan.status, 'active');
+  assert.deepEqual(pulses, []);
+  assert.deepEqual(memos, []);
 });
 
 test('run pulse memo endpoint returns DTO and memo history', async () => {
@@ -3681,6 +3740,325 @@ test('MarketPriceService falls back to snapshots when live refresh fails', async
       assert.match(
         resolution.warning ?? '',
         /^live price refresh failed for BTC\/USDT:/,
+      );
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('MarketDataController returns normalized OHLCV candles from spot klines', async () => {
+  const { marketData } = buildMarketDataHarness();
+  const originalFetch = globalThis.fetch;
+  let requestedUrl: URL | null = null;
+  const firstTime = Date.parse('2026-05-18T00:00:00.000Z');
+  const secondTime = Date.parse('2026-05-18T00:05:00.000Z');
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = new URL(String(input));
+    return new Response(
+      JSON.stringify([
+        [secondTime, '102', '108', '101', '107', '12.5'],
+        [firstTime, 'bad', '106', '99', '105', '8'],
+        [firstTime, '100', '106', '99', '105', '8'],
+        [firstTime, '101', '107', '100', '106', '9'],
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    await withEnv(
+      {
+        OHLCV_SPOT_BASE_URL: 'https://spot.test',
+        OHLCV_CACHE_TTL_MS: '0',
+        OHLCV_MAX_LIMIT: '1000',
+      },
+      async () => {
+        const response = await marketData.getOhlcv(
+          'eth',
+          'spot',
+          '5m',
+          '2026-05-18T00:00:00.000Z',
+          '2026-05-18T00:15:00.000Z',
+          '5000',
+          'user_1',
+          'workspace_a',
+        );
+
+        assert.equal(response.symbol, 'ETH/USDT');
+        assert.equal(response.market_type, 'spot');
+        assert.equal(response.interval, '5m');
+        assert.equal(response.provider, 'binance');
+        assert.equal(response.source, 'binance:spot:klines');
+        assert.equal(response.warning, null);
+        assert.deepEqual(
+          response.candles.map((candle) => candle.time),
+          [
+            '2026-05-18T00:00:00.000Z',
+            '2026-05-18T00:05:00.000Z',
+          ],
+        );
+        assert.equal(response.candles[0]?.open, 101);
+        assert.equal(response.candles[0]?.volume, 9);
+        assert.ok(requestedUrl);
+        assert.equal(requestedUrl.hostname, 'spot.test');
+        assert.equal(requestedUrl.pathname, '/api/v3/klines');
+        assert.equal(requestedUrl.searchParams.get('symbol'), 'ETHUSDT');
+        assert.equal(requestedUrl.searchParams.get('interval'), '5m');
+        assert.equal(requestedUrl.searchParams.get('limit'), '1000');
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('MarketDataController maps perp OHLCV requests to futures klines', async () => {
+  const { marketData } = buildMarketDataHarness();
+  const originalFetch = globalThis.fetch;
+  let requestedUrl: URL | null = null;
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = new URL(String(input));
+    return new Response(
+      JSON.stringify([
+        [
+          Date.parse('2026-05-18T00:00:00.000Z'),
+          '100',
+          '110',
+          '95',
+          '108',
+          '42',
+        ],
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    await withEnv(
+      {
+        OHLCV_PERP_BASE_URL: 'https://perp.test',
+        OHLCV_CACHE_TTL_MS: '0',
+      },
+      async () => {
+        const response = await marketData.getOhlcv(
+          'eth-usdt',
+          'perp',
+          '1h',
+          '2026-05-18T00:00:00.000Z',
+          '2026-05-18T02:00:00.000Z',
+          '50',
+          'user_1',
+          'workspace_a',
+        );
+
+        assert.equal(response.symbol, 'ETH/USDT');
+        assert.equal(response.market_type, 'perp');
+        assert.equal(response.candles.length, 1);
+        assert.ok(requestedUrl);
+        assert.equal(requestedUrl.hostname, 'perp.test');
+        assert.equal(requestedUrl.pathname, '/fapi/v1/klines');
+        assert.equal(requestedUrl.searchParams.get('symbol'), 'ETHUSDT');
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('MarketDataController routes Bitget OHLCV requests to spot and perp candles', async () => {
+  const { marketData } = buildMarketDataHarness();
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: URL[] = [];
+  const firstTime = Date.parse('2026-05-18T00:00:00.000Z');
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrls.push(new URL(String(input)));
+    return new Response(
+      JSON.stringify({
+        code: '00000',
+        msg: 'success',
+        data: [[firstTime, '100', '106', '99', '105', '8']],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    await withEnv(
+      {
+        OHLCV_BITGET_BASE_URL: 'https://bitget.test',
+        OHLCV_CACHE_TTL_MS: '0',
+      },
+      async () => {
+        const spot = await marketData.getOhlcv(
+          'eth',
+          'spot',
+          '15m',
+          '2026-05-18T00:00:00.000Z',
+          '2026-05-18T00:15:00.000Z',
+          '5000',
+          'user_1',
+          'workspace_a',
+          'bitget',
+        );
+        const perp = await marketData.getOhlcv(
+          'eth-usdt',
+          'perp',
+          '1h',
+          '2026-05-18T00:00:00.000Z',
+          '2026-05-18T01:00:00.000Z',
+          '5000',
+          'user_1',
+          'workspace_a',
+          'bitget',
+        );
+
+        assert.equal(spot.provider, 'bitget');
+        assert.equal(spot.source, 'bitget:spot:candles');
+        assert.equal(perp.provider, 'bitget');
+        assert.equal(perp.source, 'bitget:perp:candles');
+        assert.equal(spot.candles[0]?.close, 105);
+        assert.equal(requestedUrls[0]?.hostname, 'bitget.test');
+        assert.equal(requestedUrls[0]?.pathname, '/api/v2/spot/market/candles');
+        assert.equal(requestedUrls[0]?.searchParams.get('symbol'), 'ETHUSDT');
+        assert.equal(requestedUrls[0]?.searchParams.get('granularity'), '15min');
+        assert.equal(requestedUrls[0]?.searchParams.get('limit'), '1000');
+        assert.equal(requestedUrls[1]?.pathname, '/api/v2/mix/market/candles');
+        assert.equal(requestedUrls[1]?.searchParams.get('granularity'), '1H');
+        assert.equal(requestedUrls[1]?.searchParams.get('productType'), 'usdt-futures');
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('MarketDataController paginates OHLCV windows when range exceeds page limit', async () => {
+  const { marketData } = buildMarketDataHarness();
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: URL[] = [];
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrls.push(new URL(String(input)));
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await withEnv({ OHLCV_CACHE_TTL_MS: '0' }, async () => {
+      const response = await marketData.getOhlcv(
+        'ETH/USDT',
+        'spot',
+        '1h',
+        '2026-05-18T00:00:00.000Z',
+        '2026-05-18T10:00:00.000Z',
+        '3',
+        'user_1',
+        'workspace_a',
+      );
+
+      assert.equal(response.from, '2026-05-18T00:00:00.000Z');
+      assert.equal(requestedUrls.length, 4);
+      assert.equal(
+        requestedUrls[0]?.searchParams.get('startTime'),
+        String(Date.parse('2026-05-18T00:00:00.000Z')),
+      );
+      assert.equal(
+        requestedUrls[0]?.searchParams.get('endTime'),
+        String(Date.parse('2026-05-18T03:00:00.000Z')),
+      );
+      assert.equal(
+        requestedUrls.at(-1)?.searchParams.get('endTime'),
+        String(Date.parse('2026-05-18T10:00:00.000Z')),
+      );
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('MarketDataController rejects invalid OHLCV interval and ranges', async () => {
+  const { marketData } = buildMarketDataHarness();
+
+  await assert.rejects(
+    () =>
+      marketData.getOhlcv(
+        'BTC/USDT',
+        'spot',
+        '2m',
+        undefined,
+        undefined,
+        undefined,
+        'user_1',
+        'workspace_a',
+      ),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /Unsupported OHLCV interval/.test(error.message),
+  );
+
+  await assert.rejects(
+    () =>
+      marketData.getOhlcv(
+        'BTC/USDT',
+        'spot',
+        '1m',
+        '2026-05-18T02:00:00.000Z',
+        '2026-05-18T01:00:00.000Z',
+        undefined,
+        'user_1',
+        'workspace_a',
+      ),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      /from must be before to/.test(error.message),
+  );
+
+  await assert.rejects(
+    () =>
+      marketData.getOhlcv(
+        'BTC/USDT',
+        'spot',
+        '1m',
+        '2026-04-18T00:00:00.000Z',
+        '2026-05-18T00:00:00.000Z',
+        undefined,
+        'user_1',
+        'workspace_a',
+      ),
+    (error: unknown) =>
+      error instanceof BadRequestException && /Range is too large/.test(error.message),
+  );
+});
+
+test('MarketDataController returns controlled OHLCV provider errors', async () => {
+  const { marketData } = buildMarketDataHarness();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ code: -1 }), { status: 502 })) as typeof fetch;
+
+  try {
+    await withEnv({ OHLCV_CACHE_TTL_MS: '0' }, async () => {
+      await assert.rejects(
+        () =>
+          marketData.getOhlcv(
+            'BTC/USDT',
+            'spot',
+            '15m',
+            '2026-05-18T00:00:00.000Z',
+            '2026-05-18T03:00:00.000Z',
+            '100',
+            'user_1',
+            'workspace_a',
+          ),
+        (error: unknown) =>
+          error instanceof ServiceUnavailableException &&
+          /OHLCV provider returned HTTP 502/.test(error.message),
       );
     });
   } finally {
@@ -5091,12 +5469,18 @@ function buildHarness() {
       return { created: true, skipped: false, memo, ...memo };
     },
   } as unknown as PythonEngineClient;
+  const marketPriceCalls: Array<{
+    overrides: Record<string, number>;
+    symbol: string;
+    workspaceId: string;
+  }> = [];
   const marketPrices = {
     resolveFreshPrice: async (
       symbol: string,
       workspaceId: string,
       overrides: Record<string, number>,
     ) => {
+      marketPriceCalls.push({ overrides, symbol, workspaceId });
       const override =
         overrides[symbol] ?? overrides[symbol.replace('/', '')] ?? null;
       if (Number.isFinite(override)) {
@@ -5118,6 +5502,7 @@ function buildHarness() {
   return {
     journal,
     jobs,
+    marketPriceCalls,
     researchRuns,
     researchRunsController: new ResearchRunsController(researchRuns),
     jobsController: new JobsController(jobs, auth, workspaces),
@@ -5129,6 +5514,7 @@ function buildHarness() {
       thesisEngine,
       undefined,
       monitoringJobs,
+      marketPrices,
     ),
     monitoringJobs,
     watchlists,
@@ -5139,6 +5525,19 @@ function buildHarness() {
     scenarios: new ScenariosService(journal, auth, workspaces),
     operations: new OperationsService(journal, auth, workspaces),
     workbench: new WorkbenchService(journal, auth, workspaces),
+  };
+}
+
+function buildMarketDataHarness() {
+  const auth = new AuthService();
+  const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'workspace_a', role: 'owner' },
+  ]);
+  const ohlcv = new MarketOhlcvService();
+  return {
+    marketData: new MarketDataController(ohlcv, auth, workspaces),
+    ohlcv,
   };
 }
 

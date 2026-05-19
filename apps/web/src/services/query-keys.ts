@@ -36,6 +36,22 @@ export const queryKeys = {
   researchRunSnapshots: (id: string) =>
     ['research-run-snapshots', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,
+  marketOhlcv: (
+    symbol: string,
+    marketType: string,
+    provider: string,
+    interval: string,
+    rangeKey: string,
+  ) =>
+    [
+      'market-ohlcv',
+      queryIdentity(),
+      symbol,
+      marketType,
+      provider,
+      interval,
+      rangeKey,
+    ] as const,
   thesesRoot: () => scopedResource('theses'),
   theses: (filters: Record<string, unknown>) => scopedFilters('theses', filters),
   thesis: (id: string) => ['thesis', queryIdentity(), id] as const,
