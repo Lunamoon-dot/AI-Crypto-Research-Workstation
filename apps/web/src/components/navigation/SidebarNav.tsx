@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileText,
   FlaskConical,
+  Gauge,
   GitCompare,
   History,
   Radar,
@@ -20,6 +21,7 @@ const navItems = [
   { href: routes.researchNew, label: 'Research', icon: FlaskConical },
   { href: routes.researchHistory, label: 'History', icon: History },
   { href: routes.performance, label: 'Reliability', icon: BarChart3 },
+  { href: routes.calibration, label: 'Calibration', icon: Gauge },
   { href: routes.compare, label: 'Compare', icon: GitCompare },
   { href: routes.theses, label: 'Theses', icon: ScrollText },
   { href: routes.signals, label: 'Signals', icon: Signal },
@@ -73,8 +75,8 @@ export function MobileBottomNav() {
     navItems[0],
     navItems[1],
     navItems[2],
-    navItems[5],
-    navItems[9],
+    navItems[6],
+    navItems[10],
   ];
   return (
     <nav className="mobile-bottom-nav" aria-label="Mobile navigation">

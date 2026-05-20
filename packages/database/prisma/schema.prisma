@@ -223,6 +223,7 @@ model TradeThesis {
   alerts         Alert[]
   userDecisions  UserDecision[]
   outcomeReviews OutcomeReview[]
+  thesisEvaluations ThesisEvaluation[]
   llmCalls       LlmCall[]
   monitorPlans   ThesisMonitorPlan[]
   pulses         ThesisPulse[]
@@ -532,8 +533,36 @@ model OutcomeReview {
   payloadJson Json     @map("payload_json")
 
   thesis TradeThesis @relation(fields: [thesisId], references: [id])
+  thesisEvaluations ThesisEvaluation[]
 
   @@map("outcome_reviews")
+}
+
+model ThesisEvaluation {
+  id                       String   @id
+  workspaceId              String   @default("local") @map("workspace_id")
+  thesisId                 String   @map("thesis_id")
+  outcomeReviewId          String?  @map("outcome_review_id")
+  symbol                   String
+  windowDays               Int      @map("window_days")
+  evaluationStart          DateTime @map("evaluation_start") @db.Date
+  evaluationEnd            DateTime @map("evaluation_end") @db.Date
+  evaluatedAt              DateTime @map("evaluated_at") @db.Timestamptz(6)
+  result                   String
+  maxFavorableExcursion    Float?   @map("max_favorable_excursion")
+  maxAdverseExcursion      Float?   @map("max_adverse_excursion")
+  invalidated              Boolean  @default(false)
+  warningsJson             Json     @default("[]") @map("warnings_json")
+  evidenceJson             Json     @default("{}") @map("evidence_json")
+  payloadJson              Json     @map("payload_json")
+
+  thesis TradeThesis @relation(fields: [thesisId], references: [id])
+  outcomeReview OutcomeReview? @relation(fields: [outcomeReviewId], references: [id])
+
+  @@unique([workspaceId, thesisId, windowDays, evaluationStart, evaluationEnd], map: "idx_thesis_evaluations_unique_window")
+  @@index([workspaceId, thesisId, evaluatedAt(sort: Desc)], map: "idx_thesis_evaluations_thesis")
+  @@index([workspaceId, evaluatedAt(sort: Desc)], map: "idx_thesis_evaluations_workspace")
+  @@map("thesis_evaluations")
 }
 
 model ProviderHealth {

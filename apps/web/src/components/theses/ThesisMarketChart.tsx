@@ -249,6 +249,7 @@ export function ThesisMarketChart({
       buildMarkers({
         interval,
         memos,
+        plan,
         priceRange: visiblePriceRange,
         pulses,
         selectedPulseId,
@@ -258,6 +259,7 @@ export function ThesisMarketChart({
     [
       interval,
       memos,
+      plan,
       pulses,
       selectedPulseId,
       visibleOverlays,
@@ -705,7 +707,7 @@ export function ThesisMarketChart({
           {(
             [
               ['thesisLevels', 'Levels'],
-              ['pulses', 'Pulses'],
+              ['pulses', 'Pulse events'],
               ['memos', 'Memos'],
               ['volume', 'Volume'],
             ] as Array<[keyof ThesisChartOverlays, string]>
@@ -765,7 +767,7 @@ export function ThesisMarketChart({
         ) : null}
         {visibleOverlays.pulses && pulseVisibility.total > 0 ? (
           <span className="badge primary">
-            pulses {pulseVisibility.plotted}/{pulseVisibility.total} on chart
+            pulse events {pulseVisibility.plotted}/{pulseVisibility.total} on chart
           </span>
         ) : null}
         {pulseVisibility.snapped > 0 ? (
@@ -815,7 +817,7 @@ export function ThesisMarketChart({
         <span>{plan.market_type}</span>
         {realtimeProvider ? <span>{realtimeProvider} realtime</span> : null}
         <span>{sortedCandles.length} candles</span>
-        <span>{pulses.length} pulses</span>
+        <span>{pulses.length} pulse events</span>
         <button
           className="button ghost"
           disabled={!selectedPulseId}
@@ -1103,12 +1105,14 @@ function realtimeStatusLabel(status: MarketRealtimeStatus): string {
 function buildMarkers({
   interval,
   memos,
+  plan,
   priceRange,
   pulses,
   selectedPulseId,
   times,
   visibleOverlays,
 }: {
+  plan: ThesisMonitorPlanResponse;
   pulses: ThesisPulseResponse[];
   memos: ThesisPulseMemoResponse[];
   interval: MarketChartInterval;
@@ -1119,11 +1123,15 @@ function buildMarkers({
 }): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];
   if (visibleOverlays.pulses) {
+    markers.push(...planAnchorMarkers(plan, priceRange, times, interval));
+
     const pulseMarkers = new Map<
       number,
       {
+        action: string;
         count: number;
         price: number | null;
+        score: number;
         selected: boolean;
         status: string;
         time: UTCTimestamp;
@@ -1138,13 +1146,16 @@ function buildMarkers({
       const selected = pulse.id === selectedPulseId;
       const existing = pulseMarkers.get(Number(resolution.time));
       const status = higherPulseStatus(existing?.status, pulse.status);
+      const score = Number.isFinite(pulse.score) ? pulse.score : 0;
       const price =
         pulse.current_price !== null && Number.isFinite(pulse.current_price)
           ? pulse.current_price
           : existing?.price ?? null;
       pulseMarkers.set(Number(resolution.time), {
+        action: pulse.suggested_action || existing?.action || '',
         count: (existing?.count ?? 0) + 1,
         price,
+        score: Math.max(existing?.score ?? 0, score),
         selected: Boolean(existing?.selected || selected),
         status,
         time: resolution.time,
@@ -1153,16 +1164,16 @@ function buildMarkers({
     for (const marker of pulseMarkers.values()) {
       const color = PULSE_COLORS[marker.status] ?? '#a1a1aa';
       const text = marker.selected
-        ? 'selected pulse'
+        ? `selected ${marker.status} pulse`
         : marker.count > 1
           ? `${marker.count} ${marker.status} pulses`
         : marker.status === 'calm'
           ? undefined
-          : marker.status;
+          : marker.action || marker.status;
       const base = {
         color,
         shape: marker.selected ? ('arrowUp' as const) : ('circle' as const),
-        size: marker.selected ? 1.15 : marker.status === 'calm' ? 0.55 : 0.8,
+        size: pulseDotSize(marker),
         text,
         time: marker.time,
       };
@@ -1194,7 +1205,7 @@ function buildMarkers({
       const referenced = memo.referenced_pulse_ids
         .map((pulseId) => pulseById.get(pulseId))
         .filter((pulse): pulse is ThesisPulseResponse => Boolean(pulse));
-      if (referenced.length === 0) {
+      if (referenced.length === 0 && !memo.created_at) {
         continue;
       }
       const latestReferenced = referenced
@@ -1203,7 +1214,7 @@ function buildMarkers({
           String(left.observed_at ?? '').localeCompare(String(right.observed_at ?? '')),
         )
         .at(-1);
-      const rawTime = toChartTime(latestReferenced?.observed_at);
+      const rawTime = toChartTime(latestReferenced?.observed_at ?? memo.created_at);
       if (!rawTime) {
         continue;
       }
@@ -1213,11 +1224,91 @@ function buildMarkers({
         color: '#38bdf8',
         shape: 'square',
         text: memo.status ? `memo ${memo.status}` : 'memo',
-        size: 0.85,
+        size: memoDotSize(referenced.length),
       });
     }
   }
+  return markers.sort((left, right) => Number(left.time) - Number(right.time));
+}
+
+function planAnchorMarkers(
+  plan: ThesisMonitorPlanResponse,
+  priceRange: PriceRange | null,
+  times: UTCTimestamp[],
+  interval: MarketChartInterval,
+): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  const createdTime = toChartTime(plan.created_at);
+  if (createdTime) {
+    const resolved = resolvePulseMarkerTime(createdTime, times, interval);
+    markers.push({
+      color: '#a78bfa',
+      position: 'belowBar',
+      shape: 'arrowUp',
+      size: 0.9,
+      text: 'thesis created',
+      time: resolved.time,
+    });
+  }
+
+  const baselineTime = toChartTime(plan.baseline_observed_at);
+  if (!baselineTime) {
+    return markers;
+  }
+
+  const baselinePrice =
+    plan.baseline_price !== null && Number.isFinite(plan.baseline_price)
+      ? plan.baseline_price
+      : null;
+  const resolved = resolvePulseMarkerTime(baselineTime, times, interval);
+  const base = {
+    color: '#38bdf8',
+    shape: 'circle' as const,
+    size: 0.95,
+    text: 'baseline',
+    time: resolved.time,
+  };
+  markers.push(
+    baselinePrice !== null && priceIsVisible(baselinePrice, priceRange)
+      ? {
+          ...base,
+          position: 'atPriceMiddle',
+          price: baselinePrice,
+        }
+      : {
+          ...base,
+          position: 'inBar',
+        },
+  );
   return markers;
+}
+
+function pulseDotSize(marker: {
+  count: number;
+  score: number;
+  selected: boolean;
+  status: string;
+}): number {
+  if (marker.selected) {
+    return 1.35;
+  }
+  const statusBase =
+    marker.status === 'calm'
+      ? 0.55
+      : marker.status === 'watch'
+        ? 0.78
+        : 0.92;
+  const scoreBoost = Math.min(Math.max(marker.score, 0), 100) / 220;
+  const countBoost = Math.min(Math.max(marker.count - 1, 0), 4) * 0.12;
+  return roundMarkerSize(statusBase + scoreBoost + countBoost);
+}
+
+function memoDotSize(referencedPulseCount: number): number {
+  return roundMarkerSize(0.82 + Math.min(referencedPulseCount, 4) * 0.08);
+}
+
+function roundMarkerSize(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function higherPulseStatus(left: string | undefined, right: string): string {

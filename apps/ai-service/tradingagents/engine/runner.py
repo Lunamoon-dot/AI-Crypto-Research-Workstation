@@ -13,9 +13,11 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.domain import ResearchRun, ResearchRunStatus
 from tradingagents.exceptions import classify_error
 from tradingagents.graph.config_hash import compute_config_hash
-from tradingagents.services import JournalService, ResearchService
+from tradingagents.services import EvaluationService, JournalService, ResearchService
 
 from .schemas import (
+    EngineEvaluateRequest,
+    EngineEvaluateResult,
     EngineMonitorPlanRequest,
     EngineMonitorPlanResult,
     EnginePulseMemoRequest,
@@ -390,6 +392,46 @@ def run_pulse_memo_request(request: EnginePulseMemoRequest) -> EnginePulseMemoRe
             workspace_id=request.workspace_id,
             thesis_id=request.thesis_id,
             status="error",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+
+
+def run_evaluate_request_file(path: str | Path) -> EngineEvaluateResult:
+    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    request = EngineEvaluateRequest.model_validate(payload)
+    return run_evaluate_request(request)
+
+
+def run_evaluate_request(request: EngineEvaluateRequest) -> EngineEvaluateResult:
+    try:
+        service = EvaluationService(
+            config=_monitoring_config(request.workspace_id, request.metadata)
+        )
+        evaluation = service.evaluate_thesis(
+            request.thesis_id,
+            window_days=request.window_days,
+            record_review=False,
+        )
+        payload = evaluation.model_dump(mode="json")
+        warnings = list(dict.fromkeys([*evaluation.warnings]))
+        return EngineEvaluateResult(
+            workspace_id=request.workspace_id,
+            thesis_id=request.thesis_id,
+            evaluation_id=evaluation.id,
+            status="completed",
+            evaluation={
+                **payload,
+                "workspace_id": request.workspace_id,
+                "warnings": warnings,
+            },
+            warnings=warnings,
+        )
+    except Exception as exc:
+        return EngineEvaluateResult(
+            workspace_id=request.workspace_id,
+            thesis_id=request.thesis_id,
+            status="failed",
             error_type=type(exc).__name__,
             error=str(exc),
         )

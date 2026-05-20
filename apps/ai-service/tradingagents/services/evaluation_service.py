@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from io import StringIO
 from typing import Any, Callable
 
@@ -104,6 +104,8 @@ class EvaluationService:
             evaluation_start=start_date,
             evaluation_end=end_date,
         )
+        if date.today() < end_date and "incomplete_window" not in evaluation.warnings:
+            evaluation.warnings.append("incomplete_window")
         saved = self.repo.save_thesis_evaluation(evaluation)
         if record_review and thesis.id:
             self.repo.save_outcome_review(
@@ -758,6 +760,19 @@ def _evaluate_candles(
         time_to_invalidation_days=invalidation_idx,
         result=result,
         notes=notes,
+        evidence={
+            "candle_count": int(len(candles)),
+            "first_candle_at": candles.iloc[0]["date"].isoformat(),
+            "last_candle_at": candles.iloc[-1]["date"].isoformat(),
+            "highest_high": max_high,
+            "lowest_low": min_low,
+            "start_price": start_price,
+            "end_price": end_price,
+            "target_level": target_level,
+            "invalidation_level": invalidation_level,
+            "target_hit": target_hit,
+            "invalidation_hit": invalidated,
+        },
     )
 
 

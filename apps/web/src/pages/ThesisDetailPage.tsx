@@ -296,6 +296,12 @@ export function ThesisDetailPage() {
                   Track this thesis
                 </Link>
               ) : null}
+              {thesis.id ? (
+                <Link className="button" to={routes.calibrationThesis(thesis.id)}>
+                  <Target aria-hidden size={15} />
+                  Evaluate thesis
+                </Link>
+              ) : null}
             </div>
             {exportError ? <span className="badge risk">{exportError}</span> : null}
           </div>

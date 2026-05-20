@@ -677,6 +677,56 @@ export const openApiDocument = {
         ),
       },
     },
+    '/calibration/evaluations/thesis': {
+      post: {
+        operationId: 'evaluateCalibrationThesis',
+        tags: ['calibration'],
+        requestBody: jsonRequest('EvaluateThesisRequest'),
+        responses: jsonResponse(
+          'Created or existing thesis evaluation.',
+          'EvaluateThesisResponse',
+          '201',
+        ),
+      },
+    },
+    '/calibration/evaluations': {
+      get: {
+        operationId: 'listCalibrationEvaluations',
+        tags: ['calibration'],
+        parameters: [
+          queryParameter('thesis_id', { type: 'string' }),
+          limitParameter(50, 200),
+        ],
+        responses: jsonArrayResponse(
+          'Calibration evaluations for the active workspace.',
+          'CalibrationEvaluationResponse',
+        ),
+      },
+    },
+    '/calibration/evaluations/{id}': {
+      get: {
+        operationId: 'getCalibrationEvaluation',
+        tags: ['calibration'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped calibration evaluation.',
+          'CalibrationEvaluationResponse',
+        ),
+      },
+    },
+    '/calibration/evaluations/{id}/outcome-review': {
+      post: {
+        operationId: 'recordCalibrationOutcomeReview',
+        tags: ['calibration'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('CalibrationOutcomeReviewRequest'),
+        responses: jsonResponse(
+          'Outcome review recording attempt for an evaluation.',
+          'RecordCalibrationOutcomeReviewResponse',
+          '201',
+        ),
+      },
+    },
     '/performance/outcomes': {
       get: {
         operationId: 'listPerformanceOutcomes',
@@ -1418,6 +1468,55 @@ export const openApiDocument = {
           thesis_created_at: { type: ['string', 'null'] },
         },
       },
+      CalibrationEvaluationResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'thesis_id', 'outcome_review_id', 'symbol', 'window_days', 'evaluation_start', 'evaluation_end', 'evaluated_at', 'result', 'max_favorable_excursion', 'max_adverse_excursion', 'invalidated', 'warnings', 'evidence', 'calendar_mature', 'can_record_review', 'record_review_blockers', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          outcome_review_id: { type: ['string', 'null'] },
+          symbol: { type: 'string' },
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          evaluation_start: { type: ['string', 'null'], format: 'date' },
+          evaluation_end: { type: ['string', 'null'], format: 'date' },
+          evaluated_at: { type: ['string', 'null'], format: 'date-time' },
+          result: { type: 'string', enum: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'] },
+          max_favorable_excursion: { type: ['number', 'null'] },
+          max_adverse_excursion: { type: ['number', 'null'] },
+          invalidated: { type: 'boolean' },
+          warnings: { type: 'array', items: { type: 'string' } },
+          evidence: { $ref: '#/components/schemas/JsonRecord' },
+          calendar_mature: { type: 'boolean' },
+          can_record_review: { type: 'boolean' },
+          record_review_blockers: {
+            type: 'array',
+            items: { type: 'string', enum: ['incomplete_window', 'unknown_result', 'review_already_recorded'] },
+          },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      EvaluateThesisResponse: {
+        type: 'object',
+        required: ['created', 'evaluation', 'warnings'],
+        properties: {
+          created: { type: 'boolean' },
+          evaluation: { $ref: '#/components/schemas/CalibrationEvaluationResponse' },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      RecordCalibrationOutcomeReviewResponse: {
+        type: 'object',
+        required: ['created', 'outcome_review', 'evaluation', 'warnings'],
+        properties: {
+          created: { type: 'boolean' },
+          outcome_review: {
+            anyOf: [{ $ref: '#/components/schemas/ThesisReviewResponse' }, { type: 'null' }],
+          },
+          evaluation: { $ref: '#/components/schemas/CalibrationEvaluationResponse' },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
       RetrospectiveInsightResponse: {
         type: 'object',
         required: ['insight_type', 'message', 'thesis_ids', 'evidence_count'],
@@ -1518,6 +1617,20 @@ export const openApiDocument = {
           notes: { type: 'string' },
           max_favorable_excursion: { type: 'number' },
           max_adverse_excursion: { type: 'number' },
+        },
+      },
+      EvaluateThesisRequest: {
+        type: 'object',
+        required: ['thesis_id'],
+        properties: {
+          thesis_id: { type: 'string', minLength: 1 },
+          window_days: { type: 'integer', enum: [7, 14, 30], default: 14 },
+        },
+      },
+      CalibrationOutcomeReviewRequest: {
+        type: 'object',
+        properties: {
+          notes: { type: 'string' },
         },
       },
       ThesisTargetLevelResponse: {

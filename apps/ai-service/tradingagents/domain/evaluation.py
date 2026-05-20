@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +35,8 @@ class ThesisEvaluation(BaseModel):
     result: OutcomeResult = OutcomeResult.UNKNOWN
     data_source: str = "ccxt_ohlcv"
     notes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvaluationMetricsRow(BaseModel):

@@ -29,6 +29,11 @@ export const queryKeys = {
     scopedFilters('performance-trend', filters),
   performanceHealth: (filters: Record<string, unknown>) =>
     scopedFilters('performance-health', filters),
+  calibrationRoot: () => scopedResource('calibration'),
+  calibrationEvaluations: (filters: Record<string, unknown>) =>
+    scopedFilters('calibration-evaluations', filters),
+  calibrationEvaluation: (id: string) =>
+    ['calibration-evaluation', queryIdentity(), id] as const,
   comparison: (filters: Record<string, unknown>) =>
     scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>

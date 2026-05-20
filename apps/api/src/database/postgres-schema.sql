@@ -200,6 +200,34 @@ CREATE TABLE IF NOT EXISTS trade_theses (
 CREATE INDEX IF NOT EXISTS idx_trade_theses_workspace_created
 ON trade_theses(workspace_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS thesis_evaluations (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    thesis_id TEXT NOT NULL REFERENCES trade_theses(id),
+    outcome_review_id TEXT,
+    symbol TEXT NOT NULL,
+    window_days INTEGER NOT NULL,
+    evaluation_start DATE NOT NULL,
+    evaluation_end DATE NOT NULL,
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    result TEXT NOT NULL,
+    max_favorable_excursion DOUBLE PRECISION,
+    max_adverse_excursion DOUBLE PRECISION,
+    invalidated BOOLEAN NOT NULL DEFAULT false,
+    warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_evaluations_unique_window
+ON thesis_evaluations(workspace_id, thesis_id, window_days, evaluation_start, evaluation_end);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_thesis
+ON thesis_evaluations(workspace_id, thesis_id, evaluated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_workspace
+ON thesis_evaluations(workspace_id, evaluated_at DESC);
+
 CREATE TABLE IF NOT EXISTS thesis_monitor_plans (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

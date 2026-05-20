@@ -411,6 +411,53 @@ export interface PerformanceOutcomeReviewResponse extends ThesisReviewResponse {
   thesis_created_at: string | null;
 }
 
+export type CalibrationResult =
+  | 'hit_target'
+  | 'invalidated'
+  | 'mixed'
+  | 'expired'
+  | 'unknown';
+
+export type CalibrationRecordReviewBlocker =
+  | 'incomplete_window'
+  | 'unknown_result'
+  | 'review_already_recorded';
+
+export interface CalibrationEvaluationResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  outcome_review_id: string | null;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  evaluated_at: string | null;
+  result: CalibrationResult;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  invalidated: boolean;
+  warnings: string[];
+  evidence: JsonRecord;
+  calendar_mature: boolean;
+  can_record_review: boolean;
+  record_review_blockers: CalibrationRecordReviewBlocker[];
+  payload: JsonRecord;
+}
+
+export interface EvaluateThesisResponse {
+  created: boolean;
+  evaluation: CalibrationEvaluationResponse;
+  warnings: string[];
+}
+
+export interface RecordCalibrationOutcomeReviewResponse {
+  created: boolean;
+  outcome_review: ThesisReviewResponse | null;
+  evaluation: CalibrationEvaluationResponse;
+  warnings: string[];
+}
+
 export interface RetrospectiveInsightResponse {
   insight_type: string;
   message: string;
@@ -1589,6 +1636,47 @@ export function toPerformanceOutcomeReviewResponse(
   };
 }
 
+export function toCalibrationEvaluationResponse(
+  evaluation: JsonRecord,
+): CalibrationEvaluationResponse {
+  const result = calibrationResultValue(evaluation.result);
+  const outcomeReviewId = nullableString(evaluation.outcome_review_id);
+  const calendarMature = booleanValue(
+    evaluation.calendar_mature,
+    isCalendarMature(nullableString(evaluation.evaluation_end)),
+  );
+  const providedBlockers = stringList(evaluation.record_review_blockers)
+    .map(calibrationBlockerValue)
+    .filter((item): item is CalibrationRecordReviewBlocker => item !== null);
+  const recordReviewBlockers =
+    providedBlockers.length > 0
+      ? providedBlockers
+      : calibrationRecordReviewBlockers(result, calendarMature, outcomeReviewId);
+  return {
+    id: nullableString(evaluation.id),
+    workspace_id: stringValue(evaluation.workspace_id, 'local'),
+    thesis_id: stringValue(evaluation.thesis_id),
+    outcome_review_id: outcomeReviewId,
+    symbol: stringValue(evaluation.symbol),
+    window_days: numberValue(evaluation.window_days),
+    evaluation_start: nullableString(evaluation.evaluation_start),
+    evaluation_end: nullableString(evaluation.evaluation_end),
+    evaluated_at: nullableString(evaluation.evaluated_at),
+    result,
+    max_favorable_excursion: nullableNumber(
+      evaluation.max_favorable_excursion,
+    ),
+    max_adverse_excursion: nullableNumber(evaluation.max_adverse_excursion),
+    invalidated: booleanValue(evaluation.invalidated),
+    warnings: stringList(evaluation.warnings ?? evaluation.warnings_json),
+    evidence: recordValue(evaluation.evidence ?? evaluation.evidence_json),
+    calendar_mature: calendarMature,
+    can_record_review: recordReviewBlockers.length === 0,
+    record_review_blockers: recordReviewBlockers,
+    payload: recordValue(evaluation.payload ?? evaluation.payload_json),
+  };
+}
+
 export function toProviderHealthResponse(
   row: JsonRecord,
 ): ProviderHealthResponse {
@@ -1985,6 +2073,59 @@ function uniqueBriefThesisUpdates(
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function calibrationRecordReviewBlockers(
+  result: CalibrationResult,
+  calendarMature: boolean,
+  outcomeReviewId: string | null,
+): CalibrationRecordReviewBlocker[] {
+  const blockers: CalibrationRecordReviewBlocker[] = [];
+  if (!calendarMature) {
+    blockers.push('incomplete_window');
+  }
+  if (result === 'unknown') {
+    blockers.push('unknown_result');
+  }
+  if (outcomeReviewId) {
+    blockers.push('review_already_recorded');
+  }
+  return blockers;
+}
+
+function calibrationResultValue(value: unknown): CalibrationResult {
+  const result = stringValue(value, 'unknown');
+  if (
+    result === 'hit_target' ||
+    result === 'invalidated' ||
+    result === 'mixed' ||
+    result === 'expired' ||
+    result === 'unknown'
+  ) {
+    return result;
+  }
+  return 'unknown';
+}
+
+function calibrationBlockerValue(
+  value: string,
+): CalibrationRecordReviewBlocker | null {
+  if (
+    value === 'incomplete_window' ||
+    value === 'unknown_result' ||
+    value === 'review_already_recorded'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function isCalendarMature(evaluationEnd: string | null): boolean {
+  if (!evaluationEnd) {
+    return false;
+  }
+  const parsed = Date.parse(evaluationEnd);
+  return Number.isFinite(parsed) && parsed <= Date.now();
 }
 
 function recordValue(value: unknown): JsonRecord {

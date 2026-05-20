@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -215,6 +215,36 @@ class EnginePulseMemoResult(BaseModel):
     skipped: bool = False
     skip_reason: str | None = None
     memo: dict[str, Any] | None = None
+    error_type: str | None = None
+    error: str | None = None
+
+
+class EngineEvaluateRequest(BaseModel):
+    """Stable JSON request accepted by ``lunacrypto engine evaluate``."""
+
+    thesis_id: str
+    workspace_id: str = "local"
+    window_days: Literal[7, 14, 30] = 14
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("thesis_id", "workspace_id")
+    @classmethod
+    def _evaluate_not_blank(cls, value: str) -> str:
+        clean = value.strip()
+        if not clean:
+            raise ValueError("must not be blank")
+        return clean
+
+
+class EngineEvaluateResult(BaseModel):
+    """Stable JSON result returned by a single-thesis evaluation run."""
+
+    workspace_id: str
+    thesis_id: str
+    evaluation_id: str | None = None
+    status: str = "unknown"
+    evaluation: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
     error_type: str | None = None
     error: str | None = None
 

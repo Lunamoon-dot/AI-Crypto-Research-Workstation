@@ -66,6 +66,43 @@ export interface ThesisDecisionIntent {
 export interface ThesisReviewMetrics {
   max_favorable_excursion?: number | null;
   max_adverse_excursion?: number | null;
+  metadata?: JsonRecord;
+}
+
+export interface ThesisEvaluationInput {
+  id?: string | null;
+  workspace_id?: string | null;
+  thesis_id: string;
+  outcome_review_id?: string | null;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string;
+  evaluation_end: string;
+  evaluated_at?: string | null;
+  result: string;
+  max_favorable_excursion?: number | null;
+  max_adverse_excursion?: number | null;
+  invalidated?: boolean | null;
+  warnings?: string[];
+  evidence?: JsonRecord;
+  payload?: JsonRecord;
+}
+
+export interface ThesisEvaluationNaturalKey {
+  thesisId: string;
+  windowDays: number;
+  evaluationStart: string;
+  evaluationEnd: string;
+}
+
+export interface ThesisEvaluationListFilters {
+  thesisId?: string;
+  limit: number;
+}
+
+export interface ThesisEvaluationUpsertResult {
+  created: boolean;
+  evaluation: JsonRecord;
 }
 
 export interface EngineRunRequest {
@@ -121,6 +158,27 @@ export interface JournalRepository {
   ): Promise<JsonRecord[]>;
   listTheses(limit: number, workspaceId: string): Promise<JsonRecord[]>;
   getThesis(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getThesisEvaluationByNaturalKey?(
+    key: ThesisEvaluationNaturalKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  upsertThesisEvaluation?(
+    input: ThesisEvaluationInput,
+    workspaceId: string,
+  ): Promise<ThesisEvaluationUpsertResult>;
+  listThesisEvaluations?(
+    filters: ThesisEvaluationListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getThesisEvaluation?(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  linkThesisEvaluationOutcomeReview?(
+    id: string,
+    outcomeReviewId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   getThesisMonitorPlan?(
     thesisId: string,
     workspaceId: string,
@@ -184,6 +242,10 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
+  getOutcomeReview?(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   getSignal(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listSignals(
     symbol: string | undefined,

@@ -1,0 +1,55 @@
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { parseListLimit } from '../common/query-limit';
+import { CalibrationService } from './calibration.service';
+import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
+import { CalibrationOutcomeReviewDto } from './dto/outcome-review.dto';
+
+@Controller('calibration')
+export class CalibrationController {
+  constructor(private readonly calibration: CalibrationService) {}
+
+  @Post('evaluations/thesis')
+  evaluateThesis(
+    @Body() dto: EvaluateThesisDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.evaluateThesis(dto, userId, workspaceId);
+  }
+
+  @Get('evaluations')
+  listEvaluations(
+    @Query('thesis_id') thesisId?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.listEvaluations(
+      {
+        thesisId,
+        limit: parseListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
+      },
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Get('evaluations/:id')
+  getEvaluation(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.getEvaluation(id, userId, workspaceId);
+  }
+
+  @Post('evaluations/:id/outcome-review')
+  recordOutcomeReview(
+    @Param('id') id: string,
+    @Body() dto: CalibrationOutcomeReviewDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.recordOutcomeReview(id, dto, userId, workspaceId);
+  }
+}

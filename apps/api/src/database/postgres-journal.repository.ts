@@ -11,11 +11,19 @@ import {
   ResearchRunFailure,
   SignalSummary,
   ThesisDecisionIntent,
+  ThesisEvaluationInput,
+  ThesisEvaluationListFilters,
+  ThesisEvaluationNaturalKey,
+  ThesisEvaluationUpsertResult,
   ThesisReviewMetrics,
 } from './journal.types';
 
 type PayloadRow = {
   payload_json: string | JsonRecord;
+};
+
+type CreatedPayloadRow = PayloadRow & {
+  created: boolean;
 };
 
 export class PostgresJournalRepository implements JournalRepository {
@@ -426,6 +434,164 @@ export class PostgresJournalRepository implements JournalRepository {
     return this.one(
       'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
       [id, workspaceId],
+    );
+  }
+
+  async getThesisEvaluationByNaturalKey(
+    key: ThesisEvaluationNaturalKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationPayloadSql('e')} AS payload_json
+       FROM thesis_evaluations e
+       WHERE e.workspace_id = $1
+         AND e.thesis_id = $2
+         AND e.window_days = $3
+         AND e.evaluation_start = $4::date
+         AND e.evaluation_end = $5::date`,
+      [
+        workspaceId,
+        key.thesisId,
+        key.windowDays,
+        key.evaluationStart,
+        key.evaluationEnd,
+      ],
+    );
+  }
+
+  async upsertThesisEvaluation(
+    input: ThesisEvaluationInput,
+    workspaceId: string,
+  ): Promise<ThesisEvaluationUpsertResult> {
+    const pool = this.requirePool();
+    const id = stringValue(
+      input.id,
+      `evaluation_${randomUUID().replaceAll('-', '')}`,
+    );
+    const evaluatedAt =
+      nullableString(input.evaluated_at) ?? new Date().toISOString();
+    const warnings = JSON.stringify(input.warnings ?? []);
+    const evidence = JSON.stringify(input.evidence ?? {});
+    const payload = {
+      ...(input.payload ?? {}),
+      id,
+      workspace_id: workspaceId,
+      thesis_id: input.thesis_id,
+      outcome_review_id: input.outcome_review_id ?? null,
+      symbol: input.symbol,
+      window_days: input.window_days,
+      evaluation_start: input.evaluation_start,
+      evaluation_end: input.evaluation_end,
+      evaluated_at: evaluatedAt,
+      result: input.result,
+      max_favorable_excursion: input.max_favorable_excursion ?? null,
+      max_adverse_excursion: input.max_adverse_excursion ?? null,
+      invalidated: input.invalidated ?? false,
+      warnings: input.warnings ?? [],
+      evidence: input.evidence ?? {},
+    };
+    const result = await pool.query<CreatedPayloadRow>(
+      `WITH inserted AS (
+         INSERT INTO thesis_evaluations (
+           id, workspace_id, thesis_id, outcome_review_id, symbol, window_days,
+           evaluation_start, evaluation_end, evaluated_at, result,
+           max_favorable_excursion, max_adverse_excursion, invalidated,
+           warnings_json, evidence_json, payload_json
+         )
+         VALUES (
+           $1, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12,
+           $13, $14::jsonb, $15::jsonb, $16::jsonb
+         )
+         ON CONFLICT (
+           workspace_id, thesis_id, window_days, evaluation_start, evaluation_end
+         ) DO NOTHING
+         RETURNING true AS created, ${evaluationPayloadSql()} AS payload_json
+       )
+       SELECT created, payload_json FROM inserted
+       UNION ALL
+       SELECT false AS created, ${evaluationPayloadSql('e')} AS payload_json
+       FROM thesis_evaluations e
+       WHERE e.workspace_id = $2
+         AND e.thesis_id = $3
+         AND e.window_days = $6
+         AND e.evaluation_start = $7::date
+         AND e.evaluation_end = $8::date
+         AND NOT EXISTS (SELECT 1 FROM inserted)
+       LIMIT 1`,
+      [
+        id,
+        workspaceId,
+        input.thesis_id,
+        input.outcome_review_id ?? null,
+        input.symbol,
+        input.window_days,
+        input.evaluation_start,
+        input.evaluation_end,
+        evaluatedAt,
+        input.result,
+        numberValue(input.max_favorable_excursion),
+        numberValue(input.max_adverse_excursion),
+        booleanValue(input.invalidated, false),
+        warnings,
+        evidence,
+        JSON.stringify(payload),
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new ServiceUnavailableException('Thesis evaluation was not persisted.');
+    }
+    return {
+      created: row.created,
+      evaluation: parsePayload(row.payload_json),
+    };
+  }
+
+  async listThesisEvaluations(
+    filters: ThesisEvaluationListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const where = ['e.workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.thesisId) {
+      params.push(filters.thesisId);
+      where.push(`e.thesis_id = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT ${evaluationPayloadSql('e')} AS payload_json
+       FROM thesis_evaluations e
+       WHERE ${where.join(' AND ')}
+       ORDER BY e.evaluated_at DESC, e.id DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
+  async getThesisEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationPayloadSql('e')} AS payload_json
+       FROM thesis_evaluations e
+       WHERE e.id = $1 AND e.workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async linkThesisEvaluationOutcomeReview(
+    id: string,
+    outcomeReviewId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `UPDATE thesis_evaluations
+       SET outcome_review_id = $3,
+           payload_json = payload_json || jsonb_build_object('outcome_review_id', $3)
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING ${evaluationPayloadSql()} AS payload_json`,
+      [id, workspaceId, outcomeReviewId],
     );
   }
 
@@ -1302,6 +1468,7 @@ export class PostgresJournalRepository implements JournalRepository {
       max_adverse_excursion: numberValue(metrics.max_adverse_excursion),
       reviewed_at: new Date().toISOString(),
       invalidated: result === 'invalidated',
+      metadata: metrics.metadata ?? {},
     };
     await this.exec(
       `INSERT INTO outcome_reviews
@@ -1352,6 +1519,32 @@ export class PostgresJournalRepository implements JournalRepository {
        ORDER BY o.reviewed_at DESC
        LIMIT $${params.length}`,
       params,
+    );
+  }
+
+  async getOutcomeReview(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT o.payload_json || jsonb_build_object(
+         'id', o.id,
+         'workspace_id', t.workspace_id,
+         'thesis_id', o.thesis_id,
+         'result', o.result,
+         'reviewed_at', o.reviewed_at,
+         'invalidated', o.invalidated,
+         'symbol', t.symbol,
+         'direction', t.direction,
+         'setup_type', t.setup_type,
+         'confidence', t.confidence,
+         'thesis_created_at', t.created_at,
+         'thesis_payload', t.payload_json
+       ) AS payload_json
+       FROM outcome_reviews o
+       JOIN trade_theses t ON t.id = o.thesis_id
+       WHERE o.id = $1 AND t.workspace_id = $2`,
+      [id, workspaceId],
     );
   }
 
@@ -2295,6 +2488,30 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function evaluationPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'thesis_id', ${p}thesis_id,
+    'outcome_review_id', ${p}outcome_review_id,
+    'symbol', ${p}symbol,
+    'window_days', ${p}window_days,
+    'evaluation_start', ${p}evaluation_start,
+    'evaluation_end', ${p}evaluation_end,
+    'evaluated_at', ${p}evaluated_at,
+    'result', ${p}result,
+    'max_favorable_excursion', ${p}max_favorable_excursion,
+    'max_adverse_excursion', ${p}max_adverse_excursion,
+    'invalidated', ${p}invalidated,
+    'warnings', ${p}warnings_json,
+    'warnings_json', ${p}warnings_json,
+    'evidence', ${p}evidence_json,
+    'evidence_json', ${p}evidence_json,
+    'payload', ${p}payload_json
+  )`;
 }
 
 function monitorPlanPayloadSql(alias = ''): string {

@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { MainLayout } from '@/layouts/MainLayout';
 import { AlertsPage } from '@/pages/AlertsPage';
+import { CalibrationLabPage } from '@/pages/CalibrationLabPage';
 import { DailyBriefsPage } from '@/pages/DailyBriefsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OperationsPage } from '@/pages/OperationsPage';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
       { path: 'performance', element: <PerformanceAnalyticsPage /> },
+      { path: 'calibration', element: <CalibrationLabPage /> },
       { path: 'compare', element: <RunComparisonPage /> },
       { path: 'research/runs/:id', element: <ResearchRunWorkspacePage /> },
       { path: 'journal/runs/:id', element: <ResearchRunWorkspacePage journal /> },

@@ -428,6 +428,53 @@ export interface PerformanceOutcomeReviewResponse extends ThesisReviewResponse {
   thesis_created_at: string | null;
 }
 
+export type CalibrationResult =
+  | 'hit_target'
+  | 'invalidated'
+  | 'mixed'
+  | 'expired'
+  | 'unknown';
+
+export type CalibrationRecordReviewBlocker =
+  | 'incomplete_window'
+  | 'unknown_result'
+  | 'review_already_recorded';
+
+export interface CalibrationEvaluationResponse {
+  id: string | null;
+  workspace_id: string;
+  thesis_id: string;
+  outcome_review_id: string | null;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  evaluated_at: string | null;
+  result: CalibrationResult;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  invalidated: boolean;
+  warnings: string[];
+  evidence: JsonRecord;
+  calendar_mature: boolean;
+  can_record_review: boolean;
+  record_review_blockers: CalibrationRecordReviewBlocker[];
+  payload: JsonRecord;
+}
+
+export interface EvaluateThesisResponse {
+  created: boolean;
+  evaluation: CalibrationEvaluationResponse;
+  warnings: string[];
+}
+
+export interface RecordCalibrationOutcomeReviewResponse {
+  created: boolean;
+  outcome_review: ThesisReviewResponse | null;
+  evaluation: CalibrationEvaluationResponse;
+  warnings: string[];
+}
+
 export interface RetrospectiveInsightResponse {
   insight_type: string;
   message: string;
@@ -906,6 +953,15 @@ export type RecordThesisReviewRequest = {
   notes?: string;
   max_favorable_excursion?: number;
   max_adverse_excursion?: number;
+};
+
+export type EvaluateThesisRequest = {
+  thesis_id: string;
+  window_days?: 7 | 14 | 30;
+};
+
+export type RecordCalibrationOutcomeReviewRequest = {
+  notes?: string;
 };
 
 export type RunThesisPulseRequest = {

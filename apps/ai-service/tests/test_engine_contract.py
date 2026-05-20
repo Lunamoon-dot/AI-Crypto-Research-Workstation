@@ -3,7 +3,13 @@ from typing import Any
 from typer.testing import CliRunner
 
 from cli import main as cli_main
-from tradingagents.engine import EngineRunRequest, EngineRunResult, EngineRunner
+from tradingagents.engine import (
+    EngineEvaluateRequest,
+    EngineEvaluateResult,
+    EngineRunRequest,
+    EngineRunResult,
+    EngineRunner,
+)
 from tradingagents.services import JournalService
 
 
@@ -104,6 +110,46 @@ def test_engine_request_keeps_only_graph_analyst_lanes():
     )
 
     assert request.analysts == ["market", "social"]
+
+
+def test_engine_evaluate_request_accepts_window_presets():
+    request = EngineEvaluateRequest.model_validate(
+        {
+            "thesis_id": "thesis_1",
+            "workspace_id": "workspace_1",
+            "window_days": 14,
+            "metadata": {"source": "test"},
+        }
+    )
+
+    assert request.window_days == 14
+    assert request.metadata == {"source": "test"}
+
+
+def test_engine_cli_evaluate_emits_machine_json(tmp_path, monkeypatch):
+    request_path = tmp_path / "request.json"
+    request_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "tradingagents.engine.run_evaluate_request_file",
+        lambda _path: EngineEvaluateResult(
+            workspace_id="workspace_1",
+            thesis_id="thesis_1",
+            evaluation_id="evaluation_1",
+            status="completed",
+            evaluation={"id": "evaluation_1", "result": "hit_target"},
+            warnings=[],
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli_main.app,
+        ["engine", "evaluate", "--request", str(request_path)],
+    )
+
+    assert result.exit_code == 0
+    assert '"status": "completed"' in result.output
+    assert '"evaluation_id": "evaluation_1"' in result.output
 
 
 def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):

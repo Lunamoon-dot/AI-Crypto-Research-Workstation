@@ -460,10 +460,33 @@ def engine_pulse_memo(
         raise typer.Exit(1)
 
 
+@engine_app.command("evaluate")
+def engine_evaluate(
+    request: Path = typer.Option(
+        ...,
+        "--request",
+        "-r",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON request file for single-thesis evaluation.",
+    ),
+) -> None:
+    """Evaluate one thesis from a structured JSON request."""
+    from tradingagents.engine import run_evaluate_request_file
+
+    result = run_evaluate_request_file(request)
+    console.print_json(data=result.model_dump(mode="json"))
+    if result.error_type:
+        raise typer.Exit(1)
+
+
 @engine_app.command("schema")
 def engine_schema() -> None:
     """Emit the JSON schemas used by the worker engine contract."""
     from tradingagents.engine import (
+        EngineEvaluateRequest,
+        EngineEvaluateResult,
         EngineMonitorPlanRequest,
         EngineMonitorPlanResult,
         EnginePulseMemoRequest,
@@ -484,6 +507,8 @@ def engine_schema() -> None:
             "pulse_result": EnginePulseResult.model_json_schema(),
             "pulse_memo_request": EnginePulseMemoRequest.model_json_schema(),
             "pulse_memo_result": EnginePulseMemoResult.model_json_schema(),
+            "evaluate_request": EngineEvaluateRequest.model_json_schema(),
+            "evaluate_result": EngineEvaluateResult.model_json_schema(),
         }
     )
 

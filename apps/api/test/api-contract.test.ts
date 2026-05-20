@@ -20,6 +20,7 @@ import {
   JournalRepository,
   JsonRecord,
   SignalSummary,
+  ThesisEvaluationInput,
   ThesisDecisionIntent,
   ThesisReviewMetrics,
 } from '../src/database/journal.types';
@@ -52,6 +53,7 @@ import { MarketPriceService } from '../src/market-data/market-price.service';
 import { WatchlistsService } from '../src/watchlists/watchlists.service';
 import { BriefsService } from '../src/briefs/briefs.service';
 import { AlertsService } from '../src/alerts/alerts.service';
+import { CalibrationService } from '../src/calibration/calibration.service';
 import { PerformanceService } from '../src/performance/performance.service';
 import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
@@ -74,6 +76,7 @@ class FakeJournalRepository implements JournalRepository {
   readonly debates = new Map<string, JsonRecord>();
   readonly agentOpinions = new Map<string, JsonRecord[]>();
   readonly theses = new Map<string, JsonRecord>();
+  readonly thesisEvaluations = new Map<string, JsonRecord>();
   readonly monitorPlans = new Map<string, JsonRecord>();
   readonly thesisPulses = new Map<string, JsonRecord[]>();
   readonly thesisPulseMemos = new Map<string, JsonRecord[]>();
@@ -239,6 +242,96 @@ class FakeJournalRepository implements JournalRepository {
 
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getThesisEvaluationByNaturalKey(
+    naturalKey: {
+      thesisId: string;
+      windowDays: number;
+      evaluationStart: string;
+      evaluationEnd: string;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.thesisEvaluations.values()].find(
+        (evaluation) =>
+          evaluation.workspace_id === workspaceId &&
+          evaluation.thesis_id === naturalKey.thesisId &&
+          evaluation.window_days === naturalKey.windowDays &&
+          evaluation.evaluation_start === naturalKey.evaluationStart &&
+          evaluation.evaluation_end === naturalKey.evaluationEnd,
+      ) ?? null
+    );
+  }
+
+  async upsertThesisEvaluation(
+    input: ThesisEvaluationInput,
+    workspaceId: string,
+  ): Promise<{ created: boolean; evaluation: JsonRecord }> {
+    const existing = await this.getThesisEvaluationByNaturalKey(
+      {
+        thesisId: input.thesis_id,
+        windowDays: input.window_days,
+        evaluationStart: input.evaluation_start,
+        evaluationEnd: input.evaluation_end,
+      },
+      workspaceId,
+    );
+    if (existing) {
+      return { created: false, evaluation: existing };
+    }
+    const saved: JsonRecord = {
+      ...input,
+      id: input.id ?? `evaluation_${this.thesisEvaluations.size + 1}`,
+      workspace_id: workspaceId,
+      outcome_review_id: input.outcome_review_id ?? null,
+      evaluated_at: input.evaluated_at ?? '2026-05-12T00:00:00.000Z',
+      max_favorable_excursion: input.max_favorable_excursion ?? null,
+      max_adverse_excursion: input.max_adverse_excursion ?? null,
+      invalidated: input.invalidated ?? false,
+      warnings: input.warnings ?? [],
+      evidence: input.evidence ?? {},
+      payload: input.payload ?? input,
+    };
+    this.thesisEvaluations.set(key(String(saved.id), workspaceId), saved);
+    return { created: true, evaluation: saved };
+  }
+
+  async listThesisEvaluations(
+    filters: { thesisId?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.thesisEvaluations.values()]
+      .filter((evaluation) => evaluation.workspace_id === workspaceId)
+      .filter(
+        (evaluation) =>
+          !filters.thesisId || evaluation.thesis_id === filters.thesisId,
+      )
+      .sort((a, b) =>
+        String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')),
+      )
+      .slice(0, filters.limit);
+  }
+
+  async getThesisEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.thesisEvaluations.get(key(id, workspaceId)) ?? null;
+  }
+
+  async linkThesisEvaluationOutcomeReview(
+    id: string,
+    outcomeReviewId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const evaluation = this.thesisEvaluations.get(key(id, workspaceId));
+    if (!evaluation) {
+      return null;
+    }
+    evaluation.outcome_review_id = outcomeReviewId;
+    return evaluation;
   }
 
   async getThesisMonitorPlan(
@@ -564,8 +657,8 @@ class FakeJournalRepository implements JournalRepository {
     metrics: ThesisReviewMetrics = {},
   ): Promise<JsonRecord> {
     this.reviewCalls.push({ thesisId, result, notes, workspaceId, metrics });
-    return {
-      id: 'outcome_1',
+    const review = {
+      id: `outcome_${this.outcomeReviews.length + 1}`,
       workspace_id: workspaceId,
       thesis_id: thesisId,
       result,
@@ -574,7 +667,10 @@ class FakeJournalRepository implements JournalRepository {
       max_adverse_excursion: metrics.max_adverse_excursion ?? null,
       reviewed_at: '2026-05-12T00:00:00.000Z',
       invalidated: result === 'invalidated',
+      metadata: metrics.metadata ?? {},
     };
+    this.outcomeReviews.push(review);
+    return review;
   }
 
   async listOutcomeReviews(
@@ -586,6 +682,17 @@ class FakeJournalRepository implements JournalRepository {
       .filter((review) => review.workspace_id === workspaceId)
       .filter((review) => !symbol || review.symbol === symbol)
       .slice(0, limit);
+  }
+
+  async getOutcomeReview(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      this.outcomeReviews.find(
+        (review) => review.id === id && review.workspace_id === workspaceId,
+      ) ?? null
+    );
   }
 
   async getSignal(
@@ -1428,6 +1535,10 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/alerts/scheduler', ['get']],
     ['/alerts/scheduler/run', ['post']],
     ['/workbench/attention', ['get']],
+    ['/calibration/evaluations/thesis', ['post']],
+    ['/calibration/evaluations', ['get']],
+    ['/calibration/evaluations/{id}', ['get']],
+    ['/calibration/evaluations/{id}/outcome-review', ['post']],
     ['/performance/outcomes', ['get']],
     ['/performance/analytics', ['get']],
     ['/performance/trend', ['get']],
@@ -2564,6 +2675,116 @@ test('thesis decision and review verify workspace before writing', async () => {
     max_favorable_excursion: 0.04,
     max_adverse_excursion: -0.07,
   });
+});
+
+test('calibration evaluates a thesis idempotently and records one outcome review', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_calibration', 'workspace_a'), {
+    id: 'thesis_calibration',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    confidence: 0.74,
+    created_at: '2020-01-01T00:00:00.000Z',
+    thesis_text: 'Evaluate this thesis.',
+  });
+
+  const first = await calibration.evaluateThesis(
+    { thesis_id: 'thesis_calibration', window_days: 14 },
+    'user_1',
+    'workspace_a',
+  );
+  const second = await calibration.evaluateThesis(
+    { thesis_id: 'thesis_calibration', window_days: 14 },
+    'user_1',
+    'workspace_a',
+  );
+  const review = await calibration.recordOutcomeReview(
+    first.evaluation.id ?? '',
+    { notes: 'Reviewed after inspection.' },
+    'user_1',
+    'workspace_a',
+  );
+  const duplicateReview = await calibration.recordOutcomeReview(
+    first.evaluation.id ?? '',
+    { notes: 'Should not duplicate.' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.evaluation.id, first.evaluation.id);
+  assert.equal(first.evaluation.result, 'hit_target');
+  assert.equal(first.evaluation.can_record_review, true);
+  assert.equal(review.created, true);
+  assert.equal(review.outcome_review?.result, 'hit_target');
+  assert.equal(review.evaluation.outcome_review_id, review.outcome_review?.id);
+  assert.equal(duplicateReview.created, false);
+  assert.equal(journal.reviewCalls.length, 1);
+  assert.deepEqual(journal.reviewCalls[0]?.metrics?.metadata, {
+    source: 'calibration_lab',
+    evaluation_id: first.evaluation.id,
+    window_days: 14,
+  });
+});
+
+test('calibration returns blockers instead of recording unusable reviews', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.thesisEvaluations.set(key('evaluation_future', 'workspace_a'), {
+    id: 'evaluation_future',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_future',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2999-01-01',
+    evaluation_end: '2999-01-15',
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.1,
+    max_adverse_excursion: -0.03,
+    invalidated: false,
+    warnings: ['incomplete_window'],
+    evidence: {},
+  });
+  journal.thesisEvaluations.set(key('evaluation_unknown', 'workspace_a'), {
+    id: 'evaluation_unknown',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_unknown',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2020-01-01',
+    evaluation_end: '2020-01-15',
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'unknown',
+    max_favorable_excursion: null,
+    max_adverse_excursion: null,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+
+  const future = await calibration.recordOutcomeReview(
+    'evaluation_future',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const unknown = await calibration.recordOutcomeReview(
+    'evaluation_unknown',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(future.created, false);
+  assert.deepEqual(future.warnings, ['incomplete_window']);
+  assert.equal(unknown.created, false);
+  assert.deepEqual(unknown.warnings, ['unknown_result']);
+  assert.equal(journal.reviewCalls.length, 0);
 });
 
 test('thesis monitor plan endpoint creates stable DTO through engine fallback', async () => {
@@ -5468,6 +5689,52 @@ function buildHarness() {
       journal.monitorPlans.set(key(thesisId, workspaceId), plan);
       return { created: true, skipped: false, memo, ...memo };
     },
+    evaluateThesis: async (request: JsonRecord) => {
+      const thesisId = String(request.thesis_id);
+      const workspaceId = String(request.workspace_id ?? 'local');
+      const windowDays = Number(request.window_days ?? 14);
+      const thesis = journal.theses.get(key(thesisId, workspaceId));
+      const start = String(thesis?.created_at ?? '2026-05-01T00:00:00.000Z').slice(
+        0,
+        10,
+      );
+      const end = addDaysIsoDate(start, windowDays);
+      const result = thesisId.includes('unknown') ? 'unknown' : 'hit_target';
+      const evaluation = {
+        id: `evaluation_${thesisId}_${windowDays}`,
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+        symbol: String(thesis?.symbol ?? 'BTC/USDT'),
+        window_days: windowDays,
+        evaluation_start: start,
+        evaluation_end: end,
+        evaluated_at: '2026-05-12T00:00:00.000Z',
+        result,
+        max_favorable_excursion: 0.12,
+        max_adverse_excursion: -0.04,
+        invalidated: false,
+        warnings: end > '2026-05-12' ? ['incomplete_window'] : [],
+        evidence: {
+          candle_count: 336,
+          first_candle_at: `${start}T00:00:00.000Z`,
+          last_candle_at: `${end}T00:00:00.000Z`,
+          highest_high: 112,
+          lowest_low: 96,
+          target_hit: result === 'hit_target',
+          invalidation_hit: false,
+        },
+      };
+      return {
+        workspace_id: workspaceId,
+        thesis_id: thesisId,
+        evaluation_id: evaluation.id,
+        status: 'completed',
+        evaluation,
+        warnings: evaluation.warnings,
+        error_type: null,
+        error: null,
+      };
+    },
   } as unknown as PythonEngineClient;
   const marketPriceCalls: Array<{
     overrides: Record<string, number>;
@@ -5520,6 +5787,12 @@ function buildHarness() {
     watchlists,
     briefs: new BriefsService(journal, auth, workspaces),
     alerts: new AlertsService(journal, auth, workspaces),
+    calibration: new CalibrationService(
+      journal,
+      auth,
+      workspaces,
+      thesisEngine,
+    ),
     performance: new PerformanceService(journal, auth, workspaces),
     comparisons: new ComparisonsService(journal, auth, workspaces),
     scenarios: new ScenariosService(journal, auth, workspaces),
@@ -5547,6 +5820,12 @@ function key(id: string, workspaceId: string): string {
 
 function addMinutesIso(value: string, minutes: number): string {
   return new Date(new Date(value).getTime() + minutes * 60_000).toISOString();
+}
+
+function addDaysIsoDate(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function appendUniqueString(value: unknown, item: string): string[] {

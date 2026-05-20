@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AlertsModule } from './alerts/alerts.module';
 import { AuthModule } from './auth/auth.module';
 import { BriefsModule } from './briefs/briefs.module';
+import { CalibrationModule } from './calibration/calibration.module';
 import { ComparisonsModule } from './comparisons/comparisons.module';
 import { DatabaseModule } from './database/database.module';
 import { JobsController } from './jobs/jobs.controller';
@@ -35,6 +36,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WatchlistsModule,
     BriefsModule,
     AlertsModule,
+    CalibrationModule,
     PerformanceModule,
     ComparisonsModule,
     ScenariosModule,

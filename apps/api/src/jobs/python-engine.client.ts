@@ -41,6 +41,13 @@ export interface EnginePulseMemoRequest {
   metadata?: JsonRecord;
 }
 
+export interface EngineEvaluateRequest {
+  thesis_id: string;
+  workspace_id: string;
+  window_days: number;
+  metadata?: JsonRecord;
+}
+
 @Injectable()
 export class PythonEngineClient {
   async runInline(
@@ -87,6 +94,18 @@ export class PythonEngineClient {
       request,
       `${request.thesis_id}-pulse-memo.json`,
       resolveCliInvocation(['engine', 'pulse-memo', '--request']),
+      options,
+    );
+  }
+
+  async evaluateThesis(
+    request: EngineEvaluateRequest,
+    options: PythonEngineRunOptions = {},
+  ): Promise<JsonRecord> {
+    return runEngineRequestFile(
+      request,
+      `${request.thesis_id}-evaluation.json`,
+      resolveCliInvocation(['engine', 'evaluate', '--request']),
       options,
     );
   }
