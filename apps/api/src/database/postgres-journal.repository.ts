@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
   JournalRepository,
   JsonRecord,
+  MaturedEvaluationThesisFilters,
   MonitoringJobClaimInput,
   MonitoringJobFailure,
   MonitoringJobInput,
@@ -434,6 +435,32 @@ export class PostgresJournalRepository implements JournalRepository {
     return this.one(
       'SELECT payload_json FROM trade_theses WHERE id = $1 AND workspace_id = $2',
       [id, workspaceId],
+    );
+  }
+
+  async listThesesForMaturedEvaluation(
+    filters: MaturedEvaluationThesisFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'created_at', created_at
+       ) AS payload_json
+       FROM trade_theses
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at ASC, id ASC
+       LIMIT $${params.length}`,
+      params,
     );
   }
 

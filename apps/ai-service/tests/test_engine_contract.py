@@ -10,6 +10,9 @@ from tradingagents.engine import (
     EngineRunResult,
     EngineRunner,
 )
+from tradingagents.engine.runner import run_evaluate_request
+from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
+from tradingagents.services.evaluation_service import EvaluationService
 from tradingagents.services import JournalService
 
 
@@ -124,6 +127,65 @@ def test_engine_evaluate_request_accepts_window_presets():
 
     assert request.window_days == 14
     assert request.metadata == {"source": "test"}
+
+
+def test_engine_evaluate_binds_dataflow_config_context(tmp_path, monkeypatch):
+    db_path = tmp_path / "journal.sqlite"
+    config = {
+        "data_cache_dir": str(tmp_path / "cache"),
+        "journal": {"enabled": True, "db_path": str(db_path)},
+    }
+    service = EvaluationService(config=config)
+    run = service.repo.save_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = service.repo.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            thesis_text="Long if support holds.",
+            created_at="2026-01-01T00:00:00+00:00",
+            target_zones=["110"],
+            invalidation_level="95",
+        )
+    )
+
+    def fake_route_to_vendor(name, symbol, start_date, end_date):
+        from tradingagents.dataflows.config import get_config
+
+        bound = get_config()
+        assert name == "get_crypto_ohlcv"
+        assert bound["workspace_id"] == "workspace_1"
+        assert symbol == "BTC/USDT"
+        assert start_date == "2026-01-01"
+        assert end_date == "2026-01-15"
+        return "\n".join(
+            [
+                "Date,Open,High,Low,Close,Volume",
+                "2026-01-01,100,111,99,108,10",
+            ]
+        )
+
+    monkeypatch.setattr(
+        "tradingagents.engine.runner.DEFAULT_CONFIG",
+        config,
+    )
+    monkeypatch.setattr(
+        "tradingagents.services.evaluation_service.route_to_vendor",
+        fake_route_to_vendor,
+    )
+
+    result = run_evaluate_request(
+        EngineEvaluateRequest(
+            thesis_id=thesis.id,
+            workspace_id="workspace_1",
+            window_days=14,
+        )
+    )
+
+    assert result.status == "completed"
+    assert result.error_type is None
+    assert result.evaluation is not None
+    assert result.evaluation["result"] == "hit_target"
 
 
 def test_engine_cli_evaluate_emits_machine_json(tmp_path, monkeypatch):

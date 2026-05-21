@@ -1,9 +1,13 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
 import type {
+  ApplyMaturedEvaluationsRequest,
+  ApplyMaturedEvaluationsResponse,
   CalibrationEvaluationResponse,
   EvaluateThesisRequest,
   EvaluateThesisResponse,
+  PreviewMaturedEvaluationsRequest,
+  PreviewMaturedEvaluationsResponse,
   RecordCalibrationOutcomeReviewRequest,
   RecordCalibrationOutcomeReviewResponse,
 } from '@/types';
@@ -26,6 +30,28 @@ export function listCalibrationEvaluations(
   return apiRequest<CalibrationEvaluationResponse[]>(
     '/calibration/evaluations',
     { query: { thesis_id: params.thesis_id, limit: params.limit ?? 50 } },
+    auth,
+  );
+}
+
+export function previewMaturedEvaluations(
+  request: PreviewMaturedEvaluationsRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<PreviewMaturedEvaluationsResponse>(
+    '/calibration/evaluations/matured/preview',
+    { method: 'POST', body: request },
+    auth,
+  );
+}
+
+export function applyMaturedEvaluations(
+  request: ApplyMaturedEvaluationsRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ApplyMaturedEvaluationsResponse>(
+    '/calibration/evaluations/matured/apply',
+    { method: 'POST', body: request },
     auth,
   );
 }

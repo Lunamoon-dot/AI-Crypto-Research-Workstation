@@ -10,6 +10,7 @@ from typing import Any
 
 from tradingagents.config.loader import ConfigLoader
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.dataflows.config import config_context
 from tradingagents.domain import ResearchRun, ResearchRunStatus
 from tradingagents.exceptions import classify_error
 from tradingagents.graph.config_hash import compute_config_hash
@@ -405,14 +406,14 @@ def run_evaluate_request_file(path: str | Path) -> EngineEvaluateResult:
 
 def run_evaluate_request(request: EngineEvaluateRequest) -> EngineEvaluateResult:
     try:
-        service = EvaluationService(
-            config=_monitoring_config(request.workspace_id, request.metadata)
-        )
-        evaluation = service.evaluate_thesis(
-            request.thesis_id,
-            window_days=request.window_days,
-            record_review=False,
-        )
+        config = _monitoring_config(request.workspace_id, request.metadata)
+        service = EvaluationService(config=config)
+        with config_context(config):
+            evaluation = service.evaluate_thesis(
+                request.thesis_id,
+                window_days=request.window_days,
+                record_review=False,
+            )
         payload = evaluation.model_dump(mode="json")
         warnings = list(dict.fromkeys([*evaluation.warnings]))
         return EngineEvaluateResult(

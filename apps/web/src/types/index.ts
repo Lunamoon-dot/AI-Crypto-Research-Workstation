@@ -440,6 +440,29 @@ export type CalibrationRecordReviewBlocker =
   | 'unknown_result'
   | 'review_already_recorded';
 
+export type MaturedEvaluationPreviewStatus =
+  | 'candidate'
+  | 'existing'
+  | 'not_mature'
+  | 'invalid_thesis';
+
+export type MaturedEvaluationApplyStatus =
+  | 'created'
+  | 'existing'
+  | 'failed'
+  | 'skipped';
+
+export type MaturedEvaluationReason =
+  | 'evaluation_already_exists'
+  | 'window_not_closed'
+  | 'missing_created_at'
+  | 'invalid_created_at'
+  | 'missing_symbol'
+  | 'engine_error'
+  | 'provider_error'
+  | 'unknown_error'
+  | 'max_batch_excluded';
+
 export interface CalibrationEvaluationResponse {
   id: string | null;
   workspace_id: string;
@@ -473,6 +496,63 @@ export interface RecordCalibrationOutcomeReviewResponse {
   outcome_review: ThesisReviewResponse | null;
   evaluation: CalibrationEvaluationResponse;
   warnings: string[];
+}
+
+export interface MaturedEvaluationPreviewSummaryResponse {
+  candidate: number;
+  existing: number;
+  not_mature: number;
+  invalid_thesis: number;
+}
+
+export interface MaturedEvaluationApplySummaryResponse {
+  created: number;
+  existing: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface MaturedEvaluationPreviewRowResponse {
+  thesis_id: string;
+  symbol: string;
+  created_at: string | null;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  status: MaturedEvaluationPreviewStatus;
+  reason: MaturedEvaluationReason | null;
+  evaluation_id: string | null;
+}
+
+export interface MaturedEvaluationApplyRowResponse {
+  thesis_id: string;
+  symbol: string;
+  created_at: string | null;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  status: MaturedEvaluationApplyStatus;
+  reason: MaturedEvaluationReason | null;
+  evaluation_id: string | null;
+  result: CalibrationResult | null;
+  warnings: string[];
+  message: string | null;
+}
+
+export interface PreviewMaturedEvaluationsResponse {
+  window_days: number;
+  scan_limit: number;
+  symbol: string | null;
+  summary: MaturedEvaluationPreviewSummaryResponse;
+  rows: MaturedEvaluationPreviewRowResponse[];
+}
+
+export interface ApplyMaturedEvaluationsResponse {
+  window_days: number;
+  max_batch: number;
+  symbol: string | null;
+  summary: MaturedEvaluationApplySummaryResponse;
+  rows: MaturedEvaluationApplyRowResponse[];
 }
 
 export interface RetrospectiveInsightResponse {
@@ -958,6 +1038,18 @@ export type RecordThesisReviewRequest = {
 export type EvaluateThesisRequest = {
   thesis_id: string;
   window_days?: 7 | 14 | 30;
+};
+
+export type PreviewMaturedEvaluationsRequest = {
+  window_days?: 7 | 14 | 30;
+  scan_limit?: number;
+  symbol?: string;
+};
+
+export type ApplyMaturedEvaluationsRequest = {
+  window_days?: 7 | 14 | 30;
+  max_batch?: number;
+  symbol?: string;
 };
 
 export type RecordCalibrationOutcomeReviewRequest = {

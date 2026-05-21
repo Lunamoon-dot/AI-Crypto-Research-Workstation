@@ -689,6 +689,28 @@ export const openApiDocument = {
         ),
       },
     },
+    '/calibration/evaluations/matured/preview': {
+      post: {
+        operationId: 'previewMaturedCalibrationEvaluations',
+        tags: ['calibration'],
+        requestBody: jsonRequest('PreviewMaturedEvaluationsRequest'),
+        responses: jsonResponse(
+          'Batch matured evaluation preview for the active workspace.',
+          'PreviewMaturedEvaluationsResponse',
+        ),
+      },
+    },
+    '/calibration/evaluations/matured/apply': {
+      post: {
+        operationId: 'applyMaturedCalibrationEvaluations',
+        tags: ['calibration'],
+        requestBody: jsonRequest('ApplyMaturedEvaluationsRequest'),
+        responses: jsonResponse(
+          'Batch matured evaluation apply results for the active workspace.',
+          'ApplyMaturedEvaluationsResponse',
+        ),
+      },
+    },
     '/calibration/evaluations': {
       get: {
         operationId: 'listCalibrationEvaluations',
@@ -1517,6 +1539,126 @@ export const openApiDocument = {
           warnings: { type: 'array', items: { type: 'string' } },
         },
       },
+      MaturedEvaluationPreviewSummaryResponse: {
+        type: 'object',
+        required: ['candidate', 'existing', 'not_mature', 'invalid_thesis'],
+        properties: {
+          candidate: { type: 'integer' },
+          existing: { type: 'integer' },
+          not_mature: { type: 'integer' },
+          invalid_thesis: { type: 'integer' },
+        },
+      },
+      MaturedEvaluationApplySummaryResponse: {
+        type: 'object',
+        required: ['created', 'existing', 'skipped', 'failed'],
+        properties: {
+          created: { type: 'integer' },
+          existing: { type: 'integer' },
+          skipped: { type: 'integer' },
+          failed: { type: 'integer' },
+        },
+      },
+      MaturedEvaluationPreviewRowResponse: {
+        type: 'object',
+        required: ['thesis_id', 'symbol', 'created_at', 'window_days', 'evaluation_start', 'evaluation_end', 'status', 'reason', 'evaluation_id'],
+        properties: {
+          thesis_id: { type: 'string' },
+          symbol: { type: 'string' },
+          created_at: { type: ['string', 'null'], format: 'date-time' },
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          evaluation_start: { type: ['string', 'null'], format: 'date' },
+          evaluation_end: { type: ['string', 'null'], format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['candidate', 'existing', 'not_mature', 'invalid_thesis'],
+          },
+          reason: {
+            type: ['string', 'null'],
+            enum: [
+              'evaluation_already_exists',
+              'window_not_closed',
+              'missing_created_at',
+              'invalid_created_at',
+              'missing_symbol',
+              'engine_error',
+              'provider_error',
+              'unknown_error',
+              'max_batch_excluded',
+              null,
+            ],
+          },
+          evaluation_id: { type: ['string', 'null'] },
+        },
+      },
+      MaturedEvaluationApplyRowResponse: {
+        type: 'object',
+        required: ['thesis_id', 'symbol', 'created_at', 'window_days', 'evaluation_start', 'evaluation_end', 'status', 'reason', 'evaluation_id', 'result', 'warnings', 'message'],
+        properties: {
+          thesis_id: { type: 'string' },
+          symbol: { type: 'string' },
+          created_at: { type: ['string', 'null'], format: 'date-time' },
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          evaluation_start: { type: ['string', 'null'], format: 'date' },
+          evaluation_end: { type: ['string', 'null'], format: 'date' },
+          status: {
+            type: 'string',
+            enum: ['created', 'existing', 'failed', 'skipped'],
+          },
+          reason: {
+            type: ['string', 'null'],
+            enum: [
+              'evaluation_already_exists',
+              'window_not_closed',
+              'missing_created_at',
+              'invalid_created_at',
+              'missing_symbol',
+              'engine_error',
+              'provider_error',
+              'unknown_error',
+              'max_batch_excluded',
+              null,
+            ],
+          },
+          evaluation_id: { type: ['string', 'null'] },
+          result: {
+            anyOf: [
+              { type: 'string', enum: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'] },
+              { type: 'null' },
+            ],
+          },
+          warnings: { type: 'array', items: { type: 'string' } },
+          message: { type: ['string', 'null'] },
+        },
+      },
+      PreviewMaturedEvaluationsResponse: {
+        type: 'object',
+        required: ['window_days', 'scan_limit', 'symbol', 'summary', 'rows'],
+        properties: {
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          scan_limit: { type: 'integer' },
+          symbol: { type: ['string', 'null'] },
+          summary: { $ref: '#/components/schemas/MaturedEvaluationPreviewSummaryResponse' },
+          rows: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MaturedEvaluationPreviewRowResponse' },
+          },
+        },
+      },
+      ApplyMaturedEvaluationsResponse: {
+        type: 'object',
+        required: ['window_days', 'max_batch', 'symbol', 'summary', 'rows'],
+        properties: {
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          max_batch: { type: 'integer' },
+          symbol: { type: ['string', 'null'] },
+          summary: { $ref: '#/components/schemas/MaturedEvaluationApplySummaryResponse' },
+          rows: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MaturedEvaluationApplyRowResponse' },
+          },
+        },
+      },
       RetrospectiveInsightResponse: {
         type: 'object',
         required: ['insight_type', 'message', 'thesis_ids', 'evidence_count'],
@@ -1625,6 +1767,22 @@ export const openApiDocument = {
         properties: {
           thesis_id: { type: 'string', minLength: 1 },
           window_days: { type: 'integer', enum: [7, 14, 30], default: 14 },
+        },
+      },
+      PreviewMaturedEvaluationsRequest: {
+        type: 'object',
+        properties: {
+          window_days: { type: 'integer', enum: [7, 14, 30], default: 14 },
+          scan_limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+          symbol: { type: 'string', minLength: 1 },
+        },
+      },
+      ApplyMaturedEvaluationsRequest: {
+        type: 'object',
+        properties: {
+          window_days: { type: 'integer', enum: [7, 14, 30], default: 14 },
+          max_batch: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+          symbol: { type: 'string', minLength: 1 },
         },
       },
       CalibrationOutcomeReviewRequest: {

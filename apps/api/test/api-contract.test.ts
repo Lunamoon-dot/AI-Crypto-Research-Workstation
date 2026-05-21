@@ -240,6 +240,29 @@ class FakeJournalRepository implements JournalRepository {
       .slice(0, limit);
   }
 
+  async listThesesForMaturedEvaluation(
+    filters: { symbol?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const symbol = filters.symbol
+      ? normalizeCryptoSymbolForTest(filters.symbol)
+      : undefined;
+    return [...this.theses.values()]
+      .filter((thesis) => thesis.workspace_id === workspaceId)
+      .filter(
+        (thesis) =>
+          !symbol ||
+          normalizeOptionalCryptoSymbolForTest(thesis.symbol) === symbol,
+      )
+      .sort(
+        (left, right) =>
+          String(left.created_at ?? '').localeCompare(
+            String(right.created_at ?? ''),
+          ) || String(left.id ?? '').localeCompare(String(right.id ?? '')),
+      )
+      .slice(0, filters.limit);
+  }
+
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
   }
@@ -1536,6 +1559,8 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/alerts/scheduler/run', ['post']],
     ['/workbench/attention', ['get']],
     ['/calibration/evaluations/thesis', ['post']],
+    ['/calibration/evaluations/matured/preview', ['post']],
+    ['/calibration/evaluations/matured/apply', ['post']],
     ['/calibration/evaluations', ['get']],
     ['/calibration/evaluations/{id}', ['get']],
     ['/calibration/evaluations/{id}/outcome-review', ['post']],
@@ -2785,6 +2810,205 @@ test('calibration returns blockers instead of recording unusable reviews', async
   assert.equal(unknown.created, false);
   assert.deepEqual(unknown.warnings, ['unknown_result']);
   assert.equal(journal.reviewCalls.length, 0);
+});
+
+test('calibration matured preview marks candidate existing not mature and invalid rows', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_batch_candidate', 'workspace_a'), {
+    id: 'thesis_batch_candidate',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    created_at: '2020-01-01T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_batch_existing', 'workspace_a'), {
+    id: 'thesis_batch_existing',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    created_at: '2020-01-02T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_batch_future', 'workspace_a'), {
+    id: 'thesis_batch_future',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    created_at: '2999-01-01T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_batch_missing_created', 'workspace_a'), {
+    id: 'thesis_batch_missing_created',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+  });
+  journal.theses.set(key('thesis_batch_missing_symbol', 'workspace_a'), {
+    id: 'thesis_batch_missing_symbol',
+    workspace_id: 'workspace_a',
+    created_at: '2020-01-03T00:00:00.000Z',
+  });
+  journal.thesisEvaluations.set(key('evaluation_existing_batch', 'workspace_a'), {
+    id: 'evaluation_existing_batch',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_batch_existing',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2020-01-02',
+    evaluation_end: '2020-01-16',
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.1,
+    max_adverse_excursion: -0.03,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+
+  const response = await calibration.previewMaturedEvaluations(
+    { window_days: 14, scan_limit: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  const statuses = new Map(
+    response.rows.map((row) => [row.thesis_id, [row.status, row.reason]]),
+  );
+
+  assert.deepEqual(response.summary, {
+    candidate: 1,
+    existing: 1,
+    not_mature: 1,
+    invalid_thesis: 2,
+  });
+  assert.deepEqual(statuses.get('thesis_batch_candidate'), ['candidate', null]);
+  assert.deepEqual(statuses.get('thesis_batch_existing'), [
+    'existing',
+    'evaluation_already_exists',
+  ]);
+  assert.deepEqual(statuses.get('thesis_batch_future'), [
+    'not_mature',
+    'window_not_closed',
+  ]);
+  assert.deepEqual(statuses.get('thesis_batch_missing_created'), [
+    'invalid_thesis',
+    'missing_created_at',
+  ]);
+  assert.deepEqual(statuses.get('thesis_batch_missing_symbol'), [
+    'invalid_thesis',
+    'missing_symbol',
+  ]);
+});
+
+test('calibration matured apply caps candidates and keeps row failures local', async () => {
+  const { calibration, journal } = buildHarness();
+  for (const [id, createdAt] of [
+    ['thesis_batch_create', '2020-01-01T00:00:00.000Z'],
+    ['thesis_batch_provider_fail', '2020-01-02T00:00:00.000Z'],
+    ['thesis_batch_after_cap', '2020-01-03T00:00:00.000Z'],
+    ['thesis_batch_existing_apply', '2020-01-04T00:00:00.000Z'],
+  ]) {
+    journal.theses.set(key(id, 'workspace_a'), {
+      id,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      created_at: createdAt,
+    });
+  }
+  journal.thesisEvaluations.set(key('evaluation_existing_apply', 'workspace_a'), {
+    id: 'evaluation_existing_apply',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_batch_existing_apply',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2020-01-04',
+    evaluation_end: '2020-01-18',
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.1,
+    max_adverse_excursion: -0.03,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+
+  const response = await calibration.applyMaturedEvaluations(
+    { window_days: 14, max_batch: 2 },
+    'user_1',
+    'workspace_a',
+  );
+  const rows = new Map(response.rows.map((row) => [row.thesis_id, row]));
+
+  assert.deepEqual(response.summary, {
+    created: 1,
+    existing: 1,
+    skipped: 1,
+    failed: 1,
+  });
+  assert.equal(rows.get('thesis_batch_create')?.status, 'created');
+  assert.equal(rows.get('thesis_batch_provider_fail')?.status, 'failed');
+  assert.equal(rows.get('thesis_batch_provider_fail')?.reason, 'provider_error');
+  assert.equal(rows.get('thesis_batch_after_cap')?.status, 'skipped');
+  assert.equal(rows.get('thesis_batch_after_cap')?.reason, 'max_batch_excluded');
+  assert.equal(rows.get('thesis_batch_existing_apply')?.status, 'existing');
+  assert.equal(journal.outcomeReviews.length, 0);
+});
+
+test('calibration matured apply is idempotent on repeat', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_batch_idempotent', 'workspace_a'), {
+    id: 'thesis_batch_idempotent',
+    workspace_id: 'workspace_a',
+    symbol: 'SOL/USDT',
+    created_at: '2020-02-01T00:00:00.000Z',
+  });
+
+  const first = await calibration.applyMaturedEvaluations(
+    { window_days: 14, max_batch: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  const second = await calibration.applyMaturedEvaluations(
+    { window_days: 14, max_batch: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  const saved = [...journal.thesisEvaluations.values()].filter(
+    (evaluation) => evaluation.thesis_id === 'thesis_batch_idempotent',
+  );
+
+  assert.equal(first.rows[0]?.status, 'created');
+  assert.equal(second.rows[0]?.status, 'existing');
+  assert.equal(saved.length, 1);
+});
+
+test('calibration matured symbol filter is exact and workspace scoped', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_batch_btc', 'workspace_a'), {
+    id: 'thesis_batch_btc',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    created_at: '2020-03-01T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_batch_eth', 'workspace_a'), {
+    id: 'thesis_batch_eth',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    created_at: '2020-03-02T00:00:00.000Z',
+  });
+  journal.theses.set(key('thesis_batch_other_workspace', 'workspace_b'), {
+    id: 'thesis_batch_other_workspace',
+    workspace_id: 'workspace_b',
+    symbol: 'BTC/USDT',
+    created_at: '2020-03-03T00:00:00.000Z',
+  });
+
+  const response = await calibration.previewMaturedEvaluations(
+    { window_days: 14, scan_limit: 10, symbol: 'btcusdt' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.symbol, 'BTC/USDT');
+  assert.deepEqual(
+    response.rows.map((row) => row.thesis_id),
+    ['thesis_batch_btc'],
+  );
 });
 
 test('thesis monitor plan endpoint creates stable DTO through engine fallback', async () => {
@@ -5693,6 +5917,18 @@ function buildHarness() {
       const thesisId = String(request.thesis_id);
       const workspaceId = String(request.workspace_id ?? 'local');
       const windowDays = Number(request.window_days ?? 14);
+      if (thesisId.includes('provider_fail')) {
+        return {
+          workspace_id: workspaceId,
+          thesis_id: thesisId,
+          evaluation_id: null,
+          status: 'failed',
+          evaluation: null,
+          warnings: [],
+          error_type: 'ProviderError',
+          error: 'Provider returned no candles',
+        };
+      }
       const thesis = journal.theses.get(key(thesisId, workspaceId));
       const start = String(thesis?.created_at ?? '2026-05-01T00:00:00.000Z').slice(
         0,
@@ -5826,6 +6062,33 @@ function addDaysIsoDate(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function normalizeOptionalCryptoSymbolForTest(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim()
+    ? normalizeCryptoSymbolForTest(value)
+    : undefined;
+}
+
+function normalizeCryptoSymbolForTest(symbol: string): string {
+  const upper = symbol.trim().toUpperCase();
+  if (upper.includes('/')) {
+    return upper;
+  }
+  for (const delimiter of ['-', '_', ':']) {
+    if (upper.includes(delimiter)) {
+      const [base, quote] = upper.split(delimiter, 2);
+      if (base && quote) {
+        return `${base}/${quote === 'USD' ? 'USDT' : quote}`;
+      }
+    }
+  }
+  for (const quote of ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH']) {
+    if (upper.endsWith(quote) && upper.length > quote.length) {
+      return `${upper.slice(0, -quote.length)}/${quote === 'USD' ? 'USDT' : quote}`;
+    }
+  }
+  return `${upper}/USDT`;
 }
 
 function appendUniqueString(value: unknown, item: string): string[] {

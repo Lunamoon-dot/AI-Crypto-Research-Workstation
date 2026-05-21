@@ -423,6 +423,29 @@ export type CalibrationRecordReviewBlocker =
   | 'unknown_result'
   | 'review_already_recorded';
 
+export type MaturedEvaluationPreviewStatus =
+  | 'candidate'
+  | 'existing'
+  | 'not_mature'
+  | 'invalid_thesis';
+
+export type MaturedEvaluationApplyStatus =
+  | 'created'
+  | 'existing'
+  | 'failed'
+  | 'skipped';
+
+export type MaturedEvaluationReason =
+  | 'evaluation_already_exists'
+  | 'window_not_closed'
+  | 'missing_created_at'
+  | 'invalid_created_at'
+  | 'missing_symbol'
+  | 'engine_error'
+  | 'provider_error'
+  | 'unknown_error'
+  | 'max_batch_excluded';
+
 export interface CalibrationEvaluationResponse {
   id: string | null;
   workspace_id: string;
@@ -456,6 +479,63 @@ export interface RecordCalibrationOutcomeReviewResponse {
   outcome_review: ThesisReviewResponse | null;
   evaluation: CalibrationEvaluationResponse;
   warnings: string[];
+}
+
+export interface MaturedEvaluationPreviewSummaryResponse {
+  candidate: number;
+  existing: number;
+  not_mature: number;
+  invalid_thesis: number;
+}
+
+export interface MaturedEvaluationApplySummaryResponse {
+  created: number;
+  existing: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface MaturedEvaluationPreviewRowResponse {
+  thesis_id: string;
+  symbol: string;
+  created_at: string | null;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  status: MaturedEvaluationPreviewStatus;
+  reason: MaturedEvaluationReason | null;
+  evaluation_id: string | null;
+}
+
+export interface MaturedEvaluationApplyRowResponse {
+  thesis_id: string;
+  symbol: string;
+  created_at: string | null;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  status: MaturedEvaluationApplyStatus;
+  reason: MaturedEvaluationReason | null;
+  evaluation_id: string | null;
+  result: CalibrationResult | null;
+  warnings: string[];
+  message: string | null;
+}
+
+export interface PreviewMaturedEvaluationsResponse {
+  window_days: number;
+  scan_limit: number;
+  symbol: string | null;
+  summary: MaturedEvaluationPreviewSummaryResponse;
+  rows: MaturedEvaluationPreviewRowResponse[];
+}
+
+export interface ApplyMaturedEvaluationsResponse {
+  window_days: number;
+  max_batch: number;
+  symbol: string | null;
+  summary: MaturedEvaluationApplySummaryResponse;
+  rows: MaturedEvaluationApplyRowResponse[];
 }
 
 export interface RetrospectiveInsightResponse {
@@ -1677,6 +1757,44 @@ export function toCalibrationEvaluationResponse(
   };
 }
 
+export function toMaturedEvaluationPreviewRowResponse(
+  row: JsonRecord,
+): MaturedEvaluationPreviewRowResponse {
+  return {
+    thesis_id: stringValue(row.thesis_id),
+    symbol: stringValue(row.symbol),
+    created_at: nullableString(row.created_at),
+    window_days: numberValue(row.window_days),
+    evaluation_start: nullableString(row.evaluation_start),
+    evaluation_end: nullableString(row.evaluation_end),
+    status: maturedPreviewStatusValue(row.status),
+    reason: maturedReasonValue(row.reason),
+    evaluation_id: nullableString(row.evaluation_id),
+  };
+}
+
+export function toMaturedEvaluationApplyRowResponse(
+  row: JsonRecord,
+): MaturedEvaluationApplyRowResponse {
+  return {
+    thesis_id: stringValue(row.thesis_id),
+    symbol: stringValue(row.symbol),
+    created_at: nullableString(row.created_at),
+    window_days: numberValue(row.window_days),
+    evaluation_start: nullableString(row.evaluation_start),
+    evaluation_end: nullableString(row.evaluation_end),
+    status: maturedApplyStatusValue(row.status),
+    reason: maturedReasonValue(row.reason),
+    evaluation_id: nullableString(row.evaluation_id),
+    result:
+      row.result === null || row.result === undefined
+        ? null
+        : calibrationResultValue(row.result),
+    warnings: stringList(row.warnings),
+    message: nullableString(row.message),
+  };
+}
+
 export function toProviderHealthResponse(
   row: JsonRecord,
 ): ProviderHealthResponse {
@@ -2116,6 +2234,50 @@ function calibrationBlockerValue(
     value === 'review_already_recorded'
   ) {
     return value;
+  }
+  return null;
+}
+
+function maturedPreviewStatusValue(value: unknown): MaturedEvaluationPreviewStatus {
+  const status = stringValue(value);
+  if (
+    status === 'candidate' ||
+    status === 'existing' ||
+    status === 'not_mature' ||
+    status === 'invalid_thesis'
+  ) {
+    return status;
+  }
+  return 'invalid_thesis';
+}
+
+function maturedApplyStatusValue(value: unknown): MaturedEvaluationApplyStatus {
+  const status = stringValue(value);
+  if (
+    status === 'created' ||
+    status === 'existing' ||
+    status === 'failed' ||
+    status === 'skipped'
+  ) {
+    return status;
+  }
+  return 'skipped';
+}
+
+function maturedReasonValue(value: unknown): MaturedEvaluationReason | null {
+  const reason = nullableString(value);
+  if (
+    reason === 'evaluation_already_exists' ||
+    reason === 'window_not_closed' ||
+    reason === 'missing_created_at' ||
+    reason === 'invalid_created_at' ||
+    reason === 'missing_symbol' ||
+    reason === 'engine_error' ||
+    reason === 'provider_error' ||
+    reason === 'unknown_error' ||
+    reason === 'max_batch_excluded'
+  ) {
+    return reason;
   }
   return null;
 }

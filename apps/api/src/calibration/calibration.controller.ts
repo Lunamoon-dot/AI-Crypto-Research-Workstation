@@ -1,7 +1,11 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { CalibrationService } from './calibration.service';
 import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
+import {
+  ApplyMaturedEvaluationsDto,
+  PreviewMaturedEvaluationsDto,
+} from './dto/matured-evaluations.dto';
 import { CalibrationOutcomeReviewDto } from './dto/outcome-review.dto';
 
 @Controller('calibration')
@@ -15,6 +19,26 @@ export class CalibrationController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.calibration.evaluateThesis(dto, userId, workspaceId);
+  }
+
+  @Post('evaluations/matured/preview')
+  @HttpCode(200)
+  previewMaturedEvaluations(
+    @Body() dto: PreviewMaturedEvaluationsDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.previewMaturedEvaluations(dto, userId, workspaceId);
+  }
+
+  @Post('evaluations/matured/apply')
+  @HttpCode(200)
+  applyMaturedEvaluations(
+    @Body() dto: ApplyMaturedEvaluationsDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.applyMaturedEvaluations(dto, userId, workspaceId);
   }
 
   @Get('evaluations')

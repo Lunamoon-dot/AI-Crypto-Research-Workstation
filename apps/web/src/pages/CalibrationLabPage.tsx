@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FlaskConical, History, ShieldAlert, Target } from 'lucide-react';
+import { CheckCircle2, FlaskConical, History, Play, Search, ShieldAlert, Target } from 'lucide-react';
 import { BentoGrid, DataPair } from '@/components/research/bento';
 import { IdChip } from '@/components/research/badges';
 import { HeaderStats } from '@/components/research/header-stats';
@@ -10,8 +10,10 @@ import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import {
+  applyMaturedEvaluations,
   evaluateThesis,
   listCalibrationEvaluations,
+  previewMaturedEvaluations,
   recordCalibrationOutcomeReview,
 } from '@/services/calibration';
 import { errorMessage } from '@/services/client';
@@ -21,6 +23,8 @@ import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type {
   CalibrationEvaluationResponse,
   CalibrationRecordReviewBlocker,
+  MaturedEvaluationApplyRowResponse,
+  MaturedEvaluationPreviewRowResponse,
   ThesisResponse,
 } from '@/types';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
@@ -39,6 +43,10 @@ export function CalibrationLabPage() {
     useState<CalibrationEvaluationResponse | null>(null);
   const [createdState, setCreatedState] = useState<boolean | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
+  const [batchWindowDays, setBatchWindowDays] =
+    useState<(typeof WINDOW_PRESETS)[number]>(14);
+  const [batchSymbol, setBatchSymbol] = useState('');
+  const [batchApplyArmed, setBatchApplyArmed] = useState(false);
 
   useEffect(() => {
     setSelectedThesisId(queryThesisId);
@@ -58,6 +66,19 @@ export function CalibrationLabPage() {
   const historyQuery = useQuery({
     queryKey: queryKeys.calibrationEvaluations(historyFilters),
     queryFn: () => listCalibrationEvaluations(historyFilters, auth),
+  });
+  const batchFilters = useMemo(
+    () => ({
+      window_days: batchWindowDays,
+      scan_limit: 100,
+      symbol: batchSymbol.trim() || undefined,
+    }),
+    [batchSymbol, batchWindowDays],
+  );
+  const batchPreviewQuery = useQuery({
+    queryKey: queryKeys.calibrationMaturedPreview(batchFilters),
+    queryFn: () => previewMaturedEvaluations(batchFilters, auth),
+    enabled: false,
   });
   const selectedThesis =
     thesesQuery.data?.find((thesis) => thesis.id === selectedThesisId) ?? null;
@@ -113,6 +134,28 @@ export function CalibrationLabPage() {
     },
   });
 
+  const batchApplyMutation = useMutation({
+    mutationFn: () =>
+      applyMaturedEvaluations(
+        {
+          window_days: batchWindowDays,
+          max_batch: 10,
+          symbol: batchSymbol.trim() || undefined,
+        },
+        auth,
+      ),
+    onSuccess: () => {
+      setBatchApplyArmed(false);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.calibrationRoot(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.calibrationEvaluations(historyFilters),
+      });
+      void batchPreviewQuery.refetch();
+    },
+  });
+
   function submitEvaluation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedThesisId) {
@@ -131,6 +174,39 @@ export function CalibrationLabPage() {
     setCreatedState(null);
     setReviewNotes(defaultReviewNote(evaluation));
   }
+
+  function updateBatchWindow(preset: (typeof WINDOW_PRESETS)[number]) {
+    setBatchWindowDays(preset);
+    setBatchApplyArmed(false);
+    batchApplyMutation.reset();
+  }
+
+  function updateBatchSymbol(value: string) {
+    setBatchSymbol(value);
+    setBatchApplyArmed(false);
+    batchApplyMutation.reset();
+  }
+
+  function previewBatch() {
+    setBatchApplyArmed(false);
+    batchApplyMutation.reset();
+    void batchPreviewQuery.refetch();
+  }
+
+  function applyBatch() {
+    if (!batchPreviewQuery.data?.summary.candidate) {
+      return;
+    }
+    if (!batchApplyArmed) {
+      setBatchApplyArmed(true);
+      return;
+    }
+    batchApplyMutation.mutate();
+  }
+
+  const batchCandidateCount = batchPreviewQuery.data?.summary.candidate ?? 0;
+  const batchRows =
+    batchApplyMutation.data?.rows ?? batchPreviewQuery.data?.rows ?? [];
 
   return (
     <main className="page">
@@ -174,6 +250,80 @@ export function CalibrationLabPage() {
           />
         }
       />
+
+      <Panel className="calibration-batch-panel" title="Batch Matured Evaluations">
+        <div className="stack">
+          <div className="grid three">
+            <div className="segmented-control" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {WINDOW_PRESETS.map((preset) => (
+                <button
+                  className={`segment-button${batchWindowDays === preset ? ' active' : ''}`}
+                  key={preset}
+                  onClick={() => updateBatchWindow(preset)}
+                  type="button"
+                >
+                  {preset}d
+                </button>
+              ))}
+            </div>
+            <label className="label">
+              Symbol
+              <input
+                className="input"
+                onChange={(event) => updateBatchSymbol(event.target.value)}
+                placeholder="BTC/USDT"
+                value={batchSymbol}
+              />
+            </label>
+            <div className="top-strip-meta">
+              <button
+                className="button"
+                disabled={batchPreviewQuery.isFetching}
+                onClick={previewBatch}
+                type="button"
+              >
+                <Search aria-hidden size={16} />
+                {batchPreviewQuery.isFetching ? 'Previewing' : 'Preview'}
+              </button>
+              <button
+                className={`button ${batchApplyArmed ? 'primary' : ''}`}
+                disabled={
+                  batchCandidateCount === 0 ||
+                  batchApplyMutation.isPending ||
+                  batchPreviewQuery.isFetching
+                }
+                onClick={applyBatch}
+                type="button"
+              >
+                <Play aria-hidden size={16} />
+                {batchApplyMutation.isPending
+                  ? 'Applying'
+                  : batchApplyArmed
+                    ? 'Confirm apply'
+                    : 'Apply'}
+              </button>
+            </div>
+          </div>
+
+          {batchPreviewQuery.isError ? (
+            <span className="badge risk">{errorMessage(batchPreviewQuery.error)}</span>
+          ) : null}
+          {batchApplyMutation.isError ? (
+            <span className="badge risk">{errorMessage(batchApplyMutation.error)}</span>
+          ) : null}
+          {batchApplyArmed ? (
+            <span className="badge warning">
+              Confirm apply up to 10 of {batchCandidateCount} candidate row(s)
+            </span>
+          ) : null}
+
+          <BatchSummaryChips
+            applySummary={batchApplyMutation.data?.summary}
+            previewSummary={batchPreviewQuery.data?.summary}
+          />
+          <BatchRowsTable rows={batchRows} />
+        </div>
+      </Panel>
 
       <BentoGrid>
         <Panel className="span-5" title="Evaluate Thesis">
@@ -359,6 +509,100 @@ function SelectedThesisSummary({ thesis }: { thesis: ThesisResponse }) {
   );
 }
 
+function BatchSummaryChips({
+  previewSummary,
+  applySummary,
+}: {
+  previewSummary?: {
+    candidate: number;
+    existing: number;
+    not_mature: number;
+    invalid_thesis: number;
+  };
+  applySummary?: {
+    created: number;
+    existing: number;
+    skipped: number;
+    failed: number;
+  };
+}) {
+  if (!previewSummary && !applySummary) {
+    return null;
+  }
+  return (
+    <div className="top-strip-meta">
+      {previewSummary ? (
+        <>
+          <span className="badge constructive">candidate {previewSummary.candidate}</span>
+          <span className="badge primary">existing {previewSummary.existing}</span>
+          <span className="badge warning">not mature {previewSummary.not_mature}</span>
+          <span className="badge risk">invalid {previewSummary.invalid_thesis}</span>
+        </>
+      ) : null}
+      {applySummary ? (
+        <>
+          <span className="badge constructive">created {applySummary.created}</span>
+          <span className="badge primary">existing {applySummary.existing}</span>
+          <span className="badge warning">skipped {applySummary.skipped}</span>
+          <span className="badge risk">failed {applySummary.failed}</span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function BatchRowsTable({
+  rows,
+}: {
+  rows: Array<
+    MaturedEvaluationPreviewRowResponse | MaturedEvaluationApplyRowResponse
+  >;
+}) {
+  if (rows.length === 0) {
+    return <EmptyState label="No batch preview yet." />;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Thesis</th>
+            <th>Symbol</th>
+            <th>Window</th>
+            <th>Status</th>
+            <th>Reason</th>
+            <th>Evaluation</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.thesis_id}-${row.window_days}-${row.status}`}>
+              <td>{row.thesis_id ? <IdChip value={row.thesis_id} /> : 'n/a'}</td>
+              <td>{row.symbol || 'n/a'}</td>
+              <td>
+                {row.window_days}d
+                <br />
+                <span className="muted">
+                  {formatDate(row.evaluation_start)} to {formatDate(row.evaluation_end)}
+                </span>
+              </td>
+              <td>
+                <span className={`badge ${batchStatusTone(row.status)}`}>
+                  {row.status.replaceAll('_', ' ')}
+                </span>
+              </td>
+              <td>{row.reason ? row.reason.replaceAll('_', ' ') : 'n/a'}</td>
+              <td>{row.evaluation_id ? <IdChip value={row.evaluation_id} /> : 'n/a'}</td>
+              <td>{batchRowMessage(row)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EvaluationDetail({
   evaluation,
 }: {
@@ -463,4 +707,28 @@ function resultTone(
     return 'degraded';
   }
   return 'primary';
+}
+
+function batchStatusTone(
+  status: string,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (status === 'candidate' || status === 'created') {
+    return 'constructive';
+  }
+  if (status === 'failed' || status === 'invalid_thesis') {
+    return 'risk';
+  }
+  if (status === 'not_mature' || status === 'skipped') {
+    return 'warning';
+  }
+  return 'primary';
+}
+
+function batchRowMessage(
+  row: MaturedEvaluationPreviewRowResponse | MaturedEvaluationApplyRowResponse,
+): string {
+  if (!('message' in row)) {
+    return formatDate(row.created_at);
+  }
+  return row.message || row.result || formatDate(row.created_at);
 }
