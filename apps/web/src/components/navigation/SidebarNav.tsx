@@ -1,61 +1,122 @@
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
 import {
-  Activity,
-  BarChart3,
-  Bell,
-  ClipboardList,
-  FileText,
-  FlaskConical,
-  Gauge,
-  GitCompare,
-  History,
-  Radar,
-  ScrollText,
-  Settings,
-  Signal,
-} from 'lucide-react';
-import { routes } from '@/lib/routes';
+  isNavItemActive,
+  mobileNavItems,
+  visibleNavGroups,
+  type NavigationItem,
+} from '@/navigation/nav-groups';
 
-const navItems = [
-  { href: routes.workbench, label: 'Workbench', icon: Radar },
-  { href: routes.researchNew, label: 'Research', icon: FlaskConical },
-  { href: routes.researchHistory, label: 'History', icon: History },
-  { href: routes.performance, label: 'Reliability', icon: BarChart3 },
-  { href: routes.calibration, label: 'Calibration', icon: Gauge },
-  { href: routes.compare, label: 'Compare', icon: GitCompare },
-  { href: routes.theses, label: 'Theses', icon: ScrollText },
-  { href: routes.signals, label: 'Signals', icon: Signal },
-  { href: routes.scenarios, label: 'Scenarios', icon: Radar },
-  { href: routes.alerts, label: 'Alerts', icon: Bell },
-  { href: routes.watchlists, label: 'Watchlists', icon: ClipboardList },
-  { href: routes.briefsDaily, label: 'Briefs', icon: FileText },
-  { href: routes.operations, label: 'Operations', icon: Activity },
-  { href: routes.settings, label: 'Settings', icon: Settings },
-];
+const NAV_GROUP_STORAGE_KEY = 'lunacrypto.nav.expandedGroups';
 
-function isActive(pathname: string, href: string) {
-  return pathname === href || (href !== routes.workbench && pathname.startsWith(href));
+function defaultExpandedGroups(): string[] {
+  return visibleNavGroups.map((group) => group.id);
+}
+
+function initialExpandedGroups(): string[] {
+  if (typeof window === 'undefined') {
+    return defaultExpandedGroups();
+  }
+
+  const visibleGroupIds = new Set(defaultExpandedGroups());
+
+  try {
+    const stored = window.localStorage.getItem(NAV_GROUP_STORAGE_KEY);
+    if (!stored) {
+      return defaultExpandedGroups();
+    }
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(
+        (id): id is string => typeof id === 'string' && visibleGroupIds.has(id),
+      );
+    }
+  } catch {
+    return defaultExpandedGroups();
+  }
+
+  return defaultExpandedGroups();
+}
+
+function NavItemLink({ item, pathname }: { item: NavigationItem; pathname: string }) {
+  const Icon = item.icon;
+  const active = isNavItemActive(pathname, item);
+
+  if (item.status === 'planned') {
+    return (
+      <div className="nav-link nav-link-child nav-link-planned" aria-disabled="true">
+        <span className="nav-link-dot" aria-hidden />
+        <Icon aria-hidden size={15} />
+        <span className="nav-link-label">{item.label}</span>
+        <span className="nav-link-status">planned</span>
+      </div>
+    );
+  }
+
+  return (
+    <NavLink className={`nav-link nav-link-child${active ? ' active' : ''}`} to={item.href}>
+      <span className="nav-link-dot" aria-hidden />
+      <Icon aria-hidden size={15} />
+      <span className="nav-link-label">{item.label}</span>
+    </NavLink>
+  );
 }
 
 export function SidebarNav() {
   const { pathname } = useLocation();
+  const [expandedGroupIds, setExpandedGroupIds] = useState(initialExpandedGroups);
+  const expandedGroups = useMemo(() => new Set(expandedGroupIds), [expandedGroupIds]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NAV_GROUP_STORAGE_KEY, JSON.stringify(expandedGroupIds));
+    } catch {
+      // Local storage is only a convenience for the app shell.
+    }
+  }, [expandedGroupIds]);
+
+  function toggleGroup(groupId: string) {
+    setExpandedGroupIds((current) =>
+      current.includes(groupId)
+        ? current.filter((id) => id !== groupId)
+        : [...current, groupId],
+    );
+  }
+
   return (
     <aside className="sidebar">
       <h1 className="sidebar-title">LunaCrypto</h1>
       <p className="sidebar-subtitle">AI research workstation</p>
       <nav className="nav-list" aria-label="Main navigation">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = isActive(pathname, item.href);
+        {visibleNavGroups.map((group) => {
+          const GroupIcon = group.icon;
+          const groupActive = group.items.some((item) => isNavItemActive(pathname, item));
+          const open = expandedGroups.has(group.id) || groupActive;
           return (
-            <NavLink
-              className={`nav-link${active ? ' active' : ''}`}
-              to={item.href}
-              key={item.href}
-            >
-              <Icon aria-hidden size={16} />
-              {item.label}
-            </NavLink>
+            <section className={`nav-group${groupActive ? ' active' : ''}`} key={group.id}>
+              <button
+                aria-expanded={open}
+                className="nav-group-trigger"
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+              >
+                <GroupIcon aria-hidden size={17} />
+                <span>{group.label}</span>
+                <ChevronDown
+                  aria-hidden
+                  className={`nav-group-chevron${open ? ' open' : ''}`}
+                  size={15}
+                />
+              </button>
+              {open ? (
+                <div className="nav-group-items">
+                  {group.items.map((item) => (
+                    <NavItemLink item={item} pathname={pathname} key={item.id} />
+                  ))}
+                </div>
+              ) : null}
+            </section>
           );
         })}
       </nav>
@@ -71,23 +132,17 @@ export function SidebarNav() {
 
 export function MobileBottomNav() {
   const { pathname } = useLocation();
-  const mobileItems = [
-    navItems[0],
-    navItems[1],
-    navItems[2],
-    navItems[6],
-    navItems[10],
-  ];
   return (
     <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-      {mobileItems.map((item) => {
+      {mobileNavItems.map((item) => {
         const Icon = item.icon;
+        const active = isNavItemActive(pathname, item);
         return (
           <NavLink
             aria-label={item.label}
-            className={`mobile-nav-link${isActive(pathname, item.href) ? ' active' : ''}`}
+            className={`mobile-nav-link${active ? ' active' : ''}`}
             to={item.href}
-            key={item.href}
+            key={item.id}
           >
             <Icon aria-hidden size={18} />
           </NavLink>
