@@ -267,6 +267,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_evaluation_runs_idempotency
 ON thesis_evaluation_runs(workspace_id, canonical_evaluation_id, idempotency_key)
 WHERE idempotency_key IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS thesis_evaluation_promotions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    canonical_evaluation_id TEXT NOT NULL REFERENCES thesis_evaluations(id),
+    promoted_rerun_id TEXT REFERENCES thesis_evaluation_runs(id),
+    action TEXT NOT NULL,
+    promoted_by_user_id TEXT,
+    promoted_at TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    notes TEXT,
+    idempotency_key TEXT,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluation_promotions_evaluation
+ON thesis_evaluation_promotions(workspace_id, canonical_evaluation_id, promoted_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_evaluation_promotions_idempotency
+ON thesis_evaluation_promotions(workspace_id, canonical_evaluation_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS thesis_monitor_plans (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

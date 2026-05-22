@@ -13,6 +13,7 @@ import {
   JournalRepository,
   JsonRecord,
   ThesisEvaluationInput,
+  ThesisEvaluationPromotionInput,
   ThesisEvaluationRunInput,
 } from '../database/journal.types';
 import { PythonEngineClient } from '../jobs/python-engine.client';
@@ -20,7 +21,10 @@ import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   CalibrationEvaluationResponse,
   CalibrationEvaluationRerunResponse,
+  CalibrationEvaluationPromotionResponse,
+  CalibrationEvaluationVersionPolicyResponse,
   CalibrationResult,
+  PromoteCalibrationEvaluationResponse,
   AgentCalibrationAgentResponse,
   AgentCalibrationOutcomeBucket,
   AgentCalibrationRelation,
@@ -45,6 +49,7 @@ import {
   toMaturedEvaluationApplyRowResponse,
   toMaturedEvaluationPreviewRowResponse,
   toCalibrationEvaluationRerunResponse,
+  toCalibrationEvaluationPromotionResponse,
   toCalibrationEvaluationResponse,
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
@@ -54,6 +59,7 @@ import {
   EVALUATION_RERUN_REASONS,
   EvaluationRerunReason,
 } from './dto/evaluation-rerun.dto';
+import { EvaluationVersionPolicyActionDto } from './dto/evaluation-version-policy.dto';
 import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
 import {
   ApplyMaturedEvaluationsDto,
@@ -75,9 +81,11 @@ const DEFAULT_MAX_BATCH = 10;
 const MAX_BATCH = 25;
 const DEFAULT_RERUN_LIMIT = 20;
 const MAX_RERUN_LIMIT = 50;
+const DEFAULT_PROMOTION_LIMIT = 50;
 const SYMBOL_CALIBRATION_ROW_LIMIT = 20;
 const AGENT_CALIBRATION_ROW_LIMIT = 30;
 const RERUN_SOURCE = 'calibration_lab_v1_3_rerun';
+const PROMOTION_SOURCE = 'calibration_lab_v1_5_version_policy';
 const MATERIAL_RETURN = 0.02;
 const MATERIAL_DRAWDOWN = -0.04;
 const RECORDABLE_RESULTS = new Set([
@@ -115,6 +123,10 @@ type AgentCalibrationSourceRow = {
   symbol: string | null;
   thesisDirection: AgentCalibrationStance;
   evaluationId: string | null;
+  baseEvaluationId: string | null;
+  activeSource: 'base_canonical' | 'promoted_rerun' | null;
+  activeRerunId: string | null;
+  activePromotionId: string | null;
   evaluationResult: CalibrationResult | null;
   relationToFinal: AgentCalibrationRelation;
   outcomeBucket: AgentCalibrationOutcomeBucket;
@@ -374,7 +386,11 @@ export class CalibrationService {
       },
       workspaceId,
     );
-    const classifiedRows = sourceRows.map(toAgentCalibrationSourceRow);
+    const activeSourceRows = await this.applyActiveEvaluationToAgentRows(
+      sourceRows,
+      workspaceId,
+    );
+    const classifiedRows = activeSourceRows.map(toAgentCalibrationSourceRow);
     const rows = classifiedRows
       .map(toAgentCalibrationRowResponse)
       .sort(compareAgentCalibrationRows)
@@ -492,7 +508,216 @@ export class CalibrationService {
     if (!evaluation) {
       throw new NotFoundException(`Evaluation ${id} not found`);
     }
-    return toCalibrationEvaluationResponse(evaluation);
+    return this.resolveActiveEvaluationFromCanonical(evaluation, workspaceId);
+  }
+
+  async getEvaluationVersionPolicy(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<CalibrationEvaluationVersionPolicyResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const evaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!evaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    return this.buildVersionPolicy(evaluation, workspaceId);
+  }
+
+  async promoteEvaluationRerun(
+    id: string,
+    rerunId: string,
+    dto: EvaluationVersionPolicyActionDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<PromoteCalibrationEvaluationResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const rawEvaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!rawEvaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    const reason = normalizeRerunReason(dto.reason);
+    const notes = optionalString(dto.notes?.trim()) ?? null;
+    const idempotencyKey = optionalString(dto.idempotency_key?.trim()) ?? null;
+
+    if (idempotencyKey) {
+      const existing = await this.requirePromotionIdempotencyRead()(
+        { canonicalEvaluationId: id, idempotencyKey },
+        workspaceId,
+      );
+      if (existing) {
+        return this.buildPromotionActionResponse(
+          false,
+          existing,
+          rawEvaluation,
+          workspaceId,
+          ['promotion_already_exists'],
+        );
+      }
+    }
+
+    const canonical = toCalibrationEvaluationResponse(rawEvaluation);
+    if (canonical.outcome_review_id) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['review_already_recorded'],
+      );
+    }
+
+    const rerun = await this.requireEvaluationRunRead()(rerunId, workspaceId);
+    if (!rerun) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['rerun_not_found'],
+      );
+    }
+    const rerunResponse = toCalibrationEvaluationRerunResponse(rerun);
+    if (rerunResponse.canonical_evaluation_id !== id) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['rerun_mismatch'],
+      );
+    }
+    if (rerunResponse.status !== 'completed') {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['rerun_not_completed'],
+      );
+    }
+
+    const latest = await this.requireLatestPromotionRead()(id, workspaceId);
+    if (
+      latest &&
+      toCalibrationEvaluationPromotionResponse(latest).action === 'promote_rerun' &&
+      nullablePromotionRerunId(latest) === rerunId
+    ) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['promotion_already_active'],
+      );
+    }
+
+    const saved = await this.requirePromotionWrite()(
+      buildPromotionInput({
+        action: 'promote_rerun',
+        canonicalEvaluationId: id,
+        idempotencyKey,
+        notes,
+        promotedRerunId: rerunId,
+        reason,
+        userId,
+        workspaceId,
+      }),
+      workspaceId,
+    );
+    return this.buildPromotionActionResponse(
+      true,
+      saved,
+      rawEvaluation,
+      workspaceId,
+      [],
+    );
+  }
+
+  async resetEvaluationVersionPolicy(
+    id: string,
+    dto: EvaluationVersionPolicyActionDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<PromoteCalibrationEvaluationResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const rawEvaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!rawEvaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    const reason = normalizeRerunReason(dto.reason);
+    const notes = optionalString(dto.notes?.trim()) ?? null;
+    const idempotencyKey = optionalString(dto.idempotency_key?.trim()) ?? null;
+
+    if (idempotencyKey) {
+      const existing = await this.requirePromotionIdempotencyRead()(
+        { canonicalEvaluationId: id, idempotencyKey },
+        workspaceId,
+      );
+      if (existing) {
+        return this.buildPromotionActionResponse(
+          false,
+          existing,
+          rawEvaluation,
+          workspaceId,
+          ['promotion_already_exists'],
+        );
+      }
+    }
+
+    const canonical = toCalibrationEvaluationResponse(rawEvaluation);
+    if (canonical.outcome_review_id) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['review_already_recorded'],
+      );
+    }
+
+    const latest = await this.requireLatestPromotionRead()(id, workspaceId);
+    if (
+      !latest ||
+      toCalibrationEvaluationPromotionResponse(latest).action === 'reset_to_base'
+    ) {
+      return this.buildPromotionActionResponse(
+        false,
+        null,
+        rawEvaluation,
+        workspaceId,
+        ['base_already_active'],
+      );
+    }
+
+    const saved = await this.requirePromotionWrite()(
+      buildPromotionInput({
+        action: 'reset_to_base',
+        canonicalEvaluationId: id,
+        idempotencyKey,
+        notes,
+        promotedRerunId: null,
+        reason,
+        userId,
+        workspaceId,
+      }),
+      workspaceId,
+    );
+    return this.buildPromotionActionResponse(
+      true,
+      saved,
+      rawEvaluation,
+      workspaceId,
+      [],
+    );
   }
 
   async listEvaluationReruns(
@@ -893,11 +1118,14 @@ export class CalibrationService {
       },
       workspaceId,
     );
+    const activeEvaluation = evaluation
+      ? await this.resolveActiveEvaluationFromCanonical(evaluation, workspaceId)
+      : null;
     const stance = symbolCalibrationStance(thesis);
 
     return {
       thesis,
-      evaluation,
+      evaluation: activeEvaluation as unknown as JsonRecord | null,
       stance,
       row: {
         thesis_id: thesisId,
@@ -907,15 +1135,145 @@ export class CalibrationService {
         direction: stringValue(thesis.direction),
         confidence: numberValue(thesis.confidence),
         status: evaluation ? 'evaluated' : 'missing_evaluation',
-        evaluation_id: evaluation ? optionalString(evaluation.id) ?? null : null,
-        result: evaluation ? evaluationResult(evaluation) ?? 'unknown' : null,
+        evaluation_id: activeEvaluation?.id ?? null,
+        base_evaluation_id: activeEvaluation?.base_evaluation_id ?? null,
+        active_source: activeEvaluation?.active_source ?? null,
+        active_rerun_id: activeEvaluation?.active_rerun_id ?? null,
+        active_promotion_id: activeEvaluation?.active_promotion_id ?? null,
+        result: activeEvaluation ? activeEvaluation.result : null,
         max_favorable_excursion: evaluation
-          ? numberValue(evaluation.max_favorable_excursion)
+          ? activeEvaluation?.max_favorable_excursion ?? null
           : null,
         max_adverse_excursion: evaluation
-          ? numberValue(evaluation.max_adverse_excursion)
+          ? activeEvaluation?.max_adverse_excursion ?? null
           : null,
       },
+    };
+  }
+
+  private async applyActiveEvaluationToAgentRows(
+    rows: JsonRecord[],
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const activeByEvaluationId = new Map<string, CalibrationEvaluationResponse>();
+    const activeRows: JsonRecord[] = [];
+    for (const row of rows) {
+      const evaluationId = optionalString(row.evaluation_id);
+      if (!evaluationId) {
+        activeRows.push({
+          ...row,
+          base_evaluation_id: null,
+          active_source: null,
+          active_rerun_id: null,
+          active_promotion_id: null,
+        });
+        continue;
+      }
+      let active = activeByEvaluationId.get(evaluationId);
+      if (!active) {
+        active = await this.resolveActiveEvaluation(evaluationId, workspaceId);
+        activeByEvaluationId.set(evaluationId, active);
+      }
+      activeRows.push({
+        ...row,
+        evaluation_id: active.id,
+        base_evaluation_id: active.base_evaluation_id,
+        active_source: active.active_source,
+        active_rerun_id: active.active_rerun_id,
+        active_promotion_id: active.active_promotion_id,
+        evaluation_result: active.result,
+      });
+    }
+    return activeRows;
+  }
+
+  private async resolveActiveEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<CalibrationEvaluationResponse> {
+    const evaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!evaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    return this.resolveActiveEvaluationFromCanonical(evaluation, workspaceId);
+  }
+
+  private async resolveActiveEvaluationFromCanonical(
+    rawEvaluation: JsonRecord,
+    workspaceId: string,
+  ): Promise<CalibrationEvaluationResponse> {
+    const canonical = toCalibrationEvaluationResponse(rawEvaluation);
+    const canonicalId = stringValue(canonical.id);
+    const latest = canonicalId
+      ? await this.requireLatestPromotionRead()(canonicalId, workspaceId)
+      : null;
+    if (
+      !latest ||
+      toCalibrationEvaluationPromotionResponse(latest).action === 'reset_to_base'
+    ) {
+      return toBaseActiveEvaluation(canonical, latest ? stringValue(latest.id) : null);
+    }
+
+    const promotedRerunId = nullablePromotionRerunId(latest);
+    const rerun = promotedRerunId
+      ? await this.requireEvaluationRunRead()(promotedRerunId, workspaceId)
+      : null;
+    if (!rerun) {
+      return toBaseActiveEvaluation(canonical, stringValue(latest.id));
+    }
+    return toPromotedActiveEvaluation(
+      canonical,
+      toCalibrationEvaluationRerunResponse(rerun),
+      stringValue(latest.id),
+    );
+  }
+
+  private async buildVersionPolicy(
+    rawEvaluation: JsonRecord,
+    workspaceId: string,
+  ): Promise<CalibrationEvaluationVersionPolicyResponse> {
+    const baseEvaluation = toBaseActiveEvaluation(
+      toCalibrationEvaluationResponse(rawEvaluation),
+      null,
+    );
+    const activeEvaluation = await this.resolveActiveEvaluationFromCanonical(
+      rawEvaluation,
+      workspaceId,
+    );
+    const canonicalEvaluationId = stringValue(baseEvaluation.id);
+    const events = canonicalEvaluationId
+      ? await this.requirePromotionList()(
+          {
+            canonicalEvaluationId,
+            limit: DEFAULT_PROMOTION_LIMIT,
+          },
+          workspaceId,
+        )
+      : [];
+    return {
+      canonical_evaluation_id: canonicalEvaluationId,
+      active_source: activeEvaluation.active_source,
+      active_rerun_id: activeEvaluation.active_rerun_id,
+      active_promotion_id: activeEvaluation.active_promotion_id,
+      base_evaluation: baseEvaluation,
+      active_evaluation: activeEvaluation,
+      events: events.map(toCalibrationEvaluationPromotionResponse),
+      warnings: [],
+    };
+  }
+
+  private async buildPromotionActionResponse(
+    created: boolean,
+    event: JsonRecord | null,
+    rawEvaluation: JsonRecord,
+    workspaceId: string,
+    warnings: string[],
+  ): Promise<PromoteCalibrationEvaluationResponse> {
+    return {
+      created,
+      event: event ? toCalibrationEvaluationPromotionResponse(event) : null,
+      policy: await this.buildVersionPolicy(rawEvaluation, workspaceId),
+      warnings,
     };
   }
 
@@ -1000,6 +1358,15 @@ export class CalibrationService {
     return this.journal.getThesisEvaluationRunByIdempotencyKey.bind(this.journal);
   }
 
+  private requireEvaluationRunRead() {
+    if (!this.journal.getThesisEvaluationRun) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation rerun reads.',
+      );
+    }
+    return this.journal.getThesisEvaluationRun.bind(this.journal);
+  }
+
   private requireEvaluationRunWrite() {
     if (!this.journal.createThesisEvaluationRun) {
       throw new ServiceUnavailableException(
@@ -1007,6 +1374,44 @@ export class CalibrationService {
       );
     }
     return this.journal.createThesisEvaluationRun.bind(this.journal);
+  }
+
+  private requirePromotionList() {
+    if (!this.journal.listThesisEvaluationPromotions) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation promotion list support.',
+      );
+    }
+    return this.journal.listThesisEvaluationPromotions.bind(this.journal);
+  }
+
+  private requireLatestPromotionRead() {
+    if (!this.journal.getLatestThesisEvaluationPromotion) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation latest promotion support.',
+      );
+    }
+    return this.journal.getLatestThesisEvaluationPromotion.bind(this.journal);
+  }
+
+  private requirePromotionIdempotencyRead() {
+    if (!this.journal.getThesisEvaluationPromotionByIdempotencyKey) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation promotion idempotency support.',
+      );
+    }
+    return this.journal.getThesisEvaluationPromotionByIdempotencyKey.bind(
+      this.journal,
+    );
+  }
+
+  private requirePromotionWrite() {
+    if (!this.journal.createThesisEvaluationPromotion) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation promotion writes.',
+      );
+    }
+    return this.journal.createThesisEvaluationPromotion.bind(this.journal);
   }
 
   private requireEvaluationReviewLink() {
@@ -1189,6 +1594,86 @@ function buildFailedEvaluationRunInput(input: {
       optionalString(input.engineResult?.error) ?? errorMessage(input.error),
     payload: input.engineResult ?? { error: errorMessage(input.error) },
   };
+}
+
+function buildPromotionInput(input: {
+  action: 'promote_rerun' | 'reset_to_base';
+  canonicalEvaluationId: string;
+  idempotencyKey: string | null;
+  notes: string | null;
+  promotedRerunId: string | null;
+  reason: EvaluationRerunReason;
+  userId?: string;
+  workspaceId: string;
+}): ThesisEvaluationPromotionInput {
+  const promotedAt = new Date().toISOString();
+  return {
+    workspace_id: input.workspaceId,
+    canonical_evaluation_id: input.canonicalEvaluationId,
+    promoted_rerun_id: input.promotedRerunId,
+    action: input.action,
+    promoted_by_user_id: optionalString(input.userId) ?? null,
+    promoted_at: promotedAt,
+    reason: input.reason,
+    notes: input.notes,
+    idempotency_key: input.idempotencyKey,
+    payload: {
+      source: PROMOTION_SOURCE,
+      canonical_evaluation_id: input.canonicalEvaluationId,
+      promoted_rerun_id: input.promotedRerunId,
+      action: input.action,
+      promoted_at: promotedAt,
+      reason: input.reason,
+    },
+  };
+}
+
+function toBaseActiveEvaluation(
+  canonical: CalibrationEvaluationResponse,
+  activePromotionId: string | null,
+): CalibrationEvaluationResponse {
+  return toCalibrationEvaluationResponse({
+    ...canonical,
+    base_evaluation_id: canonical.id,
+    active_source: 'base_canonical',
+    active_rerun_id: null,
+    active_promotion_id: activePromotionId,
+    payload: canonical.payload,
+  });
+}
+
+function toPromotedActiveEvaluation(
+  canonical: CalibrationEvaluationResponse,
+  rerun: CalibrationEvaluationRerunResponse,
+  activePromotionId: string,
+): CalibrationEvaluationResponse {
+  return toCalibrationEvaluationResponse({
+    id: canonical.id,
+    base_evaluation_id: canonical.id,
+    workspace_id: canonical.workspace_id,
+    thesis_id: canonical.thesis_id,
+    outcome_review_id: canonical.outcome_review_id,
+    symbol: canonical.symbol,
+    window_days: canonical.window_days,
+    evaluation_start: canonical.evaluation_start,
+    evaluation_end: canonical.evaluation_end,
+    evaluated_at: rerun.evaluated_at,
+    result: rerun.result ?? 'unknown',
+    max_favorable_excursion: rerun.max_favorable_excursion,
+    max_adverse_excursion: rerun.max_adverse_excursion,
+    invalidated: rerun.invalidated ?? false,
+    warnings: rerun.warnings,
+    evidence: rerun.evidence,
+    calendar_mature: canonical.calendar_mature,
+    active_source: 'promoted_rerun',
+    active_rerun_id: rerun.id,
+    active_promotion_id: activePromotionId,
+    payload: rerun.payload,
+  });
+}
+
+function nullablePromotionRerunId(promotion: JsonRecord): string | null {
+  return optionalString(promotion.promoted_rerun_id) ?? null;
 }
 
 function recordReviewBlockers(
@@ -1452,6 +1937,14 @@ function toAgentCalibrationSourceRow(row: JsonRecord): AgentCalibrationSourceRow
     symbol: optionalString(row.symbol) ?? null,
     thesisDirection,
     evaluationId,
+    baseEvaluationId: optionalString(row.base_evaluation_id) ?? null,
+    activeSource:
+      row.active_source === 'base_canonical' ||
+      row.active_source === 'promoted_rerun'
+        ? row.active_source
+        : null,
+    activeRerunId: optionalString(row.active_rerun_id) ?? null,
+    activePromotionId: optionalString(row.active_promotion_id) ?? null,
     evaluationResult,
     relationToFinal,
     outcomeBucket,
@@ -1472,6 +1965,10 @@ function toAgentCalibrationRowResponse(
     agent_stance: row.agentStance,
     relation_to_final: row.relationToFinal,
     evaluation_id: row.evaluationId,
+    base_evaluation_id: row.baseEvaluationId,
+    active_source: row.activeSource,
+    active_rerun_id: row.activeRerunId,
+    active_promotion_id: row.activePromotionId,
     evaluation_result: row.evaluationResult,
     outcome_bucket: row.outcomeBucket,
     confidence: row.confidence,

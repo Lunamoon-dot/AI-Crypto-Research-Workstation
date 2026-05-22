@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FlaskConical, History, Play, Search, ShieldAlert, Target } from 'lucide-react';
+import { CheckCircle2, FlaskConical, History, Play, RefreshCcw, Search, ShieldAlert, Target } from 'lucide-react';
 import { BentoGrid, DataPair } from '@/components/research/bento';
 import { IdChip } from '@/components/research/badges';
 import { HeaderStats } from '@/components/research/header-stats';
@@ -14,11 +14,14 @@ import {
   createCalibrationEvaluationRerun,
   evaluateThesis,
   getAgentCalibrationReport,
+  getCalibrationEvaluationVersionPolicy,
   getSymbolCalibrationReport,
   listCalibrationEvaluationReruns,
   listCalibrationEvaluations,
+  promoteCalibrationEvaluationRerun,
   previewMaturedEvaluations,
   recordCalibrationOutcomeReview,
+  resetCalibrationEvaluationVersionPolicy,
 } from '@/services/calibration';
 import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
@@ -29,12 +32,15 @@ import type {
   AgentCalibrationReportResponse,
   AgentCalibrationRowResponse,
   CalibrationEvaluationResponse,
+  CalibrationEvaluationPromotionResponse,
   CalibrationEvaluationRerunReason,
   CalibrationEvaluationRerunResponse,
+  CalibrationEvaluationVersionPolicyResponse,
   CalibrationRecordReviewBlocker,
   CreateCalibrationEvaluationRerunResponse,
   MaturedEvaluationApplyRowResponse,
   MaturedEvaluationPreviewRowResponse,
+  PromoteCalibrationEvaluationResponse,
   SymbolCalibrationReportResponse,
   SymbolCalibrationRowResponse,
   ThesisResponse,
@@ -74,6 +80,10 @@ export function CalibrationLabPage() {
   const [rerunReason, setRerunReason] =
     useState<CalibrationEvaluationRerunReason>('manual_check');
   const [rerunNotes, setRerunNotes] = useState('');
+  const [armedPromotionRerunId, setArmedPromotionRerunId] = useState<string | null>(
+    null,
+  );
+  const [resetPolicyArmed, setResetPolicyArmed] = useState(false);
   const [batchWindowDays, setBatchWindowDays] =
     useState<(typeof WINDOW_PRESETS)[number]>(14);
   const [batchSymbol, setBatchSymbol] = useState('');
@@ -108,6 +118,8 @@ export function CalibrationLabPage() {
   useEffect(() => {
     setRerunReason('manual_check');
     setRerunNotes('');
+    setArmedPromotionRerunId(null);
+    setResetPolicyArmed(false);
   }, [activeEvaluation?.id]);
 
   const thesesQuery = useQuery({
@@ -127,6 +139,12 @@ export function CalibrationLabPage() {
     queryKey: queryKeys.calibrationEvaluationReruns(activeEvaluationId),
     queryFn: () =>
       listCalibrationEvaluationReruns(activeEvaluationId, { limit: 20 }, auth),
+    enabled: Boolean(activeEvaluationId),
+  });
+  const versionPolicyQuery = useQuery({
+    queryKey: queryKeys.calibrationEvaluationVersionPolicy(activeEvaluationId),
+    queryFn: () =>
+      getCalibrationEvaluationVersionPolicy(activeEvaluationId, auth),
     enabled: Boolean(activeEvaluationId),
   });
   const batchFilters = useMemo(
@@ -228,6 +246,9 @@ export function CalibrationLabPage() {
         queryKey: queryKeys.calibrationEvaluations(historyFilters),
       });
       void queryClient.invalidateQueries({
+        queryKey: queryKeys.calibrationEvaluationVersionPolicy(response.evaluation.id ?? ''),
+      });
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.performanceRoot(),
       });
     },
@@ -253,6 +274,72 @@ export function CalibrationLabPage() {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.calibrationEvaluationReruns(activeEvaluation.id),
         });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.calibrationEvaluationVersionPolicy(activeEvaluation.id),
+        });
+      }
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: ({
+      idempotencyKey,
+      rerunId,
+    }: {
+      idempotencyKey: string;
+      rerunId: string;
+    }) => {
+      if (!activeEvaluation?.id) {
+        throw new Error('Select an evaluation first.');
+      }
+      return promoteCalibrationEvaluationRerun(
+        activeEvaluation.id,
+        rerunId,
+        {
+          reason: rerunReason,
+          notes: rerunNotes.trim() || undefined,
+          idempotency_key: idempotencyKey,
+        },
+        auth,
+      );
+    },
+    onSuccess: (response) => {
+      setActiveEvaluation(response.policy.active_evaluation);
+      setCreatedState(false);
+      setArmedPromotionRerunId(null);
+      setResetPolicyArmed(false);
+    },
+    onSettled: () => {
+      if (activeEvaluation?.id) {
+        invalidateCalibrationPolicyQueries(activeEvaluation.id);
+      }
+    },
+  });
+
+  const resetPolicyMutation = useMutation({
+    mutationFn: ({ idempotencyKey }: { idempotencyKey: string }) => {
+      if (!activeEvaluation?.id) {
+        throw new Error('Select an evaluation first.');
+      }
+      return resetCalibrationEvaluationVersionPolicy(
+        activeEvaluation.id,
+        {
+          reason: rerunReason,
+          notes: rerunNotes.trim() || undefined,
+          idempotency_key: idempotencyKey,
+        },
+        auth,
+      );
+    },
+    onSuccess: (response) => {
+      setActiveEvaluation(response.policy.active_evaluation);
+      setCreatedState(false);
+      setArmedPromotionRerunId(null);
+      setResetPolicyArmed(false);
+    },
+    onSettled: () => {
+      if (activeEvaluation?.id) {
+        invalidateCalibrationPolicyQueries(activeEvaluation.id);
       }
     },
   });
@@ -298,6 +385,58 @@ export function CalibrationLabPage() {
       return;
     }
     rerunMutation.mutate({ idempotencyKey: createClientIdempotencyKey() });
+  }
+
+  function invalidateCalibrationPolicyQueries(evaluationId: string) {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationRoot(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationEvaluations(historyFilters),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationEvaluation(evaluationId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationEvaluationVersionPolicy(evaluationId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationSymbol(symbolFilters),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.calibrationAgents(agentFilters),
+    });
+  }
+
+  function submitPromotion(rerunId: string | null) {
+    if (!activeEvaluation?.id || !rerunId) {
+      return;
+    }
+    if (armedPromotionRerunId !== rerunId) {
+      setArmedPromotionRerunId(rerunId);
+      setResetPolicyArmed(false);
+      promoteMutation.reset();
+      return;
+    }
+    promoteMutation.mutate({
+      rerunId,
+      idempotencyKey: createClientIdempotencyKey(),
+    });
+  }
+
+  function submitVersionPolicyReset() {
+    if (!activeEvaluation?.id) {
+      return;
+    }
+    if (!resetPolicyArmed) {
+      setResetPolicyArmed(true);
+      setArmedPromotionRerunId(null);
+      resetPolicyMutation.reset();
+      return;
+    }
+    resetPolicyMutation.mutate({
+      idempotencyKey: createClientIdempotencyKey(),
+    });
   }
 
   function inspectEvaluation(evaluation: CalibrationEvaluationResponse) {
@@ -685,6 +824,7 @@ export function CalibrationLabPage() {
           {!activeEvaluation ? <EmptyState label="Run or select an evaluation." /> : null}
           {activeEvaluation ? (
             <RerunAuditSection
+              armedPromotionRerunId={armedPromotionRerunId}
               evaluation={activeEvaluation}
               mutation={{
                 data: rerunMutation.data,
@@ -694,8 +834,20 @@ export function CalibrationLabPage() {
               }}
               notes={rerunNotes}
               onNotesChange={setRerunNotes}
+              onPromoteRerun={submitPromotion}
               onReasonChange={setRerunReason}
+              onResetPolicy={submitVersionPolicyReset}
               onSubmit={submitRerun}
+              policyMutation={{
+                promoteData: promoteMutation.data,
+                promoteError: promoteMutation.error,
+                promoteIsError: promoteMutation.isError,
+                promoteIsPending: promoteMutation.isPending,
+                resetData: resetPolicyMutation.data,
+                resetError: resetPolicyMutation.error,
+                resetIsError: resetPolicyMutation.isError,
+                resetIsPending: resetPolicyMutation.isPending,
+              }}
               query={{
                 data: rerunHistoryQuery.data,
                 error: rerunHistoryQuery.error,
@@ -703,6 +855,13 @@ export function CalibrationLabPage() {
                 isLoading: rerunHistoryQuery.isLoading,
               }}
               reason={rerunReason}
+              resetPolicyArmed={resetPolicyArmed}
+              versionPolicy={{
+                data: versionPolicyQuery.data,
+                error: versionPolicyQuery.error,
+                isError: versionPolicyQuery.isError,
+                isLoading: versionPolicyQuery.isLoading,
+              }}
             />
           ) : null}
         </Panel>
@@ -761,15 +920,22 @@ export function CalibrationLabPage() {
 }
 
 function RerunAuditSection({
+  armedPromotionRerunId,
   evaluation,
   reason,
   notes,
   query,
   mutation,
+  policyMutation,
+  resetPolicyArmed,
+  versionPolicy,
+  onPromoteRerun,
   onReasonChange,
   onNotesChange,
+  onResetPolicy,
   onSubmit,
 }: {
+  armedPromotionRerunId: string | null;
   evaluation: CalibrationEvaluationResponse;
   reason: CalibrationEvaluationRerunReason;
   notes: string;
@@ -785,13 +951,46 @@ function RerunAuditSection({
     isError: boolean;
     isPending: boolean;
   };
+  policyMutation: {
+    promoteData?: PromoteCalibrationEvaluationResponse;
+    promoteError: unknown;
+    promoteIsError: boolean;
+    promoteIsPending: boolean;
+    resetData?: PromoteCalibrationEvaluationResponse;
+    resetError: unknown;
+    resetIsError: boolean;
+    resetIsPending: boolean;
+  };
+  resetPolicyArmed: boolean;
+  versionPolicy: {
+    data?: CalibrationEvaluationVersionPolicyResponse;
+    error: unknown;
+    isError: boolean;
+    isLoading: boolean;
+  };
+  onPromoteRerun: (rerunId: string | null) => void;
   onReasonChange: (value: CalibrationEvaluationRerunReason) => void;
   onNotesChange: (value: string) => void;
+  onResetPolicy: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const rows = query.data ?? [];
+  const policy = versionPolicy.data;
+  const mutationPending =
+    mutation.isPending ||
+    policyMutation.promoteIsPending ||
+    policyMutation.resetIsPending;
   return (
     <div className="stack">
+      <VersionPolicySummary
+        evaluation={evaluation}
+        isLoading={versionPolicy.isLoading}
+        mutation={policyMutation}
+        onResetPolicy={onResetPolicy}
+        policy={policy}
+        resetPolicyArmed={resetPolicyArmed}
+      />
+      {versionPolicy.isError ? <ErrorState error={versionPolicy.error} /> : null}
       <form className="stack" onSubmit={onSubmit}>
         <div className="grid two">
           <label className="label">
@@ -826,7 +1025,7 @@ function RerunAuditSection({
           <span className="badge primary">{evaluation.window_days}d</span>
           <button
             className="button primary"
-            disabled={mutation.isPending}
+            disabled={mutationPending}
             type="submit"
           >
             <Play aria-hidden size={16} />
@@ -839,6 +1038,22 @@ function RerunAuditSection({
         {mutation.data && !mutation.data.created ? (
           <span className="badge primary">{mutation.data.warnings.join(', ')}</span>
         ) : null}
+        {policyMutation.promoteIsError ? (
+          <span className="badge risk">{errorMessage(policyMutation.promoteError)}</span>
+        ) : null}
+        {policyMutation.resetIsError ? (
+          <span className="badge risk">{errorMessage(policyMutation.resetError)}</span>
+        ) : null}
+        {policyMutation.promoteData && !policyMutation.promoteData.created ? (
+          <span className="badge primary">
+            {policyMutation.promoteData.warnings.join(', ')}
+          </span>
+        ) : null}
+        {policyMutation.resetData && !policyMutation.resetData.created ? (
+          <span className="badge primary">
+            {policyMutation.resetData.warnings.join(', ')}
+          </span>
+        ) : null}
       </form>
 
       {query.isLoading ? <LoadingState /> : null}
@@ -846,14 +1061,137 @@ function RerunAuditSection({
       {!query.isLoading && rows.length === 0 ? (
         <EmptyState label="No rerun audit history yet." />
       ) : null}
-      {rows.length > 0 ? <RerunHistoryTable rows={rows} /> : null}
+      {rows.length > 0 ? (
+        <RerunHistoryTable
+          armedPromotionRerunId={armedPromotionRerunId}
+          evaluation={evaluation}
+          mutationPending={mutationPending}
+          onPromoteRerun={onPromoteRerun}
+          policy={policy}
+          rows={rows}
+        />
+      ) : null}
+      {policy ? <VersionPolicyHistory events={policy.events} /> : null}
+    </div>
+  );
+}
+
+function VersionPolicySummary({
+  evaluation,
+  isLoading,
+  mutation,
+  onResetPolicy,
+  policy,
+  resetPolicyArmed,
+}: {
+  evaluation: CalibrationEvaluationResponse;
+  isLoading: boolean;
+  mutation: {
+    resetIsPending: boolean;
+  };
+  onResetPolicy: () => void;
+  policy?: CalibrationEvaluationVersionPolicyResponse;
+  resetPolicyArmed: boolean;
+}) {
+  const activeSource = policy?.active_source ?? evaluation.active_source;
+  const reviewed = Boolean(evaluation.outcome_review_id);
+  const canReset = activeSource === 'promoted_rerun' && !reviewed;
+  return (
+    <div className="top-strip">
+      <div>
+        <div className="top-strip-meta">
+          <span className={`badge ${activeSourceTone(activeSource)}`}>
+            {sourceLabel(activeSource)}
+          </span>
+          {policy?.active_rerun_id ? (
+            <IdChip value={policy.active_rerun_id} />
+          ) : null}
+          {policy?.active_promotion_id ? (
+            <span className="muted">
+              policy {shortId(policy.active_promotion_id)}
+            </span>
+          ) : null}
+          {isLoading ? <span className="badge">Loading policy</span> : null}
+        </div>
+        <p className="muted">
+          Promotion changes Calibration Lab reports for this evaluation. It does
+          not rewrite the base evaluation, rerun audit history, or outcome reviews.
+        </p>
+      </div>
+      <button
+        className="button"
+        disabled={!canReset || mutation.resetIsPending}
+        onClick={onResetPolicy}
+        type="button"
+      >
+        <RefreshCcw aria-hidden size={16} />
+        {resetPolicyArmed ? 'Confirm reset' : 'Reset to base evaluation'}
+      </button>
+    </div>
+  );
+}
+
+function VersionPolicyHistory({
+  events,
+}: {
+  events: CalibrationEvaluationPromotionResponse[];
+}) {
+  if (events.length === 0) {
+    return null;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Policy event</th>
+            <th>Action</th>
+            <th>Source</th>
+            <th>Reason</th>
+            <th>By</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((event) => (
+            <tr key={event.id ?? `${event.action}-${event.promoted_at}`}>
+              <td>{formatDateTime(event.promoted_at)}</td>
+              <td>
+                <span className={`badge ${promotionActionTone(event.action)}`}>
+                  {labelize(event.action)}
+                </span>
+              </td>
+              <td>
+                {event.promoted_rerun_id ? (
+                  <IdChip value={event.promoted_rerun_id} />
+                ) : (
+                  'Base canonical'
+                )}
+              </td>
+              <td>{labelize(event.reason)}</td>
+              <td>{event.promoted_by_user_id ?? 'n/a'}</td>
+              <td>{event.notes ?? 'n/a'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function RerunHistoryTable({
+  armedPromotionRerunId,
+  evaluation,
+  mutationPending,
+  onPromoteRerun,
+  policy,
   rows,
 }: {
+  armedPromotionRerunId: string | null;
+  evaluation: CalibrationEvaluationResponse;
+  mutationPending: boolean;
+  onPromoteRerun: (rerunId: string | null) => void;
+  policy?: CalibrationEvaluationVersionPolicyResponse;
   rows: CalibrationEvaluationRerunResponse[];
 }) {
   return (
@@ -870,11 +1208,20 @@ function RerunHistoryTable({
             <th>Change</th>
             <th>Warnings</th>
             <th>Error</th>
+            <th>Active</th>
+            <th>Promote</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const changed = rerunChanged(row);
+            const isActive = policy?.active_rerun_id === row.id;
+            const reviewed = Boolean(evaluation.outcome_review_id);
+            const canPromote =
+              row.status === 'completed' &&
+              !reviewed &&
+              !isActive &&
+              !mutationPending;
             return (
               <tr key={row.id ?? `${row.requested_at}-${row.reason}`}>
                 <td>{formatDateTime(row.requested_at)}</td>
@@ -905,6 +1252,26 @@ function RerunHistoryTable({
                   <RerunWarningDelta row={row} />
                 </td>
                 <td>{row.error_message ?? 'n/a'}</td>
+                <td>
+                  {isActive ? (
+                    <span className="badge constructive">active</span>
+                  ) : (
+                    <span className="muted">not active</span>
+                  )}
+                </td>
+                <td>
+                  <button
+                    className="button ghost"
+                    disabled={!canPromote}
+                    onClick={() => onPromoteRerun(row.id)}
+                    type="button"
+                  >
+                    <CheckCircle2 aria-hidden size={16} />
+                    {armedPromotionRerunId === row.id
+                      ? 'Confirm promote'
+                      : 'Promote'}
+                  </button>
+                </td>
               </tr>
             );
           })}
@@ -1398,6 +1765,7 @@ function SymbolCalibrationRowsTable({
             <th>Confidence</th>
             <th>Status</th>
             <th>Evaluation</th>
+            <th>Source</th>
             <th>Result</th>
             <th>MFE</th>
             <th>MAE</th>
@@ -1422,6 +1790,15 @@ function SymbolCalibrationRowsTable({
                 </span>
               </td>
               <td>{row.evaluation_id ? <IdChip value={row.evaluation_id} /> : 'n/a'}</td>
+              <td>
+                {row.active_source ? (
+                  <span className={`badge ${activeSourceTone(row.active_source)}`}>
+                    {sourceLabel(row.active_source)}
+                  </span>
+                ) : (
+                  'n/a'
+                )}
+              </td>
               <td>
                 {row.result ? (
                   <span className={`badge ${resultTone(row.result)}`}>
@@ -1517,6 +1894,7 @@ function AgentCalibrationRowsTable({
             <th>Final direction</th>
             <th>Relation</th>
             <th>Evaluation result</th>
+            <th>Source</th>
             <th>Outcome bucket</th>
             <th>Confidence</th>
             <th>Created</th>
@@ -1554,6 +1932,15 @@ function AgentCalibrationRowsTable({
                 {row.evaluation_result ? (
                   <span className={`badge ${resultTone(row.evaluation_result)}`}>
                     {row.evaluation_result}
+                  </span>
+                ) : (
+                  'n/a'
+                )}
+              </td>
+              <td>
+                {row.active_source ? (
+                  <span className={`badge ${activeSourceTone(row.active_source)}`}>
+                    {sourceLabel(row.active_source)}
                   </span>
                 ) : (
                   'n/a'
@@ -1800,6 +2187,29 @@ function symbolStatusTone(
     return 'risk';
   }
   return 'primary';
+}
+
+function activeSourceTone(
+  source: string | null | undefined,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  return source === 'promoted_rerun' ? 'warning' : 'primary';
+}
+
+function promotionActionTone(
+  action: string,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  return action === 'promote_rerun' ? 'warning' : 'primary';
+}
+
+function sourceLabel(source: string | null | undefined): string {
+  if (source === 'promoted_rerun') {
+    return 'promoted rerun';
+  }
+  return 'base canonical';
+}
+
+function shortId(value: string): string {
+  return value.length > 12 ? `${value.slice(0, 12)}...` : value;
 }
 
 function resultTone(

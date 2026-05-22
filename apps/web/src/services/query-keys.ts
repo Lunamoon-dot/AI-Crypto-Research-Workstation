@@ -42,6 +42,8 @@ export const queryKeys = {
     ['calibration-evaluation', queryIdentity(), id] as const,
   calibrationEvaluationReruns: (id: string) =>
     ['calibration-evaluation-reruns', queryIdentity(), id] as const,
+  calibrationEvaluationVersionPolicy: (id: string) =>
+    ['calibration-evaluation-version-policy', queryIdentity(), id] as const,
   comparison: (filters: Record<string, unknown>) =>
     scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>

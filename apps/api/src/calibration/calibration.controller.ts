@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@n
 import { parseListLimit } from '../common/query-limit';
 import { CalibrationService } from './calibration.service';
 import { CreateEvaluationRerunDto } from './dto/evaluation-rerun.dto';
+import { EvaluationVersionPolicyActionDto } from './dto/evaluation-version-policy.dto';
 import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
 import {
   ApplyMaturedEvaluationsDto,
@@ -105,6 +106,15 @@ export class CalibrationController {
     );
   }
 
+  @Get('evaluations/:id/version-policy')
+  getEvaluationVersionPolicy(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.getEvaluationVersionPolicy(id, userId, workspaceId);
+  }
+
   @Post('evaluations/:id/reruns')
   createEvaluationRerun(
     @Param('id') id: string,
@@ -113,6 +123,40 @@ export class CalibrationController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.calibration.createEvaluationRerun(id, dto, userId, workspaceId);
+  }
+
+  @Post('evaluations/:id/reruns/:rerun_id/promote')
+  @HttpCode(200)
+  promoteEvaluationRerun(
+    @Param('id') id: string,
+    @Param('rerun_id') rerunId: string,
+    @Body() dto: EvaluationVersionPolicyActionDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.promoteEvaluationRerun(
+      id,
+      rerunId,
+      dto,
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Post('evaluations/:id/version-policy/reset')
+  @HttpCode(200)
+  resetEvaluationVersionPolicy(
+    @Param('id') id: string,
+    @Body() dto: EvaluationVersionPolicyActionDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.resetEvaluationVersionPolicy(
+      id,
+      dto,
+      userId,
+      workspaceId,
+    );
   }
 
   @Post('evaluations/:id/outcome-review')

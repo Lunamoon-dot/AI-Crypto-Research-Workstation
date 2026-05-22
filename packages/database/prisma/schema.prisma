@@ -560,6 +560,7 @@ model ThesisEvaluation {
   thesis TradeThesis @relation(fields: [thesisId], references: [id])
   outcomeReview OutcomeReview? @relation(fields: [outcomeReviewId], references: [id])
   reruns ThesisEvaluationRun[]
+  promotions ThesisEvaluationPromotion[]
 
   @@unique([workspaceId, thesisId, windowDays, evaluationStart, evaluationEnd], map: "idx_thesis_evaluations_unique_window")
   @@index([workspaceId, thesisId, evaluatedAt(sort: Desc)], map: "idx_thesis_evaluations_thesis")
@@ -597,10 +598,31 @@ model ThesisEvaluationRun {
 
   canonicalEvaluation ThesisEvaluation @relation(fields: [canonicalEvaluationId], references: [id])
   thesis              TradeThesis       @relation(fields: [thesisId], references: [id])
+  promotions          ThesisEvaluationPromotion[]
 
   @@index([workspaceId, canonicalEvaluationId, requestedAt(sort: Desc)], map: "idx_thesis_evaluation_runs_evaluation")
   @@index([workspaceId, thesisId, requestedAt(sort: Desc)], map: "idx_thesis_evaluation_runs_thesis")
   @@map("thesis_evaluation_runs")
+}
+
+model ThesisEvaluationPromotion {
+  id                    String   @id
+  workspaceId           String   @default("local") @map("workspace_id")
+  canonicalEvaluationId String   @map("canonical_evaluation_id")
+  promotedRerunId       String?  @map("promoted_rerun_id")
+  action                String
+  promotedByUserId      String?  @map("promoted_by_user_id")
+  promotedAt            DateTime @map("promoted_at") @db.Timestamptz(6)
+  reason                String
+  notes                 String?
+  idempotencyKey        String?  @map("idempotency_key")
+  payloadJson           Json     @map("payload_json")
+
+  canonicalEvaluation ThesisEvaluation    @relation(fields: [canonicalEvaluationId], references: [id])
+  promotedRerun       ThesisEvaluationRun? @relation(fields: [promotedRerunId], references: [id])
+
+  @@index([workspaceId, canonicalEvaluationId, promotedAt(sort: Desc)], map: "idx_thesis_evaluation_promotions_evaluation")
+  @@map("thesis_evaluation_promotions")
 }
 
 model ProviderHealth {

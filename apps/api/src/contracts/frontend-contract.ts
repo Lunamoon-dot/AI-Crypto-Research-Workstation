@@ -448,6 +448,7 @@ export type MaturedEvaluationReason =
 
 export interface CalibrationEvaluationResponse {
   id: string | null;
+  base_evaluation_id: string | null;
   workspace_id: string;
   thesis_id: string;
   outcome_review_id: string | null;
@@ -465,6 +466,9 @@ export interface CalibrationEvaluationResponse {
   calendar_mature: boolean;
   can_record_review: boolean;
   record_review_blockers: CalibrationRecordReviewBlocker[];
+  active_source: CalibrationEvaluationActiveSource;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   payload: JsonRecord;
 }
 
@@ -483,6 +487,14 @@ export type CalibrationEvaluationRerunReason =
   | 'other';
 
 export type CalibrationEvaluationRerunStatus = 'completed' | 'failed';
+
+export type CalibrationEvaluationActiveSource =
+  | 'base_canonical'
+  | 'promoted_rerun';
+
+export type CalibrationEvaluationPromotionAction =
+  | 'promote_rerun'
+  | 'reset_to_base';
 
 export interface CalibrationEvaluationRerunDiffResponse extends JsonRecord {
   result_changed?: boolean;
@@ -529,6 +541,38 @@ export interface CalibrationEvaluationRerunResponse {
 export interface CreateCalibrationEvaluationRerunResponse {
   created: boolean;
   rerun: CalibrationEvaluationRerunResponse;
+  warnings: string[];
+}
+
+export interface CalibrationEvaluationPromotionResponse {
+  id: string | null;
+  workspace_id: string;
+  canonical_evaluation_id: string;
+  promoted_rerun_id: string | null;
+  action: CalibrationEvaluationPromotionAction;
+  promoted_by_user_id: string | null;
+  promoted_at: string | null;
+  reason: CalibrationEvaluationRerunReason;
+  notes: string | null;
+  idempotency_key: string | null;
+  payload: JsonRecord;
+}
+
+export interface CalibrationEvaluationVersionPolicyResponse {
+  canonical_evaluation_id: string;
+  active_source: CalibrationEvaluationActiveSource;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
+  base_evaluation: CalibrationEvaluationResponse;
+  active_evaluation: CalibrationEvaluationResponse;
+  events: CalibrationEvaluationPromotionResponse[];
+  warnings: string[];
+}
+
+export interface PromoteCalibrationEvaluationResponse {
+  created: boolean;
+  event: CalibrationEvaluationPromotionResponse | null;
+  policy: CalibrationEvaluationVersionPolicyResponse;
   warnings: string[];
 }
 
@@ -663,6 +707,10 @@ export interface SymbolCalibrationRowResponse {
   confidence: number | null;
   status: SymbolCalibrationRowStatus;
   evaluation_id: string | null;
+  base_evaluation_id: string | null;
+  active_source: CalibrationEvaluationActiveSource | null;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   result: CalibrationResult | null;
   max_favorable_excursion: number | null;
   max_adverse_excursion: number | null;
@@ -750,6 +798,10 @@ export interface AgentCalibrationRowResponse {
   agent_stance: AgentCalibrationStance;
   relation_to_final: AgentCalibrationRelation;
   evaluation_id: string | null;
+  base_evaluation_id: string | null;
+  active_source: CalibrationEvaluationActiveSource | null;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   evaluation_result: CalibrationResult | null;
   outcome_bucket: AgentCalibrationOutcomeBucket;
   confidence: number | null;
@@ -1963,6 +2015,9 @@ export function toCalibrationEvaluationResponse(
       : calibrationRecordReviewBlockers(result, calendarMature, outcomeReviewId);
   return {
     id: nullableString(evaluation.id),
+    base_evaluation_id:
+      nullableString(evaluation.base_evaluation_id) ??
+      nullableString(evaluation.id),
     workspace_id: stringValue(evaluation.workspace_id, 'local'),
     thesis_id: stringValue(evaluation.thesis_id),
     outcome_review_id: outcomeReviewId,
@@ -1982,6 +2037,9 @@ export function toCalibrationEvaluationResponse(
     calendar_mature: calendarMature,
     can_record_review: recordReviewBlockers.length === 0,
     record_review_blockers: recordReviewBlockers,
+    active_source: calibrationActiveSourceValue(evaluation.active_source),
+    active_rerun_id: nullableString(evaluation.active_rerun_id),
+    active_promotion_id: nullableString(evaluation.active_promotion_id),
     payload: recordValue(evaluation.payload ?? evaluation.payload_json),
   };
 }
@@ -2023,6 +2081,24 @@ export function toCalibrationEvaluationRerunResponse(
     error_type: nullableString(rerun.error_type),
     error_message: nullableString(rerun.error_message),
     payload: recordValue(rerun.payload ?? rerun.payload_json),
+  };
+}
+
+export function toCalibrationEvaluationPromotionResponse(
+  promotion: JsonRecord,
+): CalibrationEvaluationPromotionResponse {
+  return {
+    id: nullableString(promotion.id),
+    workspace_id: stringValue(promotion.workspace_id, 'local'),
+    canonical_evaluation_id: stringValue(promotion.canonical_evaluation_id),
+    promoted_rerun_id: nullableString(promotion.promoted_rerun_id),
+    action: calibrationPromotionActionValue(promotion.action),
+    promoted_by_user_id: nullableString(promotion.promoted_by_user_id),
+    promoted_at: nullableString(promotion.promoted_at),
+    reason: calibrationRerunReasonValue(promotion.reason),
+    notes: nullableString(promotion.notes),
+    idempotency_key: nullableString(promotion.idempotency_key),
+    payload: recordValue(promotion.payload ?? promotion.payload_json),
   };
 }
 
@@ -2496,6 +2572,22 @@ function calibrationResultValue(value: unknown): CalibrationResult {
 
 function nullableCalibrationResultValue(value: unknown): CalibrationResult | null {
   return nullableString(value) === null ? null : calibrationResultValue(value);
+}
+
+function calibrationActiveSourceValue(
+  value: unknown,
+): CalibrationEvaluationActiveSource {
+  return stringValue(value) === 'promoted_rerun'
+    ? 'promoted_rerun'
+    : 'base_canonical';
+}
+
+function calibrationPromotionActionValue(
+  value: unknown,
+): CalibrationEvaluationPromotionAction {
+  return stringValue(value) === 'reset_to_base'
+    ? 'reset_to_base'
+    : 'promote_rerun';
 }
 
 function calibrationRerunReasonValue(

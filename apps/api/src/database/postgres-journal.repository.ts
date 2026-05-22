@@ -17,6 +17,9 @@ import {
   ThesisEvaluationInput,
   ThesisEvaluationListFilters,
   ThesisEvaluationNaturalKey,
+  ThesisEvaluationPromotionIdempotencyKey,
+  ThesisEvaluationPromotionInput,
+  ThesisEvaluationPromotionListFilters,
   ThesisEvaluationRunIdempotencyKey,
   ThesisEvaluationRunInput,
   ThesisEvaluationRunListFilters,
@@ -760,6 +763,18 @@ export class PostgresJournalRepository implements JournalRepository {
     );
   }
 
+  async getThesisEvaluationRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationRunPayloadSql('r')} AS payload_json
+       FROM thesis_evaluation_runs r
+       WHERE r.id = $1 AND r.workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
   async createThesisEvaluationRun(
     input: ThesisEvaluationRunInput,
     workspaceId: string,
@@ -848,6 +863,103 @@ export class PostgresJournalRepository implements JournalRepository {
     if (!saved) {
       throw new ServiceUnavailableException(
         'Thesis evaluation rerun was not persisted.',
+      );
+    }
+    return saved;
+  }
+
+  async listThesisEvaluationPromotions(
+    filters: ThesisEvaluationPromotionListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT ${evaluationPromotionPayloadSql('p')} AS payload_json
+       FROM thesis_evaluation_promotions p
+       WHERE p.workspace_id = $1
+         AND p.canonical_evaluation_id = $2
+       ORDER BY p.promoted_at DESC, p.id ASC
+       LIMIT $3`,
+      [workspaceId, filters.canonicalEvaluationId, filters.limit],
+    );
+  }
+
+  async getLatestThesisEvaluationPromotion(
+    canonicalEvaluationId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationPromotionPayloadSql('p')} AS payload_json
+       FROM thesis_evaluation_promotions p
+       WHERE p.workspace_id = $1
+         AND p.canonical_evaluation_id = $2
+       ORDER BY p.promoted_at DESC, p.id ASC
+       LIMIT 1`,
+      [workspaceId, canonicalEvaluationId],
+    );
+  }
+
+  async getThesisEvaluationPromotionByIdempotencyKey(
+    key: ThesisEvaluationPromotionIdempotencyKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationPromotionPayloadSql('p')} AS payload_json
+       FROM thesis_evaluation_promotions p
+       WHERE p.workspace_id = $1
+         AND p.canonical_evaluation_id = $2
+         AND p.idempotency_key = $3`,
+      [workspaceId, key.canonicalEvaluationId, key.idempotencyKey],
+    );
+  }
+
+  async createThesisEvaluationPromotion(
+    input: ThesisEvaluationPromotionInput,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(
+      input.id,
+      `promotion_${randomUUID().replaceAll('-', '')}`,
+    );
+    const promotedAt =
+      nullableString(input.promoted_at) ?? new Date().toISOString();
+    const payload = {
+      ...(input.payload ?? {}),
+      id,
+      workspace_id: workspaceId,
+      canonical_evaluation_id: input.canonical_evaluation_id,
+      promoted_rerun_id: input.promoted_rerun_id ?? null,
+      action: input.action,
+      promoted_by_user_id: input.promoted_by_user_id ?? null,
+      promoted_at: promotedAt,
+      reason: input.reason,
+      notes: input.notes ?? null,
+      idempotency_key: input.idempotency_key ?? null,
+    };
+    const saved = await this.one(
+      `INSERT INTO thesis_evaluation_promotions (
+         id, workspace_id, canonical_evaluation_id, promoted_rerun_id, action,
+         promoted_by_user_id, promoted_at, reason, notes, idempotency_key,
+         payload_json
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+       RETURNING ${evaluationPromotionPayloadSql()} AS payload_json`,
+      [
+        id,
+        workspaceId,
+        input.canonical_evaluation_id,
+        input.promoted_rerun_id ?? null,
+        input.action,
+        input.promoted_by_user_id ?? null,
+        promotedAt,
+        input.reason,
+        input.notes ?? null,
+        input.idempotency_key ?? null,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException(
+        'Thesis evaluation promotion event was not persisted.',
       );
     }
     return saved;
@@ -2803,6 +2915,23 @@ function evaluationRunPayloadSql(alias = ''): string {
     'diff_json', ${p}diff_json,
     'error_type', ${p}error_type,
     'error_message', ${p}error_message,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function evaluationPromotionPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'canonical_evaluation_id', ${p}canonical_evaluation_id,
+    'promoted_rerun_id', ${p}promoted_rerun_id,
+    'action', ${p}action,
+    'promoted_by_user_id', ${p}promoted_by_user_id,
+    'promoted_at', ${p}promoted_at,
+    'reason', ${p}reason,
+    'notes', ${p}notes,
+    'idempotency_key', ${p}idempotency_key,
     'payload', ${p}payload_json
   )`;
 }

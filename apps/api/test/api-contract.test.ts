@@ -21,6 +21,7 @@ import {
   JsonRecord,
   SignalSummary,
   ThesisEvaluationInput,
+  ThesisEvaluationPromotionInput,
   ThesisEvaluationRunInput,
   ThesisDecisionIntent,
   ThesisReviewMetrics,
@@ -80,6 +81,7 @@ class FakeJournalRepository implements JournalRepository {
   readonly theses = new Map<string, JsonRecord>();
   readonly thesisEvaluations = new Map<string, JsonRecord>();
   readonly thesisEvaluationRuns = new Map<string, JsonRecord>();
+  readonly thesisEvaluationPromotions = new Map<string, JsonRecord>();
   readonly monitorPlans = new Map<string, JsonRecord>();
   readonly thesisPulses = new Map<string, JsonRecord[]>();
   readonly thesisPulseMemos = new Map<string, JsonRecord[]>();
@@ -547,6 +549,13 @@ class FakeJournalRepository implements JournalRepository {
     );
   }
 
+  async getThesisEvaluationRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.thesisEvaluationRuns.get(key(id, workspaceId)) ?? null;
+  }
+
   async createThesisEvaluationRun(
     input: ThesisEvaluationRunInput,
     workspaceId: string,
@@ -575,6 +584,76 @@ class FakeJournalRepository implements JournalRepository {
       payload: input.payload ?? {},
     };
     this.thesisEvaluationRuns.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async listThesisEvaluationPromotions(
+    filters: { canonicalEvaluationId: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.thesisEvaluationPromotions.values()]
+      .filter((event) => event.workspace_id === workspaceId)
+      .filter(
+        (event) =>
+          event.canonical_evaluation_id === filters.canonicalEvaluationId,
+      )
+      .sort((a, b) => {
+        const promotedCompare = String(b.promoted_at ?? '').localeCompare(
+          String(a.promoted_at ?? ''),
+        );
+        if (promotedCompare !== 0) {
+          return promotedCompare;
+        }
+        return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+      })
+      .slice(0, filters.limit);
+  }
+
+  async getLatestThesisEvaluationPromotion(
+    canonicalEvaluationId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      (await this.listThesisEvaluationPromotions(
+        { canonicalEvaluationId, limit: 1 },
+        workspaceId,
+      ))[0] ?? null
+    );
+  }
+
+  async getThesisEvaluationPromotionByIdempotencyKey(
+    input: { canonicalEvaluationId: string; idempotencyKey: string },
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.thesisEvaluationPromotions.values()].find(
+        (event) =>
+          event.workspace_id === workspaceId &&
+          event.canonical_evaluation_id === input.canonicalEvaluationId &&
+          event.idempotency_key === input.idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  async createThesisEvaluationPromotion(
+    input: ThesisEvaluationPromotionInput,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(
+      input.id ?? `promotion_${this.thesisEvaluationPromotions.size + 1}`,
+    );
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      promoted_rerun_id: input.promoted_rerun_id ?? null,
+      promoted_by_user_id: input.promoted_by_user_id ?? null,
+      promoted_at: input.promoted_at ?? '2026-05-23T08:00:00.000Z',
+      notes: input.notes ?? null,
+      idempotency_key: input.idempotency_key ?? null,
+      payload: input.payload ?? {},
+    };
+    this.thesisEvaluationPromotions.set(key(id, workspaceId), saved);
     return saved;
   }
 
@@ -1787,6 +1866,9 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/calibration/evaluations', ['get']],
     ['/calibration/evaluations/{id}', ['get']],
     ['/calibration/evaluations/{id}/reruns', ['get', 'post']],
+    ['/calibration/evaluations/{id}/reruns/{rerun_id}/promote', ['post']],
+    ['/calibration/evaluations/{id}/version-policy', ['get']],
+    ['/calibration/evaluations/{id}/version-policy/reset', ['post']],
     ['/calibration/evaluations/{id}/outcome-review', ['post']],
     ['/performance/outcomes', ['get']],
     ['/performance/analytics', ['get']],
@@ -3360,6 +3442,297 @@ test('CreateEvaluationRerunDto requires a valid reason', async () => {
   assert.equal(dto.idempotency_key, 'client-key-1');
 });
 
+test('calibration version policy promotes completed reruns and resets to base', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_policy', 'workspace_a'), {
+    id: 'thesis_policy',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    created_at: '2026-05-01T00:00:00.000Z',
+  });
+  const canonical = {
+    id: 'evaluation_policy',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_policy',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-08',
+    evaluated_at: '2026-05-09T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.041,
+    max_adverse_excursion: -0.026,
+    invalidated: false,
+    warnings: ['base_warning'],
+    evidence: { start_price: 100, end_price: 103 },
+    payload: { source: 'base' },
+  };
+  const rerun = completedRerunFixture({
+    id: 'rerun_policy',
+    canonicalEvaluationId: canonical.id,
+    thesisId: 'thesis_policy',
+    result: 'hit_target',
+    maxFavorableExcursion: 0.052,
+    maxAdverseExcursion: -0.013,
+    evidence: { start_price: 100, end_price: 112 },
+  });
+  journal.thesisEvaluations.set(key(canonical.id, 'workspace_a'), canonical);
+  journal.thesisEvaluationRuns.set(key(rerun.id, 'workspace_a'), rerun);
+
+  const basePolicy = await calibration.getEvaluationVersionPolicy(
+    canonical.id,
+    'viewer_1',
+    'workspace_a',
+  );
+
+  assert.equal(basePolicy.active_source, 'base_canonical');
+  assert.equal(basePolicy.active_rerun_id, null);
+  assert.equal(basePolicy.active_evaluation.result, 'mixed');
+  assert.deepEqual(basePolicy.events, []);
+
+  const promoted = await calibration.promoteEvaluationRerun(
+    canonical.id,
+    rerun.id,
+    {
+      reason: 'bug_fix_verification',
+      notes: 'Promote rerun after provider data fix.',
+      idempotency_key: 'promote-key-1',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(promoted.created, true);
+  assert.equal(promoted.event?.action, 'promote_rerun');
+  assert.equal(promoted.event?.promoted_rerun_id, rerun.id);
+  assert.equal(promoted.policy.active_source, 'promoted_rerun');
+  assert.equal(promoted.policy.active_evaluation.id, canonical.id);
+  assert.equal(promoted.policy.active_evaluation.result, 'hit_target');
+  assert.equal(journal.thesisEvaluationPromotions.size, 1);
+
+  const activeDetail = await calibration.getEvaluation(
+    canonical.id,
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(activeDetail.id, canonical.id);
+  assert.equal(activeDetail.base_evaluation_id, canonical.id);
+  assert.equal(activeDetail.active_source, 'promoted_rerun');
+  assert.equal(activeDetail.active_rerun_id, rerun.id);
+  assert.equal(activeDetail.result, 'hit_target');
+  assert.equal(activeDetail.max_adverse_excursion, -0.013);
+  assert.deepEqual(activeDetail.evidence, rerun.evidence);
+
+  const duplicate = await calibration.promoteEvaluationRerun(
+    canonical.id,
+    rerun.id,
+    {
+      reason: 'manual_check',
+      idempotency_key: 'promote-key-1',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(duplicate.created, false);
+  assert.equal(duplicate.event?.id, promoted.event?.id);
+  assert.deepEqual(duplicate.warnings, ['promotion_already_exists']);
+  assert.equal(journal.thesisEvaluationPromotions.size, 1);
+
+  const sameState = await calibration.promoteEvaluationRerun(
+    canonical.id,
+    rerun.id,
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(sameState.created, false);
+  assert.equal(sameState.event, null);
+  assert.deepEqual(sameState.warnings, ['promotion_already_active']);
+  assert.equal(journal.thesisEvaluationPromotions.size, 1);
+
+  const reset = await calibration.resetEvaluationVersionPolicy(
+    canonical.id,
+    {
+      reason: 'manual_check',
+      notes: 'Return to base canonical evaluation.',
+      idempotency_key: 'reset-key-1',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(reset.created, true);
+  assert.equal(reset.event?.action, 'reset_to_base');
+  assert.equal(reset.event?.promoted_rerun_id, null);
+  assert.equal(reset.policy.active_source, 'base_canonical');
+  assert.equal(reset.policy.active_evaluation.result, 'mixed');
+
+  const resetDetail = await calibration.getEvaluation(
+    canonical.id,
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(resetDetail.result, 'mixed');
+  assert.equal(resetDetail.active_source, 'base_canonical');
+  assert.equal(resetDetail.active_promotion_id, reset.event?.id);
+
+  const sameReset = await calibration.resetEvaluationVersionPolicy(
+    canonical.id,
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(sameReset.created, false);
+  assert.equal(sameReset.event, null);
+  assert.deepEqual(sameReset.warnings, ['base_already_active']);
+  assert.equal(journal.thesisEvaluationPromotions.size, 2);
+
+  const rawList = await calibration.listEvaluations(
+    { thesisId: 'thesis_policy', limit: 10 },
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(rawList[0]?.result, 'mixed');
+
+  const rawRuns = await calibration.listEvaluationReruns(
+    canonical.id,
+    { limit: 20 },
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(rawRuns[0]?.id, rerun.id);
+  assert.equal(rawRuns[0]?.result, 'hit_target');
+});
+
+test('calibration version policy blocks unsafe promotion and reset paths', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.thesisEvaluations.set(key('evaluation_policy_safe', 'workspace_a'), {
+    id: 'evaluation_policy_safe',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_policy_safe',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-08',
+    evaluated_at: '2026-05-09T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.041,
+    max_adverse_excursion: -0.026,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+  journal.thesisEvaluations.set(key('evaluation_policy_reviewed', 'workspace_a'), {
+    id: 'evaluation_policy_reviewed',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_policy_reviewed',
+    outcome_review_id: 'review_1',
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-08',
+    evaluated_at: '2026-05-09T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.041,
+    max_adverse_excursion: -0.026,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+  const failedRun = completedRerunFixture({
+    id: 'rerun_policy_failed',
+    canonicalEvaluationId: 'evaluation_policy_safe',
+    thesisId: 'thesis_policy_safe',
+    status: 'failed',
+    result: null,
+  });
+  const mismatchedRun = completedRerunFixture({
+    id: 'rerun_policy_mismatch',
+    canonicalEvaluationId: 'evaluation_other',
+    thesisId: 'thesis_policy_safe',
+  });
+  const completedRun = completedRerunFixture({
+    id: 'rerun_policy_safe',
+    canonicalEvaluationId: 'evaluation_policy_safe',
+    thesisId: 'thesis_policy_safe',
+  });
+  for (const run of [failedRun, mismatchedRun, completedRun]) {
+    journal.thesisEvaluationRuns.set(key(run.id, 'workspace_a'), run);
+  }
+
+  const missing = await calibration.promoteEvaluationRerun(
+    'evaluation_policy_safe',
+    'missing_rerun',
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(missing.created, false);
+  assert.deepEqual(missing.warnings, ['rerun_not_found']);
+
+  const failed = await calibration.promoteEvaluationRerun(
+    'evaluation_policy_safe',
+    failedRun.id,
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(failed.created, false);
+  assert.deepEqual(failed.warnings, ['rerun_not_completed']);
+
+  const mismatch = await calibration.promoteEvaluationRerun(
+    'evaluation_policy_safe',
+    mismatchedRun.id,
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(mismatch.created, false);
+  assert.deepEqual(mismatch.warnings, ['rerun_mismatch']);
+
+  const reviewedPromote = await calibration.promoteEvaluationRerun(
+    'evaluation_policy_reviewed',
+    completedRun.id,
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(reviewedPromote.created, false);
+  assert.deepEqual(reviewedPromote.warnings, ['review_already_recorded']);
+
+  const reviewedReset = await calibration.resetEvaluationVersionPolicy(
+    'evaluation_policy_reviewed',
+    { reason: 'manual_check' },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(reviewedReset.created, false);
+  assert.deepEqual(reviewedReset.warnings, ['review_already_recorded']);
+
+  await assert.rejects(
+    () =>
+      calibration.promoteEvaluationRerun(
+        'evaluation_policy_safe',
+        completedRun.id,
+        { reason: 'manual_check' },
+        'viewer_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+
+  const viewerPolicy = await calibration.getEvaluationVersionPolicy(
+    'evaluation_policy_safe',
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(viewerPolicy.active_source, 'base_canonical');
+  assert.equal(journal.thesisEvaluationPromotions.size, 0);
+});
+
 test('calibration matured preview marks candidate existing not mature and invalid rows', async () => {
   const { calibration, journal } = buildHarness();
   journal.theses.set(key('thesis_batch_candidate', 'workspace_a'), {
@@ -3725,6 +4098,73 @@ test('symbol calibration aggregates coverage stance outcome and compact rows', a
   );
 });
 
+test('symbol calibration uses promoted rerun values and exposes active source metadata', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  const createdDate = addDaysIsoDate(periodEnd, -1);
+  journal.theses.set(key('thesis_symbol_promoted', 'workspace_a'), {
+    id: 'thesis_symbol_promoted',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    confidence: 0.82,
+    created_at: `${createdDate}T00:00:00.000Z`,
+  });
+  journal.thesisEvaluations.set(key('evaluation_symbol_promoted', 'workspace_a'), {
+    id: 'evaluation_symbol_promoted',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_symbol_promoted',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: createdDate,
+    evaluation_end: addDaysIsoDate(createdDate, 7),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.02,
+    max_adverse_excursion: -0.05,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 101 },
+  });
+  const rerun = completedRerunFixture({
+    id: 'rerun_symbol_promoted',
+    canonicalEvaluationId: 'evaluation_symbol_promoted',
+    thesisId: 'thesis_symbol_promoted',
+    result: 'hit_target',
+    maxFavorableExcursion: 0.12,
+    maxAdverseExcursion: -0.01,
+    evidence: { start_price: 100, end_price: 112 },
+  });
+  journal.thesisEvaluationRuns.set(key(rerun.id, 'workspace_a'), rerun);
+
+  const promoted = await calibration.promoteEvaluationRerun(
+    'evaluation_symbol_promoted',
+    rerun.id,
+    { reason: 'bug_fix_verification' },
+    'user_1',
+    'workspace_a',
+  );
+
+  const response = await calibration.getSymbolCalibrationReport(
+    { symbol: 'BTC/USDT', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.coverage.evaluated_count, 1);
+  assert.equal(response.outcome.result_counts.hit_target, 1);
+  assert.equal(response.outcome.avg_mfe, 0.12);
+  assert.equal(response.outcome.avg_mae, -0.01);
+  assert.equal(response.outcome.representative_return, 0.12);
+  assert.equal(response.rows[0]?.evaluation_id, 'evaluation_symbol_promoted');
+  assert.equal(response.rows[0]?.base_evaluation_id, 'evaluation_symbol_promoted');
+  assert.equal(response.rows[0]?.active_source, 'promoted_rerun');
+  assert.equal(response.rows[0]?.active_rerun_id, rerun.id);
+  assert.equal(response.rows[0]?.active_promotion_id, promoted.event?.id);
+  assert.equal(response.rows[0]?.result, 'hit_target');
+});
+
 test('symbol calibration caps supporting rows at 20', async () => {
   const { calibration, journal } = buildHarness();
   const { periodEnd } = symbolCalibrationPeriod(7, 30);
@@ -4051,6 +4491,58 @@ test('agent calibration aggregates coverage joins relations outcomes and rows', 
   assert.equal(fallbackRow?.evaluation_result, 'invalidated');
   assert.ok(!('payload' in (fallbackRow ?? {})));
   assert.equal((response.rows as JsonRecord[])[0]?.thesis_id, 'thesis_agent_market_wrong_window');
+});
+
+test('agent calibration uses promoted rerun values and exposes active source metadata', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  const createdDate = addDaysIsoDate(periodEnd, -1);
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_agent_promoted',
+    agentRole: 'market',
+    agentName: 'Market Analyst',
+    stance: 'bullish',
+    confidence: 0.7,
+    thesisId: 'thesis_agent_promoted',
+    direction: 'long',
+    createdDate,
+    evaluationResult: 'invalidated',
+  });
+  const rerun = completedRerunFixture({
+    id: 'rerun_agent_promoted',
+    canonicalEvaluationId: 'evaluation_op_agent_promoted',
+    thesisId: 'thesis_agent_promoted',
+    result: 'hit_target',
+    maxFavorableExcursion: 0.09,
+    maxAdverseExcursion: -0.02,
+    evidence: { start_price: 100, end_price: 109 },
+  });
+  journal.thesisEvaluationRuns.set(key(rerun.id, 'workspace_a'), rerun);
+
+  const promoted = await calibration.promoteEvaluationRerun(
+    'evaluation_op_agent_promoted',
+    rerun.id,
+    { reason: 'bug_fix_verification' },
+    'user_1',
+    'workspace_a',
+  );
+
+  const response = await calibration.getAgentCalibrationReport(
+    { window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.coverage.scored_opinion_count, 1);
+  assert.equal(response.agents[0]?.supported_success_count, 1);
+  assert.equal(response.agents[0]?.supported_failure_count, 0);
+  assert.equal(response.rows[0]?.evaluation_id, 'evaluation_op_agent_promoted');
+  assert.equal(response.rows[0]?.base_evaluation_id, 'evaluation_op_agent_promoted');
+  assert.equal(response.rows[0]?.active_source, 'promoted_rerun');
+  assert.equal(response.rows[0]?.active_rerun_id, rerun.id);
+  assert.equal(response.rows[0]?.active_promotion_id, promoted.event?.id);
+  assert.equal(response.rows[0]?.evaluation_result, 'hit_target');
+  assert.equal(response.rows[0]?.outcome_bucket, 'supported_success');
 });
 
 test('agent calibration returns cautious verdict thresholds sorting caps and validation', async () => {
@@ -4812,6 +5304,22 @@ test('postgres calibration rerun schema declares append-only audit table', () =>
     'idx_thesis_evaluation_runs_evaluation',
     'idx_thesis_evaluation_runs_thesis',
     'idx_thesis_evaluation_runs_idempotency',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
+test('postgres calibration promotion schema declares append-only version policy ledger', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  );
+  for (const fragment of [
+    'CREATE TABLE IF NOT EXISTS thesis_evaluation_promotions',
+    'canonical_evaluation_id TEXT NOT NULL REFERENCES thesis_evaluations(id)',
+    'promoted_rerun_id TEXT REFERENCES thesis_evaluation_runs(id)',
+    'idx_thesis_evaluation_promotions_evaluation',
+    'idx_thesis_evaluation_promotions_idempotency',
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
   }
@@ -7261,6 +7769,56 @@ function symbolCalibrationPeriod(
     today,
     periodStart: addDaysIsoDate(periodEnd, -(lookbackDays - 1)),
     periodEnd,
+  };
+}
+
+function completedRerunFixture(options: {
+  id: string;
+  canonicalEvaluationId: string;
+  thesisId: string;
+  status?: 'completed' | 'failed';
+  result?: string | null;
+  maxFavorableExcursion?: number | null;
+  maxAdverseExcursion?: number | null;
+  evidence?: JsonRecord;
+  workspaceId?: string;
+}): JsonRecord & {
+  id: string;
+  canonical_evaluation_id: string;
+  evidence: JsonRecord;
+  result: string | null;
+} {
+  const workspaceId = options.workspaceId ?? 'workspace_a';
+  const result = options.result === undefined ? 'hit_target' : options.result;
+  return {
+    id: options.id,
+    workspace_id: workspaceId,
+    canonical_evaluation_id: options.canonicalEvaluationId,
+    thesis_id: options.thesisId,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-08',
+    requested_by_user_id: 'user_1',
+    requested_at: '2026-05-23T08:00:00.000Z',
+    evaluated_at:
+      options.status === 'failed' ? null : '2026-05-23T08:00:03.000Z',
+    source: 'calibration_lab_v1_3_rerun',
+    reason: 'manual_check',
+    notes: null,
+    idempotency_key: null,
+    status: options.status ?? 'completed',
+    result,
+    max_favorable_excursion: options.maxFavorableExcursion ?? 0.052,
+    max_adverse_excursion: options.maxAdverseExcursion ?? -0.013,
+    invalidated: result === 'invalidated',
+    warnings: [],
+    evidence: options.evidence ?? { start_price: 100, end_price: 112 },
+    diff: {},
+    error_type: options.status === 'failed' ? 'ProviderError' : null,
+    error_message:
+      options.status === 'failed' ? 'Provider returned no candles' : null,
+    payload: {},
   };
 }
 

@@ -465,6 +465,7 @@ export type MaturedEvaluationReason =
 
 export interface CalibrationEvaluationResponse {
   id: string | null;
+  base_evaluation_id: string | null;
   workspace_id: string;
   thesis_id: string;
   outcome_review_id: string | null;
@@ -482,6 +483,9 @@ export interface CalibrationEvaluationResponse {
   calendar_mature: boolean;
   can_record_review: boolean;
   record_review_blockers: CalibrationRecordReviewBlocker[];
+  active_source: CalibrationEvaluationActiveSource;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   payload: JsonRecord;
 }
 
@@ -500,6 +504,14 @@ export type CalibrationEvaluationRerunReason =
   | 'other';
 
 export type CalibrationEvaluationRerunStatus = 'completed' | 'failed';
+
+export type CalibrationEvaluationActiveSource =
+  | 'base_canonical'
+  | 'promoted_rerun';
+
+export type CalibrationEvaluationPromotionAction =
+  | 'promote_rerun'
+  | 'reset_to_base';
 
 export interface CalibrationEvaluationRerunDiffResponse extends JsonRecord {
   result_changed?: boolean;
@@ -546,6 +558,38 @@ export interface CalibrationEvaluationRerunResponse {
 export interface CreateCalibrationEvaluationRerunResponse {
   created: boolean;
   rerun: CalibrationEvaluationRerunResponse;
+  warnings: string[];
+}
+
+export interface CalibrationEvaluationPromotionResponse {
+  id: string | null;
+  workspace_id: string;
+  canonical_evaluation_id: string;
+  promoted_rerun_id: string | null;
+  action: CalibrationEvaluationPromotionAction;
+  promoted_by_user_id: string | null;
+  promoted_at: string | null;
+  reason: CalibrationEvaluationRerunReason;
+  notes: string | null;
+  idempotency_key: string | null;
+  payload: JsonRecord;
+}
+
+export interface CalibrationEvaluationVersionPolicyResponse {
+  canonical_evaluation_id: string;
+  active_source: CalibrationEvaluationActiveSource;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
+  base_evaluation: CalibrationEvaluationResponse;
+  active_evaluation: CalibrationEvaluationResponse;
+  events: CalibrationEvaluationPromotionResponse[];
+  warnings: string[];
+}
+
+export interface PromoteCalibrationEvaluationResponse {
+  created: boolean;
+  event: CalibrationEvaluationPromotionResponse | null;
+  policy: CalibrationEvaluationVersionPolicyResponse;
   warnings: string[];
 }
 
@@ -680,6 +724,10 @@ export interface SymbolCalibrationRowResponse {
   confidence: number | null;
   status: SymbolCalibrationRowStatus;
   evaluation_id: string | null;
+  base_evaluation_id: string | null;
+  active_source: CalibrationEvaluationActiveSource | null;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   result: CalibrationResult | null;
   max_favorable_excursion: number | null;
   max_adverse_excursion: number | null;
@@ -767,6 +815,10 @@ export interface AgentCalibrationRowResponse {
   agent_stance: AgentCalibrationStance;
   relation_to_final: AgentCalibrationRelation;
   evaluation_id: string | null;
+  base_evaluation_id: string | null;
+  active_source: CalibrationEvaluationActiveSource | null;
+  active_rerun_id: string | null;
+  active_promotion_id: string | null;
   evaluation_result: CalibrationResult | null;
   outcome_bucket: AgentCalibrationOutcomeBucket;
   confidence: number | null;
@@ -1298,6 +1350,12 @@ export type RecordCalibrationOutcomeReviewRequest = {
 };
 
 export type CreateCalibrationEvaluationRerunRequest = {
+  reason: CalibrationEvaluationRerunReason;
+  notes?: string;
+  idempotency_key?: string;
+};
+
+export type EvaluationVersionPolicyActionRequest = {
   reason: CalibrationEvaluationRerunReason;
   notes?: string;
   idempotency_key?: string;

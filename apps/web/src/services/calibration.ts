@@ -7,10 +7,13 @@ import type {
   ApplyMaturedEvaluationsResponse,
   CalibrationEvaluationResponse,
   CalibrationEvaluationRerunResponse,
+  CalibrationEvaluationVersionPolicyResponse,
   CreateCalibrationEvaluationRerunRequest,
   CreateCalibrationEvaluationRerunResponse,
+  EvaluationVersionPolicyActionRequest,
   EvaluateThesisRequest,
   EvaluateThesisResponse,
+  PromoteCalibrationEvaluationResponse,
   PreviewMaturedEvaluationsRequest,
   PreviewMaturedEvaluationsResponse,
   RecordCalibrationOutcomeReviewRequest,
@@ -108,6 +111,17 @@ export function listCalibrationEvaluationReruns(
   );
 }
 
+export function getCalibrationEvaluationVersionPolicy(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<CalibrationEvaluationVersionPolicyResponse>(
+    `/calibration/evaluations/${encodeURIComponent(id)}/version-policy`,
+    {},
+    auth,
+  );
+}
+
 export function createCalibrationEvaluationRerun(
   id: string,
   request: CreateCalibrationEvaluationRerunRequest,
@@ -115,6 +129,31 @@ export function createCalibrationEvaluationRerun(
 ) {
   return apiRequest<CreateCalibrationEvaluationRerunResponse>(
     `/calibration/evaluations/${encodeURIComponent(id)}/reruns`,
+    { method: 'POST', body: request },
+    auth,
+  );
+}
+
+export function promoteCalibrationEvaluationRerun(
+  id: string,
+  rerunId: string,
+  request: EvaluationVersionPolicyActionRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<PromoteCalibrationEvaluationResponse>(
+    `/calibration/evaluations/${encodeURIComponent(id)}/reruns/${encodeURIComponent(rerunId)}/promote`,
+    { method: 'POST', body: request },
+    auth,
+  );
+}
+
+export function resetCalibrationEvaluationVersionPolicy(
+  id: string,
+  request: EvaluationVersionPolicyActionRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<PromoteCalibrationEvaluationResponse>(
+    `/calibration/evaluations/${encodeURIComponent(id)}/version-policy/reset`,
     { method: 'POST', body: request },
     auth,
   );

@@ -139,6 +139,30 @@ export interface ThesisEvaluationRunIdempotencyKey {
   idempotencyKey: string;
 }
 
+export interface ThesisEvaluationPromotionInput {
+  id?: string | null;
+  workspace_id?: string | null;
+  canonical_evaluation_id: string;
+  promoted_rerun_id?: string | null;
+  action: string;
+  promoted_by_user_id?: string | null;
+  promoted_at?: string | null;
+  reason: string;
+  notes?: string | null;
+  idempotency_key?: string | null;
+  payload?: JsonRecord;
+}
+
+export interface ThesisEvaluationPromotionListFilters {
+  canonicalEvaluationId: string;
+  limit: number;
+}
+
+export interface ThesisEvaluationPromotionIdempotencyKey {
+  canonicalEvaluationId: string;
+  idempotencyKey: string;
+}
+
 export interface MaturedEvaluationThesisFilters {
   symbol?: string;
   limit: number;
@@ -256,8 +280,28 @@ export interface JournalRepository {
     key: ThesisEvaluationRunIdempotencyKey,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
+  getThesisEvaluationRun?(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   createThesisEvaluationRun?(
     input: ThesisEvaluationRunInput,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listThesisEvaluationPromotions?(
+    filters: ThesisEvaluationPromotionListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getLatestThesisEvaluationPromotion?(
+    canonicalEvaluationId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  getThesisEvaluationPromotionByIdempotencyKey?(
+    key: ThesisEvaluationPromotionIdempotencyKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  createThesisEvaluationPromotion?(
+    input: ThesisEvaluationPromotionInput,
     workspaceId: string,
   ): Promise<JsonRecord>;
   getThesisMonitorPlan?(

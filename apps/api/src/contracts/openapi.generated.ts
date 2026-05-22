@@ -809,6 +809,41 @@ export const openApiDocument = {
         ),
       },
     },
+    '/calibration/evaluations/{id}/reruns/{rerun_id}/promote': {
+      post: {
+        operationId: 'promoteCalibrationEvaluationRerun',
+        tags: ['calibration'],
+        parameters: [pathParameter('id'), pathParameter('rerun_id')],
+        requestBody: jsonRequest('EvaluationVersionPolicyActionRequest'),
+        responses: jsonResponse(
+          'Manual promotion attempt for a completed calibration rerun.',
+          'PromoteCalibrationEvaluationResponse',
+        ),
+      },
+    },
+    '/calibration/evaluations/{id}/version-policy': {
+      get: {
+        operationId: 'getCalibrationEvaluationVersionPolicy',
+        tags: ['calibration'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Active evaluation version policy and promotion history.',
+          'CalibrationEvaluationVersionPolicyResponse',
+        ),
+      },
+    },
+    '/calibration/evaluations/{id}/version-policy/reset': {
+      post: {
+        operationId: 'resetCalibrationEvaluationVersionPolicy',
+        tags: ['calibration'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('EvaluationVersionPolicyActionRequest'),
+        responses: jsonResponse(
+          'Manual reset attempt for the active calibration evaluation source.',
+          'PromoteCalibrationEvaluationResponse',
+        ),
+      },
+    },
     '/calibration/evaluations/{id}/outcome-review': {
       post: {
         operationId: 'recordCalibrationOutcomeReview',
@@ -1565,9 +1600,10 @@ export const openApiDocument = {
       },
       CalibrationEvaluationResponse: {
         type: 'object',
-        required: ['id', 'workspace_id', 'thesis_id', 'outcome_review_id', 'symbol', 'window_days', 'evaluation_start', 'evaluation_end', 'evaluated_at', 'result', 'max_favorable_excursion', 'max_adverse_excursion', 'invalidated', 'warnings', 'evidence', 'calendar_mature', 'can_record_review', 'record_review_blockers', 'payload'],
+        required: ['id', 'base_evaluation_id', 'workspace_id', 'thesis_id', 'outcome_review_id', 'symbol', 'window_days', 'evaluation_start', 'evaluation_end', 'evaluated_at', 'result', 'max_favorable_excursion', 'max_adverse_excursion', 'invalidated', 'warnings', 'evidence', 'calendar_mature', 'can_record_review', 'record_review_blockers', 'active_source', 'active_rerun_id', 'active_promotion_id', 'payload'],
         properties: {
           id: { type: ['string', 'null'] },
+          base_evaluation_id: { type: ['string', 'null'] },
           workspace_id: { type: 'string' },
           thesis_id: { type: 'string' },
           outcome_review_id: { type: ['string', 'null'] },
@@ -1588,6 +1624,12 @@ export const openApiDocument = {
             type: 'array',
             items: { type: 'string', enum: ['incomplete_window', 'unknown_result', 'review_already_recorded'] },
           },
+          active_source: {
+            type: 'string',
+            enum: ['base_canonical', 'promoted_rerun'],
+          },
+          active_rerun_id: { type: ['string', 'null'] },
+          active_promotion_id: { type: ['string', 'null'] },
           payload: { $ref: '#/components/schemas/JsonRecord' },
         },
       },
@@ -1654,6 +1696,58 @@ export const openApiDocument = {
         properties: {
           created: { type: 'boolean' },
           rerun: { $ref: '#/components/schemas/CalibrationEvaluationRerunResponse' },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      CalibrationEvaluationPromotionResponse: {
+        type: 'object',
+        required: ['id', 'workspace_id', 'canonical_evaluation_id', 'promoted_rerun_id', 'action', 'promoted_by_user_id', 'promoted_at', 'reason', 'notes', 'idempotency_key', 'payload'],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          canonical_evaluation_id: { type: 'string' },
+          promoted_rerun_id: { type: ['string', 'null'] },
+          action: {
+            type: 'string',
+            enum: ['promote_rerun', 'reset_to_base'],
+          },
+          promoted_by_user_id: { type: ['string', 'null'] },
+          promoted_at: { type: ['string', 'null'], format: 'date-time' },
+          reason: { type: 'string', enum: ['manual_check', 'engine_rule_change', 'market_data_fix', 'bug_fix_verification', 'suspected_drift', 'other'] },
+          notes: { type: ['string', 'null'] },
+          idempotency_key: { type: ['string', 'null'] },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      CalibrationEvaluationVersionPolicyResponse: {
+        type: 'object',
+        required: ['canonical_evaluation_id', 'active_source', 'active_rerun_id', 'active_promotion_id', 'base_evaluation', 'active_evaluation', 'events', 'warnings'],
+        properties: {
+          canonical_evaluation_id: { type: 'string' },
+          active_source: {
+            type: 'string',
+            enum: ['base_canonical', 'promoted_rerun'],
+          },
+          active_rerun_id: { type: ['string', 'null'] },
+          active_promotion_id: { type: ['string', 'null'] },
+          base_evaluation: { $ref: '#/components/schemas/CalibrationEvaluationResponse' },
+          active_evaluation: { $ref: '#/components/schemas/CalibrationEvaluationResponse' },
+          events: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/CalibrationEvaluationPromotionResponse' },
+          },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      PromoteCalibrationEvaluationResponse: {
+        type: 'object',
+        required: ['created', 'event', 'policy', 'warnings'],
+        properties: {
+          created: { type: 'boolean' },
+          event: {
+            anyOf: [{ $ref: '#/components/schemas/CalibrationEvaluationPromotionResponse' }, { type: 'null' }],
+          },
+          policy: { $ref: '#/components/schemas/CalibrationEvaluationVersionPolicyResponse' },
           warnings: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -1876,6 +1970,10 @@ export const openApiDocument = {
           'confidence',
           'status',
           'evaluation_id',
+          'base_evaluation_id',
+          'active_source',
+          'active_rerun_id',
+          'active_promotion_id',
           'result',
           'max_favorable_excursion',
           'max_adverse_excursion',
@@ -1895,6 +1993,13 @@ export const openApiDocument = {
             enum: ['evaluated', 'missing_evaluation', 'invalid_thesis'],
           },
           evaluation_id: { type: ['string', 'null'] },
+          base_evaluation_id: { type: ['string', 'null'] },
+          active_source: {
+            type: ['string', 'null'],
+            enum: ['base_canonical', 'promoted_rerun', null],
+          },
+          active_rerun_id: { type: ['string', 'null'] },
+          active_promotion_id: { type: ['string', 'null'] },
           result: {
             anyOf: [
               { type: 'string', enum: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'] },
@@ -2007,6 +2112,10 @@ export const openApiDocument = {
           'agent_stance',
           'relation_to_final',
           'evaluation_id',
+          'base_evaluation_id',
+          'active_source',
+          'active_rerun_id',
+          'active_promotion_id',
           'evaluation_result',
           'outcome_bucket',
           'confidence',
@@ -2032,6 +2141,13 @@ export const openApiDocument = {
             enum: ['supports_final', 'opposes_final', 'unclear'],
           },
           evaluation_id: { type: ['string', 'null'] },
+          base_evaluation_id: { type: ['string', 'null'] },
+          active_source: {
+            type: ['string', 'null'],
+            enum: ['base_canonical', 'promoted_rerun', null],
+          },
+          active_rerun_id: { type: ['string', 'null'] },
+          active_promotion_id: { type: ['string', 'null'] },
           evaluation_result: {
             anyOf: [
               { type: 'string', enum: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'] },
@@ -2193,6 +2309,15 @@ export const openApiDocument = {
         },
       },
       CreateCalibrationEvaluationRerunRequest: {
+        type: 'object',
+        required: ['reason'],
+        properties: {
+          reason: { type: 'string', enum: ['manual_check', 'engine_rule_change', 'market_data_fix', 'bug_fix_verification', 'suspected_drift', 'other'] },
+          notes: { type: 'string' },
+          idempotency_key: { type: 'string', minLength: 1 },
+        },
+      },
+      EvaluationVersionPolicyActionRequest: {
         type: 'object',
         required: ['reason'],
         properties: {
