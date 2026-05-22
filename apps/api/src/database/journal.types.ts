@@ -100,6 +100,45 @@ export interface ThesisEvaluationListFilters {
   limit: number;
 }
 
+export interface ThesisEvaluationRunInput {
+  id?: string | null;
+  workspace_id?: string | null;
+  canonical_evaluation_id: string;
+  thesis_id: string;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string;
+  evaluation_end: string;
+  requested_by_user_id?: string | null;
+  requested_at?: string | null;
+  evaluated_at?: string | null;
+  source: string;
+  reason: string;
+  notes?: string | null;
+  idempotency_key?: string | null;
+  status: string;
+  result?: string | null;
+  max_favorable_excursion?: number | null;
+  max_adverse_excursion?: number | null;
+  invalidated?: boolean | null;
+  warnings?: string[];
+  evidence?: JsonRecord;
+  diff?: JsonRecord;
+  error_type?: string | null;
+  error_message?: string | null;
+  payload?: JsonRecord;
+}
+
+export interface ThesisEvaluationRunListFilters {
+  canonicalEvaluationId: string;
+  limit: number;
+}
+
+export interface ThesisEvaluationRunIdempotencyKey {
+  canonicalEvaluationId: string;
+  idempotencyKey: string;
+}
+
 export interface MaturedEvaluationThesisFilters {
   symbol?: string;
   limit: number;
@@ -198,6 +237,18 @@ export interface JournalRepository {
     outcomeReviewId: string,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
+  listThesisEvaluationRuns?(
+    filters: ThesisEvaluationRunListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getThesisEvaluationRunByIdempotencyKey?(
+    key: ThesisEvaluationRunIdempotencyKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  createThesisEvaluationRun?(
+    input: ThesisEvaluationRunInput,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
   getThesisMonitorPlan?(
     thesisId: string,
     workspaceId: string,

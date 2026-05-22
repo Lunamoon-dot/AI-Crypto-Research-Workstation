@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { CalibrationService } from './calibration.service';
+import { CreateEvaluationRerunDto } from './dto/evaluation-rerun.dto';
 import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
 import {
   ApplyMaturedEvaluationsDto,
@@ -75,6 +76,33 @@ export class CalibrationController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.calibration.getEvaluation(id, userId, workspaceId);
+  }
+
+  @Get('evaluations/:id/reruns')
+  listEvaluationReruns(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.listEvaluationReruns(
+      id,
+      {
+        limit: parseListLimit(limit, { defaultLimit: 20, maxLimit: 50 }),
+      },
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Post('evaluations/:id/reruns')
+  createEvaluationRerun(
+    @Param('id') id: string,
+    @Body() dto: CreateEvaluationRerunDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.createEvaluationRerun(id, dto, userId, workspaceId);
   }
 
   @Post('evaluations/:id/outcome-review')

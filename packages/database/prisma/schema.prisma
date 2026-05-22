@@ -224,6 +224,7 @@ model TradeThesis {
   userDecisions  UserDecision[]
   outcomeReviews OutcomeReview[]
   thesisEvaluations ThesisEvaluation[]
+  thesisEvaluationRuns ThesisEvaluationRun[]
   llmCalls       LlmCall[]
   monitorPlans   ThesisMonitorPlan[]
   pulses         ThesisPulse[]
@@ -558,11 +559,48 @@ model ThesisEvaluation {
 
   thesis TradeThesis @relation(fields: [thesisId], references: [id])
   outcomeReview OutcomeReview? @relation(fields: [outcomeReviewId], references: [id])
+  reruns ThesisEvaluationRun[]
 
   @@unique([workspaceId, thesisId, windowDays, evaluationStart, evaluationEnd], map: "idx_thesis_evaluations_unique_window")
   @@index([workspaceId, thesisId, evaluatedAt(sort: Desc)], map: "idx_thesis_evaluations_thesis")
   @@index([workspaceId, evaluatedAt(sort: Desc)], map: "idx_thesis_evaluations_workspace")
   @@map("thesis_evaluations")
+}
+
+model ThesisEvaluationRun {
+  id                    String    @id
+  workspaceId           String    @default("local") @map("workspace_id")
+  canonicalEvaluationId String    @map("canonical_evaluation_id")
+  thesisId              String    @map("thesis_id")
+  symbol                String
+  windowDays            Int       @map("window_days")
+  evaluationStart       DateTime  @map("evaluation_start") @db.Date
+  evaluationEnd         DateTime  @map("evaluation_end") @db.Date
+  requestedByUserId     String?   @map("requested_by_user_id")
+  requestedAt           DateTime  @map("requested_at") @db.Timestamptz(6)
+  evaluatedAt           DateTime? @map("evaluated_at") @db.Timestamptz(6)
+  source                String
+  reason                String
+  notes                 String?
+  idempotencyKey        String?   @map("idempotency_key")
+  status                String
+  result                String?
+  maxFavorableExcursion Float?    @map("max_favorable_excursion")
+  maxAdverseExcursion   Float?    @map("max_adverse_excursion")
+  invalidated           Boolean?
+  warningsJson          Json      @default("[]") @map("warnings_json")
+  evidenceJson          Json      @default("{}") @map("evidence_json")
+  diffJson              Json      @default("{}") @map("diff_json")
+  errorType             String?   @map("error_type")
+  errorMessage          String?   @map("error_message")
+  payloadJson           Json      @map("payload_json")
+
+  canonicalEvaluation ThesisEvaluation @relation(fields: [canonicalEvaluationId], references: [id])
+  thesis              TradeThesis       @relation(fields: [thesisId], references: [id])
+
+  @@index([workspaceId, canonicalEvaluationId, requestedAt(sort: Desc)], map: "idx_thesis_evaluation_runs_evaluation")
+  @@index([workspaceId, thesisId, requestedAt(sort: Desc)], map: "idx_thesis_evaluation_runs_thesis")
+  @@map("thesis_evaluation_runs")
 }
 
 model ProviderHealth {
