@@ -4,6 +4,9 @@ import type {
   ApplyMaturedEvaluationsRequest,
   ApplyMaturedEvaluationsResponse,
   CalibrationEvaluationResponse,
+  CalibrationEvaluationRerunResponse,
+  CreateCalibrationEvaluationRerunRequest,
+  CreateCalibrationEvaluationRerunResponse,
   EvaluateThesisRequest,
   EvaluateThesisResponse,
   PreviewMaturedEvaluationsRequest,
@@ -76,6 +79,30 @@ export function getCalibrationEvaluation(
   return apiRequest<CalibrationEvaluationResponse>(
     `/calibration/evaluations/${encodeURIComponent(id)}`,
     {},
+    auth,
+  );
+}
+
+export function listCalibrationEvaluationReruns(
+  id: string,
+  params: { limit?: number },
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<CalibrationEvaluationRerunResponse[]>(
+    `/calibration/evaluations/${encodeURIComponent(id)}/reruns`,
+    { query: { limit: params.limit ?? 20 } },
+    auth,
+  );
+}
+
+export function createCalibrationEvaluationRerun(
+  id: string,
+  request: CreateCalibrationEvaluationRerunRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<CreateCalibrationEvaluationRerunResponse>(
+    `/calibration/evaluations/${encodeURIComponent(id)}/reruns`,
+    { method: 'POST', body: request },
     auth,
   );
 }

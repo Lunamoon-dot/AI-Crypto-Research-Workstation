@@ -228,6 +228,45 @@ ON thesis_evaluations(workspace_id, thesis_id, evaluated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_thesis_evaluations_workspace
 ON thesis_evaluations(workspace_id, evaluated_at DESC);
 
+CREATE TABLE IF NOT EXISTS thesis_evaluation_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    canonical_evaluation_id TEXT NOT NULL REFERENCES thesis_evaluations(id),
+    thesis_id TEXT NOT NULL REFERENCES trade_theses(id),
+    symbol TEXT NOT NULL,
+    window_days INTEGER NOT NULL,
+    evaluation_start DATE NOT NULL,
+    evaluation_end DATE NOT NULL,
+    requested_by_user_id TEXT,
+    requested_at TIMESTAMPTZ NOT NULL,
+    evaluated_at TIMESTAMPTZ,
+    source TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    notes TEXT,
+    idempotency_key TEXT,
+    status TEXT NOT NULL,
+    result TEXT,
+    max_favorable_excursion DOUBLE PRECISION,
+    max_adverse_excursion DOUBLE PRECISION,
+    invalidated BOOLEAN,
+    warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    diff_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_type TEXT,
+    error_message TEXT,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluation_runs_evaluation
+ON thesis_evaluation_runs(workspace_id, canonical_evaluation_id, requested_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_thesis_evaluation_runs_thesis
+ON thesis_evaluation_runs(workspace_id, thesis_id, requested_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_evaluation_runs_idempotency
+ON thesis_evaluation_runs(workspace_id, canonical_evaluation_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS thesis_monitor_plans (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

@@ -474,6 +474,64 @@ export interface EvaluateThesisResponse {
   warnings: string[];
 }
 
+export type CalibrationEvaluationRerunReason =
+  | 'manual_check'
+  | 'engine_rule_change'
+  | 'market_data_fix'
+  | 'bug_fix_verification'
+  | 'suspected_drift'
+  | 'other';
+
+export type CalibrationEvaluationRerunStatus = 'completed' | 'failed';
+
+export interface CalibrationEvaluationRerunDiffResponse extends JsonRecord {
+  result_changed?: boolean;
+  canonical_result?: CalibrationResult | null;
+  rerun_result?: CalibrationResult | null;
+  mfe_delta?: number | null;
+  mae_delta?: number | null;
+  invalidated_changed?: boolean;
+  warnings_added?: string[];
+  warnings_removed?: string[];
+  start_price_delta?: number | null;
+  end_price_delta?: number | null;
+}
+
+export interface CalibrationEvaluationRerunResponse {
+  id: string | null;
+  workspace_id: string;
+  canonical_evaluation_id: string;
+  thesis_id: string;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  requested_by_user_id: string | null;
+  requested_at: string | null;
+  evaluated_at: string | null;
+  source: string;
+  reason: CalibrationEvaluationRerunReason;
+  notes: string | null;
+  idempotency_key: string | null;
+  status: CalibrationEvaluationRerunStatus;
+  result: CalibrationResult | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  invalidated: boolean | null;
+  warnings: string[];
+  evidence: JsonRecord;
+  diff: CalibrationEvaluationRerunDiffResponse;
+  error_type: string | null;
+  error_message: string | null;
+  payload: JsonRecord;
+}
+
+export interface CreateCalibrationEvaluationRerunResponse {
+  created: boolean;
+  rerun: CalibrationEvaluationRerunResponse;
+  warnings: string[];
+}
+
 export interface RecordCalibrationOutcomeReviewResponse {
   created: boolean;
   outcome_review: ThesisReviewResponse | null;
@@ -1841,6 +1899,46 @@ export function toCalibrationEvaluationResponse(
   };
 }
 
+export function toCalibrationEvaluationRerunResponse(
+  rerun: JsonRecord,
+): CalibrationEvaluationRerunResponse {
+  return {
+    id: nullableString(rerun.id),
+    workspace_id: stringValue(rerun.workspace_id, 'local'),
+    canonical_evaluation_id: stringValue(rerun.canonical_evaluation_id),
+    thesis_id: stringValue(rerun.thesis_id),
+    symbol: stringValue(rerun.symbol),
+    window_days: numberValue(rerun.window_days),
+    evaluation_start: nullableString(rerun.evaluation_start),
+    evaluation_end: nullableString(rerun.evaluation_end),
+    requested_by_user_id: nullableString(rerun.requested_by_user_id),
+    requested_at: nullableString(rerun.requested_at),
+    evaluated_at: nullableString(rerun.evaluated_at),
+    source: stringValue(rerun.source),
+    reason: calibrationRerunReasonValue(rerun.reason),
+    notes: nullableString(rerun.notes),
+    idempotency_key: nullableString(rerun.idempotency_key),
+    status: calibrationRerunStatusValue(rerun.status),
+    result: nullableCalibrationResultValue(rerun.result),
+    max_favorable_excursion: nullableNumber(
+      rerun.max_favorable_excursion,
+    ),
+    max_adverse_excursion: nullableNumber(rerun.max_adverse_excursion),
+    invalidated:
+      rerun.invalidated === null || rerun.invalidated === undefined
+        ? null
+        : booleanValue(rerun.invalidated),
+    warnings: stringList(rerun.warnings ?? rerun.warnings_json),
+    evidence: recordValue(rerun.evidence ?? rerun.evidence_json),
+    diff: recordValue(
+      rerun.diff ?? rerun.diff_json,
+    ) as CalibrationEvaluationRerunDiffResponse,
+    error_type: nullableString(rerun.error_type),
+    error_message: nullableString(rerun.error_message),
+    payload: recordValue(rerun.payload ?? rerun.payload_json),
+  };
+}
+
 export function toMaturedEvaluationPreviewRowResponse(
   row: JsonRecord,
 ): MaturedEvaluationPreviewRowResponse {
@@ -2307,6 +2405,33 @@ function calibrationResultValue(value: unknown): CalibrationResult {
     return result;
   }
   return 'unknown';
+}
+
+function nullableCalibrationResultValue(value: unknown): CalibrationResult | null {
+  return nullableString(value) === null ? null : calibrationResultValue(value);
+}
+
+function calibrationRerunReasonValue(
+  value: unknown,
+): CalibrationEvaluationRerunReason {
+  const reason = stringValue(value, 'other');
+  if (
+    reason === 'manual_check' ||
+    reason === 'engine_rule_change' ||
+    reason === 'market_data_fix' ||
+    reason === 'bug_fix_verification' ||
+    reason === 'suspected_drift' ||
+    reason === 'other'
+  ) {
+    return reason;
+  }
+  return 'other';
+}
+
+function calibrationRerunStatusValue(
+  value: unknown,
+): CalibrationEvaluationRerunStatus {
+  return stringValue(value) === 'completed' ? 'completed' : 'failed';
 }
 
 function calibrationBlockerValue(

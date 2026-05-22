@@ -16,6 +16,9 @@ import {
   ThesisEvaluationInput,
   ThesisEvaluationListFilters,
   ThesisEvaluationNaturalKey,
+  ThesisEvaluationRunIdempotencyKey,
+  ThesisEvaluationRunInput,
+  ThesisEvaluationRunListFilters,
   ThesisEvaluationUpsertResult,
   ThesisReviewMetrics,
 } from './journal.types';
@@ -644,6 +647,128 @@ export class PostgresJournalRepository implements JournalRepository {
        RETURNING ${evaluationPayloadSql()} AS payload_json`,
       [id, workspaceId, outcomeReviewId],
     );
+  }
+
+  async listThesisEvaluationRuns(
+    filters: ThesisEvaluationRunListFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT ${evaluationRunPayloadSql('r')} AS payload_json
+       FROM thesis_evaluation_runs r
+       WHERE r.workspace_id = $1
+         AND r.canonical_evaluation_id = $2
+       ORDER BY r.requested_at DESC, r.id ASC
+       LIMIT $3`,
+      [workspaceId, filters.canonicalEvaluationId, filters.limit],
+    );
+  }
+
+  async getThesisEvaluationRunByIdempotencyKey(
+    key: ThesisEvaluationRunIdempotencyKey,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${evaluationRunPayloadSql('r')} AS payload_json
+       FROM thesis_evaluation_runs r
+       WHERE r.workspace_id = $1
+         AND r.canonical_evaluation_id = $2
+         AND r.idempotency_key = $3`,
+      [workspaceId, key.canonicalEvaluationId, key.idempotencyKey],
+    );
+  }
+
+  async createThesisEvaluationRun(
+    input: ThesisEvaluationRunInput,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(
+      input.id,
+      `evaluation_rerun_${randomUUID().replaceAll('-', '')}`,
+    );
+    const requestedAt =
+      nullableString(input.requested_at) ?? new Date().toISOString();
+    const warnings = input.warnings ?? [];
+    const evidence = input.evidence ?? {};
+    const diff = input.diff ?? {};
+    const payload = {
+      ...(input.payload ?? {}),
+      id,
+      workspace_id: workspaceId,
+      canonical_evaluation_id: input.canonical_evaluation_id,
+      thesis_id: input.thesis_id,
+      symbol: input.symbol,
+      window_days: input.window_days,
+      evaluation_start: input.evaluation_start,
+      evaluation_end: input.evaluation_end,
+      requested_by_user_id: input.requested_by_user_id ?? null,
+      requested_at: requestedAt,
+      evaluated_at: input.evaluated_at ?? null,
+      source: input.source,
+      reason: input.reason,
+      notes: input.notes ?? null,
+      idempotency_key: input.idempotency_key ?? null,
+      status: input.status,
+      result: input.result ?? null,
+      max_favorable_excursion: input.max_favorable_excursion ?? null,
+      max_adverse_excursion: input.max_adverse_excursion ?? null,
+      invalidated: input.invalidated ?? null,
+      warnings,
+      evidence,
+      diff,
+      error_type: input.error_type ?? null,
+      error_message: input.error_message ?? null,
+    };
+    const saved = await this.one(
+      `INSERT INTO thesis_evaluation_runs (
+         id, workspace_id, canonical_evaluation_id, thesis_id, symbol,
+         window_days, evaluation_start, evaluation_end, requested_by_user_id,
+         requested_at, evaluated_at, source, reason, notes, idempotency_key,
+         status, result, max_favorable_excursion, max_adverse_excursion,
+         invalidated, warnings_json, evidence_json, diff_json, error_type,
+         error_message, payload_json
+       )
+       VALUES (
+         $1, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12,
+         $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22::jsonb,
+         $23::jsonb, $24, $25, $26::jsonb
+       )
+       RETURNING ${evaluationRunPayloadSql()} AS payload_json`,
+      [
+        id,
+        workspaceId,
+        input.canonical_evaluation_id,
+        input.thesis_id,
+        input.symbol,
+        input.window_days,
+        input.evaluation_start,
+        input.evaluation_end,
+        input.requested_by_user_id ?? null,
+        requestedAt,
+        input.evaluated_at ?? null,
+        input.source,
+        input.reason,
+        input.notes ?? null,
+        input.idempotency_key ?? null,
+        input.status,
+        input.result ?? null,
+        numberValue(input.max_favorable_excursion),
+        numberValue(input.max_adverse_excursion),
+        input.invalidated ?? null,
+        JSON.stringify(warnings),
+        JSON.stringify(evidence),
+        JSON.stringify(diff),
+        input.error_type ?? null,
+        input.error_message ?? null,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException(
+        'Thesis evaluation rerun was not persisted.',
+      );
+    }
+    return saved;
   }
 
   async getThesisMonitorPlan(
@@ -2561,6 +2686,41 @@ function evaluationPayloadSql(alias = ''): string {
     'warnings_json', ${p}warnings_json,
     'evidence', ${p}evidence_json,
     'evidence_json', ${p}evidence_json,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function evaluationRunPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'canonical_evaluation_id', ${p}canonical_evaluation_id,
+    'thesis_id', ${p}thesis_id,
+    'symbol', ${p}symbol,
+    'window_days', ${p}window_days,
+    'evaluation_start', ${p}evaluation_start,
+    'evaluation_end', ${p}evaluation_end,
+    'requested_by_user_id', ${p}requested_by_user_id,
+    'requested_at', ${p}requested_at,
+    'evaluated_at', ${p}evaluated_at,
+    'source', ${p}source,
+    'reason', ${p}reason,
+    'notes', ${p}notes,
+    'idempotency_key', ${p}idempotency_key,
+    'status', ${p}status,
+    'result', ${p}result,
+    'max_favorable_excursion', ${p}max_favorable_excursion,
+    'max_adverse_excursion', ${p}max_adverse_excursion,
+    'invalidated', ${p}invalidated,
+    'warnings', ${p}warnings_json,
+    'warnings_json', ${p}warnings_json,
+    'evidence', ${p}evidence_json,
+    'evidence_json', ${p}evidence_json,
+    'diff', ${p}diff_json,
+    'diff_json', ${p}diff_json,
+    'error_type', ${p}error_type,
+    'error_message', ${p}error_message,
     'payload', ${p}payload_json
   )`;
 }

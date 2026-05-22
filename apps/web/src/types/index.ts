@@ -491,6 +491,64 @@ export interface EvaluateThesisResponse {
   warnings: string[];
 }
 
+export type CalibrationEvaluationRerunReason =
+  | 'manual_check'
+  | 'engine_rule_change'
+  | 'market_data_fix'
+  | 'bug_fix_verification'
+  | 'suspected_drift'
+  | 'other';
+
+export type CalibrationEvaluationRerunStatus = 'completed' | 'failed';
+
+export interface CalibrationEvaluationRerunDiffResponse extends JsonRecord {
+  result_changed?: boolean;
+  canonical_result?: CalibrationResult | null;
+  rerun_result?: CalibrationResult | null;
+  mfe_delta?: number | null;
+  mae_delta?: number | null;
+  invalidated_changed?: boolean;
+  warnings_added?: string[];
+  warnings_removed?: string[];
+  start_price_delta?: number | null;
+  end_price_delta?: number | null;
+}
+
+export interface CalibrationEvaluationRerunResponse {
+  id: string | null;
+  workspace_id: string;
+  canonical_evaluation_id: string;
+  thesis_id: string;
+  symbol: string;
+  window_days: number;
+  evaluation_start: string | null;
+  evaluation_end: string | null;
+  requested_by_user_id: string | null;
+  requested_at: string | null;
+  evaluated_at: string | null;
+  source: string;
+  reason: CalibrationEvaluationRerunReason;
+  notes: string | null;
+  idempotency_key: string | null;
+  status: CalibrationEvaluationRerunStatus;
+  result: CalibrationResult | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  invalidated: boolean | null;
+  warnings: string[];
+  evidence: JsonRecord;
+  diff: CalibrationEvaluationRerunDiffResponse;
+  error_type: string | null;
+  error_message: string | null;
+  payload: JsonRecord;
+}
+
+export interface CreateCalibrationEvaluationRerunResponse {
+  created: boolean;
+  rerun: CalibrationEvaluationRerunResponse;
+  warnings: string[];
+}
+
 export interface RecordCalibrationOutcomeReviewResponse {
   created: boolean;
   outcome_review: ThesisReviewResponse | null;
@@ -1144,6 +1202,12 @@ export type SymbolCalibrationRequest = {
 
 export type RecordCalibrationOutcomeReviewRequest = {
   notes?: string;
+};
+
+export type CreateCalibrationEvaluationRerunRequest = {
+  reason: CalibrationEvaluationRerunReason;
+  notes?: string;
+  idempotency_key?: string;
 };
 
 export type RunThesisPulseRequest = {

@@ -21,6 +21,7 @@ import {
   JsonRecord,
   SignalSummary,
   ThesisEvaluationInput,
+  ThesisEvaluationRunInput,
   ThesisDecisionIntent,
   ThesisReviewMetrics,
 } from '../src/database/journal.types';
@@ -54,6 +55,7 @@ import { WatchlistsService } from '../src/watchlists/watchlists.service';
 import { BriefsService } from '../src/briefs/briefs.service';
 import { AlertsService } from '../src/alerts/alerts.service';
 import { CalibrationService } from '../src/calibration/calibration.service';
+import { CreateEvaluationRerunDto } from '../src/calibration/dto/evaluation-rerun.dto';
 import { PerformanceService } from '../src/performance/performance.service';
 import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
@@ -77,6 +79,7 @@ class FakeJournalRepository implements JournalRepository {
   readonly agentOpinions = new Map<string, JsonRecord[]>();
   readonly theses = new Map<string, JsonRecord>();
   readonly thesisEvaluations = new Map<string, JsonRecord>();
+  readonly thesisEvaluationRuns = new Map<string, JsonRecord>();
   readonly monitorPlans = new Map<string, JsonRecord>();
   readonly thesisPulses = new Map<string, JsonRecord[]>();
   readonly thesisPulseMemos = new Map<string, JsonRecord[]>();
@@ -389,6 +392,72 @@ class FakeJournalRepository implements JournalRepository {
     }
     evaluation.outcome_review_id = outcomeReviewId;
     return evaluation;
+  }
+
+  async listThesisEvaluationRuns(
+    filters: { canonicalEvaluationId: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.thesisEvaluationRuns.values()]
+      .filter((run) => run.workspace_id === workspaceId)
+      .filter(
+        (run) => run.canonical_evaluation_id === filters.canonicalEvaluationId,
+      )
+      .sort((a, b) => {
+        const requestedCompare = String(b.requested_at ?? '').localeCompare(
+          String(a.requested_at ?? ''),
+        );
+        if (requestedCompare !== 0) {
+          return requestedCompare;
+        }
+        return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+      })
+      .slice(0, filters.limit);
+  }
+
+  async getThesisEvaluationRunByIdempotencyKey(
+    input: { canonicalEvaluationId: string; idempotencyKey: string },
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.thesisEvaluationRuns.values()].find(
+        (run) =>
+          run.workspace_id === workspaceId &&
+          run.canonical_evaluation_id === input.canonicalEvaluationId &&
+          run.idempotency_key === input.idempotencyKey,
+      ) ?? null
+    );
+  }
+
+  async createThesisEvaluationRun(
+    input: ThesisEvaluationRunInput,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(
+      input.id ?? `evaluation_rerun_${this.thesisEvaluationRuns.size + 1}`,
+    );
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      requested_at:
+        input.requested_at ?? '2026-05-22T08:00:00.000Z',
+      evaluated_at: input.evaluated_at ?? null,
+      notes: input.notes ?? null,
+      idempotency_key: input.idempotency_key ?? null,
+      result: input.result ?? null,
+      max_favorable_excursion: input.max_favorable_excursion ?? null,
+      max_adverse_excursion: input.max_adverse_excursion ?? null,
+      invalidated: input.invalidated ?? null,
+      warnings: input.warnings ?? [],
+      evidence: input.evidence ?? {},
+      diff: input.diff ?? {},
+      error_type: input.error_type ?? null,
+      error_message: input.error_message ?? null,
+      payload: input.payload ?? {},
+    };
+    this.thesisEvaluationRuns.set(key(id, workspaceId), saved);
+    return saved;
   }
 
   async getThesisMonitorPlan(
@@ -1598,6 +1667,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/calibration/symbol', ['get']],
     ['/calibration/evaluations', ['get']],
     ['/calibration/evaluations/{id}', ['get']],
+    ['/calibration/evaluations/{id}/reruns', ['get', 'post']],
     ['/calibration/evaluations/{id}/outcome-review', ['post']],
     ['/performance/outcomes', ['get']],
     ['/performance/analytics', ['get']],
@@ -2847,6 +2917,330 @@ test('calibration returns blockers instead of recording unusable reviews', async
   assert.equal(journal.reviewCalls.length, 0);
 });
 
+test('calibration rerun audit lists requested evaluation history only', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.thesisEvaluations.set(key('evaluation_list', 'workspace_a'), {
+    id: 'evaluation_list',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_list',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-15',
+    evaluated_at: '2026-05-16T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.1,
+    max_adverse_excursion: -0.02,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+  for (const run of [
+    {
+      id: 'rerun_b',
+      workspace_id: 'workspace_a',
+      canonical_evaluation_id: 'evaluation_list',
+      thesis_id: 'thesis_list',
+      requested_at: '2026-05-22T08:00:00.000Z',
+      status: 'completed',
+      reason: 'manual_check',
+    },
+    {
+      id: 'rerun_a',
+      workspace_id: 'workspace_a',
+      canonical_evaluation_id: 'evaluation_list',
+      thesis_id: 'thesis_list',
+      requested_at: '2026-05-22T08:00:00.000Z',
+      status: 'completed',
+      reason: 'manual_check',
+    },
+    {
+      id: 'rerun_old',
+      workspace_id: 'workspace_a',
+      canonical_evaluation_id: 'evaluation_list',
+      thesis_id: 'thesis_list',
+      requested_at: '2026-05-21T08:00:00.000Z',
+      status: 'completed',
+      reason: 'bug_fix_verification',
+    },
+    {
+      id: 'rerun_other_eval',
+      workspace_id: 'workspace_a',
+      canonical_evaluation_id: 'evaluation_other',
+      thesis_id: 'thesis_list',
+      requested_at: '2026-05-23T08:00:00.000Z',
+      status: 'completed',
+      reason: 'manual_check',
+    },
+    {
+      id: 'rerun_other_workspace',
+      workspace_id: 'workspace_b',
+      canonical_evaluation_id: 'evaluation_list',
+      thesis_id: 'thesis_list',
+      requested_at: '2026-05-23T08:00:00.000Z',
+      status: 'completed',
+      reason: 'manual_check',
+    },
+  ]) {
+    journal.thesisEvaluationRuns.set(key(String(run.id), String(run.workspace_id)), run);
+  }
+
+  const rows = await calibration.listEvaluationReruns(
+    'evaluation_list',
+    { limit: 2 },
+    'viewer_1',
+    'workspace_a',
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['rerun_a', 'rerun_b'],
+  );
+});
+
+test('calibration rerun audit creates completed records without mutating canonical evaluations', async () => {
+  const { calibration, evaluationEngineCalls, journal } = buildHarness();
+  journal.theses.set(key('thesis_rerun', 'workspace_a'), {
+    id: 'thesis_rerun',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    confidence: 0.7,
+    created_at: '2026-05-01T00:00:00.000Z',
+  });
+  const canonical = {
+    id: 'evaluation_rerun_source',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_rerun',
+    outcome_review_id: null,
+    symbol: 'ETH/USDT',
+    window_days: 14,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-15',
+    evaluated_at: '2026-05-16T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.1,
+    max_adverse_excursion: -0.05,
+    invalidated: true,
+    warnings: ['canonical_warning', 'shared_warning'],
+    evidence: { start_price: 90, end_price: 110 },
+    payload: { canonical: true },
+  };
+  journal.thesisEvaluations.set(key(canonical.id, 'workspace_a'), { ...canonical });
+
+  const response = await calibration.createEvaluationRerun(
+    canonical.id,
+    {
+      reason: 'manual_check',
+      notes: 'Verify after rule changes.',
+      idempotency_key: 'rerun-key-1',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.created, true);
+  assert.equal(response.rerun.status, 'completed');
+  assert.equal(response.rerun.canonical_evaluation_id, canonical.id);
+  assert.equal(response.rerun.thesis_id, 'thesis_rerun');
+  assert.equal(response.rerun.symbol, 'ETH/USDT');
+  assert.equal(response.rerun.reason, 'manual_check');
+  assert.equal(response.rerun.notes, 'Verify after rule changes.');
+  assert.equal(response.rerun.result, 'hit_target');
+  assert.deepEqual(response.rerun.diff, {
+    result_changed: true,
+    canonical_result: 'mixed',
+    rerun_result: 'hit_target',
+    mfe_delta: 0.02,
+    mae_delta: 0.01,
+    invalidated_changed: true,
+    warnings_added: ['incomplete_window'],
+    warnings_removed: ['canonical_warning', 'shared_warning'],
+    start_price_delta: 10,
+    end_price_delta: 2,
+  });
+  assert.deepEqual(
+    journal.thesisEvaluations.get(key(canonical.id, 'workspace_a')),
+    canonical,
+  );
+  assert.equal(journal.thesisEvaluationRuns.size, 1);
+  assert.equal(evaluationEngineCalls.length, 1);
+  assert.deepEqual(evaluationEngineCalls[0], {
+    thesis_id: 'thesis_rerun',
+    workspace_id: 'workspace_a',
+    window_days: 14,
+    metadata: {
+      source: 'calibration_lab_v1_3_rerun',
+      canonical_evaluation_id: canonical.id,
+      rerun_reason: 'manual_check',
+    },
+  });
+});
+
+test('calibration rerun audit is idempotent for duplicate keys', async () => {
+  const { calibration, evaluationEngineCalls, journal } = buildHarness();
+  journal.theses.set(key('thesis_rerun_idempotent', 'workspace_a'), {
+    id: 'thesis_rerun_idempotent',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    created_at: '2026-05-01T00:00:00.000Z',
+  });
+  journal.thesisEvaluations.set(key('evaluation_idempotent', 'workspace_a'), {
+    id: 'evaluation_idempotent',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_rerun_idempotent',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-08',
+    evaluated_at: '2026-05-09T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.12,
+    max_adverse_excursion: -0.04,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 112 },
+  });
+
+  const first = await calibration.createEvaluationRerun(
+    'evaluation_idempotent',
+    { reason: 'manual_check', idempotency_key: 'same-key' },
+    'user_1',
+    'workspace_a',
+  );
+  const second = await calibration.createEvaluationRerun(
+    'evaluation_idempotent',
+    { reason: 'bug_fix_verification', idempotency_key: 'same-key' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.rerun.id, first.rerun.id);
+  assert.deepEqual(second.warnings, ['rerun_already_exists']);
+  assert.equal(evaluationEngineCalls.length, 1);
+  assert.equal(journal.thesisEvaluationRuns.size, 1);
+});
+
+test('calibration rerun audit persists failed engine attempts', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.theses.set(key('thesis_provider_fail_rerun', 'workspace_a'), {
+    id: 'thesis_provider_fail_rerun',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    created_at: '2026-05-01T00:00:00.000Z',
+  });
+  journal.thesisEvaluations.set(key('evaluation_failed_rerun', 'workspace_a'), {
+    id: 'evaluation_failed_rerun',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_provider_fail_rerun',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-15',
+    evaluated_at: '2026-05-16T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.12,
+    max_adverse_excursion: -0.04,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 112 },
+  });
+
+  await assert.rejects(
+    () =>
+      calibration.createEvaluationRerun(
+        'evaluation_failed_rerun',
+        { reason: 'suspected_drift', notes: 'Provider smoke.' },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(ServiceUnavailableException),
+  );
+
+  const rows = await calibration.listEvaluationReruns(
+    'evaluation_failed_rerun',
+    { limit: 20 },
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.status, 'failed');
+  assert.equal(rows[0]?.error_type, 'ProviderError');
+  assert.equal(rows[0]?.error_message, 'Provider returned no candles');
+});
+
+test('calibration rerun audit requires an existing evaluation and editor access', async () => {
+  const { calibration, journal } = buildHarness();
+  journal.thesisEvaluations.set(key('evaluation_permission', 'workspace_a'), {
+    id: 'evaluation_permission',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_permission',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: '2026-05-01',
+    evaluation_end: '2026-05-15',
+    evaluated_at: '2026-05-16T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.12,
+    max_adverse_excursion: -0.04,
+    invalidated: false,
+    warnings: [],
+    evidence: {},
+  });
+
+  await assert.rejects(
+    () =>
+      calibration.createEvaluationRerun(
+        'missing_evaluation',
+        { reason: 'manual_check' },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(NotFoundException),
+  );
+  await assert.rejects(
+    () =>
+      calibration.createEvaluationRerun(
+        'evaluation_permission',
+        { reason: 'manual_check' },
+        'viewer_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+});
+
+test('CreateEvaluationRerunDto requires a valid reason', async () => {
+  await assert.rejects(
+    () => validateCreateEvaluationRerun({ notes: 'missing reason' }),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () => validateCreateEvaluationRerun({ reason: 'invalid_reason' }),
+    isException(BadRequestException),
+  );
+
+  const dto = await validateCreateEvaluationRerun({
+    reason: 'manual_check',
+    notes: 'Valid notes.',
+    idempotency_key: 'client-key-1',
+  });
+  assert.equal(dto.reason, 'manual_check');
+  assert.equal(dto.notes, 'Valid notes.');
+  assert.equal(dto.idempotency_key, 'client-key-1');
+});
+
 test('calibration matured preview marks candidate existing not mature and invalid rows', async () => {
   const { calibration, journal } = buildHarness();
   journal.theses.set(key('thesis_batch_candidate', 'workspace_a'), {
@@ -3954,6 +4348,22 @@ test('postgres monitoring schema declares normalized tables and idempotency inde
     'idx_monitoring_jobs_idempotency',
     'idx_monitoring_jobs_due',
     'idx_monitoring_retention_runs_workspace_started',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
+test('postgres calibration rerun schema declares append-only audit table', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  );
+  for (const fragment of [
+    'CREATE TABLE IF NOT EXISTS thesis_evaluation_runs',
+    'canonical_evaluation_id TEXT NOT NULL REFERENCES thesis_evaluations(id)',
+    'idx_thesis_evaluation_runs_evaluation',
+    'idx_thesis_evaluation_runs_thesis',
+    'idx_thesis_evaluation_runs_idempotency',
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
   }
@@ -5925,6 +6335,12 @@ const patchThesisMonitorPlanMetadata: ArgumentMetadata = {
   data: '',
 };
 
+const createEvaluationRerunMetadata: ArgumentMetadata = {
+  type: 'body',
+  metatype: CreateEvaluationRerunDto,
+  data: '',
+};
+
 const createResearchRunPipe = new ValidationPipe({
   whitelist: true,
   forbidNonWhitelisted: true,
@@ -5974,6 +6390,15 @@ async function validatePatchThesisMonitorPlan(
     payload,
     patchThesisMonitorPlanMetadata,
   )) as PatchThesisMonitorPlanDto;
+}
+
+async function validateCreateEvaluationRerun(
+  payload: JsonRecord,
+): Promise<CreateEvaluationRerunDto> {
+  return (await createResearchRunPipe.transform(
+    payload,
+    createEvaluationRerunMetadata,
+  )) as CreateEvaluationRerunDto;
 }
 
 function engineRequest(runId: string): EngineRunRequest {
@@ -6050,6 +6475,7 @@ function buildHarness() {
   workspaces.setMembershipsForTest([
     { user_id: 'user_1', workspace_id: 'workspace_a', role: 'owner' },
     { user_id: 'user_1', workspace_id: 'workspace_b', role: 'owner' },
+    { user_id: 'viewer_1', workspace_id: 'workspace_a', role: 'viewer' },
   ]);
   const jobs = new JobsService({
     runInline: async (request: EngineRunRequest) => ({
@@ -6057,6 +6483,7 @@ function buildHarness() {
       run_id: request.run_id,
     }),
   } as unknown as PythonEngineClient);
+  const evaluationEngineCalls: JsonRecord[] = [];
   const thesisEngine = {
     monitorPlan: async (request: JsonRecord) => {
       const thesisId = String(request.thesis_id);
@@ -6222,6 +6649,7 @@ function buildHarness() {
       return { created: true, skipped: false, memo, ...memo };
     },
     evaluateThesis: async (request: JsonRecord) => {
+      evaluationEngineCalls.push(request);
       const thesisId = String(request.thesis_id);
       const workspaceId = String(request.workspace_id ?? 'local');
       const windowDays = Number(request.window_days ?? 14);
@@ -6264,6 +6692,8 @@ function buildHarness() {
           last_candle_at: `${end}T00:00:00.000Z`,
           highest_high: 112,
           lowest_low: 96,
+          start_price: 100,
+          end_price: 112,
           target_hit: result === 'hit_target',
           invalidation_hit: false,
         },
@@ -6312,6 +6742,7 @@ function buildHarness() {
   const monitoringJobs = new MonitoringJobsService(journal, thesisEngine);
   return {
     journal,
+    evaluationEngineCalls,
     jobs,
     marketPriceCalls,
     researchRuns,

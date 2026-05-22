@@ -13,13 +13,16 @@ import {
   JournalRepository,
   JsonRecord,
   ThesisEvaluationInput,
+  ThesisEvaluationRunInput,
 } from '../database/journal.types';
 import { PythonEngineClient } from '../jobs/python-engine.client';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   CalibrationEvaluationResponse,
+  CalibrationEvaluationRerunResponse,
   CalibrationResult,
   ApplyMaturedEvaluationsResponse,
+  CreateCalibrationEvaluationRerunResponse,
   EvaluateThesisResponse,
   MaturedEvaluationApplyRowResponse,
   MaturedEvaluationPreviewStatus,
@@ -34,9 +37,15 @@ import {
   ThesisReviewResponse,
   toMaturedEvaluationApplyRowResponse,
   toMaturedEvaluationPreviewRowResponse,
+  toCalibrationEvaluationRerunResponse,
   toCalibrationEvaluationResponse,
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
+import {
+  CreateEvaluationRerunDto,
+  EVALUATION_RERUN_REASONS,
+  EvaluationRerunReason,
+} from './dto/evaluation-rerun.dto';
 import { EvaluateThesisDto } from './dto/evaluate-thesis.dto';
 import {
   ApplyMaturedEvaluationsDto,
@@ -54,7 +63,10 @@ const DEFAULT_SCAN_LIMIT = 100;
 const MAX_SCAN_LIMIT = 500;
 const DEFAULT_MAX_BATCH = 10;
 const MAX_BATCH = 25;
+const DEFAULT_RERUN_LIMIT = 20;
+const MAX_RERUN_LIMIT = 50;
 const SYMBOL_CALIBRATION_ROW_LIMIT = 20;
+const RERUN_SOURCE = 'calibration_lab_v1_3_rerun';
 const MATERIAL_RETURN = 0.02;
 const MATERIAL_DRAWDOWN = -0.04;
 const RECORDABLE_RESULTS = new Set([
@@ -415,6 +427,134 @@ export class CalibrationService {
     return toCalibrationEvaluationResponse(evaluation);
   }
 
+  async listEvaluationReruns(
+    id: string,
+    options: { limit?: number },
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<CalibrationEvaluationRerunResponse[]> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const evaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!evaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    const rows = await this.requireEvaluationRunList()(
+      {
+        canonicalEvaluationId: id,
+        limit: clampListLimit(options.limit ?? DEFAULT_RERUN_LIMIT, {
+          defaultLimit: DEFAULT_RERUN_LIMIT,
+          maxLimit: MAX_RERUN_LIMIT,
+        }),
+      },
+      workspaceId,
+    );
+    return rows.map(toCalibrationEvaluationRerunResponse);
+  }
+
+  async createEvaluationRerun(
+    id: string,
+    dto: CreateEvaluationRerunDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<CreateCalibrationEvaluationRerunResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const runWrite = this.requireEvaluationRunWrite();
+    const rawEvaluation = await this.requireEvaluationRead()(id, workspaceId);
+    if (!rawEvaluation) {
+      throw new NotFoundException(`Evaluation ${id} not found`);
+    }
+    const canonical = toCalibrationEvaluationResponse(rawEvaluation);
+    const reason = normalizeRerunReason(dto.reason);
+    const notes = optionalString(dto.notes?.trim()) ?? null;
+    const idempotencyKey = optionalString(dto.idempotency_key?.trim()) ?? null;
+
+    if (idempotencyKey) {
+      const existing = await this.requireEvaluationRunIdempotencyRead()(
+        {
+          canonicalEvaluationId: id,
+          idempotencyKey,
+        },
+        workspaceId,
+      );
+      if (existing) {
+        return {
+          created: false,
+          rerun: toCalibrationEvaluationRerunResponse(existing),
+          warnings: ['rerun_already_exists'],
+        };
+      }
+    }
+
+    const requestedAt = new Date().toISOString();
+    let engineResult: JsonRecord | null = null;
+    try {
+      engineResult = await this.pythonEngine.evaluateThesis({
+        thesis_id: canonical.thesis_id,
+        workspace_id: workspaceId,
+        window_days: canonical.window_days,
+        metadata: {
+          source: RERUN_SOURCE,
+          canonical_evaluation_id: id,
+          rerun_reason: reason,
+        },
+      });
+      if (engineResult.error_type || engineResult.status !== 'completed') {
+        throw engineError(
+          engineResult,
+          `Rerun evaluation for ${id} failed`,
+        );
+      }
+      const engineEvaluation = recordFromValue(engineResult.evaluation);
+      if (!engineEvaluation) {
+        throw new ServiceUnavailableException(
+          `Rerun evaluation for ${id} did not return an evaluation payload.`,
+        );
+      }
+      const warnings = uniqueStrings([
+        ...stringList(engineResult.warnings),
+        ...stringList(engineEvaluation.warnings),
+      ]);
+      const run = buildCompletedEvaluationRunInput({
+        canonical,
+        engineEvaluation,
+        engineResult,
+        id,
+        idempotencyKey,
+        notes,
+        reason,
+        requestedAt,
+        userId,
+        warnings,
+        workspaceId,
+      });
+      const saved = await runWrite(run, workspaceId);
+      return {
+        created: true,
+        rerun: toCalibrationEvaluationRerunResponse(saved),
+        warnings,
+      };
+    } catch (error) {
+      const failedRun = buildFailedEvaluationRunInput({
+        canonical,
+        engineResult,
+        error,
+        id,
+        idempotencyKey,
+        notes,
+        reason,
+        requestedAt,
+        userId,
+        workspaceId,
+      });
+      await runWrite(failedRun, workspaceId);
+      throw error;
+    }
+  }
+
   async recordOutcomeReview(
     id: string,
     dto: CalibrationOutcomeReviewDto,
@@ -765,6 +905,33 @@ export class CalibrationService {
     return this.journal.getThesisEvaluation.bind(this.journal);
   }
 
+  private requireEvaluationRunList() {
+    if (!this.journal.listThesisEvaluationRuns) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation rerun list support.',
+      );
+    }
+    return this.journal.listThesisEvaluationRuns.bind(this.journal);
+  }
+
+  private requireEvaluationRunIdempotencyRead() {
+    if (!this.journal.getThesisEvaluationRunByIdempotencyKey) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation rerun idempotency support.',
+      );
+    }
+    return this.journal.getThesisEvaluationRunByIdempotencyKey.bind(this.journal);
+  }
+
+  private requireEvaluationRunWrite() {
+    if (!this.journal.createThesisEvaluationRun) {
+      throw new ServiceUnavailableException(
+        'Calibration requires thesis evaluation rerun writes.',
+      );
+    }
+    return this.journal.createThesisEvaluationRun.bind(this.journal);
+  }
+
   private requireEvaluationReviewLink() {
     if (!this.journal.linkThesisEvaluationOutcomeReview) {
       throw new ServiceUnavailableException(
@@ -829,6 +996,124 @@ function buildEvaluationInput(input: {
   };
 }
 
+function buildCompletedEvaluationRunInput(input: {
+  canonical: CalibrationEvaluationResponse;
+  engineEvaluation: JsonRecord;
+  engineResult: JsonRecord;
+  id: string;
+  idempotencyKey: string | null;
+  notes: string | null;
+  reason: EvaluationRerunReason;
+  requestedAt: string;
+  userId?: string;
+  warnings: string[];
+  workspaceId: string;
+}): ThesisEvaluationRunInput {
+  const evidence = recordFromValue(input.engineEvaluation.evidence) ?? {
+    start_price: numberValue(input.engineEvaluation.start_price),
+    end_price: numberValue(input.engineEvaluation.end_price),
+    highest_high: numberValue(input.engineEvaluation.max_high),
+    lowest_low: numberValue(input.engineEvaluation.min_low),
+    target_hit: booleanValue(input.engineEvaluation.target_hit),
+    invalidation_hit: booleanValue(input.engineEvaluation.invalidated),
+  };
+  const result = stringValue(input.engineEvaluation.result, 'unknown');
+  const maxFavorableExcursion = numberValue(
+    input.engineEvaluation.max_favorable_excursion,
+  );
+  const maxAdverseExcursion = numberValue(
+    input.engineEvaluation.max_adverse_excursion,
+  );
+  const invalidated = booleanValue(input.engineEvaluation.invalidated);
+  const evaluatedAt =
+    optionalString(input.engineEvaluation.evaluated_at) ?? new Date().toISOString();
+  const rerun = {
+    result,
+    max_favorable_excursion: maxFavorableExcursion,
+    max_adverse_excursion: maxAdverseExcursion,
+    invalidated,
+    warnings: input.warnings,
+    evidence,
+  };
+  return {
+    workspace_id: input.workspaceId,
+    canonical_evaluation_id: input.id,
+    thesis_id: input.canonical.thesis_id,
+    symbol: input.canonical.symbol,
+    window_days: input.canonical.window_days,
+    evaluation_start: requiredDate(
+      input.canonical.evaluation_start,
+      'evaluation_start',
+    ),
+    evaluation_end: requiredDate(input.canonical.evaluation_end, 'evaluation_end'),
+    requested_by_user_id: optionalString(input.userId) ?? null,
+    requested_at: input.requestedAt,
+    evaluated_at: evaluatedAt,
+    source: RERUN_SOURCE,
+    reason: input.reason,
+    notes: input.notes,
+    idempotency_key: input.idempotencyKey,
+    status: 'completed',
+    result,
+    max_favorable_excursion: maxFavorableExcursion,
+    max_adverse_excursion: maxAdverseExcursion,
+    invalidated,
+    warnings: input.warnings,
+    evidence,
+    diff: buildEvaluationRerunDiff(input.canonical, rerun),
+    error_type: null,
+    error_message: null,
+    payload: input.engineResult,
+  };
+}
+
+function buildFailedEvaluationRunInput(input: {
+  canonical: CalibrationEvaluationResponse;
+  engineResult: JsonRecord | null;
+  error: unknown;
+  id: string;
+  idempotencyKey: string | null;
+  notes: string | null;
+  reason: EvaluationRerunReason;
+  requestedAt: string;
+  userId?: string;
+  workspaceId: string;
+}): ThesisEvaluationRunInput {
+  return {
+    workspace_id: input.workspaceId,
+    canonical_evaluation_id: input.id,
+    thesis_id: input.canonical.thesis_id,
+    symbol: input.canonical.symbol,
+    window_days: input.canonical.window_days,
+    evaluation_start: requiredDate(
+      input.canonical.evaluation_start,
+      'evaluation_start',
+    ),
+    evaluation_end: requiredDate(input.canonical.evaluation_end, 'evaluation_end'),
+    requested_by_user_id: optionalString(input.userId) ?? null,
+    requested_at: input.requestedAt,
+    evaluated_at: null,
+    source: RERUN_SOURCE,
+    reason: input.reason,
+    notes: input.notes,
+    idempotency_key: input.idempotencyKey,
+    status: 'failed',
+    result: null,
+    max_favorable_excursion: null,
+    max_adverse_excursion: null,
+    invalidated: null,
+    warnings: stringList(input.engineResult?.warnings),
+    evidence: {},
+    diff: {},
+    error_type:
+      optionalString(input.engineResult?.error_type) ??
+      (input.error instanceof Error ? input.error.name : 'Error'),
+    error_message:
+      optionalString(input.engineResult?.error) ?? errorMessage(input.error),
+    payload: input.engineResult ?? { error: errorMessage(input.error) },
+  };
+}
+
 function recordReviewBlockers(
   evaluation: CalibrationEvaluationResponse,
 ): Array<'incomplete_window' | 'unknown_result' | 'review_already_recorded'> {
@@ -851,6 +1136,68 @@ function defaultOutcomeReviewNote(
   evaluation: CalibrationEvaluationResponse,
 ): string {
   return `Auto-recorded from Calibration Lab evaluation ${evaluation.id ?? 'unknown'} over ${evaluation.window_days} day(s). Result: ${evaluation.result}. MFE: ${formatPercent(evaluation.max_favorable_excursion)}. MAE: ${formatPercent(evaluation.max_adverse_excursion)}.`;
+}
+
+function buildEvaluationRerunDiff(
+  canonical: CalibrationEvaluationResponse,
+  rerun: {
+    result: string;
+    max_favorable_excursion: number | null;
+    max_adverse_excursion: number | null;
+    invalidated: boolean;
+    warnings: string[];
+    evidence: JsonRecord;
+  },
+): JsonRecord {
+  const canonicalWarnings = new Set(canonical.warnings);
+  const rerunWarnings = new Set(rerun.warnings);
+  return {
+    result_changed: canonical.result !== rerun.result,
+    canonical_result: canonical.result,
+    rerun_result: rerun.result,
+    mfe_delta: metricDelta(
+      canonical.max_favorable_excursion,
+      rerun.max_favorable_excursion,
+    ),
+    mae_delta: metricDelta(
+      canonical.max_adverse_excursion,
+      rerun.max_adverse_excursion,
+    ),
+    invalidated_changed: canonical.invalidated !== rerun.invalidated,
+    warnings_added: [...rerunWarnings]
+      .filter((warning) => !canonicalWarnings.has(warning))
+      .sort(),
+    warnings_removed: [...canonicalWarnings]
+      .filter((warning) => !rerunWarnings.has(warning))
+      .sort(),
+    start_price_delta: metricDelta(
+      numberValue(canonical.evidence.start_price),
+      numberValue(rerun.evidence.start_price),
+    ),
+    end_price_delta: metricDelta(
+      numberValue(canonical.evidence.end_price),
+      numberValue(rerun.evidence.end_price),
+    ),
+  };
+}
+
+function metricDelta(
+  canonicalValue: number | null,
+  rerunValue: number | null,
+): number | null {
+  if (canonicalValue === null || rerunValue === null) {
+    return null;
+  }
+  return roundMetric(rerunValue - canonicalValue);
+}
+
+function requiredDate(value: string | null, field: string): string {
+  if (!value) {
+    throw new ServiceUnavailableException(
+      `Canonical evaluation ${field} is required for rerun audit.`,
+    );
+  }
+  return value;
 }
 
 function thesisStartDate(thesis: JsonRecord): string {
@@ -925,6 +1272,15 @@ function normalizeMaxBatch(value: number | undefined): number {
     throw new BadRequestException('max_batch must be an integer from 1 to 25.');
   }
   return normalized;
+}
+
+function normalizeRerunReason(value: unknown): EvaluationRerunReason {
+  if (
+    EVALUATION_RERUN_REASONS.includes(value as EvaluationRerunReason)
+  ) {
+    return value as EvaluationRerunReason;
+  }
+  throw new BadRequestException('reason must be a valid rerun reason.');
 }
 
 function normalizeSymbolFilter(value: unknown): string | undefined {

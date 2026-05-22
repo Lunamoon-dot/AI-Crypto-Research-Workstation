@@ -38,6 +38,8 @@ export const queryKeys = {
     scopedFilters('calibration-evaluations', filters),
   calibrationEvaluation: (id: string) =>
     ['calibration-evaluation', queryIdentity(), id] as const,
+  calibrationEvaluationReruns: (id: string) =>
+    ['calibration-evaluation-reruns', queryIdentity(), id] as const,
   comparison: (filters: Record<string, unknown>) =>
     scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>
