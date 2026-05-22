@@ -34,6 +34,8 @@ export const queryKeys = {
     scopedFilters('calibration-matured-preview', filters),
   calibrationSymbol: (filters: Record<string, unknown>) =>
     scopedFilters('calibration-symbol', filters),
+  calibrationAgents: (filters: Record<string, unknown>) =>
+    scopedFilters('calibration-agents', filters),
   calibrationEvaluations: (filters: Record<string, unknown>) =>
     scopedFilters('calibration-evaluations', filters),
   calibrationEvaluation: (id: string) =>

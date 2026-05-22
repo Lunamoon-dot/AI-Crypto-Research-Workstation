@@ -21,6 +21,13 @@ import {
   CalibrationEvaluationResponse,
   CalibrationEvaluationRerunResponse,
   CalibrationResult,
+  AgentCalibrationAgentResponse,
+  AgentCalibrationOutcomeBucket,
+  AgentCalibrationRelation,
+  AgentCalibrationReportResponse,
+  AgentCalibrationRowResponse,
+  AgentCalibrationStance,
+  AgentCalibrationVerdict,
   ApplyMaturedEvaluationsResponse,
   CreateCalibrationEvaluationRerunResponse,
   EvaluateThesisResponse,
@@ -41,6 +48,7 @@ import {
   toCalibrationEvaluationResponse,
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
+import { AgentCalibrationQueryDto } from './dto/agent-calibration.dto';
 import {
   CreateEvaluationRerunDto,
   EVALUATION_RERUN_REASONS,
@@ -59,6 +67,8 @@ const SYMBOL_WINDOW_PRESETS = new Set([7, 14, 30]);
 const LOOKBACK_PRESETS = new Set([30, 60, 90]);
 const DEFAULT_SYMBOL_WINDOW_DAYS = 7;
 const DEFAULT_SYMBOL_LOOKBACK_DAYS = 30;
+const DEFAULT_AGENT_WINDOW_DAYS = 7;
+const DEFAULT_AGENT_LOOKBACK_DAYS = 30;
 const DEFAULT_SCAN_LIMIT = 100;
 const MAX_SCAN_LIMIT = 500;
 const DEFAULT_MAX_BATCH = 10;
@@ -66,6 +76,7 @@ const MAX_BATCH = 25;
 const DEFAULT_RERUN_LIMIT = 20;
 const MAX_RERUN_LIMIT = 50;
 const SYMBOL_CALIBRATION_ROW_LIMIT = 20;
+const AGENT_CALIBRATION_ROW_LIMIT = 30;
 const RERUN_SOURCE = 'calibration_lab_v1_3_rerun';
 const MATERIAL_RETURN = 0.02;
 const MATERIAL_DRAWDOWN = -0.04;
@@ -89,6 +100,24 @@ type SymbolCalibrationSourceRow = {
   evaluation: JsonRecord | null;
   row: SymbolCalibrationRowResponse;
   stance: ClassifiedSymbolStance;
+};
+
+type AgentCalibrationSourceRow = {
+  opinionId: string;
+  agentName: string;
+  agentRole: string;
+  agentStance: AgentCalibrationStance;
+  confidence: number | null;
+  createdAt: string | null;
+  debateId: string | null;
+  researchRunId: string | null;
+  thesisId: string | null;
+  symbol: string | null;
+  thesisDirection: AgentCalibrationStance;
+  evaluationId: string | null;
+  evaluationResult: CalibrationResult | null;
+  relationToFinal: AgentCalibrationRelation;
+  outcomeBucket: AgentCalibrationOutcomeBucket;
 };
 
 @Injectable()
@@ -320,6 +349,45 @@ export class CalibrationService {
       },
       stance,
       outcome: buildSymbolCalibrationOutcome(evaluatedRows, stance.consensus_stance),
+      rows,
+    };
+  }
+
+  async getAgentCalibrationReport(
+    dto: AgentCalibrationQueryDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<AgentCalibrationReportResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const symbol = normalizeSymbolFilter(dto.symbol) ?? null;
+    const windowDays = normalizeAgentWindowDays(dto.window_days);
+    const lookbackDays = normalizeAgentLookbackDays(dto.lookback_days);
+    const todayUtc = todayUtcDate();
+    const periodEnd = addDaysIsoDate(todayUtc, -(windowDays + 1));
+    const periodStart = addDaysIsoDate(periodEnd, -(lookbackDays - 1));
+    const sourceRows = await this.requireAgentCalibrationSourceRows()(
+      {
+        symbol: symbol ?? undefined,
+        periodStart,
+        periodEnd,
+        windowDays,
+      },
+      workspaceId,
+    );
+    const classifiedRows = sourceRows.map(toAgentCalibrationSourceRow);
+    const rows = classifiedRows
+      .map(toAgentCalibrationRowResponse)
+      .sort(compareAgentCalibrationRows)
+      .slice(0, AGENT_CALIBRATION_ROW_LIMIT);
+
+    return {
+      window_days: windowDays,
+      lookback_days: lookbackDays,
+      symbol,
+      period_start: periodStart,
+      period_end: periodEnd,
+      coverage: buildAgentCalibrationCoverage(classifiedRows),
+      agents: buildAgentCalibrationAgents(classifiedRows),
       rows,
     };
   }
@@ -869,6 +937,15 @@ export class CalibrationService {
     return this.journal.listThesesForSymbolCalibration.bind(this.journal);
   }
 
+  private requireAgentCalibrationSourceRows() {
+    if (!this.journal.listAgentCalibrationSourceRows) {
+      throw new ServiceUnavailableException(
+        'Calibration requires agent calibration source row support.',
+      );
+    }
+    return this.journal.listAgentCalibrationSourceRows.bind(this.journal);
+  }
+
   private requireEvaluationNaturalKeyRead() {
     if (!this.journal.getThesisEvaluationByNaturalKey) {
       throw new ServiceUnavailableException(
@@ -1234,8 +1311,24 @@ function normalizeSymbolWindowDays(value: number | undefined): number {
   return normalized;
 }
 
+function normalizeAgentWindowDays(value: number | undefined): number {
+  const normalized = value ?? DEFAULT_AGENT_WINDOW_DAYS;
+  if (!SYMBOL_WINDOW_PRESETS.has(normalized)) {
+    throw new BadRequestException('window_days must be one of 7, 14, or 30.');
+  }
+  return normalized;
+}
+
 function normalizeLookbackDays(value: number | undefined): number {
   const normalized = value ?? DEFAULT_SYMBOL_LOOKBACK_DAYS;
+  if (!LOOKBACK_PRESETS.has(normalized)) {
+    throw new BadRequestException('lookback_days must be one of 30, 60, or 90.');
+  }
+  return normalized;
+}
+
+function normalizeAgentLookbackDays(value: number | undefined): number {
+  const normalized = value ?? DEFAULT_AGENT_LOOKBACK_DAYS;
   if (!LOOKBACK_PRESETS.has(normalized)) {
     throw new BadRequestException('lookback_days must be one of 30, 60, or 90.');
   }
@@ -1315,6 +1408,330 @@ function compareSymbolCalibrationRows(
     (right.created_at ?? '').localeCompare(left.created_at ?? '') ||
     left.thesis_id.localeCompare(right.thesis_id)
   );
+}
+
+function compareAgentCalibrationRows(
+  left: AgentCalibrationRowResponse,
+  right: AgentCalibrationRowResponse,
+): number {
+  return (
+    (right.created_at ?? '').localeCompare(left.created_at ?? '') ||
+    (left.research_run_id ?? '').localeCompare(right.research_run_id ?? '') ||
+    left.agent_role.localeCompare(right.agent_role)
+  );
+}
+
+function toAgentCalibrationSourceRow(row: JsonRecord): AgentCalibrationSourceRow {
+  const thesisId = optionalString(row.thesis_id) ?? null;
+  const evaluationId = optionalString(row.evaluation_id) ?? null;
+  const agentStance = mappedAgentCalibrationStance(row.agent_stance);
+  const thesisDirection = mappedAgentCalibrationStance(row.thesis_direction);
+  const relationToFinal = agentCalibrationRelation({
+    agentStance,
+    thesisDirection,
+    hasThesis: Boolean(thesisId),
+  });
+  const evaluationResult = evaluationId
+    ? calibrationResultFromValue(row.evaluation_result)
+    : null;
+  const outcomeBucket = agentCalibrationOutcomeBucket(
+    relationToFinal,
+    evaluationResult,
+  );
+
+  return {
+    opinionId: stringValue(row.opinion_id),
+    agentName: stringValue(row.agent_name, 'Unknown agent'),
+    agentRole: stringValue(row.agent_role, 'unknown'),
+    agentStance,
+    confidence: numberValue(row.confidence),
+    createdAt: optionalString(row.created_at) ?? null,
+    debateId: optionalString(row.debate_id) ?? null,
+    researchRunId: optionalString(row.research_run_id) ?? null,
+    thesisId,
+    symbol: optionalString(row.symbol) ?? null,
+    thesisDirection,
+    evaluationId,
+    evaluationResult,
+    relationToFinal,
+    outcomeBucket,
+  };
+}
+
+function toAgentCalibrationRowResponse(
+  row: AgentCalibrationSourceRow,
+): AgentCalibrationRowResponse {
+  return {
+    agent_role: row.agentRole,
+    agent_name: row.agentName,
+    research_run_id: row.researchRunId,
+    debate_id: row.debateId,
+    thesis_id: row.thesisId,
+    symbol: row.symbol,
+    thesis_direction: row.thesisDirection,
+    agent_stance: row.agentStance,
+    relation_to_final: row.relationToFinal,
+    evaluation_id: row.evaluationId,
+    evaluation_result: row.evaluationResult,
+    outcome_bucket: row.outcomeBucket,
+    confidence: row.confidence,
+    created_at: row.createdAt,
+  };
+}
+
+function buildAgentCalibrationCoverage(
+  rows: AgentCalibrationSourceRow[],
+) {
+  const opinionCount = rows.length;
+  const eligibleRows = rows.filter((row) => row.thesisId);
+  const scoredOpinionCount = eligibleRows.filter(isScoredAgentOpinion).length;
+  return {
+    opinion_count: opinionCount,
+    eligible_opinion_count: eligibleRows.length,
+    scored_opinion_count: scoredOpinionCount,
+    missing_evaluation_count: eligibleRows.filter((row) => !row.evaluationId).length,
+    unlinked_opinion_count: rows.filter((row) => !row.thesisId).length,
+    unknown_stance_count: rows.filter((row) => row.agentStance === 'unknown').length,
+    unclear_relation_count: eligibleRows.filter(
+      (row) => row.relationToFinal === 'unclear',
+    ).length,
+    coverage_pct: rate(eligibleRows.length, opinionCount),
+  };
+}
+
+function buildAgentCalibrationAgents(
+  rows: AgentCalibrationSourceRow[],
+): AgentCalibrationAgentResponse[] {
+  const groups = new Map<string, AgentCalibrationSourceRow[]>();
+  for (const row of rows) {
+    const current = groups.get(row.agentRole) ?? [];
+    current.push(row);
+    groups.set(row.agentRole, current);
+  }
+
+  return [...groups.entries()]
+    .map(([agentRole, agentRows]) =>
+      buildAgentCalibrationAgent(agentRole, agentRows),
+    )
+    .sort(compareAgentCalibrationAgents);
+}
+
+function buildAgentCalibrationAgent(
+  agentRole: string,
+  rows: AgentCalibrationSourceRow[],
+): AgentCalibrationAgentResponse {
+  const eligibleRows = rows.filter((row) => row.thesisId);
+  const supportsFinalCount = eligibleRows.filter(
+    (row) => row.relationToFinal === 'supports_final',
+  ).length;
+  const opposesFinalCount = eligibleRows.filter(
+    (row) => row.relationToFinal === 'opposes_final',
+  ).length;
+  const supportedSuccessCount = eligibleRows.filter(
+    (row) => row.outcomeBucket === 'supported_success',
+  ).length;
+  const supportedFailureCount = eligibleRows.filter(
+    (row) => row.outcomeBucket === 'supported_failure',
+  ).length;
+  const contrarianSuccessCount = eligibleRows.filter(
+    (row) => row.outcomeBucket === 'contrarian_success',
+  ).length;
+  const contrarianFailureCount = eligibleRows.filter(
+    (row) => row.outcomeBucket === 'contrarian_failure',
+  ).length;
+  const alignmentSuccessRate = rate(
+    supportedSuccessCount,
+    supportedSuccessCount + supportedFailureCount,
+  );
+  const contrarianSuccessRate = rate(
+    contrarianSuccessCount,
+    contrarianSuccessCount + contrarianFailureCount,
+  );
+  const confidenceValues = eligibleRows
+    .map((row) => row.confidence)
+    .filter((value): value is number => value !== null);
+  const agentNames = uniqueStrings(rows.map((row) => row.agentName)).sort();
+  const classifiedOpinionCount = supportsFinalCount + opposesFinalCount;
+
+  return {
+    agent_role: agentRole,
+    display_name: agentNames[0] ?? agentRole,
+    agent_names: agentNames,
+    opinion_count: rows.length,
+    eligible_opinion_count: eligibleRows.length,
+    classified_opinion_count: classifiedOpinionCount,
+    coverage_pct: rate(eligibleRows.length, rows.length),
+    supports_final_count: supportsFinalCount,
+    opposes_final_count: opposesFinalCount,
+    unclear_relation_count: eligibleRows.filter(
+      (row) => row.relationToFinal === 'unclear',
+    ).length,
+    supported_success_count: supportedSuccessCount,
+    supported_failure_count: supportedFailureCount,
+    contrarian_success_count: contrarianSuccessCount,
+    contrarian_failure_count: contrarianFailureCount,
+    inconclusive_count: eligibleRows.filter(
+      (row) => row.evaluationId && row.outcomeBucket === 'inconclusive',
+    ).length,
+    alignment_success_rate: alignmentSuccessRate,
+    contrarian_success_rate: contrarianSuccessRate,
+    avg_confidence: average(confidenceValues),
+    verdict: agentCalibrationVerdict({
+      alignmentSuccessRate,
+      classifiedOpinionCount,
+      contrarianSuccessRate,
+      eligibleOpinionCount: eligibleRows.length,
+      supportedDenominator: supportedSuccessCount + supportedFailureCount,
+      contrarianDenominator: contrarianSuccessCount + contrarianFailureCount,
+    }),
+  };
+}
+
+function compareAgentCalibrationAgents(
+  left: AgentCalibrationAgentResponse,
+  right: AgentCalibrationAgentResponse,
+): number {
+  return (
+    right.eligible_opinion_count - left.eligible_opinion_count ||
+    compareNullableRateDesc(
+      left.alignment_success_rate,
+      right.alignment_success_rate,
+    ) ||
+    left.agent_role.localeCompare(right.agent_role)
+  );
+}
+
+function compareNullableRateDesc(
+  left: number | null,
+  right: number | null,
+): number {
+  if (left === null && right === null) {
+    return 0;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  return right - left;
+}
+
+function isScoredAgentOpinion(row: AgentCalibrationSourceRow): boolean {
+  return (
+    row.relationToFinal !== 'unclear' &&
+    (row.evaluationResult === 'hit_target' ||
+      row.evaluationResult === 'invalidated')
+  );
+}
+
+function agentCalibrationVerdict(input: {
+  alignmentSuccessRate: number | null;
+  classifiedOpinionCount: number;
+  contrarianDenominator: number;
+  contrarianSuccessRate: number | null;
+  eligibleOpinionCount: number;
+  supportedDenominator: number;
+}): AgentCalibrationVerdict {
+  if (input.eligibleOpinionCount < 5 || input.classifiedOpinionCount < 3) {
+    return 'insufficient_data';
+  }
+  if (
+    input.alignmentSuccessRate !== null &&
+    input.alignmentSuccessRate >= 0.65 &&
+    input.supportedDenominator >= 5
+  ) {
+    return 'strong_aligned';
+  }
+  if (
+    input.contrarianSuccessRate !== null &&
+    input.contrarianSuccessRate >= 0.6 &&
+    input.contrarianDenominator >= 3
+  ) {
+    return 'contrarian_signal';
+  }
+  if (
+    input.alignmentSuccessRate !== null &&
+    input.alignmentSuccessRate >= 0.55
+  ) {
+    return 'promising';
+  }
+  return 'mixed';
+}
+
+function agentCalibrationRelation(input: {
+  agentStance: AgentCalibrationStance;
+  hasThesis: boolean;
+  thesisDirection: AgentCalibrationStance;
+}): AgentCalibrationRelation {
+  if (
+    !input.hasThesis ||
+    input.agentStance === 'unknown' ||
+    input.thesisDirection === 'unknown' ||
+    input.agentStance === 'neutral' ||
+    input.thesisDirection === 'neutral'
+  ) {
+    return 'unclear';
+  }
+  return input.agentStance === input.thesisDirection
+    ? 'supports_final'
+    : 'opposes_final';
+}
+
+function agentCalibrationOutcomeBucket(
+  relation: AgentCalibrationRelation,
+  result: CalibrationResult | null,
+): AgentCalibrationOutcomeBucket {
+  if (relation === 'supports_final' && result === 'hit_target') {
+    return 'supported_success';
+  }
+  if (relation === 'supports_final' && result === 'invalidated') {
+    return 'supported_failure';
+  }
+  if (relation === 'opposes_final' && result === 'invalidated') {
+    return 'contrarian_success';
+  }
+  if (relation === 'opposes_final' && result === 'hit_target') {
+    return 'contrarian_failure';
+  }
+  return 'inconclusive';
+}
+
+function mappedAgentCalibrationStance(value: unknown): AgentCalibrationStance {
+  const normalized = optionalString(value)
+    ?.trim()
+    .toLowerCase()
+    .replaceAll('-', '_');
+  if (!normalized) {
+    return 'unknown';
+  }
+  if (['long', 'bullish', 'buy', 'overweight'].includes(normalized)) {
+    return 'bullish';
+  }
+  if (['short', 'bearish', 'sell', 'underweight'].includes(normalized)) {
+    return 'bearish';
+  }
+  if (['avoid', 'defensive', 'risk_off'].includes(normalized)) {
+    return 'defensive';
+  }
+  if (['watch', 'neutral', 'hold'].includes(normalized)) {
+    return 'neutral';
+  }
+  return 'unknown';
+}
+
+function calibrationResultFromValue(value: unknown): CalibrationResult {
+  const result = optionalString(value);
+  if (
+    result === 'hit_target' ||
+    result === 'invalidated' ||
+    result === 'mixed' ||
+    result === 'expired' ||
+    result === 'unknown'
+  ) {
+    return result;
+  }
+  return 'unknown';
 }
 
 function buildSymbolCalibrationStance(rows: SymbolCalibrationSourceRow[]) {

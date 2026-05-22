@@ -1,6 +1,8 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
 import type {
+  AgentCalibrationReportResponse,
+  AgentCalibrationRequest,
   ApplyMaturedEvaluationsRequest,
   ApplyMaturedEvaluationsResponse,
   CalibrationEvaluationResponse,
@@ -67,6 +69,17 @@ export function getSymbolCalibrationReport(
 ) {
   return apiRequest<SymbolCalibrationReportResponse>(
     '/calibration/symbol',
+    { query: request },
+    auth,
+  );
+}
+
+export function getAgentCalibrationReport(
+  request: AgentCalibrationRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<AgentCalibrationReportResponse>(
+    '/calibration/agents',
     { query: request },
     auth,
   );

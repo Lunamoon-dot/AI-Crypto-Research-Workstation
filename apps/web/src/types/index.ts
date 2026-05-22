@@ -697,6 +697,93 @@ export interface SymbolCalibrationReportResponse {
   rows: SymbolCalibrationRowResponse[];
 }
 
+export type AgentCalibrationStance =
+  | 'bullish'
+  | 'bearish'
+  | 'defensive'
+  | 'neutral'
+  | 'unknown';
+
+export type AgentCalibrationRelation =
+  | 'supports_final'
+  | 'opposes_final'
+  | 'unclear';
+
+export type AgentCalibrationOutcomeBucket =
+  | 'supported_success'
+  | 'supported_failure'
+  | 'contrarian_success'
+  | 'contrarian_failure'
+  | 'inconclusive';
+
+export type AgentCalibrationVerdict =
+  | 'strong_aligned'
+  | 'promising'
+  | 'contrarian_signal'
+  | 'mixed'
+  | 'insufficient_data';
+
+export interface AgentCalibrationCoverageResponse {
+  opinion_count: number;
+  eligible_opinion_count: number;
+  scored_opinion_count: number;
+  missing_evaluation_count: number;
+  unlinked_opinion_count: number;
+  unknown_stance_count: number;
+  unclear_relation_count: number;
+  coverage_pct: number | null;
+}
+
+export interface AgentCalibrationAgentResponse {
+  agent_role: string;
+  display_name: string;
+  agent_names: string[];
+  opinion_count: number;
+  eligible_opinion_count: number;
+  classified_opinion_count: number;
+  coverage_pct: number | null;
+  supports_final_count: number;
+  opposes_final_count: number;
+  unclear_relation_count: number;
+  supported_success_count: number;
+  supported_failure_count: number;
+  contrarian_success_count: number;
+  contrarian_failure_count: number;
+  inconclusive_count: number;
+  alignment_success_rate: number | null;
+  contrarian_success_rate: number | null;
+  avg_confidence: number | null;
+  verdict: AgentCalibrationVerdict;
+}
+
+export interface AgentCalibrationRowResponse {
+  agent_role: string;
+  agent_name: string;
+  research_run_id: string | null;
+  debate_id: string | null;
+  thesis_id: string | null;
+  symbol: string | null;
+  thesis_direction: AgentCalibrationStance;
+  agent_stance: AgentCalibrationStance;
+  relation_to_final: AgentCalibrationRelation;
+  evaluation_id: string | null;
+  evaluation_result: CalibrationResult | null;
+  outcome_bucket: AgentCalibrationOutcomeBucket;
+  confidence: number | null;
+  created_at: string | null;
+}
+
+export interface AgentCalibrationReportResponse {
+  window_days: number;
+  lookback_days: number;
+  symbol: string | null;
+  period_start: string;
+  period_end: string;
+  coverage: AgentCalibrationCoverageResponse;
+  agents: AgentCalibrationAgentResponse[];
+  rows: AgentCalibrationRowResponse[];
+}
+
 export interface RetrospectiveInsightResponse {
   insight_type: string;
   message: string;
@@ -1196,6 +1283,12 @@ export type ApplyMaturedEvaluationsRequest = {
 
 export type SymbolCalibrationRequest = {
   symbol: string;
+  window_days?: 7 | 14 | 30;
+  lookback_days?: 30 | 60 | 90;
+};
+
+export type AgentCalibrationRequest = {
+  symbol?: string;
   window_days?: 7 | 14 | 30;
   lookback_days?: 30 | 60 | 90;
 };

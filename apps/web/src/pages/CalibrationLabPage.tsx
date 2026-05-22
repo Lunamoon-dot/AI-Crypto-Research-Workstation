@@ -13,6 +13,7 @@ import {
   applyMaturedEvaluations,
   createCalibrationEvaluationRerun,
   evaluateThesis,
+  getAgentCalibrationReport,
   getSymbolCalibrationReport,
   listCalibrationEvaluationReruns,
   listCalibrationEvaluations,
@@ -24,6 +25,9 @@ import { queryKeys } from '@/services/query-keys';
 import { listTheses } from '@/services/theses';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type {
+  AgentCalibrationAgentResponse,
+  AgentCalibrationReportResponse,
+  AgentCalibrationRowResponse,
   CalibrationEvaluationResponse,
   CalibrationEvaluationRerunReason,
   CalibrationEvaluationRerunResponse,
@@ -48,7 +52,7 @@ const RERUN_REASON_OPTIONS: CalibrationEvaluationRerunReason[] = [
   'suspected_drift',
   'other',
 ];
-type CalibrationMode = 'single' | 'batch' | 'symbol';
+type CalibrationMode = 'single' | 'batch' | 'symbol' | 'agents';
 
 export function CalibrationLabPage() {
   const auth = useWorkspaceStore();
@@ -58,7 +62,7 @@ export function CalibrationLabPage() {
   const queryMode = searchParams.get('mode');
   const activeMode: CalibrationMode = queryThesisId
     ? 'single'
-    : queryMode === 'batch' || queryMode === 'symbol'
+    : queryMode === 'batch' || queryMode === 'symbol' || queryMode === 'agents'
       ? queryMode
       : 'single';
   const [selectedThesisId, setSelectedThesisId] = useState(queryThesisId);
@@ -81,6 +85,15 @@ export function CalibrationLabPage() {
     (typeof WINDOW_PRESETS)[number]
   >(() => parseWindowPreset(searchParams.get('window_days'), 7));
   const [symbolLookbackDays, setSymbolLookbackDays] = useState<
+    (typeof LOOKBACK_PRESETS)[number]
+  >(() => parseLookbackPreset(searchParams.get('lookback_days'), 30));
+  const [agentCalibrationSymbol, setAgentCalibrationSymbol] = useState(
+    searchParams.get('symbol') ?? '',
+  );
+  const [agentWindowDays, setAgentWindowDays] = useState<
+    (typeof WINDOW_PRESETS)[number]
+  >(() => parseWindowPreset(searchParams.get('window_days'), 7));
+  const [agentLookbackDays, setAgentLookbackDays] = useState<
     (typeof LOOKBACK_PRESETS)[number]
   >(() => parseLookbackPreset(searchParams.get('lookback_days'), 30));
 
@@ -140,6 +153,19 @@ export function CalibrationLabPage() {
   const symbolReportQuery = useQuery({
     queryKey: queryKeys.calibrationSymbol(symbolFilters),
     queryFn: () => getSymbolCalibrationReport(symbolFilters, auth),
+    enabled: false,
+  });
+  const agentFilters = useMemo(
+    () => ({
+      symbol: agentCalibrationSymbol.trim() || undefined,
+      window_days: agentWindowDays,
+      lookback_days: agentLookbackDays,
+    }),
+    [agentCalibrationSymbol, agentWindowDays, agentLookbackDays],
+  );
+  const agentReportQuery = useQuery({
+    queryKey: queryKeys.calibrationAgents(agentFilters),
+    queryFn: () => getAgentCalibrationReport(agentFilters, auth),
     enabled: false,
   });
   const selectedThesis =
@@ -325,6 +351,10 @@ export function CalibrationLabPage() {
     void symbolReportQuery.refetch();
   }
 
+  function loadAgentReport() {
+    void agentReportQuery.refetch();
+  }
+
   function prepareBatchFromSymbol(report: SymbolCalibrationReportResponse) {
     const windowPreset = parseWindowPreset(String(report.window_days), 7);
     const filters = {
@@ -395,7 +425,7 @@ export function CalibrationLabPage() {
 
       <div
         className="segmented-control"
-        style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+        style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
       >
         <button
           className={`segment-button${activeMode === 'single' ? ' active' : ''}`}
@@ -417,6 +447,13 @@ export function CalibrationLabPage() {
           type="button"
         >
           Symbol Calibration
+        </button>
+        <button
+          className={`segment-button${activeMode === 'agents' ? ' active' : ''}`}
+          onClick={() => selectMode('agents')}
+          type="button"
+        >
+          Agent Calibration
         </button>
       </div>
 
@@ -508,6 +545,20 @@ export function CalibrationLabPage() {
           quickSymbols={quickSymbols}
           symbol={symbolCalibrationSymbol}
           windowDays={symbolWindowDays}
+        />
+      ) : null}
+
+      {activeMode === 'agents' ? (
+        <AgentCalibrationView
+          lookbackDays={agentLookbackDays}
+          onLoad={loadAgentReport}
+          onSetLookbackDays={setAgentLookbackDays}
+          onSetSymbol={setAgentCalibrationSymbol}
+          onSetWindowDays={setAgentWindowDays}
+          query={agentReportQuery}
+          quickSymbols={quickSymbols}
+          symbol={agentCalibrationSymbol}
+          windowDays={agentWindowDays}
         />
       ) : null}
 
@@ -1073,6 +1124,151 @@ function SymbolCalibrationView({
   );
 }
 
+function AgentCalibrationView({
+  symbol,
+  windowDays,
+  lookbackDays,
+  quickSymbols,
+  query,
+  onSetSymbol,
+  onSetWindowDays,
+  onSetLookbackDays,
+  onLoad,
+}: {
+  symbol: string;
+  windowDays: (typeof WINDOW_PRESETS)[number];
+  lookbackDays: (typeof LOOKBACK_PRESETS)[number];
+  quickSymbols: string[];
+  query: {
+    data?: AgentCalibrationReportResponse;
+    error: unknown;
+    isError: boolean;
+    isFetching: boolean;
+    isLoading: boolean;
+  };
+  onSetSymbol: (value: string) => void;
+  onSetWindowDays: (value: (typeof WINDOW_PRESETS)[number]) => void;
+  onSetLookbackDays: (value: (typeof LOOKBACK_PRESETS)[number]) => void;
+  onLoad: () => void;
+}) {
+  const report = query.data;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onLoad();
+  }
+
+  return (
+    <BentoGrid>
+      <Panel className="span-12" title="Agent Alignment Proxy">
+        <form className="stack" onSubmit={submit}>
+          <div className="grid three">
+            <label className="label">
+              Symbol
+              <input
+                className="input"
+                list="agent-calibration-symbols"
+                onChange={(event) => onSetSymbol(event.target.value)}
+                placeholder="BTC/USDT"
+                value={symbol}
+              />
+              <datalist id="agent-calibration-symbols">
+                {quickSymbols.map((quickSymbol) => (
+                  <option key={quickSymbol} value={quickSymbol} />
+                ))}
+              </datalist>
+            </label>
+            <div className="segmented-control" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {WINDOW_PRESETS.map((preset) => (
+                <button
+                  className={`segment-button${windowDays === preset ? ' active' : ''}`}
+                  key={preset}
+                  onClick={() => onSetWindowDays(preset)}
+                  type="button"
+                >
+                  {preset}d
+                </button>
+              ))}
+            </div>
+            <div className="segmented-control" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {LOOKBACK_PRESETS.map((preset) => (
+                <button
+                  className={`segment-button${lookbackDays === preset ? ' active' : ''}`}
+                  key={preset}
+                  onClick={() => onSetLookbackDays(preset)}
+                  type="button"
+                >
+                  {preset}d
+                </button>
+              ))}
+            </div>
+          </div>
+          {quickSymbols.length > 0 ? (
+            <div className="symbol-chip-row">
+              {quickSymbols.map((quickSymbol) => (
+                <button
+                  className={`symbol-chip${quickSymbol === symbol ? ' active' : ''}`}
+                  key={quickSymbol}
+                  onClick={() => onSetSymbol(quickSymbol)}
+                  type="button"
+                >
+                  {quickSymbol}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="top-strip-meta">
+            <button
+              className="button primary"
+              disabled={query.isFetching}
+              type="submit"
+            >
+              <Search aria-hidden size={16} />
+              {query.isFetching ? 'Loading' : 'Load report'}
+            </button>
+            {report ? (
+              <span className="badge primary">
+                Contribution signal, not broker PnL
+              </span>
+            ) : null}
+          </div>
+          {query.isError ? (
+            <span className="badge risk">{errorMessage(query.error)}</span>
+          ) : null}
+        </form>
+      </Panel>
+
+      {query.isLoading && !report ? <LoadingState /> : null}
+      {!report && !query.isFetching && !query.isError ? (
+        <Panel className="span-12" title="Report">
+          <EmptyState label="No agent calibration report loaded." />
+        </Panel>
+      ) : null}
+      {report ? (
+        <>
+          <Panel className="span-4" title="Coverage">
+            <div className="stack">
+              <DataPair label="Period" value={`${formatDate(report.period_start)} to ${formatDate(report.period_end)}`} />
+              <DataPair label="Opinions" value={report.coverage.opinion_count} />
+              <DataPair label="Eligible" value={report.coverage.eligible_opinion_count} />
+              <DataPair label="Scored" value={report.coverage.scored_opinion_count} />
+              <DataPair label="Missing evaluation" value={report.coverage.missing_evaluation_count} />
+              <DataPair label="Unlinked" value={report.coverage.unlinked_opinion_count} />
+              <DataPair label="Coverage" value={formatPercent(report.coverage.coverage_pct)} />
+            </div>
+          </Panel>
+          <Panel className="span-8" title="Contribution Signal">
+            <AgentCalibrationAgentsTable agents={report.agents} />
+          </Panel>
+          <Panel className="span-12" title="Supporting Rows">
+            <AgentCalibrationRowsTable rows={report.rows} />
+          </Panel>
+        </>
+      ) : null}
+    </BentoGrid>
+  );
+}
+
 function SelectedThesisSummary({ thesis }: { thesis: ThesisResponse }) {
   return (
     <div className="state-card">
@@ -1237,6 +1433,139 @@ function SymbolCalibrationRowsTable({
               </td>
               <td>{formatPercent(row.max_favorable_excursion)}</td>
               <td>{formatPercent(row.max_adverse_excursion)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AgentCalibrationAgentsTable({
+  agents,
+}: {
+  agents: AgentCalibrationAgentResponse[];
+}) {
+  if (agents.length === 0) {
+    return <EmptyState label="Insufficient data for agent-role metrics." />;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Agent role</th>
+            <th>Display name</th>
+            <th>Eligible</th>
+            <th>Coverage</th>
+            <th>Supports</th>
+            <th>Opposes</th>
+            <th>Alignment success</th>
+            <th>Contrarian success</th>
+            <th>Avg confidence</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {agents.map((agent) => (
+            <tr key={agent.agent_role}>
+              <td>{agent.agent_role}</td>
+              <td>
+                {agent.display_name}
+                {agent.agent_names.length > 1 ? (
+                  <span className="muted"> +{agent.agent_names.length - 1}</span>
+                ) : null}
+              </td>
+              <td>{agent.eligible_opinion_count}</td>
+              <td>{formatPercent(agent.coverage_pct)}</td>
+              <td>{agent.supports_final_count}</td>
+              <td>{agent.opposes_final_count}</td>
+              <td>{formatPercent(agent.alignment_success_rate)}</td>
+              <td>{formatPercent(agent.contrarian_success_rate)}</td>
+              <td>{formatPercent(agent.avg_confidence)}</td>
+              <td>
+                <span className={`badge ${agentVerdictTone(agent.verdict)}`}>
+                  {labelize(agent.verdict)}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AgentCalibrationRowsTable({
+  rows,
+}: {
+  rows: AgentCalibrationRowResponse[];
+}) {
+  if (rows.length === 0) {
+    return <EmptyState label="No supporting rows in this report." />;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Run</th>
+            <th>Thesis</th>
+            <th>Symbol</th>
+            <th>Agent stance</th>
+            <th>Final direction</th>
+            <th>Relation</th>
+            <th>Evaluation result</th>
+            <th>Outcome bucket</th>
+            <th>Confidence</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={`${row.research_run_id ?? 'run'}-${row.agent_role}-${row.thesis_id ?? 'unlinked'}-${row.created_at ?? ''}`}
+            >
+              <td>
+                {row.agent_name}
+                <br />
+                <span className="muted">{row.agent_role}</span>
+              </td>
+              <td>{row.research_run_id ? <IdChip value={row.research_run_id} /> : 'n/a'}</td>
+              <td>{row.thesis_id ? <IdChip value={row.thesis_id} /> : 'n/a'}</td>
+              <td>{row.symbol ?? 'n/a'}</td>
+              <td>
+                <span className={`badge ${stanceTone(row.agent_stance)}`}>
+                  {row.agent_stance}
+                </span>
+              </td>
+              <td>
+                <span className={`badge ${stanceTone(row.thesis_direction)}`}>
+                  {row.thesis_direction}
+                </span>
+              </td>
+              <td>
+                <span className={`badge ${relationTone(row.relation_to_final)}`}>
+                  {labelize(row.relation_to_final)}
+                </span>
+              </td>
+              <td>
+                {row.evaluation_result ? (
+                  <span className={`badge ${resultTone(row.evaluation_result)}`}>
+                    {row.evaluation_result}
+                  </span>
+                ) : (
+                  'n/a'
+                )}
+              </td>
+              <td>
+                <span className={`badge ${outcomeBucketTone(row.outcome_bucket)}`}>
+                  {labelize(row.outcome_bucket)}
+                </span>
+              </td>
+              <td>{formatPercent(row.confidence)}</td>
+              <td>{formatDateTime(row.created_at)}</td>
             </tr>
           ))}
         </tbody>
@@ -1417,6 +1746,45 @@ function verdictTone(
     return 'degraded';
   }
   return 'primary';
+}
+
+function agentVerdictTone(
+  verdict: string | null | undefined,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (verdict === 'strong_aligned' || verdict === 'promising') {
+    return 'constructive';
+  }
+  if (verdict === 'contrarian_signal') {
+    return 'warning';
+  }
+  if (verdict === 'insufficient_data') {
+    return 'degraded';
+  }
+  return 'primary';
+}
+
+function relationTone(
+  relation: string,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (relation === 'supports_final') {
+    return 'constructive';
+  }
+  if (relation === 'opposes_final') {
+    return 'warning';
+  }
+  return 'degraded';
+}
+
+function outcomeBucketTone(
+  bucket: string,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (bucket === 'supported_success' || bucket === 'contrarian_success') {
+    return 'constructive';
+  }
+  if (bucket === 'supported_failure' || bucket === 'contrarian_failure') {
+    return 'risk';
+  }
+  return 'degraded';
 }
 
 function symbolStatusTone(

@@ -300,8 +300,126 @@ class FakeJournalRepository implements JournalRepository {
       );
   }
 
+  async listAgentCalibrationSourceRows(
+    filters: {
+      symbol?: string;
+      periodStart: string;
+      periodEnd: string;
+      windowDays: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const symbol = filters.symbol
+      ? normalizeCryptoSymbolForTest(filters.symbol)
+      : undefined;
+    return [...this.agentOpinions.values()]
+      .flat()
+      .filter((opinion) => opinion.workspace_id === workspaceId)
+      .map((opinion) =>
+        this.toAgentCalibrationSourceRow(opinion, filters.windowDays, workspaceId),
+      )
+      .filter((row) => {
+        const scopeDate = row.thesis_created_at ?? row.created_at;
+        const parsed = new Date(String(scopeDate ?? ''));
+        if (!Number.isFinite(parsed.getTime())) {
+          return false;
+        }
+        const date = parsed.toISOString().slice(0, 10);
+        return date >= filters.periodStart && date <= filters.periodEnd;
+      })
+      .filter(
+        (row) =>
+          !symbol ||
+          normalizeOptionalCryptoSymbolForTest(row.symbol) === symbol,
+      )
+      .sort(
+        (left, right) =>
+          String(right.created_at ?? '').localeCompare(
+            String(left.created_at ?? ''),
+          ) ||
+          String(left.research_run_id ?? '').localeCompare(
+            String(right.research_run_id ?? ''),
+          ) ||
+          String(left.agent_role ?? '').localeCompare(String(right.agent_role ?? '')),
+      );
+  }
+
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
+  }
+
+  private toAgentCalibrationSourceRow(
+    opinion: JsonRecord,
+    windowDays: number,
+    workspaceId: string,
+  ): JsonRecord {
+    const run = this.researchRuns.get(
+      key(String(opinion.research_run_id ?? ''), workspaceId),
+    );
+    const debate = this.debates.get(
+      key(String(opinion.debate_id ?? ''), workspaceId),
+    );
+    const runThesisId =
+      typeof run?.thesis_id === 'string' && run.thesis_id
+        ? run.thesis_id
+        : null;
+    const runThesis = runThesisId
+      ? this.theses.get(key(runThesisId, workspaceId)) ?? null
+      : null;
+    const fallbackThesis =
+      runThesis ??
+      [...this.theses.values()]
+        .filter((thesis) => thesis.workspace_id === workspaceId)
+        .filter((thesis) => thesis.research_run_id === opinion.research_run_id)
+        .sort(
+          (left, right) =>
+            String(right.created_at ?? '').localeCompare(
+              String(left.created_at ?? ''),
+            ) || String(left.id ?? '').localeCompare(String(right.id ?? '')),
+        )[0] ??
+      null;
+    const thesisId =
+      typeof fallbackThesis?.id === 'string' ? fallbackThesis.id : null;
+    const thesisCreatedAt =
+      typeof fallbackThesis?.created_at === 'string'
+        ? fallbackThesis.created_at
+        : null;
+    const evaluationStart = thesisCreatedAt
+      ? new Date(thesisCreatedAt).toISOString().slice(0, 10)
+      : null;
+    const evaluationEnd = evaluationStart
+      ? addDaysIsoDate(evaluationStart, windowDays)
+      : null;
+    const evaluation =
+      thesisId && evaluationStart && evaluationEnd
+        ? [...this.thesisEvaluations.values()].find(
+            (candidate) =>
+              candidate.workspace_id === workspaceId &&
+              candidate.thesis_id === thesisId &&
+              candidate.window_days === windowDays &&
+              candidate.evaluation_start === evaluationStart &&
+              candidate.evaluation_end === evaluationEnd,
+          ) ?? null
+        : null;
+
+    return {
+      opinion_id: opinion.id,
+      workspace_id: workspaceId,
+      agent_name: opinion.agent_name,
+      agent_role: opinion.agent_role,
+      agent_stance: opinion.stance,
+      confidence: opinion.confidence,
+      created_at: opinion.created_at,
+      debate_id: opinion.debate_id,
+      research_run_id: opinion.research_run_id,
+      thesis_id: thesisId,
+      symbol:
+        fallbackThesis?.symbol ?? run?.symbol ?? debate?.symbol ?? null,
+      thesis_direction: fallbackThesis?.direction ?? null,
+      thesis_created_at: thesisCreatedAt,
+      evaluation_id: evaluation?.id ?? null,
+      evaluation_result: evaluation?.result ?? null,
+    };
   }
 
   async getThesisEvaluationByNaturalKey(
@@ -1665,6 +1783,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/calibration/evaluations/matured/preview', ['post']],
     ['/calibration/evaluations/matured/apply', ['post']],
     ['/calibration/symbol', ['get']],
+    ['/calibration/agents', ['get']],
     ['/calibration/evaluations', ['get']],
     ['/calibration/evaluations/{id}', ['get']],
     ['/calibration/evaluations/{id}/reruns', ['get', 'post']],
@@ -3706,6 +3825,335 @@ test('symbol calibration validates required symbol window and lookback', async (
     () =>
       calibration.getSymbolCalibrationReport(
         { symbol: 'BTC/USDT', window_days: 7, lookback_days: 180 },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
+  );
+});
+
+test('agent calibration aggregates coverage joins relations outcomes and rows', async () => {
+  const { calibration, journal, evaluationEngineCalls } = buildHarness();
+  const { periodStart, periodEnd } = symbolCalibrationPeriod(7, 30);
+  const dates = [
+    addDaysIsoDate(periodEnd, -8),
+    addDaysIsoDate(periodEnd, -7),
+    addDaysIsoDate(periodEnd, -6),
+    addDaysIsoDate(periodEnd, -5),
+    addDaysIsoDate(periodEnd, -4),
+    addDaysIsoDate(periodEnd, -3),
+    addDaysIsoDate(periodEnd, -2),
+    addDaysIsoDate(periodEnd, -1),
+    periodEnd,
+  ];
+
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_market_support_hit',
+    agentRole: 'market',
+    agentName: 'Market Analyst',
+    stance: 'bullish',
+    confidence: 0.72,
+    thesisId: 'thesis_agent_market_hit',
+    direction: 'long',
+    createdDate: dates[0],
+    evaluationResult: 'hit_target',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_market_support_fail',
+    agentRole: 'market',
+    agentName: 'market analyst',
+    stance: 'buy',
+    confidence: 0.68,
+    thesisId: 'thesis_agent_market_fail',
+    direction: 'bullish',
+    createdDate: dates[1],
+    evaluationResult: 'invalidated',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_quant_fallback_contra_success',
+    agentRole: 'quant',
+    agentName: 'Quant Lens',
+    stance: 'sell',
+    confidence: 0.61,
+    thesisId: 'thesis_agent_quant_fallback',
+    direction: 'long',
+    createdDate: dates[2],
+    evaluationResult: 'invalidated',
+    linkViaResearchRunThesis: false,
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_macro_missing_eval',
+    agentRole: 'macro',
+    agentName: 'Macro Desk',
+    stance: 'bearish',
+    confidence: 0.54,
+    thesisId: 'thesis_agent_macro_missing',
+    direction: 'short',
+    createdDate: dates[3],
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_market_unlinked',
+    agentRole: 'market',
+    agentName: 'Market Analyst',
+    stance: 'bullish',
+    confidence: 0.5,
+    thesisId: null,
+    createdDate: dates[4],
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_risk_unknown_stance',
+    agentRole: 'risk',
+    agentName: 'Risk Analyst',
+    stance: 'conditional above resistance',
+    confidence: 0.47,
+    thesisId: 'thesis_agent_risk_unknown',
+    direction: 'long',
+    createdDate: dates[5],
+    evaluationResult: 'hit_target',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_market_neutral_unclear',
+    agentRole: 'market',
+    agentName: 'Market Analyst',
+    stance: 'hold',
+    confidence: 0.58,
+    thesisId: 'thesis_agent_market_neutral',
+    direction: 'long',
+    createdDate: dates[6],
+    evaluationResult: 'hit_target',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_quant_inconclusive',
+    agentRole: 'quant',
+    agentName: 'Quant Lens',
+    stance: 'short',
+    confidence: 0.59,
+    thesisId: 'thesis_agent_quant_mixed',
+    direction: 'bearish',
+    createdDate: dates[7],
+    evaluationResult: 'mixed',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_market_wrong_window',
+    agentRole: 'market',
+    agentName: 'Market Analyst',
+    stance: 'long',
+    confidence: 0.57,
+    thesisId: 'thesis_agent_market_wrong_window',
+    direction: 'long',
+    createdDate: dates[8],
+  });
+  journal.thesisEvaluations.set(key('evaluation_agent_wrong_window', 'workspace_a'), {
+    id: 'evaluation_agent_wrong_window',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_agent_market_wrong_window',
+    outcome_review_id: 'review_must_not_matter',
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: dates[8],
+    evaluation_end: addDaysIsoDate(dates[8], 14),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.9,
+    max_adverse_excursion: -0.01,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 150 },
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_eth_excluded',
+    agentRole: 'market',
+    stance: 'bullish',
+    thesisId: 'thesis_agent_eth',
+    symbol: 'ETH/USDT',
+    direction: 'long',
+    createdDate: dates[0],
+    evaluationResult: 'hit_target',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_workspace_excluded',
+    workspaceId: 'workspace_b',
+    agentRole: 'market',
+    stance: 'bullish',
+    thesisId: 'thesis_agent_workspace_b',
+    direction: 'long',
+    createdDate: dates[0],
+    evaluationResult: 'hit_target',
+  });
+  seedAgentCalibrationOpinion(journal, {
+    id: 'op_old_excluded',
+    agentRole: 'market',
+    stance: 'bullish',
+    thesisId: 'thesis_agent_old',
+    direction: 'long',
+    createdDate: addDaysIsoDate(periodStart, -1),
+    evaluationResult: 'hit_target',
+  });
+
+  const response = await (
+    calibration as unknown as {
+      getAgentCalibrationReport: (
+        dto: JsonRecord,
+        userId?: string,
+        workspaceHeader?: string,
+      ) => Promise<JsonRecord>;
+    }
+  ).getAgentCalibrationReport(
+    { symbol: 'btcusdt', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(evaluationEngineCalls.length, 0);
+  assert.equal(response.symbol, 'BTC/USDT');
+  assert.equal(response.period_start, periodStart);
+  assert.equal(response.period_end, periodEnd);
+  assert.deepEqual(response.coverage, {
+    opinion_count: 9,
+    eligible_opinion_count: 8,
+    scored_opinion_count: 3,
+    missing_evaluation_count: 2,
+    unlinked_opinion_count: 1,
+    unknown_stance_count: 1,
+    unclear_relation_count: 2,
+    coverage_pct: 0.8889,
+  });
+  assert.deepEqual(
+    (response.agents as JsonRecord[]).map((agent) => [
+      agent.agent_role,
+      agent.opinion_count,
+      agent.eligible_opinion_count,
+      agent.classified_opinion_count,
+      agent.supports_final_count,
+      agent.opposes_final_count,
+      agent.supported_success_count,
+      agent.supported_failure_count,
+      agent.contrarian_success_count,
+      agent.contrarian_failure_count,
+      agent.inconclusive_count,
+      agent.alignment_success_rate,
+      agent.contrarian_success_rate,
+      agent.avg_confidence,
+      agent.verdict,
+    ]),
+    [
+      ['market', 5, 4, 3, 3, 0, 1, 1, 0, 0, 1, 0.5, null, 0.6375, 'insufficient_data'],
+      ['quant', 2, 2, 2, 1, 1, 0, 0, 1, 0, 1, null, 1, 0.6, 'insufficient_data'],
+      ['macro', 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, null, null, 0.54, 'insufficient_data'],
+      ['risk', 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, null, null, 0.47, 'insufficient_data'],
+    ],
+  );
+  const fallbackRow = (response.rows as JsonRecord[]).find(
+    (row) => row.agent_role === 'quant' && row.thesis_id === 'thesis_agent_quant_fallback',
+  );
+  assert.equal(fallbackRow?.relation_to_final, 'opposes_final');
+  assert.equal(fallbackRow?.outcome_bucket, 'contrarian_success');
+  assert.equal(fallbackRow?.evaluation_result, 'invalidated');
+  assert.ok(!('payload' in (fallbackRow ?? {})));
+  assert.equal((response.rows as JsonRecord[])[0]?.thesis_id, 'thesis_agent_market_wrong_window');
+});
+
+test('agent calibration returns cautious verdict thresholds sorting caps and validation', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  const createdDate = addDaysIsoDate(periodEnd, -1);
+
+  seedAgentCalibrationRoleOutcomes(journal, {
+    role: 'strong_role',
+    createdDate,
+    outcomes: ['hit_target', 'hit_target', 'hit_target', 'hit_target', 'invalidated'],
+  });
+  seedAgentCalibrationRoleOutcomes(journal, {
+    role: 'promising_role',
+    createdDate,
+    outcomes: ['hit_target', 'hit_target', 'hit_target', 'invalidated', 'invalidated'],
+  });
+  seedAgentCalibrationRoleOutcomes(journal, {
+    role: 'contrarian_role',
+    createdDate,
+    stance: 'bearish',
+    direction: 'long',
+    outcomes: ['invalidated', 'invalidated', 'invalidated', 'hit_target', 'hit_target'],
+  });
+  seedAgentCalibrationRoleOutcomes(journal, {
+    role: 'mixed_role',
+    createdDate,
+    outcomes: ['hit_target', 'hit_target', 'invalidated', 'invalidated', 'invalidated'],
+  });
+  seedAgentCalibrationRoleOutcomes(journal, {
+    role: 'small_role',
+    createdDate,
+    outcomes: ['hit_target', 'hit_target', 'hit_target', 'hit_target'],
+  });
+  for (let index = 0; index < 35; index += 1) {
+    seedAgentCalibrationOpinion(journal, {
+      id: `op_cap_${index}`,
+      agentRole: 'cap_role',
+      stance: 'bullish',
+      thesisId: `thesis_agent_cap_${index}`,
+      direction: 'long',
+      createdDate: addDaysIsoDate(periodEnd, -index),
+      evaluationResult: 'hit_target',
+    });
+  }
+
+  const response = await (
+    calibration as unknown as {
+      getAgentCalibrationReport: (
+        dto: JsonRecord,
+        userId?: string,
+        workspaceHeader?: string,
+      ) => Promise<JsonRecord>;
+    }
+  ).getAgentCalibrationReport(
+    { window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  const verdicts = new Map(
+    (response.agents as JsonRecord[]).map((agent) => [
+      agent.agent_role,
+      agent.verdict,
+    ]),
+  );
+  assert.equal(verdicts.get('strong_role'), 'strong_aligned');
+  assert.equal(verdicts.get('promising_role'), 'promising');
+  assert.equal(verdicts.get('contrarian_role'), 'contrarian_signal');
+  assert.equal(verdicts.get('mixed_role'), 'mixed');
+  assert.equal(verdicts.get('small_role'), 'insufficient_data');
+  assert.equal((response.rows as JsonRecord[]).length, 30);
+  assert.equal((response.rows as JsonRecord[])[0]?.research_run_id, 'run_op_cap_0');
+
+  await assert.rejects(
+    () =>
+      (
+        calibration as unknown as {
+          getAgentCalibrationReport: (
+            dto: JsonRecord,
+            userId?: string,
+            workspaceHeader?: string,
+          ) => Promise<JsonRecord>;
+        }
+      ).getAgentCalibrationReport(
+        { window_days: 21, lookback_days: 30 },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () =>
+      (
+        calibration as unknown as {
+          getAgentCalibrationReport: (
+            dto: JsonRecord,
+            userId?: string,
+            workspaceHeader?: string,
+          ) => Promise<JsonRecord>;
+        }
+      ).getAgentCalibrationReport(
+        { window_days: 7, lookback_days: 180 },
         'user_1',
         'workspace_a',
       ),
@@ -6814,6 +7262,123 @@ function symbolCalibrationPeriod(
     periodStart: addDaysIsoDate(periodEnd, -(lookbackDays - 1)),
     periodEnd,
   };
+}
+
+function seedAgentCalibrationOpinion(
+  journal: FakeJournalRepository,
+  options: {
+    id: string;
+    agentRole: string;
+    agentName?: string;
+    confidence?: number | null;
+    createdDate: string;
+    direction?: string;
+    evaluationResult?: string;
+    linkViaResearchRunThesis?: boolean;
+    stance: string;
+    symbol?: string;
+    thesisId: string | null;
+    workspaceId?: string;
+  },
+) {
+  const workspaceId = options.workspaceId ?? 'workspace_a';
+  const symbol = options.symbol ?? 'BTC/USDT';
+  const runId = `run_${options.id}`;
+  const debateId = `debate_${options.id}`;
+  const createdAt = `${options.createdDate}T12:00:00.000Z`;
+  const thesisId = options.thesisId;
+  const linkViaResearchRunThesis = options.linkViaResearchRunThesis !== false;
+
+  journal.researchRuns.set(key(runId, workspaceId), {
+    id: runId,
+    run_id: runId,
+    workspace_id: workspaceId,
+    symbol,
+    status: 'completed',
+    started_at: createdAt,
+    completed_at: createdAt,
+    thesis_id: linkViaResearchRunThesis ? thesisId : null,
+  });
+  journal.debates.set(key(debateId, workspaceId), {
+    id: debateId,
+    workspace_id: workspaceId,
+    research_run_id: runId,
+    symbol,
+    created_at: createdAt,
+  });
+
+  if (thesisId) {
+    journal.theses.set(key(thesisId, workspaceId), {
+      id: thesisId,
+      workspace_id: workspaceId,
+      research_run_id: runId,
+      symbol,
+      direction: options.direction ?? 'long',
+      confidence: 0.64,
+      created_at: `${options.createdDate}T00:00:00.000Z`,
+    });
+    if (options.evaluationResult) {
+      journal.thesisEvaluations.set(
+        key(`evaluation_${options.id}`, workspaceId),
+        {
+          id: `evaluation_${options.id}`,
+          workspace_id: workspaceId,
+          thesis_id: thesisId,
+          outcome_review_id: null,
+          symbol,
+          window_days: 7,
+          evaluation_start: options.createdDate,
+          evaluation_end: addDaysIsoDate(options.createdDate, 7),
+          evaluated_at: '2026-05-12T00:00:00.000Z',
+          result: options.evaluationResult,
+          max_favorable_excursion: 0.05,
+          max_adverse_excursion: -0.02,
+          invalidated: options.evaluationResult === 'invalidated',
+          warnings: [],
+          evidence: { start_price: 100, end_price: 105 },
+        },
+      );
+    }
+  }
+
+  const opinions = journal.agentOpinions.get(key(debateId, workspaceId)) ?? [];
+  opinions.push({
+    id: options.id,
+    workspace_id: workspaceId,
+    debate_id: debateId,
+    research_run_id: runId,
+    agent_name: options.agentName ?? options.agentRole,
+    agent_role: options.agentRole,
+    stance: options.stance,
+    confidence: options.confidence ?? null,
+    created_at: createdAt,
+  });
+  journal.agentOpinions.set(key(debateId, workspaceId), opinions);
+}
+
+function seedAgentCalibrationRoleOutcomes(
+  journal: FakeJournalRepository,
+  options: {
+    role: string;
+    createdDate: string;
+    direction?: string;
+    outcomes: string[];
+    stance?: string;
+  },
+) {
+  options.outcomes.forEach((result, index) => {
+    seedAgentCalibrationOpinion(journal, {
+      id: `op_${options.role}_${index}`,
+      agentRole: options.role,
+      agentName: `${options.role} analyst`,
+      stance: options.stance ?? 'bullish',
+      confidence: 0.7,
+      thesisId: `thesis_${options.role}_${index}`,
+      direction: options.direction ?? 'long',
+      createdDate: addDaysIsoDate(options.createdDate, -index),
+      evaluationResult: result,
+    });
+  });
 }
 
 function normalizeOptionalCryptoSymbolForTest(value: unknown): string | undefined {

@@ -2,6 +2,7 @@ import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import {
+  AgentCalibrationSourceFilters,
   JournalRepository,
   JsonRecord,
   MaturedEvaluationThesisFilters,
@@ -488,6 +489,87 @@ export class PostgresJournalRepository implements JournalRepository {
          AND created_at::date <= $4::date
        ORDER BY created_at DESC, id ASC`,
       [workspaceId, filters.symbol, filters.periodStart, filters.periodEnd],
+    );
+  }
+
+  async listAgentCalibrationSourceRows(
+    filters: AgentCalibrationSourceFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const params: unknown[] = [
+      workspaceId,
+      filters.periodStart,
+      filters.periodEnd,
+      filters.windowDays,
+    ];
+    const symbolFilter = filters.symbol
+      ? `AND COALESCE(run_thesis.symbol, fallback_thesis.symbol, rr.symbol, d.symbol) = $5`
+      : '';
+    if (filters.symbol) {
+      params.push(filters.symbol);
+    }
+
+    return this.many(
+      `SELECT jsonb_build_object(
+         'opinion_id', ao.id,
+         'workspace_id', ao.workspace_id,
+         'agent_name', ao.agent_name,
+         'agent_role', ao.agent_role,
+         'agent_stance', ao.stance,
+         'confidence', ao.confidence,
+         'created_at', ao.created_at,
+         'debate_id', ao.debate_id,
+         'research_run_id', ao.research_run_id,
+         'thesis_id', COALESCE(run_thesis.id, fallback_thesis.id),
+         'symbol', COALESCE(run_thesis.symbol, fallback_thesis.symbol, rr.symbol, d.symbol),
+         'thesis_direction', COALESCE(run_thesis.direction, fallback_thesis.direction),
+         'thesis_created_at', COALESCE(run_thesis.created_at, fallback_thesis.created_at),
+         'evaluation_id', e.id,
+         'evaluation_result', e.result
+       ) AS payload_json
+       FROM agent_opinions ao
+       LEFT JOIN research_runs rr
+         ON rr.id = ao.research_run_id
+        AND rr.workspace_id = ao.workspace_id
+       LEFT JOIN debates d
+         ON d.id = ao.debate_id
+        AND d.workspace_id = ao.workspace_id
+       LEFT JOIN trade_theses run_thesis
+         ON run_thesis.id = rr.thesis_id
+        AND run_thesis.workspace_id = ao.workspace_id
+       LEFT JOIN LATERAL (
+         SELECT ft.*
+         FROM trade_theses ft
+         WHERE ft.workspace_id = ao.workspace_id
+           AND ft.research_run_id = ao.research_run_id
+         ORDER BY ft.created_at DESC, ft.id ASC
+         LIMIT 1
+       ) fallback_thesis ON run_thesis.id IS NULL
+       LEFT JOIN thesis_evaluations e
+         ON e.workspace_id = ao.workspace_id
+        AND e.thesis_id = COALESCE(run_thesis.id, fallback_thesis.id)
+        AND e.window_days = $4
+        AND e.evaluation_start = COALESCE(run_thesis.created_at, fallback_thesis.created_at)::date
+        AND e.evaluation_end = (
+          COALESCE(run_thesis.created_at, fallback_thesis.created_at)::date
+          + ($4 * INTERVAL '1 day')
+        )::date
+       WHERE ao.workspace_id = $1
+         AND (
+           (
+             COALESCE(run_thesis.id, fallback_thesis.id) IS NOT NULL
+             AND COALESCE(run_thesis.created_at, fallback_thesis.created_at)::date >= $2::date
+             AND COALESCE(run_thesis.created_at, fallback_thesis.created_at)::date <= $3::date
+           )
+           OR (
+             COALESCE(run_thesis.id, fallback_thesis.id) IS NULL
+             AND ao.created_at::date >= $2::date
+             AND ao.created_at::date <= $3::date
+           )
+         )
+         ${symbolFilter}
+       ORDER BY ao.created_at DESC, ao.research_run_id ASC, ao.agent_role ASC, ao.id ASC`,
+      params,
     );
   }
 

@@ -150,6 +150,13 @@ export interface SymbolCalibrationThesisFilters {
   periodEnd: string;
 }
 
+export interface AgentCalibrationSourceFilters {
+  symbol?: string;
+  periodStart: string;
+  periodEnd: string;
+  windowDays: number;
+}
+
 export interface ThesisEvaluationUpsertResult {
   created: boolean;
   evaluation: JsonRecord;
@@ -214,6 +221,10 @@ export interface JournalRepository {
   ): Promise<JsonRecord[]>;
   listThesesForSymbolCalibration?(
     filters: SymbolCalibrationThesisFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listAgentCalibrationSourceRows?(
+    filters: AgentCalibrationSourceFilters,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   getThesisEvaluationByNaturalKey?(

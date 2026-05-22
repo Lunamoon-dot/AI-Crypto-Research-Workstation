@@ -8,6 +8,7 @@ import {
   PreviewMaturedEvaluationsDto,
 } from './dto/matured-evaluations.dto';
 import { CalibrationOutcomeReviewDto } from './dto/outcome-review.dto';
+import { AgentCalibrationQueryDto } from './dto/agent-calibration.dto';
 import { SymbolCalibrationQueryDto } from './dto/symbol-calibration.dto';
 
 @Controller('calibration')
@@ -50,6 +51,15 @@ export class CalibrationController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.calibration.getSymbolCalibrationReport(dto, userId, workspaceId);
+  }
+
+  @Get('agents')
+  getAgentCalibration(
+    @Query() dto: AgentCalibrationQueryDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.getAgentCalibrationReport(dto, userId, workspaceId);
   }
 
   @Get('evaluations')
