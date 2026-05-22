@@ -12,25 +12,13 @@ import { getWorkbenchAttention } from '@/services/workbench';
 import { errorMessage } from '@/services/client';
 import { formatDateTime, todayIsoDate } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import { findNavigationTitle } from '@/navigation/nav-groups';
 import { researchRunRequestSchema } from '@/schemas/research-run';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import type { NotificationResponse } from '@/types';
 
-const titles: Array<[string, string]> = [
-  [routes.workbench, 'Daily operating view'],
-  [routes.researchNew, 'Research launcher'],
-  ['/research/runs', 'Research workspace'],
-  [routes.performance, 'Thesis reliability'],
-  [routes.theses, 'Thesis library'],
-  [routes.signals, 'Signal explorer'],
-  [routes.watchlists, 'Watchlists and briefs'],
-  [routes.briefsDaily, 'Daily briefs archive'],
-  [routes.operations, 'Operations'],
-  [routes.settings, 'Settings'],
-];
-
 export function TopCommandStrip() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [symbol, setSymbol] = useState('BTC/USDT');
@@ -120,9 +108,7 @@ export function TopCommandStrip() {
       });
     },
   });
-  const title =
-    titles.find(([href]) => pathname === href || pathname.startsWith(href))?.[1] ??
-    'Evidence-first crypto research';
+  const title = findNavigationTitle(`${pathname}${search}`);
   const unreadCount =
     attention.data?.notifications.filter((notification) => notification.status === 'unread')
       .length ?? 0;
