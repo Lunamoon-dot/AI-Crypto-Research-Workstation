@@ -10,6 +10,8 @@ import type {
   PreviewMaturedEvaluationsResponse,
   RecordCalibrationOutcomeReviewRequest,
   RecordCalibrationOutcomeReviewResponse,
+  SymbolCalibrationReportResponse,
+  SymbolCalibrationRequest,
 } from '@/types';
 
 export function evaluateThesis(
@@ -52,6 +54,17 @@ export function applyMaturedEvaluations(
   return apiRequest<ApplyMaturedEvaluationsResponse>(
     '/calibration/evaluations/matured/apply',
     { method: 'POST', body: request },
+    auth,
+  );
+}
+
+export function getSymbolCalibrationReport(
+  request: SymbolCalibrationRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<SymbolCalibrationReportResponse>(
+    '/calibration/symbol',
+    { query: request },
     auth,
   );
 }

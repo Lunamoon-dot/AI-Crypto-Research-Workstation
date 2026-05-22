@@ -105,6 +105,12 @@ export interface MaturedEvaluationThesisFilters {
   limit: number;
 }
 
+export interface SymbolCalibrationThesisFilters {
+  symbol: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
 export interface ThesisEvaluationUpsertResult {
   created: boolean;
   evaluation: JsonRecord;
@@ -165,6 +171,10 @@ export interface JournalRepository {
   getThesis(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listThesesForMaturedEvaluation?(
     filters: MaturedEvaluationThesisFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listThesesForSymbolCalibration?(
+    filters: SymbolCalibrationThesisFilters,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   getThesisEvaluationByNaturalKey?(

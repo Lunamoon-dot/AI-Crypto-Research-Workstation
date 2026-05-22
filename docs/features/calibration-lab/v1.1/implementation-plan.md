@@ -61,10 +61,12 @@ only. It does not promote those artifacts into official outcome reviews.
 ```text
 V1    Manual single-thesis evaluation.
 V1.1  Batch matured evaluation: preview -> apply bounded batch.
-V1.2  Re-run / re-evaluate policy with audit trail.
-V1.3  Review workflow improvements from evaluations.
-V2    Background jobs, scheduler, progress, retry queue.
-V2.x  Charts, historical replay, and deeper calibration analytics.
+V1.2  Symbol Calibration MVP: read-only aggregate by symbol/window/lookback.
+V1.3  Evaluation versioning / rerun audit.
+V1.4  Agent Calibration MVP.
+V2.0  Background jobs, scheduler, progress, retry queue.
+V2.1  Persisted calibration reports / snapshots.
+V2.x  Charts, historical replay, LLM stance parsing, and deeper analytics.
 ```
 
 V1.1 must stay inside the batch preview/apply boundary.

@@ -27,6 +27,10 @@ import {
   MaturedEvaluationReason,
   PreviewMaturedEvaluationsResponse,
   RecordCalibrationOutcomeReviewResponse,
+  SymbolCalibrationReportResponse,
+  SymbolCalibrationRowResponse,
+  SymbolCalibrationStance,
+  SymbolCalibrationVerdict,
   ThesisReviewResponse,
   toMaturedEvaluationApplyRowResponse,
   toMaturedEvaluationPreviewRowResponse,
@@ -39,24 +43,40 @@ import {
   PreviewMaturedEvaluationsDto,
 } from './dto/matured-evaluations.dto';
 import { CalibrationOutcomeReviewDto } from './dto/outcome-review.dto';
+import { SymbolCalibrationQueryDto } from './dto/symbol-calibration.dto';
 
 const WINDOW_PRESETS = new Set([7, 14, 30]);
+const SYMBOL_WINDOW_PRESETS = new Set([7, 14, 30]);
+const LOOKBACK_PRESETS = new Set([30, 60, 90]);
+const DEFAULT_SYMBOL_WINDOW_DAYS = 7;
+const DEFAULT_SYMBOL_LOOKBACK_DAYS = 30;
 const DEFAULT_SCAN_LIMIT = 100;
 const MAX_SCAN_LIMIT = 500;
 const DEFAULT_MAX_BATCH = 10;
 const MAX_BATCH = 25;
+const SYMBOL_CALIBRATION_ROW_LIMIT = 20;
+const MATERIAL_RETURN = 0.02;
+const MATERIAL_DRAWDOWN = -0.04;
 const RECORDABLE_RESULTS = new Set([
   'hit_target',
   'invalidated',
   'mixed',
   'expired',
 ]);
-
 type MaturedEvaluationRow = JsonRecord & MaturedEvaluationPreviewRowResponse & {
   status: MaturedEvaluationPreviewStatus;
   reason: MaturedEvaluationReason | null;
   evaluation: JsonRecord | null;
   thesis: JsonRecord;
+};
+
+type ClassifiedSymbolStance = Exclude<SymbolCalibrationStance, 'mixed'>;
+
+type SymbolCalibrationSourceRow = {
+  thesis: JsonRecord;
+  evaluation: JsonRecord | null;
+  row: SymbolCalibrationRowResponse;
+  stance: ClassifiedSymbolStance;
 };
 
 @Injectable()
@@ -226,6 +246,69 @@ export class CalibrationService {
         failed: responseRows.filter((row) => row.status === 'failed').length,
       },
       rows: responseRows,
+    };
+  }
+
+  async getSymbolCalibrationReport(
+    dto: SymbolCalibrationQueryDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<SymbolCalibrationReportResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const symbol = normalizeRequiredSymbol(dto.symbol);
+    const windowDays = normalizeSymbolWindowDays(dto.window_days);
+    const lookbackDays = normalizeLookbackDays(dto.lookback_days);
+    const todayUtc = todayUtcDate();
+    const periodEnd = addDaysIsoDate(todayUtc, -(windowDays + 1));
+    const periodStart = addDaysIsoDate(periodEnd, -(lookbackDays - 1));
+    const theses = await this.requireSymbolCalibrationThesisList()(
+      { symbol, periodStart, periodEnd },
+      workspaceId,
+    );
+    const sourceRows: SymbolCalibrationSourceRow[] = [];
+
+    for (const thesis of theses) {
+      const row = await this.buildSymbolCalibrationRow(
+        thesis,
+        {
+          symbol,
+          windowDays,
+          periodStart,
+          periodEnd,
+          todayUtc,
+        },
+        workspaceId,
+      );
+      if (row) {
+        sourceRows.push(row);
+      }
+    }
+
+    const rows = sourceRows
+      .map((sourceRow) => sourceRow.row)
+      .sort(compareSymbolCalibrationRows)
+      .slice(0, SYMBOL_CALIBRATION_ROW_LIMIT);
+    const evaluatedRows = sourceRows.filter((row) => row.evaluation);
+    const maturedThesisCount = sourceRows.length;
+    const evaluatedCount = evaluatedRows.length;
+    const missingEvaluationCount = maturedThesisCount - evaluatedCount;
+    const stance = buildSymbolCalibrationStance(sourceRows);
+
+    return {
+      symbol,
+      window_days: windowDays,
+      lookback_days: lookbackDays,
+      period_start: periodStart,
+      period_end: periodEnd,
+      coverage: {
+        matured_thesis_count: maturedThesisCount,
+        evaluated_count: evaluatedCount,
+        missing_evaluation_count: missingEvaluationCount,
+        coverage_pct: rate(evaluatedCount, maturedThesisCount),
+      },
+      stance,
+      outcome: buildSymbolCalibrationOutcome(evaluatedRows, stance.consensus_stance),
+      rows,
     };
   }
 
@@ -550,6 +633,84 @@ export class CalibrationService {
     };
   }
 
+  private async buildSymbolCalibrationRow(
+    thesis: JsonRecord,
+    options: {
+      symbol: string;
+      windowDays: number;
+      periodStart: string;
+      periodEnd: string;
+      todayUtc: string;
+    },
+    workspaceId: string,
+  ): Promise<SymbolCalibrationSourceRow | null> {
+    const thesisId = stringValue(thesis.id);
+    const symbol = stringValue(thesis.symbol);
+    if (
+      !thesisId ||
+      !symbol ||
+      normalizeSymbolFilter(symbol) !== options.symbol
+    ) {
+      return null;
+    }
+
+    const createdAt = optionalString(thesis.created_at);
+    if (!createdAt) {
+      return null;
+    }
+    const parsedCreatedAt = new Date(createdAt);
+    if (!Number.isFinite(parsedCreatedAt.getTime())) {
+      return null;
+    }
+
+    const evaluationStart = parsedCreatedAt.toISOString().slice(0, 10);
+    if (
+      evaluationStart < options.periodStart ||
+      evaluationStart > options.periodEnd
+    ) {
+      return null;
+    }
+
+    const evaluationEnd = addDaysIsoDate(evaluationStart, options.windowDays);
+    if (evaluationEnd >= options.todayUtc) {
+      return null;
+    }
+
+    const evaluation = await this.requireEvaluationNaturalKeyRead()(
+      {
+        thesisId,
+        windowDays: options.windowDays,
+        evaluationStart,
+        evaluationEnd,
+      },
+      workspaceId,
+    );
+    const stance = symbolCalibrationStance(thesis);
+
+    return {
+      thesis,
+      evaluation,
+      stance,
+      row: {
+        thesis_id: thesisId,
+        created_at: createdAt,
+        symbol,
+        stance,
+        direction: stringValue(thesis.direction),
+        confidence: numberValue(thesis.confidence),
+        status: evaluation ? 'evaluated' : 'missing_evaluation',
+        evaluation_id: evaluation ? optionalString(evaluation.id) ?? null : null,
+        result: evaluation ? evaluationResult(evaluation) ?? 'unknown' : null,
+        max_favorable_excursion: evaluation
+          ? numberValue(evaluation.max_favorable_excursion)
+          : null,
+        max_adverse_excursion: evaluation
+          ? numberValue(evaluation.max_adverse_excursion)
+          : null,
+      },
+    };
+  }
+
   private requireMaturedThesisList() {
     if (!this.journal.listThesesForMaturedEvaluation) {
       throw new ServiceUnavailableException(
@@ -557,6 +718,15 @@ export class CalibrationService {
       );
     }
     return this.journal.listThesesForMaturedEvaluation.bind(this.journal);
+  }
+
+  private requireSymbolCalibrationThesisList() {
+    if (!this.journal.listThesesForSymbolCalibration) {
+      throw new ServiceUnavailableException(
+        'Calibration requires symbol calibration thesis listing support.',
+      );
+    }
+    return this.journal.listThesesForSymbolCalibration.bind(this.journal);
   }
 
   private requireEvaluationNaturalKeyRead() {
@@ -709,6 +879,30 @@ function normalizeWindowDays(value: number | undefined): number {
   return normalized;
 }
 
+function normalizeSymbolWindowDays(value: number | undefined): number {
+  const normalized = value ?? DEFAULT_SYMBOL_WINDOW_DAYS;
+  if (!SYMBOL_WINDOW_PRESETS.has(normalized)) {
+    throw new BadRequestException('window_days must be one of 7, 14, or 30.');
+  }
+  return normalized;
+}
+
+function normalizeLookbackDays(value: number | undefined): number {
+  const normalized = value ?? DEFAULT_SYMBOL_LOOKBACK_DAYS;
+  if (!LOOKBACK_PRESETS.has(normalized)) {
+    throw new BadRequestException('lookback_days must be one of 30, 60, or 90.');
+  }
+  return normalized;
+}
+
+function normalizeRequiredSymbol(value: unknown): string {
+  const symbol = normalizeSymbolFilter(value);
+  if (!symbol) {
+    throw new BadRequestException('symbol is required.');
+  }
+  return symbol;
+}
+
 function normalizeScanLimit(value: number | undefined): number {
   const normalized = value ?? DEFAULT_SCAN_LIMIT;
   if (
@@ -755,6 +949,239 @@ function compareMaturedRows(
 
 function compareStrings(left: string | null, right: string | null): number {
   return (left ?? '9999-12-31').localeCompare(right ?? '9999-12-31');
+}
+
+function compareSymbolCalibrationRows(
+  left: SymbolCalibrationRowResponse,
+  right: SymbolCalibrationRowResponse,
+): number {
+  return (
+    (right.created_at ?? '').localeCompare(left.created_at ?? '') ||
+    left.thesis_id.localeCompare(right.thesis_id)
+  );
+}
+
+function buildSymbolCalibrationStance(rows: SymbolCalibrationSourceRow[]) {
+  const stanceCounts = {
+    bullish: 0,
+    bearish: 0,
+    defensive: 0,
+    neutral: 0,
+    unknown: 0,
+  };
+  for (const row of rows) {
+    stanceCounts[row.stance] += 1;
+  }
+
+  const classified = [
+    ['bullish', stanceCounts.bullish],
+    ['bearish', stanceCounts.bearish],
+    ['defensive', stanceCounts.defensive],
+    ['neutral', stanceCounts.neutral],
+  ] as const;
+  const classifiedCount = classified.reduce((sum, [, count]) => sum + count, 0);
+  if (classifiedCount === 0) {
+    return {
+      stance_counts: stanceCounts,
+      consensus_stance: 'unknown' as const,
+      conflict_rate: null,
+    };
+  }
+
+  const topCount = Math.max(...classified.map(([, count]) => count));
+  const topStances = classified.filter(([, count]) => count === topCount);
+  return {
+    stance_counts: stanceCounts,
+    consensus_stance:
+      topStances.length === 1 ? topStances[0][0] : ('mixed' as const),
+    conflict_rate: rate(classifiedCount - topCount, classifiedCount),
+  };
+}
+
+function buildSymbolCalibrationOutcome(
+  rows: SymbolCalibrationSourceRow[],
+  consensusStance: SymbolCalibrationStance,
+) {
+  const resultCounts = {
+    hit_target: 0,
+    invalidated: 0,
+    mixed: 0,
+    expired: 0,
+    unknown: 0,
+  };
+  for (const row of rows) {
+    const result = row.evaluation ? evaluationResult(row.evaluation) : null;
+    resultCounts[result ?? 'unknown'] += 1;
+  }
+
+  const evaluatedCount = rows.length;
+  const mfes = rows
+    .map((row) => numberValue(row.evaluation?.max_favorable_excursion))
+    .filter((value): value is number => value !== null);
+  const maes = rows
+    .map((row) => numberValue(row.evaluation?.max_adverse_excursion))
+    .filter((value): value is number => value !== null);
+  const returns = rows
+    .map((row) => (row.evaluation ? evaluationReturn(row.evaluation) : null))
+    .filter((value): value is number => value !== null);
+  const representativeReturn = average(returns);
+  const worstMae = minValue(maes);
+
+  return {
+    result_counts: resultCounts,
+    hit_rate: rate(resultCounts.hit_target, evaluatedCount),
+    invalidation_rate: rate(resultCounts.invalidated, evaluatedCount),
+    mixed_rate: rate(resultCounts.mixed, evaluatedCount),
+    expired_rate: rate(resultCounts.expired, evaluatedCount),
+    unknown_rate: rate(resultCounts.unknown, evaluatedCount),
+    avg_mfe: average(mfes),
+    avg_mae: average(maes),
+    best_mfe: maxValue(mfes),
+    worst_mae: worstMae,
+    representative_return: representativeReturn,
+    verdict: symbolCalibrationVerdict({
+      consensusStance,
+      evaluatedCount,
+      representativeReturn,
+      worstMae,
+    }),
+  };
+}
+
+function symbolCalibrationVerdict(input: {
+  consensusStance: SymbolCalibrationStance;
+  evaluatedCount: number;
+  representativeReturn: number | null;
+  worstMae: number | null;
+}): SymbolCalibrationVerdict {
+  if (
+    input.evaluatedCount === 0 ||
+    input.consensusStance === 'mixed' ||
+    input.consensusStance === 'unknown'
+  ) {
+    return 'inconclusive';
+  }
+
+  const representativeReturn = input.representativeReturn;
+  const worstMae = input.worstMae;
+  if (
+    input.consensusStance === 'defensive' &&
+    worstMae !== null &&
+    worstMae <= MATERIAL_DRAWDOWN
+  ) {
+    return 'correct';
+  }
+  if (representativeReturn === null) {
+    return 'inconclusive';
+  }
+  if (input.consensusStance === 'bullish') {
+    return representativeReturn >= MATERIAL_RETURN ? 'correct' : 'incorrect';
+  }
+  if (input.consensusStance === 'bearish') {
+    return representativeReturn <= -MATERIAL_RETURN ? 'correct' : 'incorrect';
+  }
+  if (input.consensusStance === 'defensive') {
+    return representativeReturn <= 0 ? 'correct' : 'incorrect';
+  }
+  return Math.abs(representativeReturn) < MATERIAL_RETURN
+    ? 'correct'
+    : 'incorrect';
+}
+
+function symbolCalibrationStance(thesis: JsonRecord): ClassifiedSymbolStance {
+  const directionStance = mappedSymbolStance(thesis.direction);
+  if (directionStance !== 'unknown') {
+    return directionStance;
+  }
+
+  const payload = recordFromValue(thesis.payload) ?? {};
+  const payloadStructuredSummary =
+    recordFromValue(payload.structured_summary) ?? {};
+  const payloadSummary = recordFromValue(payload.summary) ?? {};
+  const structuredSummary = recordFromValue(thesis.structured_summary) ?? {};
+  const summary = recordFromValue(thesis.summary) ?? {};
+  return firstMappedSymbolStance(
+    payloadStructuredSummary.stance,
+    payloadSummary.stance,
+    payload.stance,
+    structuredSummary.stance,
+    summary.stance,
+    thesis.stance,
+  );
+}
+
+function firstMappedSymbolStance(
+  ...values: unknown[]
+): ClassifiedSymbolStance {
+  for (const value of values) {
+    const stance = mappedSymbolStance(value);
+    if (stance !== 'unknown') {
+      return stance;
+    }
+  }
+  return 'unknown';
+}
+
+function mappedSymbolStance(value: unknown): ClassifiedSymbolStance {
+  const normalized = optionalString(value)?.trim().toLowerCase();
+  if (!normalized) {
+    return 'unknown';
+  }
+  if (['long', 'bullish', 'overweight'].includes(normalized)) {
+    return 'bullish';
+  }
+  if (['short', 'bearish', 'underweight'].includes(normalized)) {
+    return 'bearish';
+  }
+  if (['avoid', 'defensive', 'risk_off', 'risk-off'].includes(normalized)) {
+    return 'defensive';
+  }
+  if (['watch', 'neutral'].includes(normalized)) {
+    return 'neutral';
+  }
+  return 'unknown';
+}
+
+function evaluationReturn(evaluation: JsonRecord): number | null {
+  const evidence = recordFromValue(evaluation.evidence) ?? {};
+  const payload = recordFromValue(evaluation.payload) ?? {};
+  const payloadEvidence = recordFromValue(payload.evidence) ?? {};
+  const startPrice = numberValue(
+    evaluation.start_price ?? evidence.start_price ?? payloadEvidence.start_price,
+  );
+  const endPrice = numberValue(
+    evaluation.end_price ?? evidence.end_price ?? payloadEvidence.end_price,
+  );
+  if (startPrice === null || startPrice <= 0 || endPrice === null) {
+    return null;
+  }
+  return roundMetric((endPrice - startPrice) / startPrice);
+}
+
+function rate(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) {
+    return null;
+  }
+  return roundMetric(numerator / denominator);
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+  return roundMetric(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function maxValue(values: number[]): number | null {
+  return values.length > 0 ? roundMetric(Math.max(...values)) : null;
+}
+
+function minValue(values: number[]): number | null {
+  return values.length > 0 ? roundMetric(Math.min(...values)) : null;
+}
+
+function roundMetric(value: number): number {
+  return Number(value.toFixed(4));
 }
 
 function evaluationResult(evaluation: JsonRecord | null): CalibrationResult | null {

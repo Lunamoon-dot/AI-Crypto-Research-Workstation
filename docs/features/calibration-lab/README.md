@@ -15,6 +15,17 @@ OutcomeReview    = journal review artifact used by reliability/performance views
 
 - [V1 Manual Single-Thesis Evaluation](v1/implementation-plan.md)
 - [V1.1 Batch Matured Evaluation](v1.1/implementation-plan.md)
+- [V1.2 Symbol Calibration MVP](v1.2/implementation-plan.md)
+
+## Roadmap
+
+```text
+V1.3  Evaluation versioning / rerun audit.
+V1.4  Agent Calibration MVP.
+V2.0  Background jobs, scheduler, progress, retry queue.
+V2.1  Persisted calibration reports / snapshots.
+V2.x  Charts, historical replay, LLM stance parsing, and deeper analytics.
+```
 
 ## Product Boundary
 

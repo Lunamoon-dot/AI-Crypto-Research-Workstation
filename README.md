@@ -12,10 +12,15 @@ apps/
 packages/
   database/        Prisma schema/client for the product Postgres model
 docs/
-  backend/frontend architecture notes and UX references
+  repo documentation map, feature plans, architecture notes, tracking docs,
+  and UX references
 ```
 
 The Python import namespace intentionally remains `tradingagents` for compatibility; the public CLI command is `lunacrypto`.
+
+Project documentation starts at [docs/README.md](docs/README.md). Feature
+implementation plans use the versioned layout documented in
+[docs/features/README.md](docs/features/README.md).
 
 ## Root Commands
 

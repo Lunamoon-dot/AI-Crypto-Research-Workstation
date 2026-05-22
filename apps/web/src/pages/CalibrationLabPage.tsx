@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import {
   applyMaturedEvaluations,
   evaluateThesis,
+  getSymbolCalibrationReport,
   listCalibrationEvaluations,
   previewMaturedEvaluations,
   recordCalibrationOutcomeReview,
@@ -25,18 +26,28 @@ import type {
   CalibrationRecordReviewBlocker,
   MaturedEvaluationApplyRowResponse,
   MaturedEvaluationPreviewRowResponse,
+  SymbolCalibrationReportResponse,
+  SymbolCalibrationRowResponse,
   ThesisResponse,
 } from '@/types';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
 
 const WINDOW_PRESETS = [7, 14, 30] as const;
+const LOOKBACK_PRESETS = [30, 60, 90] as const;
+type CalibrationMode = 'single' | 'batch' | 'symbol';
 
 export function CalibrationLabPage() {
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryThesisId = searchParams.get('thesis_id') ?? '';
+  const queryMode = searchParams.get('mode');
+  const activeMode: CalibrationMode = queryThesisId
+    ? 'single'
+    : queryMode === 'batch' || queryMode === 'symbol'
+      ? queryMode
+      : 'single';
   const [selectedThesisId, setSelectedThesisId] = useState(queryThesisId);
   const [windowDays, setWindowDays] = useState<(typeof WINDOW_PRESETS)[number]>(14);
   const [activeEvaluation, setActiveEvaluation] =
@@ -47,6 +58,15 @@ export function CalibrationLabPage() {
     useState<(typeof WINDOW_PRESETS)[number]>(14);
   const [batchSymbol, setBatchSymbol] = useState('');
   const [batchApplyArmed, setBatchApplyArmed] = useState(false);
+  const [symbolCalibrationSymbol, setSymbolCalibrationSymbol] = useState(
+    searchParams.get('symbol') ?? 'BTC/USDT',
+  );
+  const [symbolWindowDays, setSymbolWindowDays] = useState<
+    (typeof WINDOW_PRESETS)[number]
+  >(() => parseWindowPreset(searchParams.get('window_days'), 7));
+  const [symbolLookbackDays, setSymbolLookbackDays] = useState<
+    (typeof LOOKBACK_PRESETS)[number]
+  >(() => parseLookbackPreset(searchParams.get('lookback_days'), 30));
 
   useEffect(() => {
     setSelectedThesisId(queryThesisId);
@@ -80,8 +100,32 @@ export function CalibrationLabPage() {
     queryFn: () => previewMaturedEvaluations(batchFilters, auth),
     enabled: false,
   });
+  const symbolFilters = useMemo(
+    () => ({
+      symbol: symbolCalibrationSymbol.trim(),
+      window_days: symbolWindowDays,
+      lookback_days: symbolLookbackDays,
+    }),
+    [symbolCalibrationSymbol, symbolWindowDays, symbolLookbackDays],
+  );
+  const symbolReportQuery = useQuery({
+    queryKey: queryKeys.calibrationSymbol(symbolFilters),
+    queryFn: () => getSymbolCalibrationReport(symbolFilters, auth),
+    enabled: false,
+  });
   const selectedThesis =
     thesesQuery.data?.find((thesis) => thesis.id === selectedThesisId) ?? null;
+  const quickSymbols = useMemo(
+    () =>
+      [
+        ...new Set(
+          (thesesQuery.data ?? [])
+            .map((thesis) => thesis.symbol)
+            .filter((symbol): symbol is string => Boolean(symbol)),
+        ),
+      ].slice(0, 12),
+    [thesesQuery.data],
+  );
 
   const evaluateMutation = useMutation({
     mutationFn: () =>
@@ -204,6 +248,43 @@ export function CalibrationLabPage() {
     batchApplyMutation.mutate();
   }
 
+  function selectMode(mode: CalibrationMode) {
+    const next = new URLSearchParams(searchParams);
+    next.set('mode', mode);
+    if (mode !== 'single') {
+      next.delete('thesis_id');
+    }
+    setSearchParams(next);
+  }
+
+  function loadSymbolReport() {
+    if (!symbolCalibrationSymbol.trim()) {
+      return;
+    }
+    void symbolReportQuery.refetch();
+  }
+
+  function prepareBatchFromSymbol(report: SymbolCalibrationReportResponse) {
+    const windowPreset = parseWindowPreset(String(report.window_days), 7);
+    const filters = {
+      window_days: windowPreset,
+      scan_limit: 100,
+      symbol: report.symbol,
+    };
+    setBatchSymbol(report.symbol);
+    setBatchWindowDays(windowPreset);
+    setBatchApplyArmed(false);
+    batchApplyMutation.reset();
+    const next = new URLSearchParams(searchParams);
+    next.set('mode', 'batch');
+    next.delete('thesis_id');
+    setSearchParams(next);
+    void queryClient.fetchQuery({
+      queryKey: queryKeys.calibrationMaturedPreview(filters),
+      queryFn: () => previewMaturedEvaluations(filters, auth),
+    });
+  }
+
   const batchCandidateCount = batchPreviewQuery.data?.summary.candidate ?? 0;
   const batchRows =
     batchApplyMutation.data?.rows ?? batchPreviewQuery.data?.rows ?? [];
@@ -251,6 +332,34 @@ export function CalibrationLabPage() {
         }
       />
 
+      <div
+        className="segmented-control"
+        style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+      >
+        <button
+          className={`segment-button${activeMode === 'single' ? ' active' : ''}`}
+          onClick={() => selectMode('single')}
+          type="button"
+        >
+          Single Thesis
+        </button>
+        <button
+          className={`segment-button${activeMode === 'batch' ? ' active' : ''}`}
+          onClick={() => selectMode('batch')}
+          type="button"
+        >
+          Batch Matured
+        </button>
+        <button
+          className={`segment-button${activeMode === 'symbol' ? ' active' : ''}`}
+          onClick={() => selectMode('symbol')}
+          type="button"
+        >
+          Symbol Calibration
+        </button>
+      </div>
+
+      {activeMode === 'batch' ? (
       <Panel className="calibration-batch-panel" title="Batch Matured Evaluations">
         <div className="stack">
           <div className="grid three">
@@ -324,7 +433,24 @@ export function CalibrationLabPage() {
           <BatchRowsTable rows={batchRows} />
         </div>
       </Panel>
+      ) : null}
 
+      {activeMode === 'symbol' ? (
+        <SymbolCalibrationView
+          lookbackDays={symbolLookbackDays}
+          onLoad={loadSymbolReport}
+          onPrepareBatch={prepareBatchFromSymbol}
+          onSetLookbackDays={setSymbolLookbackDays}
+          onSetSymbol={setSymbolCalibrationSymbol}
+          onSetWindowDays={setSymbolWindowDays}
+          query={symbolReportQuery}
+          quickSymbols={quickSymbols}
+          symbol={symbolCalibrationSymbol}
+          windowDays={symbolWindowDays}
+        />
+      ) : null}
+
+      {activeMode === 'single' ? (
       <BentoGrid>
         <Panel className="span-5" title="Evaluate Thesis">
           <form className="stack" onSubmit={submitEvaluation}>
@@ -491,7 +617,192 @@ export function CalibrationLabPage() {
           </div>
         </Panel>
       </BentoGrid>
+      ) : null}
     </main>
+  );
+}
+
+function SymbolCalibrationView({
+  symbol,
+  windowDays,
+  lookbackDays,
+  quickSymbols,
+  query,
+  onSetSymbol,
+  onSetWindowDays,
+  onSetLookbackDays,
+  onLoad,
+  onPrepareBatch,
+}: {
+  symbol: string;
+  windowDays: (typeof WINDOW_PRESETS)[number];
+  lookbackDays: (typeof LOOKBACK_PRESETS)[number];
+  quickSymbols: string[];
+  query: {
+    data?: SymbolCalibrationReportResponse;
+    error: unknown;
+    isError: boolean;
+    isFetching: boolean;
+    isLoading: boolean;
+  };
+  onSetSymbol: (value: string) => void;
+  onSetWindowDays: (value: (typeof WINDOW_PRESETS)[number]) => void;
+  onSetLookbackDays: (value: (typeof LOOKBACK_PRESETS)[number]) => void;
+  onLoad: () => void;
+  onPrepareBatch: (report: SymbolCalibrationReportResponse) => void;
+}) {
+  const report = query.data;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onLoad();
+  }
+
+  return (
+    <BentoGrid>
+      <Panel className="span-12" title="Symbol Calibration">
+        <form className="stack" onSubmit={submit}>
+          <div className="grid three">
+            <label className="label">
+              Symbol
+              <input
+                className="input"
+                list="symbol-calibration-symbols"
+                onChange={(event) => onSetSymbol(event.target.value)}
+                placeholder="BTC/USDT"
+                value={symbol}
+              />
+              <datalist id="symbol-calibration-symbols">
+                {quickSymbols.map((quickSymbol) => (
+                  <option key={quickSymbol} value={quickSymbol} />
+                ))}
+              </datalist>
+            </label>
+            <div className="segmented-control" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {WINDOW_PRESETS.map((preset) => (
+                <button
+                  className={`segment-button${windowDays === preset ? ' active' : ''}`}
+                  key={preset}
+                  onClick={() => onSetWindowDays(preset)}
+                  type="button"
+                >
+                  {preset}d
+                </button>
+              ))}
+            </div>
+            <div className="segmented-control" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {LOOKBACK_PRESETS.map((preset) => (
+                <button
+                  className={`segment-button${lookbackDays === preset ? ' active' : ''}`}
+                  key={preset}
+                  onClick={() => onSetLookbackDays(preset)}
+                  type="button"
+                >
+                  {preset}d
+                </button>
+              ))}
+            </div>
+          </div>
+          {quickSymbols.length > 0 ? (
+            <div className="symbol-chip-row">
+              {quickSymbols.map((quickSymbol) => (
+                <button
+                  className={`symbol-chip${quickSymbol === symbol ? ' active' : ''}`}
+                  key={quickSymbol}
+                  onClick={() => onSetSymbol(quickSymbol)}
+                  type="button"
+                >
+                  {quickSymbol}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="top-strip-meta">
+            <button
+              className="button primary"
+              disabled={!symbol.trim() || query.isFetching}
+              type="submit"
+            >
+              <Search aria-hidden size={16} />
+              {query.isFetching ? 'Loading' : 'Load report'}
+            </button>
+            {report && report.coverage.missing_evaluation_count > 0 ? (
+              <button
+                className="button"
+                onClick={() => onPrepareBatch(report)}
+                type="button"
+              >
+                <Play aria-hidden size={16} />
+                Prepare batch evaluation
+              </button>
+            ) : null}
+          </div>
+          {query.isError ? (
+            <span className="badge risk">{errorMessage(query.error)}</span>
+          ) : null}
+        </form>
+      </Panel>
+
+      {query.isLoading && !report ? <LoadingState /> : null}
+      {!report && !query.isFetching && !query.isError ? (
+        <Panel className="span-12" title="Report">
+          <EmptyState label="No symbol calibration report loaded." />
+        </Panel>
+      ) : null}
+      {report ? (
+        <>
+          <Panel className="span-4" title="Coverage">
+            <div className="stack">
+              <DataPair label="Period" value={`${formatDate(report.period_start)} to ${formatDate(report.period_end)}`} />
+              <DataPair label="Matured" value={report.coverage.matured_thesis_count} />
+              <DataPair label="Evaluated" value={report.coverage.evaluated_count} />
+              <DataPair label="Missing" value={report.coverage.missing_evaluation_count} />
+              <DataPair label="Coverage" value={formatPercent(report.coverage.coverage_pct)} />
+            </div>
+          </Panel>
+          <Panel className="span-4" title="Stance">
+            <div className="stack">
+              <DataPair
+                label="Consensus"
+                value={
+                  <span className={`badge ${stanceTone(report.stance.consensus_stance)}`}>
+                    {report.stance.consensus_stance}
+                  </span>
+                }
+              />
+              <DataPair label="Conflict" value={formatPercent(report.stance.conflict_rate)} />
+              <div className="top-strip-meta">
+                {Object.entries(report.stance.stance_counts).map(([stance, count]) => (
+                  <span className={`badge ${stanceTone(stance)}`} key={stance}>
+                    {stance} {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </Panel>
+          <Panel className="span-4" title="Outcome">
+            <div className="stack">
+              <DataPair
+                label="Verdict"
+                value={
+                  <span className={`badge ${verdictTone(report.outcome.verdict)}`}>
+                    {report.outcome.verdict}
+                  </span>
+                }
+              />
+              <DataPair label="Hit rate" value={formatPercent(report.outcome.hit_rate)} />
+              <DataPair label="Invalidation" value={formatPercent(report.outcome.invalidation_rate)} />
+              <DataPair label="Representative return" value={formatPercent(report.outcome.representative_return)} />
+              <DataPair label="Avg MFE" value={formatPercent(report.outcome.avg_mfe)} />
+              <DataPair label="Avg MAE" value={formatPercent(report.outcome.avg_mae)} />
+            </div>
+          </Panel>
+          <Panel className="span-12" title="Supporting Rows">
+            <SymbolCalibrationRowsTable rows={report.rows} />
+          </Panel>
+        </>
+      ) : null}
+    </BentoGrid>
   );
 }
 
@@ -603,6 +914,70 @@ function BatchRowsTable({
   );
 }
 
+function SymbolCalibrationRowsTable({
+  rows,
+}: {
+  rows: SymbolCalibrationRowResponse[];
+}) {
+  if (rows.length === 0) {
+    return <EmptyState label="No supporting rows in this report." />;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Thesis</th>
+            <th>Symbol</th>
+            <th>Stance</th>
+            <th>Direction</th>
+            <th>Confidence</th>
+            <th>Status</th>
+            <th>Evaluation</th>
+            <th>Result</th>
+            <th>MFE</th>
+            <th>MAE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.thesis_id}-${row.status}`}>
+              <td>{formatDateTime(row.created_at)}</td>
+              <td>{row.thesis_id ? <IdChip value={row.thesis_id} /> : 'n/a'}</td>
+              <td>{row.symbol}</td>
+              <td>
+                <span className={`badge ${stanceTone(row.stance)}`}>
+                  {row.stance}
+                </span>
+              </td>
+              <td>{row.direction || 'n/a'}</td>
+              <td>{formatPercent(row.confidence)}</td>
+              <td>
+                <span className={`badge ${symbolStatusTone(row.status)}`}>
+                  {row.status.replaceAll('_', ' ')}
+                </span>
+              </td>
+              <td>{row.evaluation_id ? <IdChip value={row.evaluation_id} /> : 'n/a'}</td>
+              <td>
+                {row.result ? (
+                  <span className={`badge ${resultTone(row.result)}`}>
+                    {row.result}
+                  </span>
+                ) : (
+                  'n/a'
+                )}
+              </td>
+              <td>{formatPercent(row.max_favorable_excursion)}</td>
+              <td>{formatPercent(row.max_adverse_excursion)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EvaluationDetail({
   evaluation,
 }: {
@@ -689,6 +1064,74 @@ function formatEvidenceValue(value: unknown): string {
 
 function labelize(value: string): string {
   return value.replaceAll('_', ' ');
+}
+
+function parseWindowPreset(
+  value: string | null,
+  fallback: (typeof WINDOW_PRESETS)[number],
+): (typeof WINDOW_PRESETS)[number] {
+  const parsed = Number(value);
+  return WINDOW_PRESETS.includes(parsed as (typeof WINDOW_PRESETS)[number])
+    ? (parsed as (typeof WINDOW_PRESETS)[number])
+    : fallback;
+}
+
+function parseLookbackPreset(
+  value: string | null,
+  fallback: (typeof LOOKBACK_PRESETS)[number],
+): (typeof LOOKBACK_PRESETS)[number] {
+  const parsed = Number(value);
+  return LOOKBACK_PRESETS.includes(parsed as (typeof LOOKBACK_PRESETS)[number])
+    ? (parsed as (typeof LOOKBACK_PRESETS)[number])
+    : fallback;
+}
+
+function stanceTone(
+  stance: string | null | undefined,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (stance === 'bullish') {
+    return 'constructive';
+  }
+  if (stance === 'bearish') {
+    return 'risk';
+  }
+  if (stance === 'defensive') {
+    return 'warning';
+  }
+  if (stance === 'unknown' || stance === 'mixed') {
+    return 'degraded';
+  }
+  return 'primary';
+}
+
+function verdictTone(
+  verdict: string | null | undefined,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (verdict === 'correct') {
+    return 'constructive';
+  }
+  if (verdict === 'incorrect') {
+    return 'risk';
+  }
+  if (verdict === 'inconclusive') {
+    return 'degraded';
+  }
+  return 'primary';
+}
+
+function symbolStatusTone(
+  status: string,
+): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
+  if (status === 'evaluated') {
+    return 'constructive';
+  }
+  if (status === 'missing_evaluation') {
+    return 'warning';
+  }
+  if (status === 'invalid_thesis') {
+    return 'risk';
+  }
+  return 'primary';
 }
 
 function resultTone(

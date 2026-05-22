@@ -538,6 +538,90 @@ export interface ApplyMaturedEvaluationsResponse {
   rows: MaturedEvaluationApplyRowResponse[];
 }
 
+export type SymbolCalibrationStance =
+  | 'bullish'
+  | 'bearish'
+  | 'defensive'
+  | 'neutral'
+  | 'mixed'
+  | 'unknown';
+
+export type SymbolCalibrationVerdict =
+  | 'correct'
+  | 'incorrect'
+  | 'inconclusive';
+
+export type SymbolCalibrationRowStatus =
+  | 'evaluated'
+  | 'missing_evaluation'
+  | 'invalid_thesis';
+
+export interface SymbolCalibrationCoverageResponse {
+  matured_thesis_count: number;
+  evaluated_count: number;
+  missing_evaluation_count: number;
+  coverage_pct: number | null;
+}
+
+export interface SymbolCalibrationStanceResponse {
+  stance_counts: {
+    bullish: number;
+    bearish: number;
+    defensive: number;
+    neutral: number;
+    unknown: number;
+  };
+  consensus_stance: SymbolCalibrationStance;
+  conflict_rate: number | null;
+}
+
+export interface SymbolCalibrationOutcomeResponse {
+  result_counts: {
+    hit_target: number;
+    invalidated: number;
+    mixed: number;
+    expired: number;
+    unknown: number;
+  };
+  hit_rate: number | null;
+  invalidation_rate: number | null;
+  mixed_rate: number | null;
+  expired_rate: number | null;
+  unknown_rate: number | null;
+  avg_mfe: number | null;
+  avg_mae: number | null;
+  best_mfe: number | null;
+  worst_mae: number | null;
+  representative_return: number | null;
+  verdict: SymbolCalibrationVerdict;
+}
+
+export interface SymbolCalibrationRowResponse {
+  thesis_id: string;
+  created_at: string | null;
+  symbol: string;
+  stance: Exclude<SymbolCalibrationStance, 'mixed'>;
+  direction: string;
+  confidence: number | null;
+  status: SymbolCalibrationRowStatus;
+  evaluation_id: string | null;
+  result: CalibrationResult | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+}
+
+export interface SymbolCalibrationReportResponse {
+  symbol: string;
+  window_days: number;
+  lookback_days: number;
+  period_start: string;
+  period_end: string;
+  coverage: SymbolCalibrationCoverageResponse;
+  stance: SymbolCalibrationStanceResponse;
+  outcome: SymbolCalibrationOutcomeResponse;
+  rows: SymbolCalibrationRowResponse[];
+}
+
 export interface RetrospectiveInsightResponse {
   insight_type: string;
   message: string;

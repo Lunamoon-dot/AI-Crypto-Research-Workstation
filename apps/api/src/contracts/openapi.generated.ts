@@ -711,6 +711,34 @@ export const openApiDocument = {
         ),
       },
     },
+    '/calibration/symbol': {
+      get: {
+        operationId: 'getSymbolCalibrationReport',
+        tags: ['calibration'],
+        parameters: [
+          {
+            name: 'symbol',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+          },
+          queryParameter('window_days', {
+            type: 'integer',
+            enum: [7, 14, 30],
+            default: 7,
+          }),
+          queryParameter('lookback_days', {
+            type: 'integer',
+            enum: [30, 60, 90],
+            default: 30,
+          }),
+        ],
+        responses: jsonResponse(
+          'Read-only symbol calibration report for the active workspace.',
+          'SymbolCalibrationReportResponse',
+        ),
+      },
+    },
     '/calibration/evaluations': {
       get: {
         operationId: 'listCalibrationEvaluations',
@@ -1656,6 +1684,140 @@ export const openApiDocument = {
           rows: {
             type: 'array',
             items: { $ref: '#/components/schemas/MaturedEvaluationApplyRowResponse' },
+          },
+        },
+      },
+      SymbolCalibrationCoverageResponse: {
+        type: 'object',
+        required: ['matured_thesis_count', 'evaluated_count', 'missing_evaluation_count', 'coverage_pct'],
+        properties: {
+          matured_thesis_count: { type: 'integer' },
+          evaluated_count: { type: 'integer' },
+          missing_evaluation_count: { type: 'integer' },
+          coverage_pct: { type: ['number', 'null'] },
+        },
+      },
+      SymbolCalibrationStanceResponse: {
+        type: 'object',
+        required: ['stance_counts', 'consensus_stance', 'conflict_rate'],
+        properties: {
+          stance_counts: {
+            type: 'object',
+            required: ['bullish', 'bearish', 'defensive', 'neutral', 'unknown'],
+            properties: {
+              bullish: { type: 'integer' },
+              bearish: { type: 'integer' },
+              defensive: { type: 'integer' },
+              neutral: { type: 'integer' },
+              unknown: { type: 'integer' },
+            },
+          },
+          consensus_stance: {
+            type: 'string',
+            enum: ['bullish', 'bearish', 'defensive', 'neutral', 'mixed', 'unknown'],
+          },
+          conflict_rate: { type: ['number', 'null'] },
+        },
+      },
+      SymbolCalibrationOutcomeResponse: {
+        type: 'object',
+        required: [
+          'result_counts',
+          'hit_rate',
+          'invalidation_rate',
+          'mixed_rate',
+          'expired_rate',
+          'unknown_rate',
+          'avg_mfe',
+          'avg_mae',
+          'best_mfe',
+          'worst_mae',
+          'representative_return',
+          'verdict',
+        ],
+        properties: {
+          result_counts: {
+            type: 'object',
+            required: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'],
+            properties: {
+              hit_target: { type: 'integer' },
+              invalidated: { type: 'integer' },
+              mixed: { type: 'integer' },
+              expired: { type: 'integer' },
+              unknown: { type: 'integer' },
+            },
+          },
+          hit_rate: { type: ['number', 'null'] },
+          invalidation_rate: { type: ['number', 'null'] },
+          mixed_rate: { type: ['number', 'null'] },
+          expired_rate: { type: ['number', 'null'] },
+          unknown_rate: { type: ['number', 'null'] },
+          avg_mfe: { type: ['number', 'null'] },
+          avg_mae: { type: ['number', 'null'] },
+          best_mfe: { type: ['number', 'null'] },
+          worst_mae: { type: ['number', 'null'] },
+          representative_return: { type: ['number', 'null'] },
+          verdict: {
+            type: 'string',
+            enum: ['correct', 'incorrect', 'inconclusive'],
+          },
+        },
+      },
+      SymbolCalibrationRowResponse: {
+        type: 'object',
+        required: [
+          'thesis_id',
+          'created_at',
+          'symbol',
+          'stance',
+          'direction',
+          'confidence',
+          'status',
+          'evaluation_id',
+          'result',
+          'max_favorable_excursion',
+          'max_adverse_excursion',
+        ],
+        properties: {
+          thesis_id: { type: 'string' },
+          created_at: { type: ['string', 'null'], format: 'date-time' },
+          symbol: { type: 'string' },
+          stance: {
+            type: 'string',
+            enum: ['bullish', 'bearish', 'defensive', 'neutral', 'unknown'],
+          },
+          direction: { type: 'string' },
+          confidence: { type: ['number', 'null'] },
+          status: {
+            type: 'string',
+            enum: ['evaluated', 'missing_evaluation', 'invalid_thesis'],
+          },
+          evaluation_id: { type: ['string', 'null'] },
+          result: {
+            anyOf: [
+              { type: 'string', enum: ['hit_target', 'invalidated', 'mixed', 'expired', 'unknown'] },
+              { type: 'null' },
+            ],
+          },
+          max_favorable_excursion: { type: ['number', 'null'] },
+          max_adverse_excursion: { type: ['number', 'null'] },
+        },
+      },
+      SymbolCalibrationReportResponse: {
+        type: 'object',
+        required: ['symbol', 'window_days', 'lookback_days', 'period_start', 'period_end', 'coverage', 'stance', 'outcome', 'rows'],
+        properties: {
+          symbol: { type: 'string' },
+          window_days: { type: 'integer', enum: [7, 14, 30] },
+          lookback_days: { type: 'integer', enum: [30, 60, 90] },
+          period_start: { type: 'string', format: 'date' },
+          period_end: { type: 'string', format: 'date' },
+          coverage: { $ref: '#/components/schemas/SymbolCalibrationCoverageResponse' },
+          stance: { $ref: '#/components/schemas/SymbolCalibrationStanceResponse' },
+          outcome: { $ref: '#/components/schemas/SymbolCalibrationOutcomeResponse' },
+          rows: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/SymbolCalibrationRowResponse' },
           },
         },
       },

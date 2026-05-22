@@ -11,6 +11,7 @@ import {
   MonitoringRetentionPolicy,
   ResearchRunFailure,
   SignalSummary,
+  SymbolCalibrationThesisFilters,
   ThesisDecisionIntent,
   ThesisEvaluationInput,
   ThesisEvaluationListFilters,
@@ -461,6 +462,29 @@ export class PostgresJournalRepository implements JournalRepository {
        ORDER BY created_at ASC, id ASC
        LIMIT $${params.length}`,
       params,
+    );
+  }
+
+  async listThesesForSymbolCalibration(
+    filters: SymbolCalibrationThesisFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'direction', direction,
+         'confidence', confidence,
+         'created_at', created_at
+       ) AS payload_json
+       FROM trade_theses
+       WHERE workspace_id = $1
+         AND symbol = $2
+         AND created_at::date >= $3::date
+         AND created_at::date <= $4::date
+       ORDER BY created_at DESC, id ASC`,
+      [workspaceId, filters.symbol, filters.periodStart, filters.periodEnd],
     );
   }
 

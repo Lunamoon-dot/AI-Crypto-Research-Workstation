@@ -263,6 +263,40 @@ class FakeJournalRepository implements JournalRepository {
       .slice(0, filters.limit);
   }
 
+  async listThesesForSymbolCalibration(
+    filters: { symbol: string; periodStart: string; periodEnd: string },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const symbol = normalizeCryptoSymbolForTest(filters.symbol);
+    return [...this.theses.values()]
+      .filter((thesis) => thesis.workspace_id === workspaceId)
+      .filter(
+        (thesis) =>
+          normalizeOptionalCryptoSymbolForTest(thesis.symbol) === symbol,
+      )
+      .filter((thesis) => {
+        const createdAt = String(thesis.created_at ?? '');
+        if (!createdAt) {
+          return false;
+        }
+        const date = new Date(createdAt);
+        if (!Number.isFinite(date.getTime())) {
+          return false;
+        }
+        const createdDate = date.toISOString().slice(0, 10);
+        return (
+          createdDate >= filters.periodStart &&
+          createdDate <= filters.periodEnd
+        );
+      })
+      .sort(
+        (left, right) =>
+          String(right.created_at ?? '').localeCompare(
+            String(left.created_at ?? ''),
+          ) || String(left.id ?? '').localeCompare(String(right.id ?? '')),
+      );
+  }
+
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
     return this.theses.get(key(id, workspaceId)) ?? null;
   }
@@ -1561,6 +1595,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/calibration/evaluations/thesis', ['post']],
     ['/calibration/evaluations/matured/preview', ['post']],
     ['/calibration/evaluations/matured/apply', ['post']],
+    ['/calibration/symbol', ['get']],
     ['/calibration/evaluations', ['get']],
     ['/calibration/evaluations/{id}', ['get']],
     ['/calibration/evaluations/{id}/outcome-review', ['post']],
@@ -3008,6 +3043,279 @@ test('calibration matured symbol filter is exact and workspace scoped', async ()
   assert.deepEqual(
     response.rows.map((row) => row.thesis_id),
     ['thesis_batch_btc'],
+  );
+});
+
+test('symbol calibration aggregates coverage stance outcome and compact rows', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodStart, periodEnd } = symbolCalibrationPeriod(7, 30);
+  const createdDates = [
+    addDaysIsoDate(periodEnd, -4),
+    addDaysIsoDate(periodEnd, -3),
+    addDaysIsoDate(periodEnd, -2),
+    addDaysIsoDate(periodEnd, -1),
+  ];
+  const theses = [
+    {
+      id: 'thesis_symbol_unknown_missing',
+      direction: 'sideways',
+      confidence: 0.51,
+      created_at: `${createdDates[0]}T00:00:00.000Z`,
+    },
+    {
+      id: 'thesis_symbol_def_missing',
+      direction: 'avoid',
+      confidence: 0.62,
+      created_at: `${createdDates[1]}T00:00:00.000Z`,
+    },
+    {
+      id: 'thesis_symbol_bull_mixed',
+      direction: '',
+      confidence: 0.71,
+      created_at: `${createdDates[2]}T00:00:00.000Z`,
+      payload: { structured_summary: { stance: 'overweight' } },
+    },
+    {
+      id: 'thesis_symbol_bull_hit',
+      direction: 'long',
+      confidence: 0.82,
+      created_at: `${createdDates[3]}T00:00:00.000Z`,
+    },
+  ];
+  for (const thesis of theses) {
+    journal.theses.set(key(thesis.id, 'workspace_a'), {
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      ...thesis,
+    });
+  }
+  journal.theses.set(key('thesis_symbol_eth', 'workspace_a'), {
+    id: 'thesis_symbol_eth',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    direction: 'long',
+    created_at: `${createdDates[3]}T00:00:00.000Z`,
+  });
+  journal.theses.set(key('thesis_symbol_workspace_b', 'workspace_b'), {
+    id: 'thesis_symbol_workspace_b',
+    workspace_id: 'workspace_b',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    created_at: `${createdDates[3]}T00:00:00.000Z`,
+  });
+  journal.theses.set(key('thesis_symbol_old', 'workspace_a'), {
+    id: 'thesis_symbol_old',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'long',
+    created_at: `${addDaysIsoDate(periodStart, -1)}T00:00:00.000Z`,
+  });
+  journal.thesisEvaluations.set(key('evaluation_symbol_hit', 'workspace_a'), {
+    id: 'evaluation_symbol_hit',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_symbol_bull_hit',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: createdDates[3],
+    evaluation_end: addDaysIsoDate(createdDates[3], 7),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.08,
+    max_adverse_excursion: -0.02,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 105 },
+  });
+  journal.thesisEvaluations.set(key('evaluation_symbol_mixed', 'workspace_a'), {
+    id: 'evaluation_symbol_mixed',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_symbol_bull_mixed',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: createdDates[2],
+    evaluation_end: addDaysIsoDate(createdDates[2], 7),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'mixed',
+    max_favorable_excursion: 0.02,
+    max_adverse_excursion: -0.05,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 200, end_price: 206 },
+  });
+  journal.thesisEvaluations.set(key('evaluation_symbol_wrong_window', 'workspace_a'), {
+    id: 'evaluation_symbol_wrong_window',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_symbol_def_missing',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 14,
+    evaluation_start: createdDates[1],
+    evaluation_end: addDaysIsoDate(createdDates[1], 14),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.9,
+    max_adverse_excursion: -0.01,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 150 },
+  });
+
+  const response = await calibration.getSymbolCalibrationReport(
+    { symbol: 'btcusdt', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.symbol, 'BTC/USDT');
+  assert.equal(response.period_start, periodStart);
+  assert.equal(response.period_end, periodEnd);
+  assert.deepEqual(response.coverage, {
+    matured_thesis_count: 4,
+    evaluated_count: 2,
+    missing_evaluation_count: 2,
+    coverage_pct: 0.5,
+  });
+  assert.deepEqual(response.stance.stance_counts, {
+    bullish: 2,
+    bearish: 0,
+    defensive: 1,
+    neutral: 0,
+    unknown: 1,
+  });
+  assert.equal(response.stance.consensus_stance, 'bullish');
+  assert.equal(response.stance.conflict_rate, 0.3333);
+  assert.deepEqual(response.outcome.result_counts, {
+    hit_target: 1,
+    invalidated: 0,
+    mixed: 1,
+    expired: 0,
+    unknown: 0,
+  });
+  assert.equal(response.outcome.hit_rate, 0.5);
+  assert.equal(response.outcome.mixed_rate, 0.5);
+  assert.equal(response.outcome.avg_mfe, 0.05);
+  assert.equal(response.outcome.avg_mae, -0.035);
+  assert.equal(response.outcome.best_mfe, 0.08);
+  assert.equal(response.outcome.worst_mae, -0.05);
+  assert.equal(response.outcome.representative_return, 0.04);
+  assert.equal(response.outcome.verdict, 'correct');
+  assert.deepEqual(
+    response.rows.map((row) => [row.thesis_id, row.status, row.stance]),
+    [
+      ['thesis_symbol_bull_hit', 'evaluated', 'bullish'],
+      ['thesis_symbol_bull_mixed', 'evaluated', 'bullish'],
+      ['thesis_symbol_def_missing', 'missing_evaluation', 'defensive'],
+      ['thesis_symbol_unknown_missing', 'missing_evaluation', 'unknown'],
+    ],
+  );
+});
+
+test('symbol calibration caps supporting rows at 20', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  for (let index = 0; index < 25; index += 1) {
+    const createdDate = addDaysIsoDate(periodEnd, -(index + 1));
+    journal.theses.set(key(`thesis_symbol_cap_${index}`, 'workspace_a'), {
+      id: `thesis_symbol_cap_${index}`,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      direction: 'long',
+      confidence: 0.5,
+      created_at: `${createdDate}T00:00:00.000Z`,
+    });
+  }
+
+  const response = await calibration.getSymbolCalibrationReport(
+    { symbol: 'BTC/USDT', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.coverage.matured_thesis_count, 25);
+  assert.equal(response.rows.length, 20);
+  assert.equal(response.rows[0]?.thesis_id, 'thesis_symbol_cap_0');
+});
+
+test('symbol calibration returns inconclusive empty and unclassified reports', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  const empty = await calibration.getSymbolCalibrationReport(
+    { symbol: 'BTC/USDT', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  journal.theses.set(key('thesis_symbol_unknown_eval', 'workspace_a'), {
+    id: 'thesis_symbol_unknown_eval',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    direction: 'sideways',
+    confidence: 0.5,
+    created_at: `${addDaysIsoDate(periodEnd, -1)}T00:00:00.000Z`,
+  });
+  journal.thesisEvaluations.set(key('evaluation_symbol_unknown_eval', 'workspace_a'), {
+    id: 'evaluation_symbol_unknown_eval',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_symbol_unknown_eval',
+    outcome_review_id: null,
+    symbol: 'BTC/USDT',
+    window_days: 7,
+    evaluation_start: addDaysIsoDate(periodEnd, -1),
+    evaluation_end: addDaysIsoDate(periodEnd, 6),
+    evaluated_at: '2026-05-12T00:00:00.000Z',
+    result: 'hit_target',
+    max_favorable_excursion: 0.04,
+    max_adverse_excursion: -0.01,
+    invalidated: false,
+    warnings: [],
+    evidence: { start_price: 100, end_price: 103 },
+  });
+
+  const unclassified = await calibration.getSymbolCalibrationReport(
+    { symbol: 'BTC/USDT', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(empty.coverage.matured_thesis_count, 0);
+  assert.equal(empty.coverage.coverage_pct, null);
+  assert.equal(empty.outcome.verdict, 'inconclusive');
+  assert.equal(unclassified.stance.consensus_stance, 'unknown');
+  assert.equal(unclassified.stance.conflict_rate, null);
+  assert.equal(unclassified.outcome.verdict, 'inconclusive');
+});
+
+test('symbol calibration validates required symbol window and lookback', async () => {
+  const { calibration } = buildHarness();
+
+  await assert.rejects(
+    () =>
+      calibration.getSymbolCalibrationReport(
+        { window_days: 7, lookback_days: 30 } as never,
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () =>
+      calibration.getSymbolCalibrationReport(
+        { symbol: 'BTC/USDT', window_days: 21, lookback_days: 30 },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
+  );
+  await assert.rejects(
+    () =>
+      calibration.getSymbolCalibrationReport(
+        { symbol: 'BTC/USDT', window_days: 7, lookback_days: 180 },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
   );
 });
 
@@ -6062,6 +6370,19 @@ function addDaysIsoDate(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function symbolCalibrationPeriod(
+  windowDays: number,
+  lookbackDays: number,
+): { today: string; periodStart: string; periodEnd: string } {
+  const today = new Date().toISOString().slice(0, 10);
+  const periodEnd = addDaysIsoDate(today, -(windowDays + 1));
+  return {
+    today,
+    periodStart: addDaysIsoDate(periodEnd, -(lookbackDays - 1)),
+    periodEnd,
+  };
 }
 
 function normalizeOptionalCryptoSymbolForTest(value: unknown): string | undefined {

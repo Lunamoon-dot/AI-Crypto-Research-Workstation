@@ -7,6 +7,7 @@ import {
   PreviewMaturedEvaluationsDto,
 } from './dto/matured-evaluations.dto';
 import { CalibrationOutcomeReviewDto } from './dto/outcome-review.dto';
+import { SymbolCalibrationQueryDto } from './dto/symbol-calibration.dto';
 
 @Controller('calibration')
 export class CalibrationController {
@@ -39,6 +40,15 @@ export class CalibrationController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.calibration.applyMaturedEvaluations(dto, userId, workspaceId);
+  }
+
+  @Get('symbol')
+  getSymbolCalibration(
+    @Query() dto: SymbolCalibrationQueryDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.calibration.getSymbolCalibrationReport(dto, userId, workspaceId);
   }
 
   @Get('evaluations')
