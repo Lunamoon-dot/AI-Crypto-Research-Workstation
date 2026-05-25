@@ -6,7 +6,8 @@ LunaCrypto's current frontend is a Vite/React research workstation that consumes
 
 ## Product Boundary
 
-The frontend is a research workstation, not a trading terminal and not an execution bot.
+The frontend is the logged-in cockpit for crypto thesis work: daily context,
+research runs, evidence, decisions, monitoring, and outcome review.
 
 Primary user flow:
 
@@ -19,7 +20,9 @@ Open workbench
 -> review thesis outcome later
 ```
 
-The UI must make provenance visible near every decision surface: source, timestamp, freshness, missing data, degraded run reasons, model/provider metadata, and journal history.
+The UI must make provenance visible near every decision surface: source,
+timestamp, freshness, missing data, degraded run reasons, model/provider
+metadata, and journal history.
 
 ## Goals
 
@@ -47,8 +50,9 @@ Operations, Settings, Performance, and Compare pages.
 
 ## Non-Goals
 
-- No direct order execution.
-- No PnL promises or investment advice language.
+- Direct order execution belongs outside the workstation.
+- Account-performance promises and investment-advice language belong outside
+  the product surface.
 - No hidden AI decisions. Generated theses must expose assumptions, missing data, and contradiction signals.
 - No marketing landing page inside the logged-in app.
 

@@ -1,0 +1,86 @@
+# .understandignore - patterns for files/dirs to exclude from Understand Anything analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+
+# Dependencies and package manager state
+node_modules/
+**/node_modules/
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+
+# Build outputs and caches
+dist/
+build/
+out/
+.next/
+apps/*/.next/
+.turbo/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+coverage/
+apps/*/coverage/
+packages/*/coverage/
+htmlcov/
+target/
+
+# Python generated files
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+
+# Logs and local runtime state
+*.log
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+db.sqlite3
+db.sqlite3-journal
+
+# Secrets and local environment files
+.env
+.env.*
+.envrc
+local_settings.py
+
+# Large or binary assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.mp3
+*.mp4
+*.pdf
+*.zip
+*.tar
+*.gz
+
+# Minified/generated frontend artifacts
+*.min.js
+*.min.css
+*.map
+*.generated.*
+
+# Editor and OS metadata
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Optional: uncomment if you want to exclude these from architecture analysis.
+# docs/
+# tests/
+# scripts/
+# migrations/

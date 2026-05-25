@@ -7,7 +7,9 @@ feature docs, app-specific roadmaps, and architecture docs.
 
 ## North Star
 
-LunaCrypto should be a research workstation with a durable paper trail:
+LunaCrypto should become the decision OS for crypto theses: a workstation where
+serious traders turn market noise into evidence-backed conviction, explicit
+invalidation, monitored changes, and honest post-trade learning.
 
 ```text
 market data
@@ -20,8 +22,8 @@ market data
 -> reliability learning
 ```
 
-Do not blur this into autonomous execution, broker routing, or guaranteed
-performance claims.
+The product should lead with discipline, provenance, and review. Safety language
+belongs in trust and release contexts, not in the opening pitch.
 
 ## Now
 
@@ -48,7 +50,7 @@ performance claims.
 | Hosted/private beta | Auth, workspace admin, provider credential setup, usage limits | Only after tenant and worker tests pass. |
 | Calibration V2 | Background jobs, persisted reports, deeper analytics | Keep evaluation research-quality unless simulator exists. |
 | Team/cloud product | Backups, retention, dashboards, sign-off workflows | Do not ship without ops evidence and secret isolation. |
-| Assisted execution | Explicit manual confirmation and immutable audit trail | Do not implement as autonomous trading. |
+| Assisted execution | Explicit manual confirmation and immutable audit trail | Only after the research loop is trustworthy and auditable. |
 
 ## Canonical Detailed Roadmaps
 

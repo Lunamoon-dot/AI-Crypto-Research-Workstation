@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { EngineRunRequest, JsonRecord } from '../database/journal.types';
+import { shouldUseLocalPostgresFallback } from '../database/postgres-availability';
 
 export type JobBackend = 'bullmq' | 'memory' | 'inline';
 
@@ -62,15 +63,17 @@ export interface JobLifecycleUpdate {
 
 @Injectable()
 export class JobLifecycleService implements OnModuleDestroy {
+  private readonly databaseUrl?: string;
   private readonly pool?: Pool;
   private schemaReady?: Promise<void>;
+  private postgresUnavailable = false;
   private readonly records = new Map<string, JobLifecycleRecord>();
   private readonly aliases = new Map<string, string>();
 
   constructor() {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (databaseUrl) {
-      this.pool = new Pool({ connectionString: databaseUrl });
+    this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
+    if (this.databaseUrl) {
+      this.pool = new Pool({ connectionString: this.databaseUrl });
     }
   }
 
@@ -104,37 +107,51 @@ export class JobLifecycleService implements OnModuleDestroy {
       updated_at: now,
     };
     this.storeMemory(record);
-    if (!this.pool) {
+    if (!this.shouldUsePostgres()) {
       return record;
     }
-    await this.ensureSchema();
-    const saved = await this.upsert(record);
-    this.storeMemory(saved);
-    return saved;
+    try {
+      await this.ensureSchema();
+      const saved = await this.upsert(record);
+      this.storeMemory(saved);
+      return saved;
+    } catch (error) {
+      if (this.disablePostgresForLocalFallback(error)) {
+        return record;
+      }
+      throw error;
+    }
   }
 
   async get(idOrRunId: string): Promise<JobLifecycleRecord | null> {
     const localId = this.aliases.get(idOrRunId) ?? idOrRunId;
     const local = this.records.get(localId);
-    if (!this.pool) {
+    if (!this.shouldUsePostgres()) {
       return local ?? null;
     }
-    await this.ensureSchema();
-    const result = await this.pool.query<JobLifecycleRow>(
-      `SELECT *
-       FROM research_jobs
-       WHERE id = $1 OR run_id = $1 OR queue_job_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [idOrRunId],
-    );
-    const row = result.rows[0];
-    if (!row) {
-      return local ?? null;
+    try {
+      await this.ensureSchema();
+      const result = await this.pool!.query<JobLifecycleRow>(
+        `SELECT *
+         FROM research_jobs
+         WHERE id = $1 OR run_id = $1 OR queue_job_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [idOrRunId],
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return local ?? null;
+      }
+      const record = recordFromRow(row);
+      this.storeMemory(record);
+      return record;
+    } catch (error) {
+      if (this.disablePostgresForLocalFallback(error)) {
+        return local ?? null;
+      }
+      throw error;
     }
-    const record = recordFromRow(row);
-    this.storeMemory(record);
-    return record;
   }
 
   async list(
@@ -142,26 +159,53 @@ export class JobLifecycleService implements OnModuleDestroy {
     limit = 50,
   ): Promise<JobLifecycleRecord[]> {
     const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
-    if (!this.pool) {
-      return [...this.records.values()]
-        .filter((record) => record.workspace_id === workspaceId)
-        .sort((left, right) =>
-          right.created_at.localeCompare(left.created_at),
-        )
-        .slice(0, normalizedLimit);
+    if (!this.shouldUsePostgres()) {
+      return this.listMemory(workspaceId, normalizedLimit);
     }
-    await this.ensureSchema();
-    const result = await this.pool.query<JobLifecycleRow>(
-      `SELECT *
-       FROM research_jobs
-       WHERE workspace_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2`,
-      [workspaceId, normalizedLimit],
-    );
-    const records = result.rows.map(recordFromRow);
-    records.forEach((record) => this.storeMemory(record));
-    return records;
+    try {
+      await this.ensureSchema();
+      const result = await this.pool!.query<JobLifecycleRow>(
+        `SELECT *
+         FROM research_jobs
+         WHERE workspace_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [workspaceId, normalizedLimit],
+      );
+      const records = result.rows.map(recordFromRow);
+      records.forEach((record) => this.storeMemory(record));
+      return records;
+    } catch (error) {
+      if (this.disablePostgresForLocalFallback(error)) {
+        return this.listMemory(workspaceId, normalizedLimit);
+      }
+      throw error;
+    }
+  }
+
+  private listMemory(
+    workspaceId: string,
+    normalizedLimit: number,
+  ): JobLifecycleRecord[] {
+    return [...this.records.values()]
+      .filter((record) => record.workspace_id === workspaceId)
+      .sort((left, right) =>
+        right.created_at.localeCompare(left.created_at),
+      )
+      .slice(0, normalizedLimit);
+  }
+
+  private shouldUsePostgres(): boolean {
+    return Boolean(this.pool && !this.postgresUnavailable);
+  }
+
+  private disablePostgresForLocalFallback(error: unknown): boolean {
+    if (!shouldUseLocalPostgresFallback(this.databaseUrl, error)) {
+      return false;
+    }
+    this.postgresUnavailable = true;
+    this.schemaReady = undefined;
+    return true;
   }
 
   async markRunning(
@@ -314,13 +358,20 @@ export class JobLifecycleService implements OnModuleDestroy {
       updated_at: now,
     };
     this.storeMemory(next);
-    if (!this.pool) {
+    if (!this.shouldUsePostgres()) {
       return next;
     }
-    await this.ensureSchema();
-    const saved = await this.upsert(next);
-    this.storeMemory(saved);
-    return saved;
+    try {
+      await this.ensureSchema();
+      const saved = await this.upsert(next);
+      this.storeMemory(saved);
+      return saved;
+    } catch (error) {
+      if (this.disablePostgresForLocalFallback(error)) {
+        return next;
+      }
+      throw error;
+    }
   }
 
   private storeMemory(record: JobLifecycleRecord): void {

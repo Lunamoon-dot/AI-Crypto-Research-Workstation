@@ -1431,6 +1431,30 @@ test('WorkspacesService grants default local membership without DATABASE_URL', a
   );
 });
 
+test('WorkspacesService grants default local membership when local DATABASE_URL is unavailable', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:1/unavailable',
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+    },
+    async () => {
+      const workspaces = new WorkspacesService();
+
+      const membership = await workspaces.assertAccess(
+        'local-user',
+        'local',
+        'editor',
+      );
+
+      assert.equal(membership.role, 'owner');
+      await workspaces.onModuleDestroy();
+    },
+  );
+});
+
 test('POST /research-runs enqueues the exact engine request contract', async () => {
   await withEnv(
     { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
@@ -2090,6 +2114,33 @@ test('JobsService reads lifecycle state after replacing the service instance', a
       assert.equal(status.attempts, 0);
       assert.equal(status.progress.phase, 'queued');
       await second.onModuleDestroy();
+      await lifecycle.onModuleDestroy();
+    },
+  );
+});
+
+test('JobLifecycleService keeps lifecycle in memory when local DATABASE_URL is unavailable', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:1/unavailable',
+    },
+    async () => {
+      const lifecycle = new JobLifecycleService();
+      const request = engineRequest('run_lifecycle_local_db_down');
+
+      const created = await lifecycle.create({
+        id: request.run_id,
+        request,
+        backend: 'memory',
+      });
+      const running = await lifecycle.markRunning(request.run_id, {
+        attempts: 1,
+      });
+      const listed = await lifecycle.list(request.workspace_id);
+
+      assert.equal(created.status, 'queued');
+      assert.equal(running?.status, 'running');
+      assert.equal(listed[0]?.run_id, request.run_id);
       await lifecycle.onModuleDestroy();
     },
   );

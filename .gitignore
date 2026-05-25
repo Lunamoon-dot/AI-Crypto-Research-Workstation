@@ -276,6 +276,9 @@ paper_state.json
 # Generated reports output
 reports/
 
+# Local codebase analysis artifacts
+.understand-anything/knowledge-graph.json
+
 # Trading memory log (local decision journal)
 trading_memory.md
 

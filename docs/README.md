@@ -6,6 +6,11 @@ This directory is the documentation entry point for the monorepo. Keep this file
 small: it should help contributors choose the right source before opening a
 feature plan or changing code.
 
+Product-facing docs should lead with LunaCrypto's value: thesis discipline,
+evidence trails, invalidation, monitoring, and outcome review. Scope and safety
+boundaries still matter, but they belong in trust, release, and implementation
+sections instead of crowding the opening pitch.
+
 ## Start Here
 
 | Need | Read |

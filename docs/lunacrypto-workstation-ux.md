@@ -8,7 +8,9 @@ API define the product surface it consumes.
 
 ## Product Positioning
 
-The product should present itself as a research workstation, not a trading bot.
+The product should present itself as a serious research cockpit for crypto
+theses. Its promise is discipline: turn scattered market inputs into a thesis
+with evidence, invalidation, monitoring, and review.
 
 Core promise:
 
@@ -25,6 +27,10 @@ Market context
 The durable UX advantage is the paper trail: run IDs, signal provenance, agent
 opinions, debate records, thesis fields, scenarios, user decisions, alerts,
 briefs, evaluations, provider health, and model/cost metadata.
+
+Positioning rule: lead with conviction, provenance, and learning. Put safety
+and scope boundaries in contextual trust copy, release notes, and runbooks
+rather than making every product surface sound defensive.
 
 ## Repo Capability Map
 
@@ -262,6 +268,6 @@ The UI should feel like a professional research terminal translated to web:
 
 - Dense but readable.
 - Small cards, hard information hierarchy, 8px radius max.
-- No marketing hero, no trading-game visuals, no fake PnL promise.
+- No marketing hero, no trading-game visuals, no fantasy-performance framing.
 - Use status color sparingly: green for constructive, red for invalidation/risk, amber for stale/degraded, blue for neutral/info.
 - Show provenance, freshness, and missing data near the decision surface.

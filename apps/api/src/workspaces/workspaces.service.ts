@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { Pool } from 'pg';
+import { shouldUseLocalPostgresFallback } from '../database/postgres-availability';
 
 export type WorkspaceRole = 'viewer' | 'editor' | 'admin' | 'owner';
 
@@ -23,13 +24,14 @@ const ROLE_RANK: Record<WorkspaceRole, number> = {
 
 @Injectable()
 export class WorkspacesService implements OnModuleDestroy {
+  private readonly databaseUrl?: string;
   private readonly pool?: Pool;
   private staticMemberships: WorkspaceMembership[] | undefined;
 
   constructor() {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (databaseUrl) {
-      this.pool = new Pool({ connectionString: databaseUrl });
+    this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
+    if (this.databaseUrl) {
+      this.pool = new Pool({ connectionString: this.databaseUrl });
     }
   }
 
@@ -99,17 +101,32 @@ export class WorkspacesService implements OnModuleDestroy {
       return staticMembership;
     }
     if (this.pool) {
-      const result = await this.pool.query(
-        `
-        SELECT user_id, workspace_id, role
-        FROM workspace_memberships
-        WHERE user_id = $1 AND workspace_id = $2
-        LIMIT 1
-        `,
-        [userId, workspaceId],
-      );
-      const row = result.rows[0];
-      return row ? membershipFromRow(row) : null;
+      try {
+        const result = await this.pool.query(
+          `
+          SELECT user_id, workspace_id, role
+          FROM workspace_memberships
+          WHERE user_id = $1 AND workspace_id = $2
+          LIMIT 1
+          `,
+          [userId, workspaceId],
+        );
+        const row = result.rows[0];
+        return row ? membershipFromRow(row) : null;
+      } catch (error) {
+        const localMembership = findDefaultLocalMembership(
+          userId,
+          workspaceId,
+          true,
+        );
+        if (
+          localMembership &&
+          shouldUseLocalPostgresFallback(this.databaseUrl, error)
+        ) {
+          return localMembership;
+        }
+        throw error;
+      }
     }
     return null;
   }
@@ -157,10 +174,34 @@ function envMemberships(): WorkspaceMembership[] {
 }
 
 function defaultLocalMemberships(): WorkspaceMembership[] {
+  return buildDefaultLocalMemberships(false);
+}
+
+function findDefaultLocalMembership(
+  userId: string,
+  workspaceId: string,
+  allowWithDatabaseUrl: boolean,
+): WorkspaceMembership | null {
+  return (
+    buildDefaultLocalMemberships(allowWithDatabaseUrl).find(
+      (membership) =>
+        membership.user_id === userId &&
+        membership.workspace_id === workspaceId,
+    ) ?? null
+  );
+}
+
+function buildDefaultLocalMemberships(
+  allowWithDatabaseUrl: boolean,
+): WorkspaceMembership[] {
   if (process.env.LOCAL_WORKSPACE_MEMBERSHIP === '0') {
     return [];
   }
-  if (process.env.DATABASE_URL && process.env.LOCAL_WORKSPACE_MEMBERSHIP !== '1') {
+  if (
+    !allowWithDatabaseUrl &&
+    process.env.DATABASE_URL &&
+    process.env.LOCAL_WORKSPACE_MEMBERSHIP !== '1'
+  ) {
     return [];
   }
   return [

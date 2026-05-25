@@ -5,7 +5,9 @@
 
 ## 1. San Pham Nay La Gi
 
-LunaCrypto la research workstation cho thi truong crypto. No khong phai bot giao dich tu dong, broker connector, live order router, hay he thong dau tu uy thac.
+LunaCrypto la he dieu hanh quyet dinh cho crypto thesis. No gom market
+context, deterministic signals, agent debate, decision journal, monitoring, va
+outcome review vao mot workflow co the kiem tra lai.
 
 Core loop:
 
@@ -20,7 +22,11 @@ Market data
 -> replay / reliability learning
 ```
 
-Gia tri chinh la workflow va paper trail: run IDs, signal provenance, market snapshots, agent opinions, debate records, thesis fields, scenarios, decisions, alerts, briefs, evaluations, provider health, LLM calls, va data freshness checks.
+Gia tri chinh la discipline va paper trail: run IDs, signal provenance, market
+snapshots, agent opinions, debate records, thesis fields, scenarios, decisions,
+alerts, briefs, evaluations, provider health, LLM calls, va data freshness
+checks. Ranh gioi san pham nam o research artifacts va user-reviewed decisions;
+order placement va account-performance claims nam ngoai core surface.
 
 ## 2. Monorepo Context
 

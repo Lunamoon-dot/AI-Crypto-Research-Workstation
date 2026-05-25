@@ -1,6 +1,32 @@
-# LunaPerception
+# LunaCrypto
 
-LunaPerception is a monorepo for a crypto research product. The current working application spans the Python AI research service in `apps/ai-service`, the NestJS product API boundary in `apps/api`, and a Vite/React workstation in `apps/web`.
+Trade theses, not vibes.
+
+LunaCrypto is a thesis discipline system for serious crypto research. It turns
+market context, deterministic signals, agent debate, and journaled outcomes into
+one inspectable workflow: build a thesis, know what would prove it wrong,
+monitor it, and learn from the result.
+
+The current working application spans the Python AI research service in
+`apps/ai-service`, the NestJS product API boundary in `apps/api`, and a
+Vite/React workstation in `apps/web`. The monorepo/package name remains
+LunaPerception for compatibility with existing workspace metadata.
+
+## Product Loop
+
+```text
+market context
+-> deterministic signals
+-> multi-agent research
+-> structured thesis
+-> user decision
+-> journal
+-> monitoring / evaluation
+-> reliability learning
+```
+
+The commercial shape is a decision OS for crypto theses: evidence, conviction,
+invalidation, monitoring, and review in one durable paper trail.
 
 ## Workspace Layout
 
@@ -21,6 +47,13 @@ The Python import namespace intentionally remains `tradingagents` for compatibil
 Project documentation starts at [docs/README.md](docs/README.md). Feature
 implementation plans use the versioned layout documented in
 [docs/features/README.md](docs/features/README.md).
+
+## Product Boundary
+
+LunaCrypto is built around research artifacts and user-reviewed decisions. It
+does not place orders or promise returns; that boundary protects the audit trail
+and keeps product language focused on decision quality instead of fantasy
+performance.
 
 ## Root Commands
 

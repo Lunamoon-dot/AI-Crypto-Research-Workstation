@@ -47,7 +47,7 @@ export function PerformanceAnalyticsPage() {
       <PageHeader
         eyebrow="Outcome Review"
         title="Thesis Reliability"
-        description="Recorded thesis outcomes, setup reliability, and lessons. This is review data, not live trading PnL or app speed."
+        description="Recorded thesis outcomes, setup reliability, and lessons for improving decision quality over time."
         action={
           <HeaderStats
             stats={[

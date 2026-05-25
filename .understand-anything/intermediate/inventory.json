@@ -1,0 +1,99 @@
+{
+  "projectRoot": "C:\\Users\\dell\\LunaCrypto",
+  "trackedFiles": 616,
+  "analyzedFiles": 532,
+  "ignoredFiles": 84,
+  "languages": [
+    "conf",
+    "config",
+    "css",
+    "dockerfile",
+    "html",
+    "javascript",
+    "json",
+    "mako",
+    "markdown",
+    "plaintext",
+    "prisma",
+    "python",
+    "sql",
+    "toml",
+    "typescript",
+    "yaml"
+  ],
+  "frameworks": [
+    "Alembic",
+    "Axios",
+    "BullMQ",
+    "Docker",
+    "Docker Compose",
+    "GitHub Actions",
+    "LangChain",
+    "Lightweight Charts",
+    "Lucide React",
+    "mypy",
+    "NestJS",
+    "NumPy",
+    "OpenAI SDK",
+    "pandas",
+    "PostgreSQL",
+    "Prisma",
+    "pytest",
+    "React",
+    "React Router",
+    "Redis",
+    "Ruff",
+    "Tailwind CSS",
+    "TanStack Query",
+    "Turborepo",
+    "TypeScript",
+    "Vite",
+    "Zod",
+    "Zustand"
+  ],
+  "nodes": 2928,
+  "edges": 3554,
+  "layers": [
+    {
+      "name": "Workspace Core",
+      "nodes": 8
+    },
+    {
+      "name": "Hạ tầng và CI",
+      "nodes": 2
+    },
+    {
+      "name": "Tài liệu vận hành",
+      "nodes": 39
+    },
+    {
+      "name": "AI Service Python",
+      "nodes": 254
+    },
+    {
+      "name": "Kiểm thử",
+      "nodes": 61
+    },
+    {
+      "name": "API NestJS",
+      "nodes": 91
+    },
+    {
+      "name": "Landing",
+      "nodes": 1
+    },
+    {
+      "name": "Web React",
+      "nodes": 69
+    },
+    {
+      "name": "Packages dùng chung",
+      "nodes": 3
+    },
+    {
+      "name": "Database và Prisma",
+      "nodes": 4
+    }
+  ],
+  "validationIssues": []
+}

@@ -30,8 +30,8 @@ The repo is already shaped for a serious AI crypto research workstation:
   API contracts, workflow visualization, local gates, and hosted-readiness
   hardening aligned.
 
-The product should not be built as a trading bot, execution terminal, or fake
-PnL dashboard. The strongest product shape is:
+The strongest product shape is a thesis discipline workstation: evidence,
+conviction, invalidation, monitoring, and review in one dense research surface.
 
 ```text
 market context
@@ -56,10 +56,11 @@ after the research/journal loop is useful end to end.
   data, confidence, invalidation, and monitor-next fields near the decision.
 - Every AI output must remain inspectable through run IDs, thesis IDs, signal
   IDs, source timestamps, payload drawers, and timeline events.
-- Use research language: "Run research", "Watch", "Review", "Record decision",
-  "Scenario active", "Invalidation risk".
-- Do not use execution language: "Buy now", "Sell now", "Auto trade",
-  "Guaranteed", "Profit signal", "Enter trade".
+- Use thesis language: "Run research", "Watch", "Review", "Record decision",
+  "Scenario active", "Invalidation risk", "Evidence trail", "Confidence".
+- Reserve execution terms such as "Buy now", "Sell now", "Auto trade",
+  "Guaranteed", "Profit signal", and "Enter trade" for a future audited
+  execution product, not the workstation.
 - Do not add order execution, position management, leverage automation, or
   broker integration in the web MVP.
 - Do not show Sharpe, alpha, annualized return, or broker-style PnL unless a
@@ -697,8 +698,8 @@ Explicitly deferred beyond this MVP foundation:
 - [ ] Export bundles, markdown/PDF export, and research package sharing.
 - [ ] External notifications through email, Telegram, Discord, or webhooks.
 - [ ] Billing, hosted SaaS packaging, team invites, and enterprise SSO.
-- [ ] Broker/exchange execution, auto-trading, leverage automation, and fake PnL
-  dashboards.
+- [ ] Any account/exchange execution surface as a separately audited product
+  with explicit confirmation, ledger semantics, and compliance review.
 
 ## 4. Delivery Milestones
 

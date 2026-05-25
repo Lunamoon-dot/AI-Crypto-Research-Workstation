@@ -7,10 +7,14 @@ than the roadmaps and feature plans.
 
 ## Current Posture
 
-LunaCrypto is a local-first crypto research workstation. It produces research
-artifacts, trade theses, journal entries, alerts, briefs, evaluations, and
-outcome reviews for manual user review. It is not an autonomous trading bot,
-broker connector, live order router, or investment adviser.
+LunaCrypto is a local-first thesis discipline workstation for crypto research.
+It helps users build evidence-backed trade theses, record decisions, monitor
+what would change the thesis, and review outcomes so the next decision is less
+ad hoc than the last.
+
+The current boundary is research artifacts and user-reviewed decisions. Order
+placement, account performance claims, and investment-advice positioning stay
+outside the product surface.
 
 The current architecture is:
 
@@ -47,8 +51,8 @@ important themes are:
 
 - hosted/cloud readiness still depends on queue, worker, auth, tenant isolation,
   and secret isolation work;
-- research/evaluation language must not imply broker-accurate PnL or autonomous
-  trading;
+- research/evaluation language should distinguish thesis-quality learning from
+  account performance;
 - stale docs and release evidence must be refreshed before production-like tags;
 - typed contracts and repository boundaries should keep tightening as features
   cross API, web, and Python service boundaries.

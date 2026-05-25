@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "packageManager": "pnpm@10.33.2",
-  "description": "Monorepo for the LunaPerception crypto research product.",
+  "description": "Monorepo for the LunaCrypto thesis discipline workstation.",
   "scripts": {
     "dev": "turbo run dev --filter=@lunaperception/api --filter=@lunaperception/web",
     "build": "turbo run build",

@@ -1,14 +1,20 @@
 # LunaCrypto AI Service
 
-This is the Python AI research service for the LunaPerception monorepo. It lives in `apps/ai-service`, keeps the existing Python package name `tradingagents` for import compatibility, and exposes the public CLI command as `lunacrypto`.
+This is the Python engine behind LunaCrypto's thesis discipline workflow. It
+turns market context, deterministic signals, agent debate, and outcome review
+into auditable research artifacts.
 
-A local-first Spot/Perp AI workstation for crypto market research, trade-thesis generation, decision journaling, signal provenance, and outcome review.
+It lives in `apps/ai-service`, keeps the existing Python package name
+`tradingagents` for import compatibility, and exposes the public CLI command as
+`lunacrypto`.
 
-The core product is research workflow software: collect context, generate signals, let agents debate, produce a thesis, save the decision, and review the outcome.
+A local-first Spot/Perp AI workstation for crypto market research,
+trade-thesis generation, decision journaling, signal provenance, and outcome
+review.
 
-## What This Project Is
+## Product Loop
 
-The product direction is:
+The engine powers one loop:
 
 ```text
 Market data
@@ -25,6 +31,9 @@ The intended end state is:
 ```text
 Obsidian / Cursor for crypto research
 ```
+
+The commercial promise is decision quality: know the evidence, know the
+invalidation, keep the paper trail, and improve after the outcome.
 
 ## Current Capabilities
 
@@ -45,7 +54,7 @@ Obsidian / Cursor for crypto research
 
 ## Product Boundary
 
-The workstation stops at research artifacts and user-reviewed decisions:
+The workstation writes research artifacts and user-reviewed decisions:
 
 ```text
 market context
@@ -55,6 +64,9 @@ market context
 -> journal
 -> outcome review
 ```
+
+Order placement and account-performance claims live outside this service. Any
+future assisted execution must be explicit, manually confirmed, and audited.
 
 ## Architecture
 

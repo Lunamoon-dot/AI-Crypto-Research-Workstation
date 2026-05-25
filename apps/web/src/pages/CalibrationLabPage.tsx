@@ -1618,7 +1618,7 @@ function AgentCalibrationView({
             </button>
             {report ? (
               <span className="badge primary">
-                Contribution signal, not broker PnL
+                Thesis contribution signal
               </span>
             ) : null}
           </div>
