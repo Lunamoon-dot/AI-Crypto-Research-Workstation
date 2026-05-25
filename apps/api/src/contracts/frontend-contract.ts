@@ -653,6 +653,23 @@ export type SymbolCalibrationVerdict =
   | 'incorrect'
   | 'inconclusive';
 
+export type SymbolCalibrationCoverageStatus =
+  | 'complete'
+  | 'partial'
+  | 'sparse'
+  | 'empty';
+
+export type SymbolCalibrationConsistencyStatus =
+  | 'coherent'
+  | 'mixed'
+  | 'unclear';
+
+export type SymbolCalibrationOutcomeStatus =
+  | 'favorable'
+  | 'unfavorable'
+  | 'mixed'
+  | 'inconclusive';
+
 export type SymbolCalibrationRowStatus =
   | 'evaluated'
   | 'missing_evaluation'
@@ -695,6 +712,7 @@ export interface SymbolCalibrationOutcomeResponse {
   best_mfe: number | null;
   worst_mae: number | null;
   representative_return: number | null;
+  /** @deprecated Use top-level outcome_status for user-facing thesis cluster semantics. */
   verdict: SymbolCalibrationVerdict;
 }
 
@@ -722,6 +740,9 @@ export interface SymbolCalibrationReportResponse {
   lookback_days: number;
   period_start: string;
   period_end: string;
+  coverage_status: SymbolCalibrationCoverageStatus;
+  consistency_status: SymbolCalibrationConsistencyStatus;
+  outcome_status: SymbolCalibrationOutcomeStatus;
   coverage: SymbolCalibrationCoverageResponse;
   stance: SymbolCalibrationStanceResponse;
   outcome: SymbolCalibrationOutcomeResponse;

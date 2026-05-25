@@ -585,7 +585,7 @@ export function CalibrationLabPage() {
           onClick={() => selectMode('symbol')}
           type="button"
         >
-          Symbol Calibration
+          Symbol Thesis Cluster
         </button>
         <button
           className={`segment-button${activeMode === 'agents' ? ' active' : ''}`}
@@ -1345,7 +1345,7 @@ function SymbolCalibrationView({
 
   return (
     <BentoGrid>
-      <Panel className="span-12" title="Symbol Calibration">
+      <Panel className="span-12" title="Symbol Thesis Cluster Audit">
         <form className="stack" onSubmit={submit}>
           <div className="grid three">
             <label className="label">
@@ -1418,7 +1418,7 @@ function SymbolCalibrationView({
                 type="button"
               >
                 <Play aria-hidden size={16} />
-                Prepare batch evaluation
+                Prepare batch evaluation for missing theses
               </button>
             ) : null}
           </div>
@@ -1431,13 +1431,21 @@ function SymbolCalibrationView({
       {query.isLoading && !report ? <LoadingState /> : null}
       {!report && !query.isFetching && !query.isError ? (
         <Panel className="span-12" title="Report">
-          <EmptyState label="No symbol calibration report loaded." />
+          <EmptyState label="No symbol thesis cluster audit loaded." />
         </Panel>
       ) : null}
       {report ? (
         <>
           <Panel className="span-4" title="Coverage">
             <div className="stack">
+              <DataPair
+                label="Status"
+                value={
+                  <span className={`badge ${clusterStatusTone(report.coverage_status)}`}>
+                    {labelize(report.coverage_status)}
+                  </span>
+                }
+              />
               <DataPair label="Period" value={`${formatDate(report.period_start)} to ${formatDate(report.period_end)}`} />
               <DataPair label="Matured" value={report.coverage.matured_thesis_count} />
               <DataPair label="Evaluated" value={report.coverage.evaluated_count} />
@@ -1445,8 +1453,16 @@ function SymbolCalibrationView({
               <DataPair label="Coverage" value={formatPercent(report.coverage.coverage_pct)} />
             </div>
           </Panel>
-          <Panel className="span-4" title="Stance">
+          <Panel className="span-4" title="Stance Consistency">
             <div className="stack">
+              <DataPair
+                label="Consistency"
+                value={
+                  <span className={`badge ${clusterStatusTone(report.consistency_status)}`}>
+                    {labelize(report.consistency_status)}
+                  </span>
+                }
+              />
               <DataPair
                 label="Consensus"
                 value={
@@ -1465,24 +1481,31 @@ function SymbolCalibrationView({
               </div>
             </div>
           </Panel>
-          <Panel className="span-4" title="Outcome">
+          <Panel className="span-4" title="Evaluated Thesis Outcomes">
             <div className="stack">
               <DataPair
-                label="Verdict"
+                label="Summary"
                 value={
-                  <span className={`badge ${verdictTone(report.outcome.verdict)}`}>
-                    {report.outcome.verdict}
+                  <span className={`badge ${clusterStatusTone(report.outcome_status)}`}>
+                    {labelize(report.outcome_status)}
                   </span>
                 }
               />
               <DataPair label="Hit rate" value={formatPercent(report.outcome.hit_rate)} />
               <DataPair label="Invalidation" value={formatPercent(report.outcome.invalidation_rate)} />
-              <DataPair label="Representative return" value={formatPercent(report.outcome.representative_return)} />
+              <DataPair label="Avg evaluation window return" value={formatPercent(report.outcome.representative_return)} />
               <DataPair label="Avg MFE" value={formatPercent(report.outcome.avg_mfe)} />
               <DataPair label="Avg MAE" value={formatPercent(report.outcome.avg_mae)} />
+              <div className="top-strip-meta">
+                {Object.entries(report.outcome.result_counts).map(([result, count]) => (
+                  <span className="badge primary" key={result}>
+                    {labelize(result)} {count}
+                  </span>
+                ))}
+              </div>
             </div>
           </Panel>
-          <Panel className="span-12" title="Supporting Rows">
+          <Panel className="span-12" title="Supporting Theses">
             <SymbolCalibrationRowsTable rows={report.rows} />
           </Panel>
         </>
@@ -2120,16 +2143,23 @@ function stanceTone(
   return 'primary';
 }
 
-function verdictTone(
-  verdict: string | null | undefined,
+function clusterStatusTone(
+  status: string | null | undefined,
 ): 'constructive' | 'risk' | 'warning' | 'degraded' | 'primary' {
-  if (verdict === 'correct') {
+  if (
+    status === 'complete' ||
+    status === 'coherent' ||
+    status === 'favorable'
+  ) {
     return 'constructive';
   }
-  if (verdict === 'incorrect') {
+  if (status === 'sparse' || status === 'unfavorable') {
     return 'risk';
   }
-  if (verdict === 'inconclusive') {
+  if (status === 'partial' || status === 'mixed') {
+    return 'warning';
+  }
+  if (status === 'empty' || status === 'unclear' || status === 'inconclusive') {
     return 'degraded';
   }
   return 'primary';

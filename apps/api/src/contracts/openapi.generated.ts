@@ -734,7 +734,7 @@ export const openApiDocument = {
           }),
         ],
         responses: jsonResponse(
-          'Read-only symbol calibration report for the active workspace.',
+          'Read-only symbol thesis cluster audit for the active workspace.',
           'SymbolCalibrationReportResponse',
         ),
       },
@@ -1956,6 +1956,9 @@ export const openApiDocument = {
           verdict: {
             type: 'string',
             enum: ['correct', 'incorrect', 'inconclusive'],
+            deprecated: true,
+            description:
+              'Compatibility field from V1.2. Use top-level outcome_status for user-facing thesis cluster semantics.',
           },
         },
       },
@@ -2012,13 +2015,38 @@ export const openApiDocument = {
       },
       SymbolCalibrationReportResponse: {
         type: 'object',
-        required: ['symbol', 'window_days', 'lookback_days', 'period_start', 'period_end', 'coverage', 'stance', 'outcome', 'rows'],
+        required: [
+          'symbol',
+          'window_days',
+          'lookback_days',
+          'period_start',
+          'period_end',
+          'coverage_status',
+          'consistency_status',
+          'outcome_status',
+          'coverage',
+          'stance',
+          'outcome',
+          'rows',
+        ],
         properties: {
           symbol: { type: 'string' },
           window_days: { type: 'integer', enum: [7, 14, 30] },
           lookback_days: { type: 'integer', enum: [30, 60, 90] },
           period_start: { type: 'string', format: 'date' },
           period_end: { type: 'string', format: 'date' },
+          coverage_status: {
+            type: 'string',
+            enum: ['complete', 'partial', 'sparse', 'empty'],
+          },
+          consistency_status: {
+            type: 'string',
+            enum: ['coherent', 'mixed', 'unclear'],
+          },
+          outcome_status: {
+            type: 'string',
+            enum: ['favorable', 'unfavorable', 'mixed', 'inconclusive'],
+          },
           coverage: { $ref: '#/components/schemas/SymbolCalibrationCoverageResponse' },
           stance: { $ref: '#/components/schemas/SymbolCalibrationStanceResponse' },
           outcome: { $ref: '#/components/schemas/SymbolCalibrationOutcomeResponse' },

@@ -3932,7 +3932,7 @@ test('calibration matured symbol filter is exact and workspace scoped', async ()
   );
 });
 
-test('symbol calibration aggregates coverage stance outcome and compact rows', async () => {
+test('symbol thesis cluster aggregates coverage stance outcome summary and compact rows', async () => {
   const { calibration, journal } = buildHarness();
   const { periodStart, periodEnd } = symbolCalibrationPeriod(7, 30);
   const createdDates = [
@@ -4086,7 +4086,9 @@ test('symbol calibration aggregates coverage stance outcome and compact rows', a
   assert.equal(response.outcome.best_mfe, 0.08);
   assert.equal(response.outcome.worst_mae, -0.05);
   assert.equal(response.outcome.representative_return, 0.04);
-  assert.equal(response.outcome.verdict, 'correct');
+  assert.equal(response.coverage_status, 'sparse');
+  assert.equal(response.consistency_status, 'mixed');
+  assert.equal(response.outcome_status, 'inconclusive');
   assert.deepEqual(
     response.rows.map((row) => [row.thesis_id, row.status, row.stance]),
     [
@@ -4098,7 +4100,62 @@ test('symbol calibration aggregates coverage stance outcome and compact rows', a
   );
 });
 
-test('symbol calibration uses promoted rerun values and exposes active source metadata', async () => {
+test('symbol thesis cluster status fields describe coverage consistency and evaluated thesis outcomes', async () => {
+  const { calibration, journal } = buildHarness();
+  const { periodEnd } = symbolCalibrationPeriod(7, 30);
+  const createdDates = [4, 3, 2, 1].map((offset) =>
+    addDaysIsoDate(periodEnd, -offset),
+  );
+
+  for (const [index, createdDate] of createdDates.entries()) {
+    journal.theses.set(key(`thesis_cluster_status_${index}`, 'workspace_a'), {
+      id: `thesis_cluster_status_${index}`,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      direction: 'long',
+      confidence: 0.7,
+      created_at: `${createdDate}T00:00:00.000Z`,
+    });
+  }
+
+  for (const [index, result] of ['hit_target', 'hit_target', 'invalidated'].entries()) {
+    const createdDate = createdDates[index];
+    journal.thesisEvaluations.set(
+      key(`evaluation_cluster_status_${index}`, 'workspace_a'),
+      {
+        id: `evaluation_cluster_status_${index}`,
+        workspace_id: 'workspace_a',
+        thesis_id: `thesis_cluster_status_${index}`,
+        outcome_review_id: null,
+        symbol: 'BTC/USDT',
+        window_days: 7,
+        evaluation_start: createdDate,
+        evaluation_end: addDaysIsoDate(createdDate, 7),
+        evaluated_at: '2026-05-12T00:00:00.000Z',
+        result,
+        max_favorable_excursion: 0.08,
+        max_adverse_excursion: -0.02,
+        invalidated: result === 'invalidated',
+        warnings: [],
+        evidence: { start_price: 100, end_price: 105 },
+      },
+    );
+  }
+
+  const response = await calibration.getSymbolCalibrationReport(
+    { symbol: 'BTC/USDT', window_days: 7, lookback_days: 30 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.coverage.evaluated_count, 3);
+  assert.equal(response.coverage.missing_evaluation_count, 1);
+  assert.equal(response.coverage_status, 'partial');
+  assert.equal(response.consistency_status, 'coherent');
+  assert.equal(response.outcome_status, 'favorable');
+});
+
+test('symbol thesis cluster uses promoted rerun values and exposes active source metadata', async () => {
   const { calibration, journal } = buildHarness();
   const { periodEnd } = symbolCalibrationPeriod(7, 30);
   const createdDate = addDaysIsoDate(periodEnd, -1);
@@ -4165,7 +4222,7 @@ test('symbol calibration uses promoted rerun values and exposes active source me
   assert.equal(response.rows[0]?.result, 'hit_target');
 });
 
-test('symbol calibration caps supporting rows at 20', async () => {
+test('symbol thesis cluster caps supporting rows at 20', async () => {
   const { calibration, journal } = buildHarness();
   const { periodEnd } = symbolCalibrationPeriod(7, 30);
   for (let index = 0; index < 25; index += 1) {
@@ -4191,7 +4248,7 @@ test('symbol calibration caps supporting rows at 20', async () => {
   assert.equal(response.rows[0]?.thesis_id, 'thesis_symbol_cap_0');
 });
 
-test('symbol calibration returns inconclusive empty and unclassified reports', async () => {
+test('symbol thesis cluster returns empty coverage and unclear unclassified reports', async () => {
   const { calibration, journal } = buildHarness();
   const { periodEnd } = symbolCalibrationPeriod(7, 30);
   const empty = await calibration.getSymbolCalibrationReport(
@@ -4234,13 +4291,17 @@ test('symbol calibration returns inconclusive empty and unclassified reports', a
 
   assert.equal(empty.coverage.matured_thesis_count, 0);
   assert.equal(empty.coverage.coverage_pct, null);
-  assert.equal(empty.outcome.verdict, 'inconclusive');
+  assert.equal(empty.coverage_status, 'empty');
+  assert.equal(empty.consistency_status, 'unclear');
+  assert.equal(empty.outcome_status, 'inconclusive');
   assert.equal(unclassified.stance.consensus_stance, 'unknown');
   assert.equal(unclassified.stance.conflict_rate, null);
-  assert.equal(unclassified.outcome.verdict, 'inconclusive');
+  assert.equal(unclassified.coverage_status, 'complete');
+  assert.equal(unclassified.consistency_status, 'unclear');
+  assert.equal(unclassified.outcome_status, 'inconclusive');
 });
 
-test('symbol calibration validates required symbol window and lookback', async () => {
+test('symbol thesis cluster validates required symbol window and lookback', async () => {
   const { calibration } = buildHarness();
 
   await assert.rejects(

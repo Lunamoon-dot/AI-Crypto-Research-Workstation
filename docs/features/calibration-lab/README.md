@@ -15,7 +15,8 @@ OutcomeReview    = journal review artifact used by reliability/performance views
 
 - [V1 Manual Single-Thesis Evaluation](v1/implementation-plan.md)
 - [V1.1 Batch Matured Evaluation](v1.1/implementation-plan.md)
-- [V1.2 Symbol Calibration MVP](v1.2/implementation-plan.md)
+- [V1.2 Symbol Thesis Cluster MVP](v1.2/implementation-plan.md)
+- [V1.2.1 Research-Centric Symbol Thesis Cluster Patch](v1.2.1/implementation-plan.md)
 - [V1.3 Manual Single-Evaluation Rerun Audit](v1.3/implementation-plan.md)
 - [V1.4 Agent Calibration MVP](v1.4/implementation-plan.md)
 - [V1.5 Evaluation Version Policy](v1.5/implementation-plan.md)
@@ -30,6 +31,7 @@ OutcomeReview    = journal review artifact used by reliability/performance views
 ## Roadmap
 
 ```text
+V1.2.1 Research-centric symbol thesis cluster semantics patch.
 V1.3  Manual single-evaluation rerun audit.
 V1.4  Agent Calibration MVP.
 V1.5  Evaluation version policy and manual promotion.

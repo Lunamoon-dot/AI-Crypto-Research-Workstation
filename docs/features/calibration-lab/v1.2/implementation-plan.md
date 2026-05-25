@@ -1,7 +1,11 @@
-# Calibration Lab V1.2 Implementation Plan
+# Calibration Lab V1.2 Symbol Thesis Cluster Implementation Plan
 
-Last updated: 2026-05-22  
+Last updated: 2026-05-24
 Status: goal-ready implementation plan
+
+V1.2.1 semantic patch: this surface is a symbol-scoped thesis cluster audit.
+The evaluated unit is `TradeThesis`; the symbol is only grouping/filter context.
+Do not describe the report as judging whether the symbol or market was correct.
 
 ## Goal-Ready Prompt
 
@@ -12,14 +16,15 @@ Read this document first:
 docs/features/calibration-lab/v1.2/implementation-plan.md
 
 Objective:
-- Add a read-only Symbol Calibration MVP that aggregates existing
+- Add a read-only Symbol Thesis Cluster MVP that aggregates existing
   ThesisEvaluation rows for one symbol/window/lookback period and reports
-  coverage, stance, outcome metrics, and a deterministic verdict.
+  thesis coverage, stance consistency, evaluated thesis outcome metrics, and
+  safe cluster statuses.
 
 Required behavior:
 - /calibration supports mode=single, mode=batch, and mode=symbol.
-- /calibration?mode=symbol shows a Symbol Calibration panel.
-- GET /calibration/symbol returns a workspace-scoped symbol calibration report.
+- /calibration?mode=symbol shows a Symbol Thesis Cluster panel.
+- GET /calibration/symbol returns a workspace-scoped symbol thesis cluster audit.
 - The report uses only persisted TradeThesis and ThesisEvaluation data.
 - The report does not call the Python engine, market data providers, or any LLM.
 - The report includes evaluated and missing-evaluation supporting rows.
@@ -38,9 +43,9 @@ Do not implement:
   paywalls, or broad analytics dashboards.
 
 Definition of done:
-- The API report computes coverage, stance, outcome, verdict, and compact rows
-  from existing rows.
-- The web UI exposes Symbol Calibration as a mode inside /calibration.
+- The API report computes coverage, stance consistency, evaluated thesis outcome
+  summary, safe statuses, and compact rows from existing rows.
+- The web UI exposes Symbol Thesis Cluster as a mode inside /calibration.
 - The CTA to batch evaluation only pre-fills/opens batch mode and keeps apply
   explicit.
 - Focused API tests cover filtering, coverage, stance, outcome metrics, rows,
@@ -50,13 +55,14 @@ Definition of done:
 
 ## One Outcome
 
-Add Symbol Calibration MVP for one symbol at a time.
+Add Symbol Thesis Cluster Audit MVP for one symbol at a time.
 
 V1.2 answers:
 
 ```text
-For BTC/USDT over a 7d forward window and a recent 30d thesis period, how well
-did the existing evaluated thesis cluster perform?
+For BTC/USDT over a 7d forward window and a recent 30d thesis period, what final
+theses did the research system produce, how many were evaluated, how consistent
+were they, and what happened to those evaluated theses?
 ```
 
 It is a read-only reliability view. It aggregates data already produced by V1
@@ -67,7 +73,7 @@ and V1.1.
 ```text
 V1    Manual single-thesis evaluation.
 V1.1  Batch matured evaluation: preview -> explicit bounded apply.
-V1.2  Symbol Calibration MVP: read-only aggregate by symbol/window/lookback.
+V1.2  Symbol Thesis Cluster MVP: read-only aggregate by symbol/window/lookback.
 V1.3  Evaluation versioning / rerun audit.
 V1.4  Agent Calibration MVP.
 V2.0  Background jobs, scheduler, progress, retry queue.
@@ -130,8 +136,8 @@ period_start = period_end - (lookback_days - 1)
 - Supporting rows are capped at 20.
 - UI uses `/calibration?mode=symbol`.
 - Old `/calibration?thesis_id=<id>` behavior remains single-thesis mode.
-- Symbol Calibration can show a CTA to prepare batch evaluation, but it must not
-  auto-apply.
+- Symbol Thesis Cluster can show a CTA to prepare missing thesis evaluations in
+  batch mode, but it must not auto-apply.
 
 ## API Contract
 
@@ -150,6 +156,9 @@ Response:
   "lookback_days": 30,
   "period_start": "2026-04-15",
   "period_end": "2026-05-14",
+  "coverage_status": "partial",
+  "consistency_status": "mixed",
+  "outcome_status": "favorable",
   "coverage": {
     "matured_thesis_count": 12,
     "evaluated_count": 9,
@@ -185,7 +194,7 @@ Response:
     "best_mfe": 0.11,
     "worst_mae": -0.08,
     "representative_return": -0.018,
-    "verdict": "correct"
+    "verdict": "inconclusive"
   },
   "rows": [
     {
@@ -249,7 +258,8 @@ If `matured_thesis_count = 0`:
 
 ```text
 coverage_pct = null
-verdict = inconclusive
+coverage_status = empty
+outcome_status = inconclusive
 ```
 
 ### Stance
@@ -330,46 +340,65 @@ worst_mae = min(max_adverse_excursion)
 If `start_price` / `end_price` are not top-level fields, read them from
 `evaluation.evidence.start_price` and `evaluation.evidence.end_price`.
 
-Do not call this full-period BTC return. It is a representative return derived
-from evaluation windows.
+Do not call this a full-symbol or market return. It is an average evaluated
+thesis window return derived from evaluation windows.
 
-### Verdict
+### Cluster Statuses
 
-Thresholds:
-
-```text
-material_return = 0.02
-material_drawdown = -0.04
-```
-
-Rules:
+Coverage status:
 
 ```text
-bullish correct:
-  representative_return >= 0.02
+empty:
+  matured_thesis_count = 0
 
-bearish correct:
-  representative_return <= -0.02
+complete:
+  matured_thesis_count > 0 AND missing_evaluation_count = 0
 
-defensive correct:
-  representative_return <= 0 OR worst_mae <= -0.04
+sparse:
+  coverage_pct < 0.5 OR evaluated_count < 3
 
-neutral correct:
-  abs(representative_return) < 0.02
-
-mixed / unknown:
-  inconclusive
+partial:
+  otherwise
 ```
 
-Output:
+Consistency status:
 
 ```text
-correct
-incorrect
-inconclusive
+unclear:
+  classified stance count = 0
+
+coherent:
+  conflict_rate <= 0.25
+
+mixed:
+  conflict_rate > 0.25
 ```
 
-If coverage is zero or there are no evaluated rows, verdict is `inconclusive`.
+Outcome status:
+
+```text
+inconclusive:
+  evaluated_count = 0 OR decisive_count < 3
+
+favorable:
+  hit_target_count > invalidated_count
+
+unfavorable:
+  invalidated_count > hit_target_count
+
+mixed:
+  otherwise
+```
+
+`decisive_count`:
+
+```text
+hit_target_count + invalidated_count
+```
+
+The legacy `outcome.verdict` field is retained only for API compatibility and is
+deprecated as a user-facing semantic. UI and docs should use
+`coverage_status`, `consistency_status`, and `outcome_status` instead.
 
 ## UI UX
 
@@ -402,10 +431,10 @@ If `thesis_id` is present, force/assume single mode:
 Mode control:
 
 ```text
-[Single Thesis] [Batch Matured] [Symbol Calibration]
+[Single Thesis] [Batch Matured] [Symbol Thesis Cluster]
 ```
 
-Symbol Calibration controls:
+Symbol Thesis Cluster controls:
 
 - symbol text input, placeholder `BTC/USDT`;
 - window selector `7d`, `14d`, `30d`;
@@ -422,9 +451,9 @@ Report sections:
 
 ```text
 Coverage
-Stance
-Outcome
-Supporting rows
+Stance Consistency
+Evaluated Thesis Outcomes
+Supporting Theses
 ```
 
 Supporting rows:
@@ -535,20 +564,21 @@ Python files should not change for V1.2.
 ## Implementation Checklist
 
 - [ ] Add V1.2 DTO/query validation for symbol report.
-- [ ] Add symbol calibration response types and mappers.
+- [ ] Add symbol thesis cluster response types and mappers.
 - [ ] Add OpenAPI contract entry if following repo pattern.
-- [ ] Add repository method for symbol calibration source rows, or reuse existing
-      repository methods if efficient enough.
+- [ ] Add repository method for symbol-scoped thesis source rows, or reuse
+      existing repository methods if efficient enough.
 - [ ] Compute period start/end from `today_utc`, `window_days`, and
       `lookback_days`.
 - [ ] Count matured theses and matching evaluations by natural key.
 - [ ] Compute stance counts, consensus stance, and conflict rate.
-- [ ] Compute result counts, rates, MFE/MAE, representative return, and verdict.
+- [ ] Compute result counts, rates, MFE/MAE, average evaluated thesis window
+      return, and safe status fields.
 - [ ] Return evaluated and missing-evaluation supporting rows capped at 20.
 - [ ] Add controller route `GET /calibration/symbol`.
 - [ ] Add web service/query key/type support.
 - [ ] Add mode segmented control in `/calibration`.
-- [ ] Add Symbol Calibration panel.
+- [ ] Add Symbol Thesis Cluster panel.
 - [ ] Add CTA to prepare batch evaluation without auto-apply.
 - [ ] Add focused API contract tests.
 - [ ] Run validation commands.
@@ -561,8 +591,8 @@ API contract tests:
       set.
 - [ ] Filters by symbol, window, lookback, and workspace.
 - [ ] Computes `stance_counts`, `consensus_stance`, and `conflict_rate`.
-- [ ] Computes result counts, rates, average MFE/MAE, representative return, and
-      verdict.
+- [ ] Computes result counts, rates, average MFE/MAE, average evaluated thesis
+      window return, and safe status fields.
 - [ ] Returns missing-evaluation rows without failing.
 - [ ] Caps supporting rows at 20.
 - [ ] Returns inconclusive when there are no matured theses or no classified
@@ -592,10 +622,11 @@ pnpm --filter @lunaperception/web typecheck
 Manual checks:
 
 - Open `/calibration`.
-- Switch between Single Thesis, Batch Matured, and Symbol Calibration modes.
+- Switch between Single Thesis, Batch Matured, and Symbol Thesis Cluster modes.
 - Open `/calibration?mode=symbol`.
 - Load a symbol report for `BTC/USDT`, `7d`, `30d`.
-- Confirm coverage, stance, outcome, and supporting rows render.
+- Confirm coverage, stance consistency, evaluated thesis outcomes, and
+  supporting theses render.
 - Confirm missing-evaluation rows are visible when coverage is incomplete.
 - Click `Prepare batch evaluation` and confirm it opens/prefills batch mode
   without applying.
@@ -607,7 +638,7 @@ Work milestone by milestone:
 
 1. API contract and DTO shape.
 2. Repository/source row query.
-3. Aggregation and verdict logic.
+3. Aggregation and status logic.
 4. Controller route and API tests.
 5. Web mode control and symbol panel.
 6. Validation and manual smoke.
@@ -623,7 +654,7 @@ After each checkpoint:
 
 Stop and report instead of expanding scope when:
 
-- Symbol Calibration MVP is complete;
+- Symbol Thesis Cluster MVP is complete;
 - implementation would require LLM parsing, provider calls, engine evaluation,
   report persistence, scheduler/background jobs, agent attribution, custom date
   ranges, subscriptions, or charts;
@@ -639,9 +670,9 @@ Use this when starting another conversation:
 Read docs/features/calibration-lab/v1.2/implementation-plan.md first and treat
 it as the source of truth for Calibration Lab V1.2.
 
-Implement only the V1.2 Symbol Calibration MVP. It is read-only and must not use
-LLM, call the Python engine, fetch providers, create OutcomeReview rows, persist
-report snapshots, implement agent calibration, rerun evaluations, add
+Implement only the V1.2 Symbol Thesis Cluster MVP. It is read-only and must not
+use LLM, call the Python engine, fetch providers, create OutcomeReview rows,
+persist report snapshots, implement agent calibration, rerun evaluations, add
 subscriptions, or create scheduler/background jobs.
 
 Before editing, inspect the files listed in "Files to inspect first". Follow the
@@ -654,12 +685,12 @@ codebase contradicts the plan.
 
 ## Definition Of Done
 
-- `/calibration?mode=symbol` renders a Symbol Calibration panel.
+- `/calibration?mode=symbol` renders a Symbol Thesis Cluster panel.
 - `GET /calibration/symbol` returns a symbol/window/lookback report.
 - The report is computed from existing `TradeThesis` and `ThesisEvaluation`
   data only.
-- Coverage, stance, outcome metrics, verdict, and compact supporting rows are
-  present.
+- Coverage, stance consistency, evaluated thesis outcome summary, safe statuses,
+  and compact supporting rows are present.
 - Missing evaluations are visible and do not fail the report.
 - Batch CTA only prepares the V1.1 batch panel and does not auto-apply.
 - Focused API tests and web typecheck pass, or blockers are documented.

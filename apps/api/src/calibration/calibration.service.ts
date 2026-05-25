@@ -41,6 +41,9 @@ import {
   MaturedEvaluationReason,
   PreviewMaturedEvaluationsResponse,
   RecordCalibrationOutcomeReviewResponse,
+  SymbolCalibrationConsistencyStatus,
+  SymbolCalibrationCoverageStatus,
+  SymbolCalibrationOutcomeStatus,
   SymbolCalibrationReportResponse,
   SymbolCalibrationRowResponse,
   SymbolCalibrationStance,
@@ -86,6 +89,7 @@ const SYMBOL_CALIBRATION_ROW_LIMIT = 20;
 const AGENT_CALIBRATION_ROW_LIMIT = 30;
 const RERUN_SOURCE = 'calibration_lab_v1_3_rerun';
 const PROMOTION_SOURCE = 'calibration_lab_v1_5_version_policy';
+let lastPromotionTimestampMs = 0;
 const MATERIAL_RETURN = 0.02;
 const MATERIAL_DRAWDOWN = -0.04;
 const RECORDABLE_RESULTS = new Set([
@@ -346,6 +350,10 @@ export class CalibrationService {
     const evaluatedCount = evaluatedRows.length;
     const missingEvaluationCount = maturedThesisCount - evaluatedCount;
     const stance = buildSymbolCalibrationStance(sourceRows);
+    const outcome = buildSymbolCalibrationOutcome(
+      evaluatedRows,
+      stance.consensus_stance,
+    );
 
     return {
       symbol,
@@ -353,6 +361,13 @@ export class CalibrationService {
       lookback_days: lookbackDays,
       period_start: periodStart,
       period_end: periodEnd,
+      coverage_status: symbolCalibrationCoverageStatus({
+        maturedThesisCount,
+        evaluatedCount,
+        missingEvaluationCount,
+      }),
+      consistency_status: symbolCalibrationConsistencyStatus(stance),
+      outcome_status: symbolCalibrationOutcomeStatus(evaluatedRows.length, outcome),
       coverage: {
         matured_thesis_count: maturedThesisCount,
         evaluated_count: evaluatedCount,
@@ -360,7 +375,7 @@ export class CalibrationService {
         coverage_pct: rate(evaluatedCount, maturedThesisCount),
       },
       stance,
-      outcome: buildSymbolCalibrationOutcome(evaluatedRows, stance.consensus_stance),
+      outcome,
       rows,
     };
   }
@@ -1606,7 +1621,7 @@ function buildPromotionInput(input: {
   userId?: string;
   workspaceId: string;
 }): ThesisEvaluationPromotionInput {
-  const promotedAt = new Date().toISOString();
+  const promotedAt = nextPromotionTimestamp();
   return {
     workspace_id: input.workspaceId,
     canonical_evaluation_id: input.canonicalEvaluationId,
@@ -1626,6 +1641,14 @@ function buildPromotionInput(input: {
       reason: input.reason,
     },
   };
+}
+
+function nextPromotionTimestamp(): string {
+  const now = Date.now();
+  const next =
+    now <= lastPromotionTimestampMs ? lastPromotionTimestampMs + 1 : now;
+  lastPromotionTimestampMs = next;
+  return new Date(next).toISOString();
 }
 
 function toBaseActiveEvaluation(
@@ -2316,6 +2339,59 @@ function buildSymbolCalibrationOutcome(
       worstMae,
     }),
   };
+}
+
+function symbolCalibrationCoverageStatus(input: {
+  maturedThesisCount: number;
+  evaluatedCount: number;
+  missingEvaluationCount: number;
+}): SymbolCalibrationCoverageStatus {
+  if (input.maturedThesisCount === 0) {
+    return 'empty';
+  }
+  if (input.missingEvaluationCount === 0) {
+    return 'complete';
+  }
+  const coveragePct = rate(input.evaluatedCount, input.maturedThesisCount);
+  if (
+    (coveragePct !== null && coveragePct < 0.5) ||
+    input.evaluatedCount < 3
+  ) {
+    return 'sparse';
+  }
+  return 'partial';
+}
+
+function symbolCalibrationConsistencyStatus(
+  stance: ReturnType<typeof buildSymbolCalibrationStance>,
+): SymbolCalibrationConsistencyStatus {
+  const classifiedCount =
+    stance.stance_counts.bullish +
+    stance.stance_counts.bearish +
+    stance.stance_counts.defensive +
+    stance.stance_counts.neutral;
+  if (classifiedCount === 0 || stance.conflict_rate === null) {
+    return 'unclear';
+  }
+  return stance.conflict_rate <= 0.25 ? 'coherent' : 'mixed';
+}
+
+function symbolCalibrationOutcomeStatus(
+  evaluatedCount: number,
+  outcome: ReturnType<typeof buildSymbolCalibrationOutcome>,
+): SymbolCalibrationOutcomeStatus {
+  const decisiveCount =
+    outcome.result_counts.hit_target + outcome.result_counts.invalidated;
+  if (evaluatedCount === 0 || decisiveCount < 3) {
+    return 'inconclusive';
+  }
+  if (outcome.result_counts.hit_target > outcome.result_counts.invalidated) {
+    return 'favorable';
+  }
+  if (outcome.result_counts.invalidated > outcome.result_counts.hit_target) {
+    return 'unfavorable';
+  }
+  return 'mixed';
 }
 
 function symbolCalibrationVerdict(input: {
