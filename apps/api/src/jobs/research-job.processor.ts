@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { EngineRunRequest, JsonRecord } from '../database/journal.types';
+import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
 import {
   JobBackend,
   JobLifecycleService,
@@ -24,6 +25,8 @@ export class ResearchJobProcessor {
     private readonly pythonEngine: PythonEngineClient,
     private readonly lifecycle: JobLifecycleService,
     private readonly sqliteSync?: SqliteJournalSyncService,
+    @Optional()
+    private readonly continuity?: ResearchContinuityService,
   ) {}
 
   async process(
@@ -84,6 +87,10 @@ export class ResearchJobProcessor {
         });
       } else {
         await this.lifecycle.markCompleted(context.jobId, result);
+        await this.continuity?.generateForCompletedRun(
+          request.run_id,
+          request.workspace_id,
+        );
       }
       return result;
     } catch (error) {

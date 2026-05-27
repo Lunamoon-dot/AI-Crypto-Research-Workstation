@@ -138,6 +138,73 @@ ON signal_snapshots(workspace_id, research_run_id);
 CREATE INDEX IF NOT EXISTS idx_signal_snapshots_workspace_symbol
 ON signal_snapshots(workspace_id, symbol, captured_at DESC);
 
+CREATE TABLE IF NOT EXISTS research_snapshots (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    research_run_id TEXT NOT NULL REFERENCES research_runs(id),
+    symbol TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    time_context TEXT NOT NULL,
+    symbol_view_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tracked_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    data_quality_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source_artifacts_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_research_snapshots_workspace_run
+ON research_snapshots(workspace_id, research_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_research_snapshots_workspace_symbol
+ON research_snapshots(workspace_id, symbol, captured_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_continuity_entries (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    symbol TEXT NOT NULL,
+    research_run_id TEXT NOT NULL REFERENCES research_runs(id),
+    current_snapshot_id TEXT REFERENCES research_snapshots(id),
+    previous_entry_id TEXT REFERENCES research_continuity_entries(id),
+    entry_type TEXT NOT NULL CHECK (entry_type IN ('baseline', 'delta', 'degraded', 'skipped')),
+    status TEXT NOT NULL CHECK (status IN ('completed', 'degraded', 'skipped', 'failed')),
+    generated_at TIMESTAMPTZ NOT NULL,
+    summary TEXT NOT NULL,
+    sections_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    events_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    snapshot_quality_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source_run_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    writer_metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_entries_symbol
+ON research_continuity_entries(workspace_id, symbol, generated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_entries_run
+ON research_continuity_entries(workspace_id, research_run_id, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_continuity_states (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL DEFAULT 'local',
+    symbol TEXT NOT NULL,
+    current_snapshot_id TEXT REFERENCES research_snapshots(id),
+    latest_entry_id TEXT REFERENCES research_continuity_entries(id),
+    latest_run_id TEXT REFERENCES research_runs(id),
+    current_view_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    active_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    recent_resolved_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    recent_invalidated_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    data_quality_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_research_continuity_states_symbol
+ON research_continuity_states(workspace_id, symbol);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_states_workspace
+ON research_continuity_states(workspace_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS debates (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

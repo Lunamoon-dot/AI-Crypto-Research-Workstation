@@ -62,6 +62,8 @@ import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
+import { ResearchContinuityController } from '../src/research-continuity/research-continuity.controller';
+import { ResearchContinuityService } from '../src/research-continuity/research-continuity.service';
 import {
   openApiDocument,
 } from '../src/contracts/openapi.generated';
@@ -98,6 +100,9 @@ class FakeJournalRepository implements JournalRepository {
   readonly providerHealthRows: JsonRecord[] = [];
   readonly llmCalls: JsonRecord[] = [];
   readonly freshnessChecks: JsonRecord[] = [];
+  readonly researchSnapshots = new Map<string, JsonRecord>();
+  readonly continuityEntries = new Map<string, JsonRecord>();
+  readonly continuityStates = new Map<string, JsonRecord>();
   readonly decisionCalls: Array<{
     thesisId: string;
     action: string;
@@ -226,6 +231,94 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.signalSnapshots.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getResearchSnapshotByRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.researchSnapshots.values()].find(
+        (snapshot) =>
+          snapshot.workspace_id === workspaceId &&
+          snapshot.research_run_id === runId,
+      ) ?? null
+    );
+  }
+
+  async saveResearchSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...snapshot, workspace_id: workspaceId };
+    this.researchSnapshots.set(key(String(saved.id), workspaceId), saved);
+    return saved;
+  }
+
+  async getResearchContinuityEntry(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.continuityEntries.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getLatestResearchContinuityEntryForRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.continuityEntries.values()]
+        .filter(
+          (entry) =>
+            entry.workspace_id === workspaceId &&
+            entry.research_run_id === runId,
+        )
+        .sort((a, b) =>
+          String(b.generated_at ?? '').localeCompare(String(a.generated_at ?? '')) ||
+          String(b.id ?? '').localeCompare(String(a.id ?? '')),
+        )[0] ?? null
+    );
+  }
+
+  async listResearchContinuityEntriesBySymbol(
+    symbol: string,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.continuityEntries.values()]
+      .filter(
+        (entry) => entry.workspace_id === workspaceId && entry.symbol === symbol,
+      )
+      .sort((a, b) =>
+        String(b.generated_at ?? '').localeCompare(String(a.generated_at ?? '')) ||
+        String(b.id ?? '').localeCompare(String(a.id ?? '')),
+      )
+      .slice(0, limit);
+  }
+
+  async saveResearchContinuityEntry(
+    entry: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...entry, workspace_id: workspaceId };
+    this.continuityEntries.set(key(String(saved.id), workspaceId), saved);
+    return saved;
+  }
+
+  async getResearchContinuityState(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.continuityStates.get(key(symbol, workspaceId)) ?? null;
+  }
+
+  async saveResearchContinuityState(
+    state: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...state, workspace_id: workspaceId };
+    this.continuityStates.set(key(String(saved.symbol), workspaceId), saved);
+    return saved;
   }
 
   async getDebate(id: string, workspaceId: string): Promise<JsonRecord | null> {
@@ -1852,6 +1945,10 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-runs/{id}/debate', ['get']],
     ['/research-runs/{id}/workspace', ['get']],
     ['/research-runs/{id}/evidence-bundle', ['get']],
+    ['/research-runs/{id}/continuity', ['get', 'post']],
+    ['/research-continuity/symbols/{symbol}/state', ['get']],
+    ['/research-continuity/symbols/{symbol}/entries', ['get']],
+    ['/research-continuity/entries/{id}', ['get']],
     ['/journal/runs/{id}/workspace', ['get']],
     ['/journal/runs/{id}/evidence-bundle', ['get']],
     ['/signals', ['get']],
@@ -1945,6 +2042,39 @@ test('JobsService inline mode returns engine result without memory queue', async
       });
       assert.equal(captured?.run_id, 'run_inline');
       assert.deepEqual(jobs.listMemoryJobs(), []);
+      await jobs.onModuleDestroy();
+    },
+  );
+});
+
+test('JobsService inline completion triggers research continuity generation', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'inline', REDIS_URL: undefined },
+    async () => {
+      const continuityCalls: Array<{ runId: string; workspaceId: string }> = [];
+      const jobs = new JobsService(
+        {
+          runInline: async (request: EngineRunRequest) => ({
+            status: 'completed',
+            run_id: request.run_id,
+            workspace_id: request.workspace_id,
+          }),
+        } as unknown as PythonEngineClient,
+        undefined,
+        undefined,
+        {
+          generateForCompletedRun: async (runId: string, workspaceId: string) => {
+            continuityCalls.push({ runId, workspaceId });
+            return null;
+          },
+        } as unknown as ResearchContinuityService,
+      );
+
+      await jobs.enqueueResearchRun(engineRequest('run_inline_continuity'));
+
+      assert.deepEqual(continuityCalls, [
+        { runId: 'run_inline_continuity', workspaceId: 'workspace_a' },
+      ]);
       await jobs.onModuleDestroy();
     },
   );
@@ -6602,6 +6732,217 @@ test('research workspace exposes snapshots, debate, scenarios, and events', asyn
   assert.equal(scenarios[0]?.condition, 'Holds entry zone');
 });
 
+test('research continuity creates baseline then delta and exposes the nine-section report', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_day_1',
+    thesisId: 'thesis_btc_day_1',
+    debateId: 'debate_btc_day_1',
+    marketSnapshotId: 'market_btc_day_1',
+    signalSnapshotId: 'signal_btc_day_1',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+    risks: ['Funding is becoming crowded.'],
+    monitorNext: ['Watch whether spot demand follows the breakout.'],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_btc_day_2',
+    thesisId: 'thesis_btc_day_2',
+    debateId: 'debate_btc_day_2',
+    marketSnapshotId: 'market_btc_day_2',
+    signalSnapshotId: 'signal_btc_day_2',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is becoming crowded.', 'ETF inflow momentum could fade.'],
+    monitorNext: ['Watch whether spot demand follows the breakout.'],
+    currentPrice: 103500,
+  });
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_btc_day_1',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const delta = await researchContinuity.generateForRun(
+    'run_btc_day_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const runEntry = await researchContinuity.getRunContinuity(
+    'run_btc_day_2',
+    'viewer_1',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const entries = await researchContinuity.listSymbolEntries(
+    'BTC/USDT',
+    { limit: 10 },
+    'viewer_1',
+    'workspace_a',
+  );
+
+  assert.equal(baseline.created, true);
+  assert.equal(baseline.entry.entry_type, 'baseline');
+  assert.equal(delta.entry.entry_type, 'delta');
+  assert.equal(delta.entry.previous_entry_id, baseline.entry.id);
+  assert.equal(runEntry?.id, delta.entry.id);
+  assert.equal(state.state?.latest_entry_id, delta.entry.id);
+  assert.equal(state.state?.current_view.directional_bias, 'cautious_bullish');
+  assert.equal(entries.entries.length, 2);
+  assert.deepEqual(
+    delta.entry.sections.map((section: { title: string }) => section.title),
+    [
+      'Summary',
+      'View Change',
+      'What Changed',
+      'What Stayed Valid',
+      'What Became Invalid / Less Useful',
+      'New Risks',
+      'Resolved or Reduced Risks',
+      'Watch Next',
+      'Data Quality / Limitations',
+    ],
+  );
+  assert.ok(
+    delta.entry.events.some(
+      (event) => event.event_type === 'view_changed',
+    ),
+  );
+  assert.ok(
+    !JSON.stringify(delta.entry).toLowerCase().includes('correct'),
+  );
+});
+
+test('research continuity skips insufficient runs and constrains degraded state updates', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_clean',
+    thesisId: 'thesis_clean',
+    debateId: 'debate_clean',
+    marketSnapshotId: 'market_clean',
+    signalSnapshotId: 'signal_clean',
+    stance: 'bullish',
+    thesisDirection: 'long',
+  });
+  journal.researchRuns.set(key('run_empty', 'workspace_a'), {
+    id: 'run_empty',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    status: 'completed',
+  });
+  journal.researchRuns.set(key('run_degraded', 'workspace_a'), {
+    id: 'run_degraded',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    status: 'completed_degraded',
+    debate_id: 'debate_degraded',
+    degradation_reasons: ['partial_artifacts'],
+    missing_core_data: ['market_snapshot'],
+  });
+  journal.debates.set(key('debate_degraded', 'workspace_a'), {
+    id: 'debate_degraded',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_degraded',
+    symbol: 'BTC/USDT',
+    consensus_stance: 'bearish',
+    conflict_level: 'high',
+  });
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_clean',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const skipped = await researchContinuity.generateForRun(
+    'run_empty',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const degraded = await researchContinuity.generateForRun(
+    'run_degraded',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+
+  assert.equal(baseline.entry.entry_type, 'baseline');
+  assert.equal(skipped.entry.entry_type, 'skipped');
+  assert.equal(skipped.entry.status, 'skipped');
+  assert.equal(skipped.entry.summary, 'Continuity skipped: insufficient_structured_data.');
+  assert.equal(degraded.entry.entry_type, 'degraded');
+  assert.equal(state.state?.latest_entry_id, degraded.entry.id);
+  assert.equal(state.state?.current_view.directional_bias, 'bullish');
+  assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity manual regenerate is idempotent by default and requires editor access', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_manual',
+    thesisId: 'thesis_manual',
+    debateId: 'debate_manual',
+    marketSnapshotId: 'market_manual',
+    signalSnapshotId: 'signal_manual',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+
+  await assert.rejects(
+    () =>
+      researchContinuity.generateForRun(
+        'run_manual',
+        {},
+        'viewer_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+  const first = await researchContinuity.generateForRun(
+    'run_manual',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const second = await researchContinuity.generateForRun(
+    'run_manual',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const forced = await researchContinuity.generateForRun(
+    'run_manual',
+    { force: true },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(second.created, false);
+  assert.equal(second.entry.id, first.entry.id);
+  assert.equal(forced.created, true);
+  assert.notEqual(forced.entry.id, first.entry.id);
+  assert.equal(
+    [...journal.continuityEntries.values()].filter(
+      (entry) => entry.research_run_id === 'run_manual',
+    ).length,
+    2,
+  );
+});
+
 test('research workspace derives stage timings from run events', async () => {
   const { journal, researchRuns } = buildHarness();
   journal.researchRuns.set(key('run_stage_timing', 'workspace_a'), {
@@ -7806,6 +8147,11 @@ function buildHarness() {
     },
   } as unknown as MarketPriceService;
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
+  const researchContinuity = new ResearchContinuityService(
+    journal,
+    auth,
+    workspaces,
+  );
   const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
   const monitoringJobs = new MonitoringJobsService(journal, thesisEngine);
   return {
@@ -7814,7 +8160,14 @@ function buildHarness() {
     jobs,
     marketPriceCalls,
     researchRuns,
-    researchRunsController: new ResearchRunsController(researchRuns),
+    researchContinuity,
+    researchContinuityController: new ResearchContinuityController(
+      researchContinuity,
+    ),
+    researchRunsController: new ResearchRunsController(
+      researchRuns,
+      researchContinuity,
+    ),
     jobsController: new JobsController(jobs, auth, workspaces),
     signals: new SignalsService(journal, auth, workspaces),
     theses: new ThesesService(
@@ -7859,6 +8212,119 @@ function buildMarketDataHarness() {
 
 function key(id: string, workspaceId: string): string {
   return `${workspaceId}:${id}`;
+}
+
+function seedContinuityRun(
+  journal: FakeJournalRepository,
+  options: {
+    runId: string;
+    thesisId: string;
+    debateId: string;
+    marketSnapshotId: string;
+    signalSnapshotId: string;
+    stance: string;
+    thesisDirection: string;
+    risks?: string[];
+    monitorNext?: string[];
+    currentPrice?: number;
+    workspaceId?: string;
+  },
+) {
+  const workspaceId = options.workspaceId ?? 'workspace_a';
+  const createdAt = options.runId.endsWith('2')
+    ? '2026-05-13T00:00:00.000Z'
+    : '2026-05-12T00:00:00.000Z';
+  journal.researchRuns.set(key(options.runId, workspaceId), {
+    id: options.runId,
+    workspace_id: workspaceId,
+    symbol: 'BTC/USDT',
+    asset_class: 'crypto',
+    market_type: 'spot',
+    status: 'completed',
+    started_at: createdAt,
+    completed_at: createdAt,
+    market_snapshot_id: options.marketSnapshotId,
+    signal_snapshot_id: options.signalSnapshotId,
+    debate_id: options.debateId,
+    thesis_id: options.thesisId,
+    degradation_reasons: [],
+    missing_core_data: [],
+    missing_optional_data: [],
+  });
+  journal.marketSnapshots.set(key(options.marketSnapshotId, workspaceId), {
+    id: options.marketSnapshotId,
+    workspace_id: workspaceId,
+    research_run_id: options.runId,
+    symbol: 'BTC/USDT',
+    captured_at: createdAt,
+    current_price: options.currentPrice ?? 100000,
+    source: 'test',
+  });
+  journal.signalSnapshots.set(key(options.signalSnapshotId, workspaceId), {
+    id: options.signalSnapshotId,
+    workspace_id: workspaceId,
+    research_run_id: options.runId,
+    symbol: 'BTC/USDT',
+    captured_at: createdAt,
+    signal_count: 3,
+    bullish_count: options.thesisDirection === 'long' ? 2 : 1,
+    bearish_count: options.thesisDirection === 'short' ? 2 : 1,
+    neutral_count: options.thesisDirection === 'neutral' ? 2 : 0,
+    stale_count: 0,
+    unknown_freshness_count: 0,
+  });
+  journal.debates.set(key(options.debateId, workspaceId), {
+    id: options.debateId,
+    workspace_id: workspaceId,
+    research_run_id: options.runId,
+    symbol: 'BTC/USDT',
+    consensus_stance: options.stance,
+    conflict_level: 'medium',
+    created_at: createdAt,
+  });
+  journal.agentOpinions.set(key(options.debateId, workspaceId), [
+    {
+      id: `op_${options.runId}`,
+      workspace_id: workspaceId,
+      debate_id: options.debateId,
+      research_run_id: options.runId,
+      agent_name: 'market_analyst',
+      agent_role: 'analyst',
+      stance: options.stance,
+      confidence: 0.68,
+      payload: {
+        risks: options.risks ?? [],
+        invalidation: 'Break back below the reclaimed range.',
+      },
+    },
+  ]);
+  journal.theses.set(key(options.thesisId, workspaceId), {
+    id: options.thesisId,
+    workspace_id: workspaceId,
+    research_run_id: options.runId,
+    symbol: 'BTC/USDT',
+    direction: options.thesisDirection,
+    setup_type: 'daily_research',
+    confidence: 0.66,
+    created_at: createdAt,
+    risks: options.risks ?? [],
+    monitor_next: options.monitorNext ?? [],
+    summary: {
+      direction: options.thesisDirection,
+      confidence: 0.66,
+      risks: options.risks ?? [],
+      key_reasons: ['Market structure remains the main driver.'],
+      missing_data: [],
+      data_quality_label: 'good',
+      data_quality: 0.8,
+    },
+    payload: {
+      structured_summary: {
+        direction: options.thesisDirection,
+        confidence: 0.66,
+      },
+    },
+  });
 }
 
 function addMinutesIso(value: string, minutes: number): string {

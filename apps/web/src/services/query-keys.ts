@@ -48,6 +48,12 @@ export const queryKeys = {
     scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>
     ['research-run-workspace', queryIdentity(), id] as const,
+  researchRunContinuity: (id: string) =>
+    ['research-run-continuity', queryIdentity(), id] as const,
+  researchContinuityState: (symbol: string) =>
+    ['research-continuity-state', queryIdentity(), symbol] as const,
+  researchContinuityEntries: (filters: Record<string, unknown>) =>
+    scopedFilters('research-continuity-entries', filters),
   researchRunSnapshots: (id: string) =>
     ['research-run-snapshots', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,

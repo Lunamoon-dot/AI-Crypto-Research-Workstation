@@ -153,6 +153,67 @@ model SignalSnapshot {
   @@map("signal_snapshots")
 }
 
+model ResearchSnapshot {
+  id                  String   @id
+  workspaceId         String   @default("local") @map("workspace_id")
+  researchRunId       String   @map("research_run_id")
+  symbol              String
+  capturedAt          DateTime @map("captured_at") @db.Timestamptz(6)
+  timeContext         String   @map("time_context")
+  symbolViewJson      Json     @default("{}") @map("symbol_view_json")
+  trackedItemsJson    Json     @default("[]") @map("tracked_items_json")
+  dataQualityJson     Json     @default("{}") @map("data_quality_json")
+  sourceArtifactsJson Json     @default("{}") @map("source_artifacts_json")
+  payloadJson         Json     @map("payload_json")
+
+  @@unique([workspaceId, researchRunId], map: "idx_research_snapshots_workspace_run")
+  @@index([workspaceId, symbol, capturedAt(sort: Desc)], map: "idx_research_snapshots_workspace_symbol")
+  @@map("research_snapshots")
+}
+
+model ResearchContinuityEntry {
+  id                  String   @id
+  workspaceId         String   @default("local") @map("workspace_id")
+  symbol              String
+  researchRunId       String   @map("research_run_id")
+  currentSnapshotId   String?  @map("current_snapshot_id")
+  previousEntryId     String?  @map("previous_entry_id")
+  entryType           String   @map("entry_type")
+  status              String
+  generatedAt         DateTime @map("generated_at") @db.Timestamptz(6)
+  summary             String
+  sectionsJson        Json     @default("[]") @map("sections_json")
+  eventsJson          Json     @default("[]") @map("events_json")
+  snapshotQualityJson Json     @default("{}") @map("snapshot_quality_json")
+  sourceRunIdsJson    Json     @default("[]") @map("source_run_ids_json")
+  writerMetadataJson  Json     @default("{}") @map("writer_metadata_json")
+  payloadJson         Json     @map("payload_json")
+
+  @@index([workspaceId, symbol, generatedAt(sort: Desc)], map: "idx_research_continuity_entries_symbol")
+  @@index([workspaceId, researchRunId, generatedAt(sort: Desc)], map: "idx_research_continuity_entries_run")
+  @@map("research_continuity_entries")
+}
+
+model ResearchContinuityState {
+  id                         String   @id
+  workspaceId                String   @default("local") @map("workspace_id")
+  symbol                     String
+  currentSnapshotId          String?  @map("current_snapshot_id")
+  latestEntryId              String?  @map("latest_entry_id")
+  latestRunId                String?  @map("latest_run_id")
+  currentViewJson            Json     @default("{}") @map("current_view_json")
+  activeItemsJson            Json     @default("[]") @map("active_items_json")
+  recentResolvedItemsJson    Json     @default("[]") @map("recent_resolved_items_json")
+  recentInvalidatedItemsJson Json     @default("[]") @map("recent_invalidated_items_json")
+  dataQualityJson            Json     @default("{}") @map("data_quality_json")
+  updatedAt                  DateTime @map("updated_at") @db.Timestamptz(6)
+  payloadJson                Json     @map("payload_json")
+
+  @@unique([workspaceId, symbol], map: "idx_research_continuity_states_symbol")
+  @@index([workspaceId, updatedAt(sort: Desc)], map: "idx_research_continuity_states_workspace")
+  @@map("research_continuity_states")
+}
+
 model Debate {
   id              String   @id
   workspaceId     String   @default("local") @map("workspace_id")

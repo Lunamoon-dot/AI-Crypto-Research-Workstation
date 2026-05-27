@@ -8,6 +8,7 @@ import { OperationsPage } from '@/pages/OperationsPage';
 import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
 import { RunComparisonPage } from '@/pages/RunComparisonPage';
 import { ScenarioMonitorPage } from '@/pages/ScenarioMonitorPage';
+import { ResearchContinuityPage } from '@/pages/ResearchContinuityPage';
 import { ResearchRunFormPage } from '@/pages/ResearchRunFormPage';
 import { ResearchHistoryPage } from '@/pages/ResearchHistoryPage';
 import { ResearchRunWorkspacePage } from '@/pages/ResearchRunWorkspacePage';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: 'workbench', element: <WorkbenchPage /> },
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
+      { path: 'research/continuity', element: <ResearchContinuityPage /> },
       { path: 'performance', element: <PerformanceAnalyticsPage /> },
       { path: 'calibration', element: <CalibrationLabPage /> },
       { path: 'compare', element: <RunComparisonPage /> },
