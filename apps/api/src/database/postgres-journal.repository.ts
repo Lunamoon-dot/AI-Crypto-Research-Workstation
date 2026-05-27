@@ -1,4 +1,8 @@
-import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  NotFoundException,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import {
@@ -35,13 +39,17 @@ type CreatedPayloadRow = PayloadRow & {
   created: boolean;
 };
 
-export class PostgresJournalRepository implements JournalRepository {
+export class PostgresJournalRepository implements JournalRepository, OnModuleDestroy {
   private readonly pool?: Pool;
 
   constructor(databaseUrl = process.env.DATABASE_URL) {
     if (databaseUrl) {
       this.pool = new Pool({ connectionString: databaseUrl });
     }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.pool?.end();
   }
 
   async listResearchRuns(
@@ -385,6 +393,246 @@ export class PostgresJournalRepository implements JournalRepository {
        WHERE id = $1 AND workspace_id = $2`,
       [id, workspaceId],
     );
+  }
+
+  async getResearchSnapshotByRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchSnapshotPayloadSql()}
+       FROM research_snapshots
+       WHERE research_run_id = $1 AND workspace_id = $2
+       ORDER BY captured_at DESC
+       LIMIT 1`,
+      [runId, workspaceId],
+    );
+  }
+
+  async saveResearchSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(snapshot.id, `snapshot_${randomUUID().replaceAll('-', '')}`);
+    const researchRunId = stringValue(snapshot.research_run_id, '');
+    const symbol = stringValue(snapshot.symbol, '');
+    const capturedAt = stringValue(snapshot.captured_at, new Date().toISOString());
+    const timeContext = stringValue(snapshot.time_context, 'unspecified');
+    const payload = {
+      ...snapshot,
+      id,
+      workspace_id: workspaceId,
+      research_run_id: researchRunId,
+      symbol,
+      captured_at: capturedAt,
+      time_context: timeContext,
+      symbol_view: recordOrDefault(snapshot.symbol_view, {}),
+      tracked_items: arrayFromUnknown(snapshot.tracked_items),
+      data_quality: recordOrDefault(snapshot.data_quality, {}),
+      source_artifacts: recordOrDefault(snapshot.source_artifacts, {}),
+    };
+    const saved = await this.one(
+      `INSERT INTO research_snapshots
+       (id, workspace_id, research_run_id, symbol, captured_at, time_context, symbol_view_json, tracked_items_json, data_quality_json, source_artifacts_json, payload_json)
+       VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb)
+       ON CONFLICT (workspace_id, research_run_id) DO UPDATE SET
+         id = EXCLUDED.id,
+         symbol = EXCLUDED.symbol,
+         captured_at = EXCLUDED.captured_at,
+         time_context = EXCLUDED.time_context,
+         symbol_view_json = EXCLUDED.symbol_view_json,
+         tracked_items_json = EXCLUDED.tracked_items_json,
+         data_quality_json = EXCLUDED.data_quality_json,
+         source_artifacts_json = EXCLUDED.source_artifacts_json,
+         payload_json = EXCLUDED.payload_json
+       RETURNING ${researchSnapshotPayloadSql()}`,
+      [
+        id,
+        workspaceId,
+        researchRunId,
+        symbol,
+        capturedAt,
+        timeContext,
+        JSON.stringify(payload.symbol_view),
+        JSON.stringify(payload.tracked_items),
+        JSON.stringify(payload.data_quality),
+        JSON.stringify(payload.source_artifacts),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Research snapshot ${id} not found`);
+    }
+    return saved;
+  }
+
+  async getResearchContinuityEntry(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchContinuityEntryPayloadSql()}
+       FROM research_continuity_entries
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async getLatestResearchContinuityEntryForRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchContinuityEntryPayloadSql()}
+       FROM research_continuity_entries
+       WHERE research_run_id = $1 AND workspace_id = $2
+       ORDER BY generated_at DESC, id DESC
+       LIMIT 1`,
+      [runId, workspaceId],
+    );
+  }
+
+  async listResearchContinuityEntriesBySymbol(
+    symbol: string,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.many(
+      `SELECT ${researchContinuityEntryPayloadSql()}
+       FROM research_continuity_entries
+       WHERE workspace_id = $1 AND symbol = $2
+       ORDER BY generated_at DESC, id DESC
+       LIMIT $3`,
+      [workspaceId, symbol, limit],
+    );
+  }
+
+  async saveResearchContinuityEntry(
+    entry: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(entry.id, `continuity_${randomUUID().replaceAll('-', '')}`);
+    const symbol = stringValue(entry.symbol, '');
+    const researchRunId = stringValue(entry.research_run_id, '');
+    const generatedAt = stringValue(entry.generated_at, new Date().toISOString());
+    const payload = {
+      ...entry,
+      id,
+      workspace_id: workspaceId,
+      symbol,
+      research_run_id: researchRunId,
+      current_snapshot_id: nullableString(entry.current_snapshot_id),
+      previous_entry_id: nullableString(entry.previous_entry_id),
+      entry_type: stringValue(entry.entry_type, 'skipped'),
+      status: stringValue(entry.status, 'skipped'),
+      generated_at: generatedAt,
+      summary: stringValue(entry.summary, ''),
+      sections: arrayFromUnknown(entry.sections),
+      events: arrayFromUnknown(entry.events),
+      snapshot_quality: recordOrDefault(entry.snapshot_quality, {}),
+      source_run_ids: arrayFromUnknown(entry.source_run_ids),
+      writer_metadata: recordOrDefault(entry.writer_metadata, {}),
+    };
+    const saved = await this.one(
+      `INSERT INTO research_continuity_entries
+       (id, workspace_id, symbol, research_run_id, current_snapshot_id, previous_entry_id, entry_type, status, generated_at, summary, sections_json, events_json, snapshot_quality_json, source_run_ids_json, writer_metadata_json, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb)
+       RETURNING ${researchContinuityEntryPayloadSql()}`,
+      [
+        id,
+        workspaceId,
+        symbol,
+        researchRunId,
+        payload.current_snapshot_id,
+        payload.previous_entry_id,
+        payload.entry_type,
+        payload.status,
+        generatedAt,
+        payload.summary,
+        JSON.stringify(payload.sections),
+        JSON.stringify(payload.events),
+        JSON.stringify(payload.snapshot_quality),
+        JSON.stringify(payload.source_run_ids),
+        JSON.stringify(payload.writer_metadata),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Research continuity entry ${id} not found`);
+    }
+    return saved;
+  }
+
+  async getResearchContinuityState(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchContinuityStatePayloadSql()}
+       FROM research_continuity_states
+       WHERE symbol = $1 AND workspace_id = $2`,
+      [symbol, workspaceId],
+    );
+  }
+
+  async saveResearchContinuityState(
+    state: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = stringValue(state.id, `continuity_state_${randomUUID().replaceAll('-', '')}`);
+    const symbol = stringValue(state.symbol, '');
+    const updatedAt = stringValue(state.updated_at, new Date().toISOString());
+    const payload = {
+      ...state,
+      id,
+      workspace_id: workspaceId,
+      symbol,
+      current_snapshot_id: nullableString(state.current_snapshot_id),
+      latest_entry_id: nullableString(state.latest_entry_id),
+      latest_run_id: nullableString(state.latest_run_id),
+      current_view: recordOrDefault(state.current_view, {}),
+      active_items: arrayFromUnknown(state.active_items),
+      recent_resolved_items: arrayFromUnknown(state.recent_resolved_items),
+      recent_invalidated_items: arrayFromUnknown(state.recent_invalidated_items),
+      data_quality: recordOrDefault(state.data_quality, {}),
+      updated_at: updatedAt,
+    };
+    const saved = await this.one(
+      `INSERT INTO research_continuity_states
+       (id, workspace_id, symbol, current_snapshot_id, latest_entry_id, latest_run_id, current_view_json, active_items_json, recent_resolved_items_json, recent_invalidated_items_json, data_quality_json, updated_at, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::timestamptz, $13::jsonb)
+       ON CONFLICT (workspace_id, symbol) DO UPDATE SET
+         current_snapshot_id = EXCLUDED.current_snapshot_id,
+         latest_entry_id = EXCLUDED.latest_entry_id,
+         latest_run_id = EXCLUDED.latest_run_id,
+         current_view_json = EXCLUDED.current_view_json,
+         active_items_json = EXCLUDED.active_items_json,
+         recent_resolved_items_json = EXCLUDED.recent_resolved_items_json,
+         recent_invalidated_items_json = EXCLUDED.recent_invalidated_items_json,
+         data_quality_json = EXCLUDED.data_quality_json,
+         updated_at = EXCLUDED.updated_at,
+         payload_json = EXCLUDED.payload_json
+       RETURNING ${researchContinuityStatePayloadSql()}`,
+      [
+        id,
+        workspaceId,
+        symbol,
+        payload.current_snapshot_id,
+        payload.latest_entry_id,
+        payload.latest_run_id,
+        JSON.stringify(payload.current_view),
+        JSON.stringify(payload.active_items),
+        JSON.stringify(payload.recent_resolved_items),
+        JSON.stringify(payload.recent_invalidated_items),
+        JSON.stringify(payload.data_quality),
+        updatedAt,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new NotFoundException(`Research continuity state ${symbol} not found`);
+    }
+    return saved;
   }
 
   async getDebate(id: string, workspaceId: string): Promise<JsonRecord | null> {
@@ -2858,6 +3106,78 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function researchSnapshotPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'research_run_id', ${p}research_run_id,
+    'symbol', ${p}symbol,
+    'captured_at', ${p}captured_at,
+    'time_context', ${p}time_context,
+    'symbol_view', ${p}symbol_view_json,
+    'symbol_view_json', ${p}symbol_view_json,
+    'tracked_items', ${p}tracked_items_json,
+    'tracked_items_json', ${p}tracked_items_json,
+    'data_quality', ${p}data_quality_json,
+    'data_quality_json', ${p}data_quality_json,
+    'source_artifacts', ${p}source_artifacts_json,
+    'source_artifacts_json', ${p}source_artifacts_json,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function researchContinuityEntryPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'symbol', ${p}symbol,
+    'research_run_id', ${p}research_run_id,
+    'current_snapshot_id', ${p}current_snapshot_id,
+    'previous_entry_id', ${p}previous_entry_id,
+    'entry_type', ${p}entry_type,
+    'status', ${p}status,
+    'generated_at', ${p}generated_at,
+    'summary', ${p}summary,
+    'sections', ${p}sections_json,
+    'sections_json', ${p}sections_json,
+    'events', ${p}events_json,
+    'events_json', ${p}events_json,
+    'snapshot_quality', ${p}snapshot_quality_json,
+    'snapshot_quality_json', ${p}snapshot_quality_json,
+    'source_run_ids', ${p}source_run_ids_json,
+    'source_run_ids_json', ${p}source_run_ids_json,
+    'writer_metadata', ${p}writer_metadata_json,
+    'writer_metadata_json', ${p}writer_metadata_json,
+    'payload', ${p}payload_json
+  )`;
+}
+
+function researchContinuityStatePayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'symbol', ${p}symbol,
+    'current_snapshot_id', ${p}current_snapshot_id,
+    'latest_entry_id', ${p}latest_entry_id,
+    'latest_run_id', ${p}latest_run_id,
+    'current_view', ${p}current_view_json,
+    'current_view_json', ${p}current_view_json,
+    'active_items', ${p}active_items_json,
+    'active_items_json', ${p}active_items_json,
+    'recent_resolved_items', ${p}recent_resolved_items_json,
+    'recent_resolved_items_json', ${p}recent_resolved_items_json,
+    'recent_invalidated_items', ${p}recent_invalidated_items_json,
+    'recent_invalidated_items_json', ${p}recent_invalidated_items_json,
+    'data_quality', ${p}data_quality_json,
+    'data_quality_json', ${p}data_quality_json,
+    'updated_at', ${p}updated_at,
+    'payload', ${p}payload_json
+  )`;
 }
 
 function evaluationPayloadSql(alias = ''): string {

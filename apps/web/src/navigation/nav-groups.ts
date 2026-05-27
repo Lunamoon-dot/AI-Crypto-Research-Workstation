@@ -77,6 +77,14 @@ export const navGroups: NavigationGroup[] = [
         mobile: true,
       },
       {
+        id: 'research-continuity',
+        label: 'Continuity',
+        title: 'Research Continuity',
+        href: routes.researchContinuity(),
+        icon: Activity,
+        mobile: true,
+      },
+      {
         id: 'theses',
         label: 'Theses',
         title: 'Thesis library',

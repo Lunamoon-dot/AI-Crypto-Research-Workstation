@@ -232,6 +232,39 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord>;
   getSignalSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  getResearchSnapshotByRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveResearchSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  getResearchContinuityEntry(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  getLatestResearchContinuityEntryForRun(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  listResearchContinuityEntriesBySymbol(
+    symbol: string,
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  saveResearchContinuityEntry(
+    entry: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  getResearchContinuityState(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveResearchContinuityState(
+    state: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
   getDebate(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listAgentOpinions(
     debateId: string,

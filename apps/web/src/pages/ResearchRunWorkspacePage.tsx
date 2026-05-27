@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BarChart3,
   Brain,
@@ -10,10 +10,15 @@ import {
   Download,
   FileText,
   Newspaper,
+  RefreshCw,
   ShieldAlert,
   Users,
   WalletCards,
 } from 'lucide-react';
+import {
+  generateResearchRunContinuity,
+  getResearchRunContinuity,
+} from '@/services/research-continuity';
 import {
   getJobStatus,
   getJournalRunEvidenceBundle,
@@ -47,6 +52,7 @@ import { routes } from '@/lib/routes';
 import type {
   AgentOpinionResponse,
   ResearchRunArtifactsResponse,
+  ResearchContinuityEntryResponse,
   ResearchRunEventResponse,
   JournalRunWorkspaceResponse,
   ResearchRunStageTimingResponse,
@@ -180,6 +186,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const auth = useWorkspaceStore();
+  const queryClient = useQueryClient();
   const runId = id ?? '';
   const [exportingBundle, setExportingBundle] = useState(false);
   const [exportError, setExportError] = useState('');
@@ -193,6 +200,29 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
       return isActiveJobStatus(status) ? 5000 : false;
     },
     retry: false,
+  });
+  const continuityQuery = useQuery({
+    queryKey: queryKeys.researchRunContinuity(runId),
+    queryFn: () => getResearchRunContinuity(runId, auth),
+    enabled: Boolean(runId),
+    retry: false,
+  });
+  const continuityMutation = useMutation({
+    mutationFn: () => generateResearchRunContinuity(runId, { force: true }, auth),
+    onSuccess: (response) => {
+      queryClient.setQueryData(
+        queryKeys.researchRunContinuity(runId),
+        response.entry,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchContinuityState(response.entry.symbol),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchContinuityEntries({
+          symbol: response.entry.symbol,
+        }),
+      });
+    },
   });
   const query = useQuery({
     queryKey: queryKeys.researchRunWorkspace(runId),
@@ -452,6 +482,15 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           />
         </Panel>
 
+        <DailyDeltaPanel
+          entry={continuityQuery.data ?? null}
+          error={continuityMutation.error ?? continuityQuery.error}
+          isError={continuityMutation.isError || continuityQuery.isError}
+          isLoading={continuityQuery.isLoading}
+          isRegenerating={continuityMutation.isPending}
+          onRegenerate={() => continuityMutation.mutate()}
+        />
+
         <Panel className="span-4" title="Run metadata">
           <div className="stack small">
             <DataPair label="Market type" value={workspace.run.market_type} />
@@ -605,6 +644,81 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         </Panel>
       </BentoGrid>
     </main>
+  );
+}
+
+function DailyDeltaPanel({
+  entry,
+  error,
+  isError,
+  isLoading,
+  isRegenerating,
+  onRegenerate,
+}: {
+  entry: ResearchContinuityEntryResponse | null;
+  error: unknown;
+  isError: boolean;
+  isLoading: boolean;
+  isRegenerating: boolean;
+  onRegenerate: () => void;
+}) {
+  return (
+    <Panel
+      className="span-12"
+      title="Daily Delta"
+      description="Research Continuity entry for this run"
+    >
+      {isLoading ? <LoadingState label="Loading Daily Delta..." /> : null}
+      {isError ? <ErrorState error={error} /> : null}
+      {!isLoading && !isError && !entry ? (
+        <div className="stack">
+          <EmptyState label="No Daily Delta has been generated for this run." />
+          <button
+            className="button"
+            disabled={isRegenerating}
+            onClick={onRegenerate}
+            type="button"
+          >
+            <RefreshCw aria-hidden size={15} />
+            {isRegenerating ? 'Regenerating' : 'Generate Daily Delta'}
+          </button>
+        </div>
+      ) : null}
+      {entry ? (
+        <div className="stack">
+          <div className="row">
+            <span className="badge primary">{entry.entry_type}</span>
+            <StatusBadge value={entry.status} />
+            <span className="small muted">{formatDateTime(entry.generated_at)}</span>
+            <Link className="button" to={routes.researchContinuity(entry.symbol)}>
+              Open continuity
+            </Link>
+            <button
+              className="button"
+              disabled={isRegenerating}
+              onClick={onRegenerate}
+              type="button"
+            >
+              <RefreshCw aria-hidden size={15} />
+              {isRegenerating ? 'Regenerating' : 'Regenerate'}
+            </button>
+          </div>
+          <p className="muted">{entry.summary}</p>
+          <div className="bento-grid compact">
+            {entry.sections.slice(0, 4).map((section) => (
+              <div className="list-row" key={section.title}>
+                <strong>{section.title}</strong>
+                <p className="small muted">{section.items[0] ?? section.empty_state}</p>
+              </div>
+            ))}
+          </div>
+          <div className="stack small">
+            <DataPair label="Source run" value={<IdChip value={entry.research_run_id} />} />
+            <DataPair label="Previous entry" value={<IdChip value={entry.previous_entry_id} />} />
+          </div>
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 

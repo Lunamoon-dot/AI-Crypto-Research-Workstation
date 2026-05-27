@@ -8,10 +8,15 @@ import type {
   CreateDailyBriefRequest,
   CreateWatchlistRequest,
   EvidenceBundleResponse,
+  GenerateResearchContinuityRequest,
+  GenerateResearchContinuityResponse,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
   RemoveWatchlistResponse,
   RemoveWatchlistItemResponse,
+  ResearchContinuityEntriesResponse,
+  ResearchContinuityEntryResponse,
+  ResearchContinuityStateEnvelopeResponse,
   SignalCountResponse,
   SignalDetailResponse,
   SignalResponse,
@@ -325,6 +330,37 @@ export function createApiClient(request: ApiTransport) {
     getResearchRunEvidenceBundle: (id: string) =>
       request<EvidenceBundleResponse>(
         `/research-runs/${encodeURIComponent(id)}/evidence-bundle`,
+        {},
+      ),
+    getResearchRunContinuity: (id: string) =>
+      request<ResearchContinuityEntryResponse | null>(
+        `/research-runs/${encodeURIComponent(id)}/continuity`,
+        {},
+      ),
+    generateResearchRunContinuity: (
+      id: string,
+      body: GenerateResearchContinuityRequest = {},
+    ) =>
+      request<GenerateResearchContinuityResponse>(
+        `/research-runs/${encodeURIComponent(id)}/continuity`,
+        { method: 'POST', body },
+      ),
+    getResearchContinuityState: (symbol: string) =>
+      request<ResearchContinuityStateEnvelopeResponse>(
+        `/research-continuity/symbols/${encodeURIComponent(symbol)}/state`,
+        {},
+      ),
+    listResearchContinuityEntries: (
+      symbol: string,
+      params: { limit?: number } = {},
+    ) =>
+      request<ResearchContinuityEntriesResponse>(
+        `/research-continuity/symbols/${encodeURIComponent(symbol)}/entries`,
+        { query: { limit: params.limit ?? 20 } },
+      ),
+    getResearchContinuityEntry: (id: string) =>
+      request<ResearchContinuityEntryResponse>(
+        `/research-continuity/entries/${encodeURIComponent(id)}`,
         {},
       ),
     getJournalRunWorkspace: (id: string) =>
