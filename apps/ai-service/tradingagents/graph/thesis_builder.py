@@ -27,6 +27,7 @@ from tradingagents.domain import (
     ThesisDirection,
     TradeThesis,
     TradeThesisStructuredSummary,
+    research_item_texts,
 )
 from tradingagents.observability import log_event
 from tradingagents.utils.price_sanity import price_trigger_sanity_notes
@@ -179,6 +180,29 @@ def text_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         value = list(value) if isinstance(value, tuple) else [value]
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def structured_item_text_list(value: Any) -> list[str]:
+    return [text[:500] for text in research_item_texts(value)]
+
+
+def merge_structured_items(value: Any, additions: list[str]) -> list[Any]:
+    values = value if isinstance(value, list) else ([] if value is None else [value])
+    result: list[Any] = []
+    seen: set[str] = set()
+    for item in values:
+        texts = structured_item_text_list(item)
+        text = texts[0] if texts else ""
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(item)
+    for text in additions:
+        clean = str(text or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            result.append(clean[:500])
+    return result
 
 
 def normalize_confidence_value(value: Any) -> float | None:
@@ -596,6 +620,7 @@ class ThesisBuilder:
         monitor_next = [
             item
             for item in [
+                *structured_item_text_list(structured_payload.get("monitor_next")),
                 f"entry: {entry_zone}" if entry_zone else "",
                 f"invalidation: {invalidation_level}" if invalidation_level else "",
                 *[f"target: {target}" for target in target_zones],
@@ -674,6 +699,7 @@ class ThesisBuilder:
             stale_or_missing_data=stale_or_missing_data,
             contradictions=contradictions,
             why_this_thesis=why_this_thesis,
+            monitor_next=monitor_next,
             contract_degradation_reasons=all_degradation_reasons,
             market_type=market_type,
             missing_data=summary_missing_data,
@@ -734,7 +760,7 @@ class ThesisBuilder:
             invalidation=invalidation_level or "",
             monitor_next=monitor_next,
             confidence_rationale=confidence_rationale,
-            risk_notes=structured_summary.risks
+            risk_notes=structured_item_text_list(structured_summary.risks)
             or ["Manual review required before changing thesis stance."],
         )
 
@@ -981,7 +1007,10 @@ class ThesisBuilder:
         if thesis.structured_summary is not None:
             thesis.structured_summary = thesis.structured_summary.model_copy(
                 update={
-                    "risks": _dedupe([*thesis.structured_summary.risks, *all_notes])
+                    "risks": merge_structured_items(
+                        thesis.structured_summary.risks,
+                        all_notes,
+                    )
                 }
             )
         return thesis
@@ -1188,8 +1217,8 @@ class ThesisBuilder:
                     thesis.structured_summary.action_summary,
                     thesis.structured_summary.invalidation,
                     thesis.structured_summary.upside_catalyst,
-                    *thesis.structured_summary.key_reasons,
-                    *thesis.structured_summary.risks,
+                    *structured_item_text_list(thesis.structured_summary.key_reasons),
+                    *structured_item_text_list(thesis.structured_summary.risks),
                 ]
             )
         text = "\n".join(str(part or "") for part in text_parts).lower()
@@ -1304,6 +1333,7 @@ class ThesisBuilder:
         stale_or_missing_data: list[str],
         contradictions: list[str],
         why_this_thesis: str,
+        monitor_next: list[str],
         contract_degradation_reasons: list[str],
         market_type: str,
         missing_data: list[str],
@@ -1340,17 +1370,20 @@ class ThesisBuilder:
             or contradicting_evidence[:3]
             or ([why_this_thesis] if why_this_thesis else [])
         )
-        base_risks = structured_list(summary_payload, "risks")
+        base_risks = structured_item_text_list(summary_payload.get("risks"))
         fallback_risks = (
             stale_or_missing_data[:3]
             or contradictions[:3]
             or ["Manual review required before changing thesis stance."]
         )
-        summary_payload["risks"] = _dedupe(
-            [
-                *(base_risks or fallback_risks),
-                *system_risk_notes,
-            ]
+        summary_payload["risks"] = (
+            merge_structured_items(summary_payload.get("risks"), system_risk_notes)
+            if base_risks
+            else _dedupe([*fallback_risks, *system_risk_notes])
+        )
+        summary_payload["monitor_next"] = summary_payload.get("monitor_next") or monitor_next
+        summary_payload["supporting_evidence"] = (
+            summary_payload.get("supporting_evidence") or supporting_evidence
         )
         summary_payload["missing_data"] = missing_data
         summary_payload["missing_data_reason_codes"] = missing_data_reason_codes
@@ -1377,6 +1410,8 @@ class ThesisBuilder:
                     "key_reasons": supporting_evidence[:3]
                     or contradicting_evidence[:3]
                     or ([why_this_thesis] if why_this_thesis else []),
+                    "monitor_next": monitor_next,
+                    "supporting_evidence": supporting_evidence,
                     "risks": _dedupe(
                         [
                             *(

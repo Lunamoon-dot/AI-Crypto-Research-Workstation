@@ -44,7 +44,14 @@ from .snapshot import (
     SignalSnapshot,
 )
 from .template import SetupTemplate, TemplateField
-from .thesis import ThesisDirection, TradeThesis, TradeThesisStructuredSummary
+from .thesis import (
+    ResearchEvidenceItem,
+    StructuredResearchItem,
+    ThesisDirection,
+    TradeThesis,
+    TradeThesisStructuredSummary,
+    research_item_texts,
+)
 from .timeline import TimelineEvent
 from .trending import HealthReport, TrendPoint
 from .watchlist import (
@@ -84,7 +91,9 @@ __all__ = [
     "ResearchRun",
     "ProviderHealthRecord",
     "ResearchRunStatus",
+    "research_item_texts",
     "ResearchDebate",
+    "ResearchEvidenceItem",
     "ReliabilitySnapshot",
     "RetrospectiveInsight",
     "Scenario",
@@ -94,6 +103,7 @@ __all__ = [
     "SignalDirection",
     "SignalEvidenceLane",
     "SignalWatchConditions",
+    "StructuredResearchItem",
     "MarketSnapshot",
     "MarketBrief",
     "SignalSnapshot",

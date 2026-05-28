@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
 import { JsonRecord } from '../database/journal.types';
+import {
+  evidenceKindCounts,
+  evidenceQualityFor,
+  normalizeEvidenceItems,
+  normalizeResearchItems,
+  ResearchEvidenceItem,
+} from '../contracts/research-evidence';
 
 export interface ResearchSnapshotBuildInput {
   run: JsonRecord;
@@ -26,6 +33,7 @@ interface TrackedItemSeed {
   source_artifact: string | null;
   source_id: string | null;
   source_field: string | null;
+  evidence?: ResearchEvidenceItem[];
   attributes?: JsonRecord;
 }
 
@@ -142,6 +150,7 @@ export class ResearchSnapshotBuilder {
       source_artifacts: sourceArtifacts,
       payload: {
         schema_version: 'research_snapshot.v1.1',
+        evidence_contract_version: 'research_evidence.v1.2',
         run_status: stringValue(input.run.status, 'unknown'),
         market: input.marketSnapshot
           ? {
@@ -230,8 +239,33 @@ function snapshotQualityWithTrackedItems(
   ).length;
   const unsourcedItemCount = trackedItemCount - sourcedItemCount;
   const evidenceAttachedCount = items.filter(
-    (item) => stringList(item.evidence).length > 0,
+    (item) => normalizeEvidenceItems(item.evidence).length > 0,
   ).length;
+  const observedBackedItemCount = items.filter(
+    (item) => stringValue(item.evidence_quality) === 'observed_backed',
+  ).length;
+  const reasoningOnlyItemCount = items.filter(
+    (item) => stringValue(item.evidence_quality) === 'reasoning_only',
+  ).length;
+  const missingEvidenceItemCount = items.filter(
+    (item) => stringValue(item.evidence_quality) === 'missing_limited',
+  ).length;
+  const noEvidenceItemCount = items.filter(
+    (item) => stringValue(item.evidence_quality) === 'none',
+  ).length;
+  const evidenceCounts = items.reduce<{
+    observed: number;
+    reasoning: number;
+    missing: number;
+  }>(
+    (counts, item) => {
+      counts.observed += numberValue(item.observed_evidence_count);
+      counts.reasoning += numberValue(item.reasoning_evidence_count);
+      counts.missing += numberValue(item.missing_evidence_count);
+      return counts;
+    },
+    { observed: 0, reasoning: 0, missing: 0 },
+  );
   const fallbackHashCount = items.filter(
     (item) => stringValue(item.identity_confidence) !== 'high',
   ).length;
@@ -256,6 +290,13 @@ function snapshotQualityWithTrackedItems(
     source_coverage: ratio(sourcedItemCount, trackedItemCount),
     evidence_attached_count: evidenceAttachedCount,
     evidence_coverage: ratio(evidenceAttachedCount, trackedItemCount),
+    observed_evidence_count: evidenceCounts.observed,
+    reasoning_evidence_count: evidenceCounts.reasoning,
+    missing_evidence_count: evidenceCounts.missing,
+    observed_evidence_coverage: ratio(observedBackedItemCount, trackedItemCount),
+    reasoning_only_item_count: reasoningOnlyItemCount,
+    missing_evidence_item_count: missingEvidenceItemCount,
+    no_evidence_item_count: noEvidenceItemCount,
     identity_quality: {
       stable_key_count: trackedItemCount - fallbackHashCount,
       fallback_hash_count: fallbackHashCount,
@@ -363,26 +404,36 @@ function conviction(input: ResearchSnapshotBuildInput): string {
 
 function claimItems(thesis: JsonRecord | null): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
+  const summaryPrefix = summarySourcePrefix(thesis);
   const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
   return [
-    ...indexedStrings(summary.key_reasons, (text, index) =>
-      seedItem('claim', text, 'medium', 'thesis', thesisId, `summary.key_reasons[${index}]`),
+    ...indexedResearchItems(summary.key_reasons, (item, index) =>
+      seedItem(
+        'claim',
+        item.text,
+        'medium',
+        'thesis',
+        thesisId,
+        `${summaryPrefix}.key_reasons[${index}]`,
+        item.supporting_evidence,
+      ),
     ),
     ...singleString(summary.why_this_thesis, (text) =>
-      seedItem('claim', text, 'medium', 'thesis', thesisId, 'summary.why_this_thesis'),
+      seedItem('claim', text, 'medium', 'thesis', thesisId, `${summaryPrefix}.why_this_thesis`),
     ),
     ...singleString(thesis?.why_this_thesis, (text) =>
       seedItem('claim', text, 'medium', 'thesis', thesisId, 'why_this_thesis'),
     ),
-    ...indexedStrings(payloadSummary.key_reasons, (text, index) =>
+    ...indexedResearchItems(payloadSummary.key_reasons, (item, index) =>
       seedItem(
         'claim',
-        text,
+        item.text,
         'medium',
         'thesis',
         thesisId,
         `payload.structured_summary.key_reasons[${index}]`,
+        item.supporting_evidence,
       ),
     ),
     ...singleString(payloadSummary.why_this_thesis, (text) =>
@@ -400,13 +451,34 @@ function claimItems(thesis: JsonRecord | null): TrackedItemSeed[] {
 
 function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
+  const summaryPrefix = summarySourcePrefix(thesis);
+  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
   return [
-    ...indexedStrings(summary.risks, (text, index) =>
-      seedItem('risk', text, 'medium', 'thesis', thesisId, `summary.risks[${index}]`),
+    ...indexedResearchItems(summary.risks, (item, index) =>
+      seedItem(
+        'risk',
+        item.text,
+        'medium',
+        'thesis',
+        thesisId,
+        `${summaryPrefix}.risks[${index}]`,
+        item.supporting_evidence,
+      ),
     ),
     ...indexedStrings(thesis?.risks, (text, index) =>
       seedItem('risk', text, 'medium', 'thesis', thesisId, `risks[${index}]`),
+    ),
+    ...indexedResearchItems(payloadSummary.risks, (item, index) =>
+      seedItem(
+        'risk',
+        item.text,
+        'medium',
+        'thesis',
+        thesisId,
+        `payload.structured_summary.risks[${index}]`,
+        item.supporting_evidence,
+      ),
     ),
     ...opinions.flatMap((opinion) => {
       const payload = recordValue(opinion.payload);
@@ -426,19 +498,41 @@ function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): TrackedIt
 
 function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
+  const summaryPrefix = summarySourcePrefix(thesis);
+  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
   return [
-    ...indexedStrings(thesis?.monitor_next, (text, index) =>
-      seedItem('watchpoint', text, 'medium', 'thesis', thesisId, `monitor_next[${index}]`),
-    ),
-    ...indexedStrings(summary.monitor_next, (text, index) =>
+    ...indexedResearchItems(thesis?.monitor_next, (item, index) =>
       seedItem(
         'watchpoint',
-        text,
+        item.text,
         'medium',
         'thesis',
         thesisId,
-        `summary.monitor_next[${index}]`,
+        `monitor_next[${index}]`,
+        item.supporting_evidence,
+      ),
+    ),
+    ...indexedResearchItems(summary.monitor_next, (item, index) =>
+      seedItem(
+        'watchpoint',
+        item.text,
+        'medium',
+        'thesis',
+        thesisId,
+        `${summaryPrefix}.monitor_next[${index}]`,
+        item.supporting_evidence,
+      ),
+    ),
+    ...indexedResearchItems(payloadSummary.monitor_next, (item, index) =>
+      seedItem(
+        'watchpoint',
+        item.text,
+        'medium',
+        'thesis',
+        thesisId,
+        `payload.structured_summary.monitor_next[${index}]`,
+        item.supporting_evidence,
       ),
     ),
   ];
@@ -449,13 +543,14 @@ function invalidationItems(
   opinions: JsonRecord[],
 ): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
+  const summaryPrefix = summarySourcePrefix(thesis);
   return [
     ...singleString(thesis?.invalidation_level, (text) =>
       seedItem('invalidation', text, 'high', 'thesis', thesisId, 'invalidation_level'),
     ),
     ...singleString(summary.invalidation, (text) =>
-      seedItem('invalidation', text, 'high', 'thesis', thesisId, 'summary.invalidation'),
+      seedItem('invalidation', text, 'high', 'thesis', thesisId, `${summaryPrefix}.invalidation`),
     ),
     ...opinions.flatMap((opinion) =>
       singleString(recordValue(opinion.payload).invalidation, (text) =>
@@ -474,27 +569,28 @@ function invalidationItems(
 
 function levelItems(thesis: JsonRecord | null): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
+  const summaryPrefix = summarySourcePrefix(thesis);
   const source = thesis?.target_zones ?? summary.target_zones;
-  const sourceField = thesis?.target_zones ? 'target_zones' : 'summary.target_zones';
+  const sourceField = thesis?.target_zones ? 'target_zones' : `${summaryPrefix}.target_zones`;
   return indexedStrings(source, (text, index) =>
     seedItem('level', text, 'medium', 'thesis', thesisId, `${sourceField}[${index}]`),
   );
 }
 
-function evidenceItems(input: ResearchSnapshotBuildInput): string[] {
+function evidenceItems(input: ResearchSnapshotBuildInput): ResearchEvidenceItem[] {
   const thesis = input.thesis;
-  const summary = recordValue(thesis?.summary);
+  const summary = summaryValue(thesis);
   const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
-  return uniqueStrings([
-    ...stringList(summary.supporting_evidence),
-    ...stringList(thesis?.supporting_evidence),
-    ...stringList(payloadSummary.supporting_evidence),
+  return uniqueEvidence([
+    ...normalizeEvidenceItems(summary.supporting_evidence),
+    ...normalizeEvidenceItems(thesis?.supporting_evidence),
+    ...normalizeEvidenceItems(payloadSummary.supporting_evidence),
     ...input.agentOpinions.flatMap((opinion) => {
       const payload = recordValue(opinion.payload);
       return [
-        ...stringList(payload.evidence),
-        ...stringList(payload.supporting_evidence),
+        ...normalizeEvidenceItems(payload.evidence),
+        ...normalizeEvidenceItems(payload.supporting_evidence),
       ];
     }),
   ]);
@@ -507,6 +603,7 @@ function seedItem(
   sourceArtifact: string | null,
   sourceId: string | null,
   sourceField: string | null,
+  evidence: ResearchEvidenceItem[] = [],
 ): TrackedItemSeed {
   return {
     type,
@@ -515,10 +612,14 @@ function seedItem(
     source_artifact: sourceArtifact,
     source_id: sourceId,
     source_field: sourceField,
+    evidence,
   };
 }
 
-function trackedItem(seed: TrackedItemSeed, evidence: string[]): JsonRecord {
+function trackedItem(
+  seed: TrackedItemSeed,
+  globalEvidence: ResearchEvidenceItem[],
+): JsonRecord {
   const canonical = canonicalText(seed.text);
   const identityTerms = identityTermsFor(seed.text);
   const hasSource = Boolean(seed.source_artifact || seed.source_id || seed.source_field);
@@ -527,7 +628,9 @@ function trackedItem(seed: TrackedItemSeed, evidence: string[]): JsonRecord {
   const identitySeed =
     identityTerms.length > 0 ? identityTerms.join('|') : canonical || normalizedText(seed.text);
   const stableKeyPart = identityTerms.length > 0 ? topic : 'text';
-  const itemEvidence = evidence.length > 0 ? evidence : [];
+  const itemEvidence =
+    seed.evidence && seed.evidence.length > 0 ? seed.evidence : globalEvidence;
+  const counts = evidenceKindCounts(itemEvidence);
   return {
     item_key: `${seed.type}:${stableKeyPart}:${hashKey(identitySeed)}`,
     legacy_item_key: legacyItemKey(seed.type, seed.text),
@@ -543,6 +646,10 @@ function trackedItem(seed: TrackedItemSeed, evidence: string[]): JsonRecord {
     importance: seed.importance,
     attributes: seed.attributes ?? {},
     evidence: itemEvidence,
+    evidence_quality: evidenceQualityFor(itemEvidence),
+    observed_evidence_count: counts.observed,
+    reasoning_evidence_count: counts.reasoning,
+    missing_evidence_count: counts.missing,
     source_artifact: seed.source_artifact,
     source_id: seed.source_id,
     source_field: seed.source_field,
@@ -665,6 +772,20 @@ function safeId(value: string): string {
   return value.replace(/[^A-Za-z0-9_]+/g, '_');
 }
 
+function summaryValue(thesis: JsonRecord | null): JsonRecord {
+  const structuredSummary = recordValue(thesis?.structured_summary);
+  if (Object.keys(structuredSummary).length > 0) {
+    return structuredSummary;
+  }
+  return recordValue(thesis?.summary);
+}
+
+function summarySourcePrefix(thesis: JsonRecord | null): string {
+  return Object.keys(recordValue(thesis?.structured_summary)).length > 0
+    ? 'structured_summary'
+    : 'summary';
+}
+
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -710,6 +831,13 @@ function stringList(value: unknown): string[] {
   return text ? [text] : [];
 }
 
+function indexedResearchItems(
+  value: unknown,
+  mapper: (item: { text: string; supporting_evidence: ResearchEvidenceItem[] }, index: number) => TrackedItemSeed,
+): TrackedItemSeed[] {
+  return normalizeResearchItems(value).map((item, index) => mapper(item, index));
+}
+
 function indexedStrings(
   value: unknown,
   mapper: (text: string, index: number) => TrackedItemSeed,
@@ -738,4 +866,23 @@ function ratio(numerator: number, denominator: number): number {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function uniqueEvidence(values: ResearchEvidenceItem[]): ResearchEvidenceItem[] {
+  const seen = new Set<string>();
+  const result: ResearchEvidenceItem[] = [];
+  for (const value of values) {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function numberValue(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }

@@ -400,7 +400,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      `SELECT ${researchSnapshotPayloadSql()}
+      `SELECT ${researchSnapshotPayloadSql()} AS payload_json
        FROM research_snapshots
        WHERE research_run_id = $1 AND workspace_id = $2
        ORDER BY captured_at DESC
@@ -445,7 +445,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          data_quality_json = EXCLUDED.data_quality_json,
          source_artifacts_json = EXCLUDED.source_artifacts_json,
          payload_json = EXCLUDED.payload_json
-       RETURNING ${researchSnapshotPayloadSql()}`,
+        RETURNING ${researchSnapshotPayloadSql()} AS payload_json`,
       [
         id,
         workspaceId,
@@ -471,7 +471,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql()}
+      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
        FROM research_continuity_entries
        WHERE id = $1 AND workspace_id = $2`,
       [id, workspaceId],
@@ -483,7 +483,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql()}
+      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
        FROM research_continuity_entries
        WHERE research_run_id = $1 AND workspace_id = $2
        ORDER BY generated_at DESC, id DESC
@@ -498,7 +498,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     workspaceId: string,
   ): Promise<JsonRecord[]> {
     return this.many(
-      `SELECT ${researchContinuityEntryPayloadSql()}
+      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
        FROM research_continuity_entries
        WHERE workspace_id = $1 AND symbol = $2
        ORDER BY generated_at DESC, id DESC
@@ -537,7 +537,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       `INSERT INTO research_continuity_entries
        (id, workspace_id, symbol, research_run_id, current_snapshot_id, previous_entry_id, entry_type, status, generated_at, summary, sections_json, events_json, snapshot_quality_json, source_run_ids_json, writer_metadata_json, payload_json)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb)
-       RETURNING ${researchContinuityEntryPayloadSql()}`,
+       RETURNING ${researchContinuityEntryPayloadSql()} AS payload_json`,
       [
         id,
         workspaceId,
@@ -568,7 +568,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.one(
-      `SELECT ${researchContinuityStatePayloadSql()}
+      `SELECT ${researchContinuityStatePayloadSql()} AS payload_json
        FROM research_continuity_states
        WHERE symbol = $1 AND workspace_id = $2`,
       [symbol, workspaceId],
@@ -612,7 +612,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          data_quality_json = EXCLUDED.data_quality_json,
          updated_at = EXCLUDED.updated_at,
          payload_json = EXCLUDED.payload_json
-       RETURNING ${researchContinuityStatePayloadSql()}`,
+       RETURNING ${researchContinuityStatePayloadSql()} AS payload_json`,
       [
         id,
         workspaceId,

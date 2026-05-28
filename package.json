@@ -15,7 +15,7 @@
     "db:generate": "pnpm --filter @lunaperception/database db:generate",
     "db:push": "pnpm --filter @lunaperception/database db:push",
     "db:migrate": "pnpm --filter @lunaperception/database db:migrate",
-    "ai:install": "python -m pip install -e \"./apps/ai-service[dev]\"",
+    "ai:install": "node apps/ai-service/scripts/python.cjs -m pip install -e \"./apps/ai-service[dev]\"",
     "ai:test": "pnpm --filter @lunaperception/ai-service test"
   },
   "dependencies": {

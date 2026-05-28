@@ -101,6 +101,7 @@ export class ContinuityReportRenderer {
       writerMetadata: {
         writer_source: 'deterministic_renderer',
         report_version: 'research_continuity.v1.1',
+        evidence_contract_version: 'research_evidence.v1.2',
       },
     };
   }
@@ -200,6 +201,10 @@ function traceItems(
   return [
     coverageLine('Source coverage', quality.source_coverage),
     coverageLine('Evidence coverage', quality.evidence_coverage),
+    coverageLine('Observed evidence coverage', quality.observed_evidence_coverage),
+    `Reasoning-only items: ${numberText(quality.reasoning_only_item_count)}.`,
+    `Missing-limited items: ${numberText(quality.missing_evidence_item_count)}.`,
+    `No-evidence items: ${numberText(quality.no_evidence_item_count)}.`,
     `Fallback identity count: ${numberText(identityQuality.fallback_hash_count)}.`,
     legacyStateItemCount > 0
       ? `Legacy state items without V1.1 trace fields: ${legacyStateItemCount}.`
@@ -224,6 +229,9 @@ function dataQualityItems(
   return [
     status ? `Snapshot quality: ${status}${score === undefined ? '' : ` (${score})`}.` : '',
     provenanceStatus ? `Provenance status: ${provenanceStatus}.` : '',
+    `Observed evidence count: ${numberText(quality.observed_evidence_count)}.`,
+    `Reasoning evidence count: ${numberText(quality.reasoning_evidence_count)}.`,
+    `Missing evidence count: ${numberText(quality.missing_evidence_count)}.`,
     ...reasons,
     ...provenanceReasons,
   ].filter(Boolean);

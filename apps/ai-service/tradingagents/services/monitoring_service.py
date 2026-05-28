@@ -19,6 +19,7 @@ from tradingagents.domain import (
     ThesisPulseSuggestedAction,
     ThesisTargetLevel,
     TradeThesis,
+    research_item_texts,
 )
 
 logger = logging.getLogger(__name__)
@@ -705,15 +706,17 @@ class LLMPulseMemoGenerator:
 
 
 def build_pulse_memo_generator(config: dict[str, Any]) -> Any:
-    memo_cfg = config.get("pulse_memo")
-    if not isinstance(memo_cfg, dict):
+    configured_memo = config.get("pulse_memo")
+    if isinstance(configured_memo, dict):
+        memo_cfg = configured_memo
+    else:
         monitoring_cfg = config.get("monitoring")
-        memo_cfg = (
+        nested_memo = (
             monitoring_cfg.get("pulse_memo")
             if isinstance(monitoring_cfg, dict)
-            and isinstance(monitoring_cfg.get("pulse_memo"), dict)
-            else {}
+            else None
         )
+        memo_cfg = nested_memo if isinstance(nested_memo, dict) else {}
     llm_enabled = bool(
         memo_cfg.get("llm_enabled")
         or memo_cfg.get("use_llm")
@@ -770,8 +773,10 @@ def build_pulse_memo_input(
             ),
             "target_zones": thesis.target_zones
             or (summary.target_zones if summary else []),
-            "key_reasons": (summary.key_reasons if summary else [])[:6],
-            "risks": (summary.risks if summary else [])[:6],
+            "key_reasons": research_item_texts(summary.key_reasons if summary else [])[
+                :6
+            ],
+            "risks": research_item_texts(summary.risks if summary else [])[:6],
         },
         "plan": {
             "id": plan.id,
@@ -1069,13 +1074,13 @@ def first_text(*values: Any) -> str:
 
 
 def pct_change(current: float | None, baseline: float | None) -> float | None:
-    if current is None or baseline in (None, 0):
+    if current is None or baseline is None or baseline == 0:
         return None
     return ((current - baseline) / baseline) * 100
 
 
 def distance_pct(current: float | None, level: float | None) -> float | None:
-    if current in (None, 0) or level is None:
+    if current is None or current == 0 or level is None:
         return None
     return abs((current - level) / current) * 100
 
@@ -1083,7 +1088,7 @@ def distance_pct(current: float | None, level: float | None) -> float | None:
 def distance_to_entry(
     current: float | None, entry_low: float | None, entry_high: float | None
 ) -> float | None:
-    if current in (None, 0) or entry_low is None or entry_high is None:
+    if current is None or current == 0 or entry_low is None or entry_high is None:
         return None
     if entry_low <= current <= entry_high:
         return 0.0

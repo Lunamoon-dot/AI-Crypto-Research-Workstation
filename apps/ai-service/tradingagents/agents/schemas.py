@@ -24,6 +24,11 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from tradingagents.agents.utils.thesis_json import render_trade_thesis_json_block
+from tradingagents.domain.thesis import (
+    ResearchEvidenceItem,
+    StructuredResearchItem,
+    research_item_texts,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -347,13 +352,27 @@ class PortfolioDecision(BaseModel):
             "specific price levels or event thresholds when possible."
         ),
     )
-    key_reasons: list[str] = Field(
+    key_reasons: list[str | StructuredResearchItem] = Field(
         default_factory=list,
-        description="Three concise reasons behind the final rating.",
+        description=(
+            "Three concise reasons behind the final rating. Prefer objects with "
+            "text and supporting_evidence evidence items."
+        ),
     )
-    risks: list[str] = Field(
+    risks: list[str | StructuredResearchItem] = Field(
         default_factory=list,
-        description="Main risks, missing data, or caveats that could weaken the thesis.",
+        description=(
+            "Main risks, missing data, or caveats that could weaken the thesis. "
+            "Prefer objects with text and supporting_evidence evidence items."
+        ),
+    )
+    monitor_next: list[str | StructuredResearchItem] = Field(
+        default_factory=list,
+        description="Watchpoints to monitor next, preferably with supporting_evidence.",
+    )
+    supporting_evidence: list[ResearchEvidenceItem] = Field(
+        default_factory=list,
+        description="Global thesis evidence used only when an item lacks its own evidence.",
     )
     spot_notes: str = Field(
         default="",
@@ -436,7 +455,9 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     if decision.upside_catalyst:
         parts.extend(["", f"**Upside Catalyst**: {decision.upside_catalyst}"])
     if decision.risks:
-        parts.extend(["", "**Risks**: " + "; ".join(decision.risks)])
+        parts.extend(
+            ["", "**Risks**: " + "; ".join(research_item_texts(decision.risks))]
+        )
     if decision.spot_notes:
         parts.extend(["", f"**Spot Notes**: {decision.spot_notes}"])
     if decision.perp_notes:
@@ -463,12 +484,24 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "action_summary": decision.action_summary or decision.executive_summary,
         "upside_catalyst": decision.upside_catalyst,
         "invalidation": decision.invalidation,
-        "key_reasons": decision.key_reasons,
-        "risks": decision.risks,
+        "key_reasons": _json_ready_items(decision.key_reasons),
+        "risks": _json_ready_items(decision.risks),
+        "monitor_next": _json_ready_items(decision.monitor_next),
+        "supporting_evidence": _json_ready_items(decision.supporting_evidence),
         "spot_notes": decision.spot_notes,
         "perp_notes": decision.perp_notes,
         "missing_data": decision.missing_data,
     }
+
+
+def _json_ready_items(values: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    for value in values:
+        if isinstance(value, BaseModel):
+            result.append(value.model_dump(mode="json"))
+        else:
+            result.append(value)
+    return result
 
 
 # ---------------------------------------------------------------------------

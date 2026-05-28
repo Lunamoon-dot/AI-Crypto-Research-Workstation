@@ -1,6 +1,6 @@
 # Feature Registry
 
-Last updated: 2026-05-22
+Last updated: 2026-05-28
 
 Use this page to find long-lived feature plans. Feature docs capture intent,
 scope, decisions, and verification rules; code and tests remain the executable
@@ -33,7 +33,7 @@ Rules:
 | Feature | Latest doc | Status | Notes |
 | --- | --- | --- | --- |
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
-| Research Continuity | [research-continuity/v1.1/implementation-plan.md](research-continuity/v1.1/implementation-plan.md) | goal-ready | Post-research continuity tracking, evidence trace, and symbol-level delta reports. |
+| Research Continuity | [research-continuity/v1.2/implementation-plan.md](research-continuity/v1.2/implementation-plan.md) | implemented | Research evidence contract for traceable continuity snapshots. |
 
 ## Standalone Plans To Promote When Active
 
