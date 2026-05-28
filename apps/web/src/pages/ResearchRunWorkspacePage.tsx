@@ -690,7 +690,10 @@ function DailyDeltaPanel({
             <span className="badge primary">{entry.entry_type}</span>
             <StatusBadge value={entry.status} />
             <span className="small muted">{formatDateTime(entry.generated_at)}</span>
-            <Link className="button" to={routes.researchContinuity(entry.symbol)}>
+            <Link
+              className="button"
+              to={`/research-continuity?symbol=${encodeURIComponent(entry.symbol)}`}
+            >
               Open continuity
             </Link>
             <button

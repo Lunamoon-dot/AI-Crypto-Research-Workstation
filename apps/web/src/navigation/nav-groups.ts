@@ -78,9 +78,9 @@ export const navGroups: NavigationGroup[] = [
       },
       {
         id: 'research-continuity',
-        label: 'Continuity',
+        label: 'Research Continuity',
         title: 'Research Continuity',
-        href: routes.researchContinuity(),
+        href: '/research-continuity',
         icon: Activity,
         mobile: true,
       },

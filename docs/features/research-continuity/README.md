@@ -1,6 +1,6 @@
 # Research Continuity
 
-Last updated: 2026-05-26
+Last updated: 2026-05-28
 Status: implemented feature overview
 
 ## Purpose
@@ -97,16 +97,14 @@ is required.
 | Version | Status | Plan |
 | --- | --- | --- |
 | V1 | implemented | [v1/implementation-plan.md](v1/implementation-plan.md) |
+| V1.1 | goal-ready | [v1.1/implementation-plan.md](v1.1/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.1: better snapshot extraction from raw report text for legacy runs.
-- V1.2: continuity summaries inside Daily Briefs.
-- V1.3: weekly/monthly continuity summaries.
-- V1.4: continuity analytics such as flip-flop rate, recurring risk, and view
-  stability.
-- V2.0: semantic retrieval over historical continuity entries.
-- V2.1: optional multi-agent continuity review if deterministic deltas are not
-  enough.
+- V1.2: optional research-core evidence output improvements after observing
+  V1.1 coverage.
+- V1.3: explicit backfill or repair tooling if needed.
+- V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
+  views.

@@ -230,7 +230,7 @@ export class ResearchContinuityService {
         ),
         writer_metadata: report.writerMetadata,
         payload: {
-          schema_version: 'research_continuity_entry.v1',
+          schema_version: 'research_continuity_entry.v1.1',
           deterministic: true,
         },
       },
@@ -300,7 +300,7 @@ export class ResearchContinuityService {
         source_run_ids: [runId],
         writer_metadata: report.writerMetadata,
         payload: {
-          schema_version: 'research_continuity_entry.v1',
+          schema_version: 'research_continuity_entry.v1.1',
           skip_reason: input.reason,
         },
       },
