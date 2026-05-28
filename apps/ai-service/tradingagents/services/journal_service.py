@@ -649,9 +649,7 @@ class JournalService:
 
         return run, thesis, saved_scenarios
 
-    def ensure_monitor_plan(
-        self, thesis_id: str, *, workspace_id: str | None = None
-    ):
+    def ensure_monitor_plan(self, thesis_id: str, *, workspace_id: str | None = None):
         return ThesisMonitorPlanService(self).ensure_monitor_plan(
             thesis_id,
             workspace_id=workspace_id,

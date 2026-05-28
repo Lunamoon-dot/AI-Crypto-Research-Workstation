@@ -87,7 +87,9 @@ class ThesisService:
     def get_thesis(self, thesis_id: str) -> TradeThesis | None:
         return self.journal.get_thesis(thesis_id)
 
-    def get_or_create_monitor_plan(self, thesis_id: str, *, workspace_id: str = "local"):
+    def get_or_create_monitor_plan(
+        self, thesis_id: str, *, workspace_id: str = "local"
+    ):
         return self.journal.ensure_monitor_plan(thesis_id, workspace_id=workspace_id)
 
     def update_monitor_plan(

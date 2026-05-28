@@ -117,11 +117,7 @@ def research_item_texts(value: Any) -> list[str]:
     if value is None:
         return []
     values = value if isinstance(value, list) else [value]
-    return [
-        text
-        for item in values
-        if (text := text_from_research_item(item).strip())
-    ]
+    return [text for item in values if (text := text_from_research_item(item).strip())]
 
 
 def normalize_evidence_items(value: Any) -> list[dict[str, Any]]:

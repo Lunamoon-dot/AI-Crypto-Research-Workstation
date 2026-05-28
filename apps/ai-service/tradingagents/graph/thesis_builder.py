@@ -895,9 +895,10 @@ class ThesisBuilder:
         opinion_machine_codes = _machine_reason_codes(
             [*opinion_reason_codes, *opinion_missing_data]
         )
-        if any(
-            item == "insufficient_news_evidence" for item in machine_codes
-        ) or "missing_news_feed" in opinion_machine_codes:
+        if (
+            any(item == "insufficient_news_evidence" for item in machine_codes)
+            or "missing_news_feed" in opinion_machine_codes
+        ):
             quality = min(quality, 0.34)
         if (
             "missing_onchain_flows" in opinion_machine_codes
@@ -1381,7 +1382,9 @@ class ThesisBuilder:
             if base_risks
             else _dedupe([*fallback_risks, *system_risk_notes])
         )
-        summary_payload["monitor_next"] = summary_payload.get("monitor_next") or monitor_next
+        summary_payload["monitor_next"] = (
+            summary_payload.get("monitor_next") or monitor_next
+        )
         summary_payload["supporting_evidence"] = (
             summary_payload.get("supporting_evidence") or supporting_evidence
         )

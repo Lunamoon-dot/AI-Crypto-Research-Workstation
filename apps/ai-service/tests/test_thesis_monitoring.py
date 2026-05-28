@@ -289,12 +289,8 @@ def test_pulse_memo_coerces_llm_string_lists(tmp_path):
     assert memo is not None
     assert created is True
     assert reason is None
-    assert memo.what_changed == [
-        "Price unchanged; signal watch band remains active."
-    ]
-    assert memo.why_it_matters == [
-        "The thesis is still close enough to monitor."
-    ]
+    assert memo.what_changed == ["Price unchanged; signal watch band remains active."]
+    assert memo.why_it_matters == ["The thesis is still close enough to monitor."]
     assert memo.what_to_watch_next == ["Watch distance to invalidation."]
     assert memo.recommended_action.value == "none"
     assert memo.referenced_pulse_ids == [pulse.id]

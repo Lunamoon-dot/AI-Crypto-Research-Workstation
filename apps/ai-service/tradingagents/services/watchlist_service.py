@@ -161,7 +161,10 @@ class WatchlistService:
         if not watchlist.id:
             raise RuntimeError("Watchlist is missing an id after get_or_create")
         for item in self.list_items(watchlist_name=watchlist_name, enabled_only=True):
-            if item.item_type == WatchlistItemType.THESIS and item.thesis_id == thesis.id:
+            if (
+                item.item_type == WatchlistItemType.THESIS
+                and item.thesis_id == thesis.id
+            ):
                 return item
         return self.repo.save_watchlist_item(
             WatchlistItem(

@@ -130,10 +130,13 @@ class MonitoringRepositoryMixin(RepositoryMixinBase):
             ),
             _conn=_conn,
         )
-        return self.get_thesis_monitor_plan(
-            plan.thesis_id,
-            workspace_id=plan.workspace_id,
-        ) or plan
+        return (
+            self.get_thesis_monitor_plan(
+                plan.thesis_id,
+                workspace_id=plan.workspace_id,
+            )
+            or plan
+        )
 
     def get_thesis_monitor_plan(
         self, thesis_id: str, *, workspace_id: str = "local"
@@ -236,12 +239,15 @@ class MonitoringRepositoryMixin(RepositoryMixinBase):
             ),
             _conn=_conn,
         )
-        return self.get_thesis_pulse_by_bucket(
-            pulse.thesis_id,
-            pulse.bucket_start.isoformat(),
-            pulse_type=pulse.pulse_type,
-            workspace_id=pulse.workspace_id,
-        ) or pulse
+        return (
+            self.get_thesis_pulse_by_bucket(
+                pulse.thesis_id,
+                pulse.bucket_start.isoformat(),
+                pulse_type=pulse.pulse_type,
+                workspace_id=pulse.workspace_id,
+            )
+            or pulse
+        )
 
     def get_thesis_pulse_by_bucket(
         self,
@@ -367,13 +373,16 @@ class MonitoringRepositoryMixin(RepositoryMixinBase):
             ),
             _conn=_conn,
         )
-        return self.get_thesis_pulse_memo_by_window(
-            memo.thesis_id,
-            memo.window_start.isoformat(),
-            memo.window_end.isoformat(),
-            memo_type=memo.memo_type,
-            workspace_id=memo.workspace_id,
-        ) or memo
+        return (
+            self.get_thesis_pulse_memo_by_window(
+                memo.thesis_id,
+                memo.window_start.isoformat(),
+                memo.window_end.isoformat(),
+                memo_type=memo.memo_type,
+                workspace_id=memo.workspace_id,
+            )
+            or memo
+        )
 
     def get_thesis_pulse_memo_by_window(
         self,

@@ -99,11 +99,13 @@ is required.
 | V1 | implemented | [v1/implementation-plan.md](v1/implementation-plan.md) |
 | V1.1 | implemented | [v1.1/implementation-plan.md](v1.1/implementation-plan.md) |
 | V1.2 | implemented | [v1.2/implementation-plan.md](v1.2/implementation-plan.md) |
+| V1.3 | goal-ready | [v1.3/implementation-plan.md](v1.3/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.3: explicit backfill or repair tooling if needed.
+- V1.4+: optional repair job audit table, scheduled repair, or richer
+  operations after V1.3 proves the manual control surface.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

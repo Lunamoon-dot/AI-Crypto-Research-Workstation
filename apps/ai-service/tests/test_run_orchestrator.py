@@ -34,8 +34,9 @@ def _host(final_state, timeline):
         _save_journal_agent_research=lambda _state: None,
         _complete_journal_run=lambda: timeline.append("complete_journal"),
         _log_state=lambda *_args: timeline.append("log_state"),
-        _build_trade_thesis=lambda _state: timeline.append("build_thesis")
-        or SimpleNamespace(id="thesis_1"),
+        _build_trade_thesis=lambda _state: (
+            timeline.append("build_thesis") or SimpleNamespace(id="thesis_1")
+        ),
         process_signal=lambda _text: "Overweight",
         current_research_run=None,
         current_trade_thesis=None,

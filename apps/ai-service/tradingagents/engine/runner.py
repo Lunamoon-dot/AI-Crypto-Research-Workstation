@@ -280,7 +280,9 @@ def run_monitor_plan_request(
     request: EngineMonitorPlanRequest,
 ) -> EngineMonitorPlanResult:
     try:
-        journal = JournalService(_monitoring_config(request.workspace_id, request.metadata))
+        journal = JournalService(
+            _monitoring_config(request.workspace_id, request.metadata)
+        )
         if request.updates:
             plan = journal.update_monitor_plan(
                 request.thesis_id,
@@ -317,7 +319,9 @@ def run_pulse_request_file(path: str | Path) -> EnginePulseResult:
 
 def run_pulse_request(request: EnginePulseRequest) -> EnginePulseResult:
     try:
-        journal = JournalService(_monitoring_config(request.workspace_id, request.metadata))
+        journal = JournalService(
+            _monitoring_config(request.workspace_id, request.metadata)
+        )
         pulse, created = journal.run_thesis_pulse(
             request.thesis_id,
             workspace_id=request.workspace_id,
@@ -357,7 +361,9 @@ def run_pulse_memo_request_file(path: str | Path) -> EnginePulseMemoResult:
 
 def run_pulse_memo_request(request: EnginePulseMemoRequest) -> EnginePulseMemoResult:
     try:
-        journal = JournalService(_monitoring_config(request.workspace_id, request.metadata))
+        journal = JournalService(
+            _monitoring_config(request.workspace_id, request.metadata)
+        )
         memo, created, skip_reason = journal.run_thesis_pulse_memo(
             request.thesis_id,
             workspace_id=request.workspace_id,

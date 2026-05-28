@@ -21,7 +21,6 @@ import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
   CalibrationEvaluationResponse,
   CalibrationEvaluationRerunResponse,
-  CalibrationEvaluationPromotionResponse,
   CalibrationEvaluationVersionPolicyResponse,
   CalibrationResult,
   PromoteCalibrationEvaluationResponse,

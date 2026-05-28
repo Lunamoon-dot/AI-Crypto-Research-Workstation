@@ -354,15 +354,6 @@ function recordValue(value: unknown): JsonRecord {
     : {};
 }
 
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => stringValue(item))
-    .filter(Boolean);
-}
-
 function stringValue(value: unknown, fallback = ''): string {
   if (value === null || value === undefined || value === '') {
     return fallback;
