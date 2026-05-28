@@ -43,6 +43,10 @@ const REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
   'skipped_or_degraded',
   'legacy_evidence',
 ];
+const ENABLE_RESEARCH_CONTINUITY_REPAIR = booleanViteEnv(
+  'VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR',
+  false,
+);
 
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -153,17 +157,19 @@ export function ResearchContinuityPage() {
           <ActiveItems state={state} />
         </Panel>
 
-        <Panel
-          className="span-12 research-continuity-panel"
-          title="Repair & Backfill"
-          description="Manual V1.3 continuity ledger control"
-        >
-          <RepairBackfillPanel
-            auth={auth}
-            onExecuted={refreshContinuityQueries}
-            symbol={symbol}
-          />
-        </Panel>
+        {ENABLE_RESEARCH_CONTINUITY_REPAIR ? (
+          <Panel
+            className="span-12 research-continuity-panel"
+            title="Repair & Backfill"
+            description="Manual V1.3 continuity ledger control"
+          >
+            <RepairBackfillPanel
+              auth={auth}
+              onExecuted={refreshContinuityQueries}
+              symbol={symbol}
+            />
+          </Panel>
+        ) : null}
 
         <Panel className="span-12" title="Recent Entries">
           {entriesQuery.isLoading ? <LoadingState label="Loading continuity entries..." /> : null}
@@ -179,6 +185,14 @@ export function ResearchContinuityPage() {
       </BentoGrid>
     </main>
   );
+}
+
+function booleanViteEnv(key: string, fallback: boolean): boolean {
+  const value = import.meta.env[key];
+  if (typeof value !== 'string' || !value.trim()) {
+    return fallback;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 function CurrentView({

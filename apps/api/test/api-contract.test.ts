@@ -7655,31 +7655,33 @@ test('research continuity repair preview discovers V1.3 candidates and dry-run w
   assert.equal(journal.continuityStates.size, stateCount);
 });
 
-test('research continuity repair requires editor access', async () => {
+test('research continuity repair requires admin access', async () => {
   const { researchContinuity } = buildHarness();
 
-  await assert.rejects(
-    () =>
-      researchContinuity.previewRepair(
-        { case_types: 'missing_continuity', limit: 5 },
-        'viewer_1',
-        'workspace_a',
-      ),
-    isException(ForbiddenException),
-  );
-  await assert.rejects(
-    () =>
-      researchContinuity.runRepair(
-        {
-          case_types: ['missing_continuity'],
-          limit: 5,
-          dry_run: false,
-        },
-        'viewer_1',
-        'workspace_a',
-      ),
-    isException(ForbiddenException),
-  );
+  for (const userId of ['viewer_1', 'editor_1']) {
+    await assert.rejects(
+      () =>
+        researchContinuity.previewRepair(
+          { case_types: 'missing_continuity', limit: 5 },
+          userId,
+          'workspace_a',
+        ),
+      isException(ForbiddenException),
+    );
+    await assert.rejects(
+      () =>
+        researchContinuity.runRepair(
+          {
+            case_types: ['missing_continuity'],
+            limit: 5,
+            dry_run: false,
+          },
+          userId,
+          'workspace_a',
+        ),
+      isException(ForbiddenException),
+    );
+  }
 });
 
 test('research continuity repair execution is append-only and idempotent', async () => {
@@ -8806,6 +8808,7 @@ function buildHarness() {
     { user_id: 'user_1', workspace_id: 'workspace_a', role: 'owner' },
     { user_id: 'user_1', workspace_id: 'workspace_b', role: 'owner' },
     { user_id: 'viewer_1', workspace_id: 'workspace_a', role: 'viewer' },
+    { user_id: 'editor_1', workspace_id: 'workspace_a', role: 'editor' },
   ]);
   const jobs = new JobsService({
     runInline: async (request: EngineRunRequest) => ({

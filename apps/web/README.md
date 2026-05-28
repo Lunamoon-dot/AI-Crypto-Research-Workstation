@@ -34,6 +34,10 @@ The browser-facing API base is `VITE_API_BASE_URL` and defaults to `/backend`.
 When using that default, Vite proxies `/backend` to `API_BASE_URL`, which defaults
 to `http://localhost:3000`.
 
+The Research Continuity repair/backfill panel is maintenance-only and hidden by
+default. Set `VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR=true` only for admin repair
+sessions.
+
 The current MVP uses local header auth only:
 
 ```text

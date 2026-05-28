@@ -184,7 +184,7 @@ export class ResearchContinuityService {
     const workspaceId = await this.resolveWorkspaceAccess(
       userId,
       workspaceHeader,
-      'editor',
+      'admin',
     );
     const normalized = normalizeRepairFilters(filters, false);
     const candidates = await this.discoverRepairCandidates(
@@ -206,7 +206,7 @@ export class ResearchContinuityService {
     const workspaceId = await this.resolveWorkspaceAccess(
       userId,
       workspaceHeader,
-      'editor',
+      'admin',
     );
     const normalized = normalizeRepairFilters(dto, true);
     const dryRun = dto.dry_run !== false;
@@ -1020,7 +1020,7 @@ export class ResearchContinuityService {
   private async resolveWorkspaceAccess(
     userId: string | undefined,
     workspaceHeader: string | undefined,
-    requiredRole: 'viewer' | 'editor',
+    requiredRole: 'viewer' | 'editor' | 'admin',
   ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
