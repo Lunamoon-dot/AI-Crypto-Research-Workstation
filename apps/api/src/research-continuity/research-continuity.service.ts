@@ -231,6 +231,7 @@ export class ResearchContinuityService {
         writer_metadata: report.writerMetadata,
         payload: {
           schema_version: 'research_continuity_entry.v1.1',
+          evidence_contract_version: 'research_evidence.v1.2',
           deterministic: true,
         },
       },
@@ -301,6 +302,7 @@ export class ResearchContinuityService {
         writer_metadata: report.writerMetadata,
         payload: {
           schema_version: 'research_continuity_entry.v1.1',
+          evidence_contract_version: 'research_evidence.v1.2',
           skip_reason: input.reason,
         },
       },

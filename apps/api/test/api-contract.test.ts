@@ -72,7 +72,13 @@ import {
   toThesisMonitorPlanResponse,
   toThesisPulseMemoResponse,
   toThesisPulseResponse,
+  toThesisResponse,
 } from '../src/contracts/frontend-contract';
+import {
+  normalizeEvidenceItems,
+  normalizeResearchItems,
+  researchItemTextList,
+} from '../src/contracts/research-evidence';
 
 class FakeJournalRepository implements JournalRepository {
   readonly researchRuns = new Map<string, JsonRecord>();
@@ -6893,7 +6899,7 @@ test('research continuity V1.1 enriches snapshots with claims, provenance, evide
   assert.deepEqual(marketStructureClaim.identity_terms, ['market_structure']);
   assert.equal(marketStructureClaim.identity_confidence, 'high');
   assert.equal(marketStructureClaim.trace_quality, 'evidence_backed');
-  assert.deepEqual(marketStructureClaim.evidence, [
+  assert.deepEqual(records(marketStructureClaim.evidence).map((item) => item.text), [
     'Spot bid stayed firm.',
     'Funding reset after the squeeze.',
     'OI rose with price instead of against it.',
@@ -6909,6 +6915,237 @@ test('research continuity V1.1 enriches snapshots with claims, provenance, evide
   assert.equal(quality.evidence_coverage, 1);
   assert.equal(record(quality.identity_quality).fallback_hash_ratio, 0);
   assert.equal(quality.provenance_status, 'clean');
+});
+
+test('research evidence V1.2 normalizes legacy strings and malformed objects safely', () => {
+  const evidence = normalizeEvidenceItems([
+    'Legacy thesis evidence.',
+    {
+      message: 'Funding feed was unavailable during collection.',
+      evidence_kind: 'missing',
+      source_artifact: 'research_run',
+    },
+    {
+      text: 'Invalid evidence metadata should degrade deterministically.',
+      evidence_kind: 'unsupported_kind',
+      source_artifact: 'funding_feed',
+      strength: 'unsupported_strength',
+    },
+    {
+      evidence_kind: 'observed',
+      source_artifact: 'market_snapshot',
+    },
+  ]);
+
+  assert.deepEqual(evidence, [
+    {
+      text: 'Legacy thesis evidence.',
+      evidence_kind: 'reasoning',
+      source_artifact: 'trade_thesis',
+    },
+    {
+      message: 'Funding feed was unavailable during collection.',
+      text: 'Funding feed was unavailable during collection.',
+      evidence_kind: 'missing',
+      source_artifact: 'research_run',
+    },
+    {
+      text: 'Invalid evidence metadata should degrade deterministically.',
+      evidence_kind: 'reasoning',
+      source_artifact: 'unknown',
+      strength: 'unknown',
+    },
+  ]);
+
+  const researchItems = normalizeResearchItems([
+    'Legacy key reason.',
+    {
+      reason: 'Object key reason with observed support.',
+      confidence: 'medium',
+      supporting_evidence: [
+        {
+          description: 'Market snapshot confirmed the reclaim.',
+          evidence_kind: 'observed',
+          source_artifact: 'market_snapshot',
+          source_id: 'market_snapshot_1',
+        },
+      ],
+    },
+    {
+      supporting_evidence: [
+        {
+          text: 'Evidence without an item text should not create an item.',
+          evidence_kind: 'observed',
+          source_artifact: 'market_snapshot',
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(researchItems.length, 2);
+  assert.deepEqual(researchItemTextList(researchItems), [
+    'Legacy key reason.',
+    'Object key reason with observed support.',
+  ]);
+  assert.deepEqual(researchItems[1]?.supporting_evidence, [
+    {
+      description: 'Market snapshot confirmed the reclaim.',
+      text: 'Market snapshot confirmed the reclaim.',
+      evidence_kind: 'observed',
+      source_artifact: 'market_snapshot',
+      source_id: 'market_snapshot_1',
+    },
+  ]);
+  assert.equal(researchItems[1]?.confidence, 'medium');
+});
+
+test('research continuity V1.2 attaches item evidence before global fallback and reports evidence quality', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v12_evidence',
+    thesisId: 'thesis_btc_v12_evidence',
+    debateId: 'debate_btc_v12_evidence',
+    marketSnapshotId: 'market_btc_v12_evidence',
+    signalSnapshotId: 'signal_btc_v12_evidence',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+  });
+  const thesis = journal.theses.get(key('thesis_btc_v12_evidence', 'workspace_a'));
+  assert.ok(thesis);
+  thesis.structured_summary = {
+    rating: 'Overweight',
+    direction: 'long',
+    confidence: 0.66,
+    action_summary: 'Constructive while reclaim holds.',
+    entry_zone: 'Pullback near support',
+    invalidation: 'Close back below support',
+    target_zones: ['range high'],
+    key_reasons: [
+      {
+        text: 'Market structure improved after reclaiming the prior range.',
+        supporting_evidence: [
+          {
+            text: 'BTC reclaimed the prior range and held above it into close.',
+            evidence_kind: 'observed',
+            source_artifact: 'market_snapshot',
+            source_field: 'payload.market_structure',
+            strength: 'medium',
+          },
+        ],
+      },
+    ],
+    risks: [
+      {
+        text: 'Funding data is unavailable for this run.',
+        supporting_evidence: [
+          {
+            message: 'Funding feed was unavailable during collection.',
+            evidence_kind: 'missing',
+            source_artifact: 'research_run',
+          },
+        ],
+      },
+    ],
+    monitor_next: [
+      {
+        text: 'Watch whether BTC accepts above resistance.',
+      },
+    ],
+    supporting_evidence: [
+      {
+        text: 'Portfolio manager synthesis favors patience until confirmation.',
+        evidence_kind: 'reasoning',
+        source_artifact: 'trade_thesis',
+      },
+    ],
+  };
+  thesis.monitor_next = [
+    {
+      text: 'Watch whether BTC accepts above resistance.',
+    },
+  ];
+
+  const publicThesis = toThesisResponse(thesis);
+  assert.deepEqual(publicThesis.summary.key_reasons, [
+    'Market structure improved after reclaiming the prior range.',
+  ]);
+  assert.deepEqual(publicThesis.summary.risks, [
+    'Funding data is unavailable for this run.',
+  ]);
+  assert.deepEqual(publicThesis.monitor_next, [
+    'Watch whether BTC accepts above resistance.',
+  ]);
+
+  const delta = await researchContinuity.generateForRun(
+    'run_btc_v12_evidence',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_btc_v12_evidence',
+    'workspace_a',
+  );
+  assert.ok(snapshot);
+  assert.equal(
+    record(snapshot.payload).evidence_contract_version,
+    'research_evidence.v1.2',
+  );
+  assert.equal(
+    delta.entry.writer_metadata.evidence_contract_version,
+    'research_evidence.v1.2',
+  );
+  assert.equal(
+    delta.entry.payload.evidence_contract_version,
+    'research_evidence.v1.2',
+  );
+  const trackedItems = records(snapshot.tracked_items);
+  const claim = trackedItems.find((item) =>
+    String(item.text).includes('Market structure improved'),
+  );
+  const risk = trackedItems.find((item) =>
+    String(item.text).includes('Funding data is unavailable'),
+  );
+  const watchpoint = trackedItems.find((item) =>
+    String(item.text).includes('Watch whether BTC accepts'),
+  );
+
+  assert.ok(claim);
+  assert.ok(risk);
+  assert.ok(watchpoint);
+  assert.deepEqual(records(claim.evidence).map((item) => item.text), [
+    'BTC reclaimed the prior range and held above it into close.',
+  ]);
+  assert.equal(records(claim.evidence)[0]?.evidence_kind, 'observed');
+  assert.equal(claim.evidence_quality, 'observed_backed');
+  assert.equal(claim.observed_evidence_count, 1);
+  assert.equal(claim.reasoning_evidence_count, 0);
+  assert.equal(claim.missing_evidence_count, 0);
+  assert.deepEqual(records(risk.evidence).map((item) => item.text), [
+    'Funding feed was unavailable during collection.',
+  ]);
+  assert.equal(risk.evidence_quality, 'missing_limited');
+  assert.equal(risk.missing_evidence_count, 1);
+  assert.deepEqual(records(watchpoint.evidence).map((item) => item.text), [
+    'Portfolio manager synthesis favors patience until confirmation.',
+  ]);
+  assert.equal(watchpoint.evidence_quality, 'reasoning_only');
+
+  const quality = record(snapshot.data_quality);
+  assert.equal(quality.observed_evidence_count, 1);
+  assert.equal(quality.missing_evidence_count, 1);
+  assert.ok(Number(quality.observed_evidence_coverage) > 0);
+  assert.ok(Number(quality.observed_evidence_coverage) < 1);
+  assert.equal(quality.missing_evidence_item_count, 1);
+  assert.ok(numberValue(quality.reasoning_only_item_count) >= 1);
+  assert.equal(quality.no_evidence_item_count, 0);
+  assert.ok(
+    delta.entry.sections.some(
+      (section) =>
+        section.title === 'Source And Evidence Trace' &&
+        section.items.some((item: string) => item.includes('Observed evidence coverage')),
+    ),
+  );
 });
 
 test('research continuity V1.1 matches legacy item keys without fake churn', async () => {
@@ -8467,6 +8704,11 @@ function records(value: unknown): JsonRecord[] {
           Boolean(item) && typeof item === 'object' && !Array.isArray(item),
       )
     : [];
+}
+
+function numberValue(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function legacyItemKey(type: string, text: string): string {

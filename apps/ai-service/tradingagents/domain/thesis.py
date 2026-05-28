@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .tenancy import normalize_workspace_id
 
@@ -19,6 +19,213 @@ class ThesisDirection(str, Enum):
     WATCH = "watch"
     AVOID = "avoid"
     NEUTRAL = "neutral"
+
+
+ALLOWED_EVIDENCE_KINDS = {"observed", "reasoning", "missing"}
+ALLOWED_SOURCE_ARTIFACTS = {
+    "market_snapshot",
+    "signal_snapshot",
+    "trade_thesis",
+    "agent_opinion",
+    "research_debate",
+    "research_run",
+    "external_report",
+    "unknown",
+}
+ALLOWED_EVIDENCE_STRENGTHS = {"low", "medium", "high", "unknown"}
+TEXT_LIKE_FIELDS = ("text", "summary", "reason", "description", "message")
+
+
+class ResearchEvidenceItem(BaseModel):
+    """Normalized evidence line attached to a thesis summary item."""
+
+    text: str
+    evidence_kind: str = "reasoning"
+    source_artifact: str = "unknown"
+    source_id: str | None = None
+    source_field: str | None = None
+    evidence_type: str | None = None
+    strength: str | None = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return str(value or "").strip()[:500]
+
+    @field_validator("evidence_kind", mode="before")
+    @classmethod
+    def _normalize_evidence_kind(cls, value: Any) -> str:
+        normalized = str(value or "reasoning").strip().lower()
+        return normalized if normalized in ALLOWED_EVIDENCE_KINDS else "reasoning"
+
+    @field_validator("source_artifact", mode="before")
+    @classmethod
+    def _normalize_source_artifact(cls, value: Any) -> str:
+        normalized = str(value or "unknown").strip().lower()
+        return normalized if normalized in ALLOWED_SOURCE_ARTIFACTS else "unknown"
+
+    @field_validator("source_id", "source_field", "evidence_type", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text[:500] if text else None
+
+    @field_validator("strength", mode="before")
+    @classmethod
+    def _normalize_strength(cls, value: Any) -> str | None:
+        if value is None or value == "":
+            return None
+        normalized = str(value).strip().lower()
+        return normalized if normalized in ALLOWED_EVIDENCE_STRENGTHS else "unknown"
+
+
+class StructuredResearchItem(BaseModel):
+    """Object-first claim, risk, or watchpoint with item-level evidence."""
+
+    model_config = ConfigDict(extra="allow")
+
+    text: str
+    supporting_evidence: list[ResearchEvidenceItem] = Field(default_factory=list)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        return str(value or "").strip()[:500]
+
+    @field_validator("supporting_evidence", mode="before")
+    @classmethod
+    def _normalize_supporting_evidence(cls, value: Any) -> list[dict[str, Any]]:
+        return normalize_evidence_items(value)
+
+
+ResearchSummaryItem = str | StructuredResearchItem
+
+
+def text_from_research_item(value: Any) -> str:
+    """Extract display text from a legacy string or object-first summary item."""
+
+    if isinstance(value, StructuredResearchItem):
+        return value.text
+    if isinstance(value, dict):
+        return _first_text_like(value)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def research_item_texts(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    return [
+        text
+        for item in values
+        if (text := text_from_research_item(item).strip())
+    ]
+
+
+def normalize_evidence_items(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    normalized: list[dict[str, Any]] = []
+    for item in values:
+        evidence = _normalize_evidence_item(item)
+        if evidence is not None:
+            normalized.append(evidence)
+    return normalized
+
+
+def _normalize_evidence_item(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, ResearchEvidenceItem):
+        return value.model_dump(mode="python")
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        return {
+            "text": text[:500],
+            "evidence_kind": "reasoning",
+            "source_artifact": "trade_thesis",
+        }
+    if not isinstance(value, dict):
+        text = str(value).strip()
+        return (
+            {
+                "text": text[:500],
+                "evidence_kind": "reasoning",
+                "source_artifact": "trade_thesis",
+            }
+            if text
+            else None
+        )
+
+    text = _first_text_like(value)
+    if not text:
+        return None
+    result = dict(value)
+    result["text"] = text[:500]
+    result["evidence_kind"] = _allowed_string(
+        result.get("evidence_kind"),
+        ALLOWED_EVIDENCE_KINDS,
+        "reasoning",
+    )
+    result["source_artifact"] = _allowed_string(
+        result.get("source_artifact"),
+        ALLOWED_SOURCE_ARTIFACTS,
+        "unknown",
+    )
+    if "strength" in result:
+        result["strength"] = _allowed_string(
+            result.get("strength"),
+            ALLOWED_EVIDENCE_STRENGTHS,
+            "unknown",
+        )
+    return result
+
+
+def _normalize_research_items(value: Any) -> list[ResearchSummaryItem | dict[str, Any]]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    normalized: list[ResearchSummaryItem | dict[str, Any]] = []
+    for item in values:
+        if isinstance(item, StructuredResearchItem):
+            normalized.append(item)
+            continue
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                normalized.append(text[:500])
+            continue
+        if isinstance(item, dict):
+            text = _first_text_like(item)
+            if not text:
+                continue
+            next_item = dict(item)
+            next_item["text"] = text[:500]
+            next_item["supporting_evidence"] = normalize_evidence_items(
+                next_item.get("supporting_evidence")
+            )
+            normalized.append(next_item)
+            continue
+        text = str(item).strip()
+        if text:
+            normalized.append(text[:500])
+    return normalized
+
+
+def _first_text_like(value: dict[str, Any]) -> str:
+    for field in TEXT_LIKE_FIELDS:
+        candidate = value.get(field)
+        if candidate is not None and str(candidate).strip():
+            return str(candidate).strip()
+    return ""
+
+
+def _allowed_string(value: Any, allowed: set[str], fallback: str) -> str:
+    normalized = str(value or fallback).strip().lower()
+    return normalized if normalized in allowed else fallback
 
 
 class TradeThesisStructuredSummary(BaseModel):
@@ -36,8 +243,10 @@ class TradeThesisStructuredSummary(BaseModel):
     upside_catalyst: str = ""
     invalidation: str = ""
     target_zones: list[str] = Field(default_factory=list)
-    key_reasons: list[str] = Field(default_factory=list)
-    risks: list[str] = Field(default_factory=list)
+    key_reasons: list[ResearchSummaryItem] = Field(default_factory=list)
+    risks: list[ResearchSummaryItem] = Field(default_factory=list)
+    monitor_next: list[ResearchSummaryItem] = Field(default_factory=list)
+    supporting_evidence: list[ResearchEvidenceItem] = Field(default_factory=list)
     spot_notes: str = ""
     perp_notes: str = ""
     missing_data: list[str] = Field(default_factory=list)
@@ -132,8 +341,6 @@ class TradeThesisStructuredSummary(BaseModel):
 
     @field_validator(
         "target_zones",
-        "key_reasons",
-        "risks",
         "missing_data",
         "missing_data_reason_codes",
         "degradation_reasons",
@@ -148,6 +355,19 @@ class TradeThesisStructuredSummary(BaseModel):
         if not isinstance(value, list):
             value = list(value) if isinstance(value, tuple) else [value]
         return [str(item).strip()[:500] for item in value if str(item).strip()]
+
+    @field_validator("key_reasons", "risks", "monitor_next", mode="before")
+    @classmethod
+    def _normalize_research_item_list(
+        cls,
+        value: Any,
+    ) -> list[ResearchSummaryItem | dict[str, Any]]:
+        return _normalize_research_items(value)
+
+    @field_validator("supporting_evidence", mode="before")
+    @classmethod
+    def _normalize_supporting_evidence(cls, value: Any) -> list[dict[str, Any]]:
+        return normalize_evidence_items(value)
 
     @field_validator("data_quality_label", mode="before")
     @classmethod

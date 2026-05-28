@@ -61,6 +61,7 @@ import type {
 
 const agentAvatarSrc = (fileName: string) => `/agent-avatars/${fileName}`;
 const terminalArtifactPollWindowMs = 2 * 60 * 1000;
+const continuityEntryPollWindowMs = 30 * 1000;
 
 const pipelineStages = [
   {
@@ -201,29 +202,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
     },
     retry: false,
   });
-  const continuityQuery = useQuery({
-    queryKey: queryKeys.researchRunContinuity(runId),
-    queryFn: () => getResearchRunContinuity(runId, auth),
-    enabled: Boolean(runId),
-    retry: false,
-  });
-  const continuityMutation = useMutation({
-    mutationFn: () => generateResearchRunContinuity(runId, { force: true }, auth),
-    onSuccess: (response) => {
-      queryClient.setQueryData(
-        queryKeys.researchRunContinuity(runId),
-        response.entry,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.researchContinuityState(response.entry.symbol),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.researchContinuityEntries({
-          symbol: response.entry.symbol,
-        }),
-      });
-    },
-  });
   const query = useQuery({
     queryKey: queryKeys.researchRunWorkspace(runId),
     queryFn: () =>
@@ -244,6 +222,55 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
       return false;
     },
     retry: false,
+  });
+  const workspaceForContinuity = query.data;
+  const continuityQueryEnabled = Boolean(
+    runId &&
+      workspaceForContinuity &&
+      isContinuityEligibleRunStatus(workspaceForContinuity.run.status),
+  );
+  const continuityQuery = useQuery({
+    queryKey: queryKeys.researchRunContinuity(runId),
+    queryFn: () => getResearchRunContinuity(runId, auth),
+    enabled: continuityQueryEnabled,
+    refetchInterval: (query) => {
+      if (!continuityQueryEnabled || query.state.data) {
+        return false;
+      }
+      return shouldPollRecentTerminalRun(
+        workspaceForContinuity,
+        query.state.dataUpdatedAt,
+        continuityEntryPollWindowMs,
+      )
+        ? 5000
+        : false;
+    },
+    refetchOnMount: 'always',
+    retry: (failureCount) =>
+      failureCount < 3 &&
+      shouldPollRecentTerminalRun(
+        workspaceForContinuity,
+        0,
+        continuityEntryPollWindowMs,
+      ),
+    retryDelay: 1000,
+  });
+  const continuityMutation = useMutation({
+    mutationFn: () => generateResearchRunContinuity(runId, { force: true }, auth),
+    onSuccess: (response) => {
+      queryClient.setQueryData(
+        queryKeys.researchRunContinuity(runId),
+        response.entry,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchContinuityState(response.entry.symbol),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchContinuityEntries({
+          symbol: response.entry.symbol,
+        }),
+      });
+    },
   });
 
   if (query.isLoading) {
@@ -327,6 +354,20 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const signal = workspace.snapshots.signal_snapshot;
   const runFailed = workspace.run.status === 'failed';
   const runTerminal = isTerminalRunStatus(workspace.run.status);
+  const continuityPending =
+    isActiveJobStatus(workspace.run.status) ||
+    (isContinuityEligibleRunStatus(workspace.run.status) &&
+      !continuityQuery.data &&
+      shouldPollRecentTerminalRun(
+        workspace,
+        query.dataUpdatedAt,
+        continuityEntryPollWindowMs,
+      ));
+  const continuityError =
+    continuityMutation.error ??
+    (continuityPending ? null : continuityQuery.error);
+  const continuityIsError =
+    continuityMutation.isError || (!continuityPending && continuityQuery.isError);
   const artifactPolling = shouldPollTerminalArtifacts(workspace);
   const marketType = normalizeMarketType(workspace.run.market_type);
   const artifacts = workspace.artifacts ?? emptyArtifacts();
@@ -484,9 +525,14 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
 
         <DailyDeltaPanel
           entry={continuityQuery.data ?? null}
-          error={continuityMutation.error ?? continuityQuery.error}
-          isError={continuityMutation.isError || continuityQuery.isError}
-          isLoading={continuityQuery.isLoading}
+          error={continuityError}
+          isError={continuityIsError}
+          isLoading={
+            continuityPending ||
+            (continuityQueryEnabled &&
+              continuityQuery.isFetching &&
+              !continuityQuery.data)
+          }
           isRegenerating={continuityMutation.isPending}
           onRegenerate={() => continuityMutation.mutate()}
         />
@@ -662,9 +708,14 @@ function DailyDeltaPanel({
   isRegenerating: boolean;
   onRegenerate: () => void;
 }) {
+  const detailSections =
+    entry?.sections.filter(
+      (section) => section.title.trim().toLowerCase() !== 'summary',
+    ) ?? [];
+
   return (
     <Panel
-      className="span-12"
+      className="span-12 daily-delta-panel"
       title="Daily Delta"
       description="Research Continuity entry for this run"
     >
@@ -685,39 +736,57 @@ function DailyDeltaPanel({
         </div>
       ) : null}
       {entry ? (
-        <div className="stack">
-          <div className="row">
-            <span className="badge primary">{entry.entry_type}</span>
-            <StatusBadge value={entry.status} />
-            <span className="small muted">{formatDateTime(entry.generated_at)}</span>
-            <Link
-              className="button"
-              to={`/research-continuity?symbol=${encodeURIComponent(entry.symbol)}`}
-            >
-              Open continuity
-            </Link>
-            <button
-              className="button"
-              disabled={isRegenerating}
-              onClick={onRegenerate}
-              type="button"
-            >
-              <RefreshCw aria-hidden size={15} />
-              {isRegenerating ? 'Regenerating' : 'Regenerate'}
-            </button>
+        <div className="daily-delta-layout">
+          <div className="daily-delta-toolbar">
+            <div className="daily-delta-status">
+              <span className="badge primary">{entry.entry_type}</span>
+              <StatusBadge value={entry.status} />
+              <span className="small muted">{formatDateTime(entry.generated_at)}</span>
+            </div>
+            <div className="daily-delta-actions">
+              <Link
+                className="button"
+                to={`/research-continuity?symbol=${encodeURIComponent(entry.symbol)}`}
+              >
+                Open continuity
+              </Link>
+              <button
+                className="button"
+                disabled={isRegenerating}
+                onClick={onRegenerate}
+                type="button"
+              >
+                <RefreshCw aria-hidden size={15} />
+                {isRegenerating ? 'Regenerating' : 'Regenerate'}
+              </button>
+            </div>
           </div>
-          <p className="muted">{entry.summary}</p>
-          <div className="bento-grid compact">
-            {entry.sections.slice(0, 4).map((section) => (
-              <div className="list-row" key={section.title}>
-                <strong>{section.title}</strong>
-                <p className="small muted">{section.items[0] ?? section.empty_state}</p>
-              </div>
-            ))}
+
+          <div className="daily-delta-summary">
+            <strong>Summary</strong>
+            <p>{entry.summary}</p>
           </div>
-          <div className="stack small">
-            <DataPair label="Source run" value={<IdChip value={entry.research_run_id} />} />
-            <DataPair label="Previous entry" value={<IdChip value={entry.previous_entry_id} />} />
+
+          {detailSections.length > 0 ? (
+            <div className="daily-delta-section-grid">
+              {detailSections.slice(0, 4).map((section) => (
+                <section className="daily-delta-section" key={section.title}>
+                  <h4>{section.title}</h4>
+                  <p>{section.items[0] ?? section.empty_state}</p>
+                </section>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="daily-delta-meta">
+            <div>
+              <span className="small muted">Source run</span>
+              <IdChip value={entry.research_run_id} />
+            </div>
+            <div>
+              <span className="small muted">Previous entry</span>
+              <IdChip value={entry.previous_entry_id} />
+            </div>
           </div>
         </div>
       ) : null}
@@ -887,6 +956,29 @@ function isTerminalRunStatus(status: string | undefined): boolean {
   );
 }
 
+function isContinuityEligibleRunStatus(status: string | undefined): boolean {
+  return status === 'completed' || status === 'completed_degraded';
+}
+
+function shouldPollRecentTerminalRun(
+  workspace: JournalRunWorkspaceResponse | undefined,
+  observedAt = 0,
+  windowMs = terminalArtifactPollWindowMs,
+): boolean {
+  if (!workspace || !isTerminalRunStatus(workspace.run.status)) {
+    return false;
+  }
+  const terminalAt = Math.max(
+    timestampMs(workspace.run.completed_at) ?? 0,
+    timestampMs(workspace.run.started_at) ?? 0,
+    observedAt,
+  );
+  if (terminalAt <= 0) {
+    return false;
+  }
+  return Date.now() - terminalAt < windowMs;
+}
+
 function shouldPollTerminalArtifacts(
   workspace: JournalRunWorkspaceResponse | undefined,
   observedAt = 0,
@@ -900,15 +992,7 @@ function shouldPollTerminalArtifacts(
   ) {
     return false;
   }
-  const terminalAt = Math.max(
-    timestampMs(workspace.run.completed_at) ?? 0,
-    timestampMs(workspace.run.started_at) ?? 0,
-    observedAt,
-  );
-  if (terminalAt <= 0) {
-    return false;
-  }
-  return Date.now() - terminalAt < terminalArtifactPollWindowMs;
+  return shouldPollRecentTerminalRun(workspace, observedAt);
 }
 
 function timestampMs(value: string | null): number | null {

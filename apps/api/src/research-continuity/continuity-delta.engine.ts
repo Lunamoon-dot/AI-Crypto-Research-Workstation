@@ -284,7 +284,14 @@ function changedAttributeValues(
 }
 
 function evidenceSummary(item: JsonRecord): string {
-  return JSON.stringify(stringList(item.evidence).sort());
+  return JSON.stringify(arrayValues(item.evidence).map(stableEvidenceValue).sort());
+}
+
+function stableEvidenceValue(value: unknown): string {
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return stringValue(value);
 }
 
 function sourcePayload(item: JsonRecord): JsonRecord {
@@ -335,6 +342,10 @@ function arrayRecords(value: unknown): JsonRecord[] {
           Boolean(item) && typeof item === 'object' && !Array.isArray(item),
       )
     : [];
+}
+
+function arrayValues(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function recordValue(value: unknown): JsonRecord {

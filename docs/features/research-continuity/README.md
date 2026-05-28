@@ -97,14 +97,13 @@ is required.
 | Version | Status | Plan |
 | --- | --- | --- |
 | V1 | implemented | [v1/implementation-plan.md](v1/implementation-plan.md) |
-| V1.1 | goal-ready | [v1.1/implementation-plan.md](v1.1/implementation-plan.md) |
+| V1.1 | implemented | [v1.1/implementation-plan.md](v1.1/implementation-plan.md) |
+| V1.2 | implemented | [v1.2/implementation-plan.md](v1.2/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.2: optional research-core evidence output improvements after observing
-  V1.1 coverage.
 - V1.3: explicit backfill or repair tooling if needed.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

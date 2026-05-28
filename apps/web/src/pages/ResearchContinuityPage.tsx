@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   FileText,
-  History,
   Layers,
   RefreshCw,
   ShieldCheck,
@@ -70,10 +69,11 @@ export function ResearchContinuityPage() {
         title="Research Continuity"
         description={symbol}
         action={
-          <form className="top-strip-meta" onSubmit={applySymbol}>
-            <label className="field">
+          <form className="top-strip-meta research-continuity-symbol-form" onSubmit={applySymbol}>
+            <label className="research-continuity-symbol-field">
               <span>Symbol</span>
               <input
+                className="input"
                 list="research-continuity-symbols"
                 onChange={(event) => setSymbolInput(event.target.value)}
                 value={symbolInput}
@@ -95,22 +95,38 @@ export function ResearchContinuityPage() {
       {stateQuery.isError ? <ErrorState error={stateQuery.error} /> : null}
       {entriesQuery.isError ? <ErrorState error={entriesQuery.error} /> : null}
 
-      <BentoGrid>
-        <Panel className="span-4 emphasis" title="Current View">
+      <BentoGrid className="research-continuity-grid">
+        <Panel
+          className="span-4 emphasis research-continuity-panel"
+          title="Current View"
+          description="State carried into the next run"
+        >
           {stateQuery.isLoading ? <LoadingState label="Loading continuity state..." /> : null}
           {!stateQuery.isLoading ? <CurrentView state={state} latestEntry={latestEntry} /> : null}
         </Panel>
 
-        <Panel className="span-8" title="Trust And Quality">
+        <Panel
+          className="span-8 research-continuity-panel"
+          title="Latest Delta"
+          description="Newest continuity report"
+        >
+          <LatestReport entry={latestEntry} />
+        </Panel>
+
+        <Panel
+          className="span-12 research-continuity-panel"
+          title="Trust And Evidence"
+          description="Snapshot health and evidence coverage"
+        >
           <TrustQuality quality={quality} />
         </Panel>
 
-        <Panel className="span-7" title="Active Items">
+        <Panel
+          className="span-12 research-continuity-panel"
+          title="Tracked Items"
+          description="Claims, risks, watchpoints, invalidations, and levels"
+        >
           <ActiveItems state={state} />
-        </Panel>
-
-        <Panel className="span-5" title="Latest Delta Report">
-          <LatestReport entry={latestEntry} />
         </Panel>
 
         <Panel className="span-12" title="Recent Entries">
@@ -140,15 +156,23 @@ function CurrentView({
     return <EmptyState label="No continuity state for this symbol yet." />;
   }
   const view = record(state.current_view);
+  const directionalBias = stringValue(view.directional_bias);
+  const riskPosture = stringValue(view.risk_posture);
+  const conviction = stringValue(view.conviction);
+  const timeContext = stringValue(view.time_context);
   return (
-    <div className="stack">
-      <div className="bento-grid compact">
-        <DataPair label="Directional bias" value={stringValue(view.directional_bias)} />
-        <DataPair label="Risk posture" value={stringValue(view.risk_posture)} />
-        <DataPair label="Conviction" value={stringValue(view.conviction)} />
-        <DataPair label="Time context" value={stringValue(view.time_context)} />
+    <div className="continuity-current-view">
+      <div className="continuity-current-focus">
+        <span className="small muted">Current stance</span>
+        <strong>{directionalBias}</strong>
+        <p>
+          {riskPosture} risk posture / {conviction} conviction / {timeContext}
+        </p>
+      </div>
+      <div className="research-continuity-data-grid">
         <DataPair label="Latest run" value={<IdChip value={state.latest_run_id} />} />
         <DataPair label="Latest entry" value={<IdChip value={state.latest_entry_id} />} />
+        <DataPair label="Time context" value={timeContext} />
       </div>
       <div className="row">
         <span className="badge primary">
@@ -168,7 +192,7 @@ function TrustQuality({ quality }: { quality: JsonRecord }) {
   const stableCount = numberValue(identityQuality.stable_key_count);
   const stableCoverage = trackedCount > 0 ? stableCount / trackedCount : null;
   return (
-    <div className="bento-grid compact">
+    <div className="research-continuity-quality-grid">
       <MetricTile
         icon={<ShieldCheck aria-hidden size={15} />}
         label="Snapshot status"
@@ -191,6 +215,32 @@ function TrustQuality({ quality }: { quality: JsonRecord }) {
         tone="constructive"
       />
       <MetricTile
+        icon={<FileText aria-hidden size={15} />}
+        label="Observed evidence"
+        value={formatCoverage(quality.observed_evidence_coverage)}
+        meta={`${numberValue(quality.observed_evidence_count)} observed lines`}
+        tone="constructive"
+      />
+      <MetricTile
+        icon={<Activity aria-hidden size={15} />}
+        label="Reasoning only"
+        value={String(numberValue(quality.reasoning_only_item_count))}
+        meta="active items"
+        tone={numberValue(quality.reasoning_only_item_count) > 0 ? 'primary' : 'constructive'}
+      />
+      <MetricTile
+        icon={<ShieldCheck aria-hidden size={15} />}
+        label="Missing limited"
+        value={String(numberValue(quality.missing_evidence_item_count))}
+        meta={`${numberValue(quality.no_evidence_item_count)} no evidence`}
+        tone={
+          numberValue(quality.missing_evidence_item_count) > 0 ||
+          numberValue(quality.no_evidence_item_count) > 0
+            ? 'warning'
+            : 'constructive'
+        }
+      />
+      <MetricTile
         icon={<Activity aria-hidden size={15} />}
         label="Stable identity"
         value={formatCoverage(stableCoverage)}
@@ -207,30 +257,44 @@ function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null 
     return <EmptyState label="No active tracked items." />;
   }
   return (
-    <div className="stack">
+    <div className="continuity-active-items">
       {ITEM_TYPES.map((type) => {
         const group = items.filter((item) => item.type === type);
         if (group.length === 0) {
           return null;
         }
+        const visibleItems = group.slice(0, 8);
+        const hiddenItems = group.slice(8);
         return (
-          <section className="stack small" key={type}>
-            <div className="row">
-              <strong>{typeLabel(type)}</strong>
+          <section className="continuity-item-group" key={type}>
+            <div className="continuity-item-group-header">
+              <div>
+                <strong>{typeLabel(type)}</strong>
+                <span>{typeDescription(type)}</span>
+              </div>
               <span className="badge">{group.length}</span>
             </div>
-            {group.map((item, index) => (
-              <div className="list-row" key={String(item.item_key ?? `${type}-${index}`)}>
-                <div className="row">
-                  <span className="badge">{stringValue(item.importance, 'medium')}</span>
-                  <TraceBadge value={stringValue(item.trace_quality, 'unsourced')} />
-                  <span className="small muted">
-                    {numberValue(item.occurrence_count) || 1} seen
-                  </span>
-                </div>
-                <p className="small muted">{stringValue(item.current_text ?? item.text)}</p>
-              </div>
+            {visibleItems.map((item, index) => (
+              <TrackedItemArticle
+                item={item}
+                key={String(item.item_key ?? `${type}-${index}`)}
+              />
             ))}
+            {hiddenItems.length > 0 ? (
+              <details className="continuity-more-items">
+                <summary className="button">
+                  Show {hiddenItems.length} more {typeLabel(type).toLowerCase()}
+                </summary>
+                <div className="continuity-more-item-list">
+                  {hiddenItems.map((item, index) => (
+                    <TrackedItemArticle
+                      item={item}
+                      key={String(item.item_key ?? `${type}-hidden-${index}`)}
+                    />
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </section>
         );
       })}
@@ -238,29 +302,74 @@ function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null 
   );
 }
 
+function TrackedItemArticle({
+  item,
+}: {
+  item: JsonRecord;
+}) {
+  return (
+    <article className="continuity-active-item">
+      <div className="continuity-active-item-main">
+        <div className="continuity-active-item-meta">
+          <span className="badge">{stringValue(item.importance, 'medium')}</span>
+          <TraceBadge value={stringValue(item.trace_quality, 'unsourced')} />
+          <EvidenceQualityBadge value={stringValue(item.evidence_quality, 'none')} />
+        </div>
+        <p>{stringValue(item.current_text ?? item.text)}</p>
+      </div>
+      <div className="continuity-active-item-side">
+        {item.source_artifact ? (
+          <span className="badge">{stringValue(item.source_artifact)}</span>
+        ) : null}
+        <span className="small muted">{numberValue(item.occurrence_count) || 1} seen</span>
+        <EvidenceLines value={item.evidence} />
+      </div>
+    </article>
+  );
+}
+
 function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null }) {
   if (!entry) {
     return <EmptyState label="No latest continuity report." />;
   }
+  const sections = entry.sections.filter((section) => section.title.toLowerCase() !== 'summary');
   return (
-    <div className="stack">
-      <div className="row">
-        <span className="badge primary">{entry.entry_type}</span>
-        <StatusBadge value={entry.status} />
-        <span className="small muted">{formatDateTime(entry.generated_at)}</span>
+    <div className="continuity-report">
+      <div className="continuity-report-toolbar">
+        <div className="continuity-report-status">
+          <span className="badge primary">{entry.entry_type}</span>
+          <StatusBadge value={entry.status} />
+        </div>
+        <div className="continuity-report-actions">
+          <span className="small muted">{formatDateTime(entry.generated_at)}</span>
+          <Link className="button" to={routes.researchRun(entry.research_run_id)}>
+            Open full run
+          </Link>
+        </div>
       </div>
-      <p className="muted">{entry.summary}</p>
-      <div className="stack small">
-        {entry.sections.map((section) => (
-          <details key={section.title}>
-            <summary className="button">{section.title}</summary>
-            <ul className="stack small">
-              {section.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </details>
-        ))}
+      <div className="continuity-report-summary">
+        <strong>Delta summary</strong>
+        <p>{entry.summary}</p>
+      </div>
+      <div className="continuity-report-sections">
+        {sections.map((section) => {
+          const preview = reportSectionPreview(section);
+          return (
+            <section className="continuity-report-section" key={section.title}>
+              <h4>{section.title}</h4>
+              <ul>
+                {preview.items.map((item, index) => (
+                  <li key={`${section.title}-${index}`}>{item}</li>
+                ))}
+                {preview.hiddenCount > 0 ? (
+                  <li className="continuity-report-more">
+                    {preview.hiddenCount} more in full run report.
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+          );
+        })}
       </div>
     </div>
   );
@@ -302,8 +411,77 @@ function TraceBadge({ value }: { value: string }) {
   return <span className={`badge ${tone}`}>{value.replaceAll('_', ' ')}</span>;
 }
 
+function EvidenceQualityBadge({ value }: { value: string }) {
+  const tone =
+    value === 'observed_backed'
+      ? 'constructive'
+      : value === 'reasoning_only'
+        ? 'primary'
+        : 'warning';
+  return <span className={`badge ${tone}`}>{evidenceQualityLabel(value)}</span>;
+}
+
+function EvidenceLines({ value }: { value: unknown }) {
+  const evidence = evidenceRecords(value);
+  if (evidence.length === 0) {
+    return null;
+  }
+  return (
+    <details className="continuity-evidence-details">
+      <summary className="button">Evidence lines</summary>
+      <ul className="continuity-evidence-list">
+        {evidence.map((item, index) => (
+          <li key={`${stringValue(item.text)}-${index}`}>
+            <span className="badge">{stringValue(item.evidence_kind, 'reasoning')}</span>{' '}
+            <span className="badge">{stringValue(item.source_artifact, 'unknown')}</span>{' '}
+            {stringValue(item.text)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function typeLabel(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1) + 's';
+}
+
+function typeDescription(value: string): string {
+  switch (value) {
+    case 'claim':
+      return 'Working thesis claims';
+    case 'risk':
+      return 'Open risk statements';
+    case 'watchpoint':
+      return 'Signals to monitor next';
+    case 'invalidation':
+      return 'Conditions that break the thesis';
+    case 'level':
+      return 'Key levels and boundaries';
+    default:
+      return 'Tracked continuity items';
+  }
+}
+
+function evidenceQualityLabel(value: string): string {
+  if (value === 'none') {
+    return 'No evidence';
+  }
+  return value.replaceAll('_', ' ');
+}
+
+function reportSectionPreview(section: ResearchContinuityEntryResponse['sections'][number]): {
+  hiddenCount: number;
+  items: string[];
+} {
+  const items =
+    section.items.length > 0
+      ? section.items
+      : [section.empty_state ? section.empty_state : 'No changes reported.'];
+  return {
+    hiddenCount: Math.max(0, items.length - 2),
+    items: items.slice(0, 2),
+  };
 }
 
 function formatCoverage(value: unknown): string {
@@ -327,6 +505,27 @@ function records(value: unknown): JsonRecord[] {
           Boolean(item) && typeof item === 'object' && !Array.isArray(item),
       )
     : [];
+}
+
+function evidenceRecords(value: unknown): JsonRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        return item as JsonRecord;
+      }
+      const text = stringValue(item, '');
+      return text
+        ? {
+            text,
+            evidence_kind: 'reasoning',
+            source_artifact: 'trade_thesis',
+          }
+        : null;
+    })
+    .filter((item): item is JsonRecord => item !== null);
 }
 
 function stringValue(value: unknown, fallback = 'n/a'): string {

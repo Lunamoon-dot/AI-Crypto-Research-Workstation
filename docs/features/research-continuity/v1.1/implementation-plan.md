@@ -1,7 +1,7 @@
 # Research Continuity V1.1 Snapshot Quality And Evidence Trace Implementation Plan
 
 Last updated: 2026-05-28
-Status: goal-ready
+Status: implemented
 
 V1.1 enriches the Research Continuity baseline with deterministic claim
 extraction, source/evidence traceability, stable item identity, lightweight
@@ -67,30 +67,40 @@ continuity events, and symbol state.
 
 ## Verifiable End State
 
-- [ ] `ResearchSnapshotBuilder` creates `claim` tracked items from structured
+- [x] `ResearchSnapshotBuilder` creates `claim` tracked items from structured
       reason fields.
-- [ ] Every tracked item has best-effort provenance fields:
+- [x] Every tracked item has best-effort provenance fields:
       `source_artifact`, `source_id`, and `source_field`.
-- [ ] Tracked items include `canonical_text`, `identity_terms`,
+- [x] Tracked items include `canonical_text`, `identity_terms`,
       `identity_confidence`, `trace_quality`, and `legacy_item_key`.
-- [ ] `supporting_evidence` is attached as evidence metadata when present, but
+- [x] `supporting_evidence` is attached as evidence metadata when present, but
       is not created as a separate tracked item.
-- [ ] Item identity matching prevents fake `resolved + added` churn for V1
+- [x] Item identity matching prevents fake `resolved + added` churn for V1
       legacy keys and V1.1 stable keys.
-- [ ] Same-identity wording/detail changes produce `claim_updated`,
+- [x] Same-identity wording/detail changes produce `claim_updated`,
       `risk_updated`, `watchpoint_updated`, `invalidation_updated`, or
       `level_updated`.
-- [ ] Continuity state active items include lightweight lifecycle metadata:
+- [x] Continuity state active items include lightweight lifecycle metadata:
       `first_seen_at`, `first_seen_run_id`, `last_seen_at`,
       `last_seen_run_id`, `occurrence_count`, `previous_text`, and
       `current_text`.
-- [ ] `data_quality` includes item counts, source coverage, evidence coverage,
+- [x] `data_quality` includes item counts, source coverage, evidence coverage,
       fallback identity ratio, and provenance status.
-- [ ] The rendered report includes grouped material changes, source/evidence
+- [x] The rendered report includes grouped material changes, source/evidence
       trace summary, and data quality notes.
-- [ ] Web route `/research-continuity` exists and presents a single-symbol
+- [x] Web route `/research-continuity` exists and presents a single-symbol
       read-only workspace.
-- [ ] Validation commands pass, or blockers are documented.
+- [x] Validation commands pass, or blockers are documented.
+
+## Implementation Verification
+
+Verified on 2026-05-28:
+
+- `pnpm --filter @lunaperception/api test`
+- `pnpm build:api`
+- `pnpm --filter @lunaperception/web typecheck`
+- Local API and browser smoke covered the `/research-continuity` workspace and
+  run-level Daily Delta panel.
 
 ## Version Placement
 

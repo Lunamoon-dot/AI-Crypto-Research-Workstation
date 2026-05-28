@@ -112,8 +112,33 @@ TRADE_THESIS_JSON:
   "action_summary": "one short UI research stance summary",
   "upside_catalyst": "specific condition that improves the thesis",
   "invalidation": "specific condition that invalidates the thesis",
-  "key_reasons": ["reason 1", "reason 2", "reason 3"],
-  "risks": ["risk 1", "risk 2"],
+  "key_reasons": [
+    {{
+      "text": "reason 1",
+      "supporting_evidence": [
+        {{
+          "text": "specific observed, reasoning, or missing-data evidence",
+          "evidence_kind": "observed | reasoning | missing",
+          "source_artifact": "market_snapshot | signal_snapshot | trade_thesis | agent_opinion | research_debate | research_run | external_report | unknown",
+          "source_field": "optional source field",
+          "strength": "low | medium | high | unknown"
+        }}
+      ]
+    }}
+  ],
+  "risks": [
+    {{
+      "text": "risk 1",
+      "supporting_evidence": []
+    }}
+  ],
+  "monitor_next": [
+    {{
+      "text": "watchpoint 1",
+      "supporting_evidence": []
+    }}
+  ],
+  "supporting_evidence": [],
   "spot_notes": "spot-specific notes or empty string",
   "perp_notes": "perp-specific notes or empty string",
   "missing_data": ["missing data item"]

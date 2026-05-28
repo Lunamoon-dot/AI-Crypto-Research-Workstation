@@ -1,4 +1,5 @@
 import { JsonRecord } from '../database/journal.types';
+import { researchItemTextList } from './research-evidence';
 
 export interface WorkspacePermissionDto {
   user_id: string;
@@ -1736,6 +1737,7 @@ export function toAgentOpinionResponse(
 export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   const summary = recordValue(thesis.structured_summary);
   const evidence = recordValue(thesis.evidence);
+  const monitorNext = researchItemTextList(thesis.monitor_next);
   const entryZone = firstString(thesis.entry_zone, summary.entry_zone);
   const invalidation = firstString(
     thesis.invalidation_level,
@@ -1779,7 +1781,8 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     supporting_signal_ids: stringList(thesis.supporting_signal_ids),
     contradicting_signal_ids: stringList(thesis.contradicting_signal_ids),
     stale_or_missing_data: stringList(thesis.stale_or_missing_data),
-    monitor_next: stringList(thesis.monitor_next),
+    monitor_next:
+      monitorNext.length > 0 ? monitorNext : researchItemTextList(summary.monitor_next),
   };
 }
 
@@ -2456,8 +2459,8 @@ function toThesisSummaryResponse(
     upside_catalyst: stringValue(summary.upside_catalyst),
     invalidation,
     target_zones: targetZones,
-    key_reasons: stringList(summary.key_reasons),
-    risks: stringList(summary.risks),
+    key_reasons: researchItemTextList(summary.key_reasons),
+    risks: researchItemTextList(summary.risks),
     spot_notes: stringValue(summary.spot_notes),
     perp_notes: stringValue(summary.perp_notes),
     missing_data: stringList(summary.missing_data),

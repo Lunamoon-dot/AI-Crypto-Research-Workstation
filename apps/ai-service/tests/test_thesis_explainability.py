@@ -146,6 +146,140 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
 
 
+def test_graph_preserves_object_first_research_evidence_contract():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.5)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_evidence_contract",
+        symbol="BTC/USDT",
+        workspace_id="workspace_1",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if reclaim holds.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.66,
+              "action_summary": "Constructive while reclaim holds",
+              "entry_zone": "Pullback near support",
+              "invalidation": "Close back below support",
+              "target_zones": ["range high"],
+              "key_reasons": [
+                {
+                  "text": "Market structure improved after reclaiming the prior range.",
+                  "supporting_evidence": [
+                    {
+                      "text": "BTC reclaimed the prior range and held above it into close.",
+                      "evidence_kind": "observed",
+                      "source_artifact": "market_snapshot",
+                      "source_field": "payload.market_structure",
+                      "strength": "medium"
+                    }
+                  ],
+                  "confidence": "medium"
+                }
+              ],
+              "risks": [
+                {
+                  "text": "Funding data is unavailable for this run.",
+                  "supporting_evidence": [
+                    {
+                      "message": "Funding feed was unavailable during collection.",
+                      "evidence_kind": "missing",
+                      "source_artifact": "research_run"
+                    },
+                    {
+                      "evidence_kind": "observed",
+                      "source_artifact": "market_snapshot"
+                    }
+                  ],
+                  "severity": "medium"
+                }
+              ],
+              "monitor_next": [
+                {
+                  "text": "Watch whether BTC accepts above resistance.",
+                  "supporting_evidence": [
+                    {
+                      "text": "Prior rejection zone remains overhead.",
+                      "evidence_kind": "invalid-kind",
+                      "source_artifact": "funding_feed",
+                      "strength": "high"
+                    }
+                  ],
+                  "trigger": "daily close above resistance"
+                }
+              ],
+              "supporting_evidence": [
+                {
+                  "text": "Portfolio manager synthesis favors patience until confirmation.",
+                  "evidence_kind": "reasoning",
+                  "source_artifact": "trade_thesis"
+                }
+              ],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert summary is not None
+    payload = summary.model_dump(mode="json")
+    assert payload["key_reasons"][0]["text"] == (
+        "Market structure improved after reclaiming the prior range."
+    )
+    assert payload["key_reasons"][0]["supporting_evidence"] == [
+        {
+            "text": "BTC reclaimed the prior range and held above it into close.",
+            "evidence_kind": "observed",
+            "source_artifact": "market_snapshot",
+            "source_id": None,
+            "source_field": "payload.market_structure",
+            "evidence_type": None,
+            "strength": "medium",
+        }
+    ]
+    assert payload["risks"][0]["supporting_evidence"] == [
+        {
+            "text": "Funding feed was unavailable during collection.",
+            "evidence_kind": "missing",
+            "source_artifact": "research_run",
+            "source_id": None,
+            "source_field": None,
+            "evidence_type": None,
+            "strength": None,
+        }
+    ]
+    assert payload["monitor_next"][0]["supporting_evidence"][0] == {
+        "text": "Prior rejection zone remains overhead.",
+        "evidence_kind": "reasoning",
+        "source_artifact": "unknown",
+        "source_id": None,
+        "source_field": None,
+        "evidence_type": None,
+        "strength": "high",
+    }
+    assert payload["supporting_evidence"][0]["evidence_kind"] == "reasoning"
+    assert thesis.monitor_next == [
+        "Watch whether BTC accepts above resistance.",
+        "entry: Pullback near support",
+        "invalidation: Close back below support",
+        "target: range high",
+    ]
+    assert thesis.risk_notes == ["Funding data is unavailable for this run."]
+
+
 def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "SOL/USDT"
