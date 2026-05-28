@@ -269,6 +269,32 @@ class FakeJournalRepository implements JournalRepository {
     return this.continuityEntries.get(key(id, workspaceId)) ?? null;
   }
 
+  async listResearchRunsForContinuityRepair(
+    filters: { symbol?: string; from?: string; to?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.researchRuns.values()]
+      .filter((run) => run.workspace_id === workspaceId)
+      .filter((run) =>
+        ['completed', 'completed_degraded'].includes(String(run.status)),
+      )
+      .filter((run) => !filters.symbol || run.symbol === filters.symbol)
+      .filter((run) => {
+        const timestamp = String(run.completed_at ?? run.started_at ?? '');
+        return (
+          (!filters.from || timestamp >= filters.from) &&
+          (!filters.to || timestamp <= filters.to)
+        );
+      })
+      .sort(
+        (left, right) =>
+          String(left.completed_at ?? left.started_at ?? '').localeCompare(
+            String(right.completed_at ?? right.started_at ?? ''),
+          ) || String(left.id ?? '').localeCompare(String(right.id ?? '')),
+      )
+      .slice(0, filters.limit);
+  }
+
   async getLatestResearchContinuityEntryForRun(
     runId: string,
     workspaceId: string,
@@ -284,6 +310,94 @@ class FakeJournalRepository implements JournalRepository {
           String(b.generated_at ?? '').localeCompare(String(a.generated_at ?? '')) ||
           String(b.id ?? '').localeCompare(String(a.id ?? '')),
         )[0] ?? null
+    );
+  }
+
+  async getLatestResearchContinuityEntryBeforeRun(
+    symbol: string,
+    before: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.continuityEntries.values()]
+        .filter(
+          (entry) =>
+            entry.workspace_id === workspaceId &&
+            entry.symbol === symbol &&
+            entry.current_snapshot_id &&
+            ['completed', 'degraded'].includes(String(entry.status)),
+        )
+        .filter((entry) => {
+          const run = this.researchRuns.get(
+            key(String(entry.research_run_id ?? ''), workspaceId),
+          );
+          const timestamp = String(run?.completed_at ?? run?.started_at ?? '');
+          return Boolean(timestamp) && timestamp < before;
+        })
+        .sort((a, b) => {
+          const runA = this.researchRuns.get(
+            key(String(a.research_run_id ?? ''), workspaceId),
+          );
+          const runB = this.researchRuns.get(
+            key(String(b.research_run_id ?? ''), workspaceId),
+          );
+          return (
+            String(runB?.completed_at ?? runB?.started_at ?? '').localeCompare(
+              String(runA?.completed_at ?? runA?.started_at ?? ''),
+            ) ||
+            String(b.generated_at ?? '').localeCompare(String(a.generated_at ?? '')) ||
+            String(b.id ?? '').localeCompare(String(a.id ?? ''))
+          );
+        })[0] ?? null
+    );
+  }
+
+  async getLatestCompletedResearchRunForContinuity(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.researchRuns.values()]
+        .filter(
+          (run) =>
+            run.workspace_id === workspaceId &&
+            run.symbol === symbol &&
+            ['completed', 'completed_degraded'].includes(String(run.status)),
+        )
+        .sort(
+          (left, right) =>
+            String(right.completed_at ?? right.started_at ?? '').localeCompare(
+              String(left.completed_at ?? left.started_at ?? ''),
+            ) || String(right.id ?? '').localeCompare(String(left.id ?? '')),
+        )[0] ?? null
+    );
+  }
+
+  async findResearchContinuityRepairEntry(
+    identity: {
+      runId: string;
+      caseType: string;
+      repairVersion: string;
+      sourceEntryId?: string | null;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.continuityEntries.values()]
+        .filter(
+          (entry) =>
+            entry.workspace_id === workspaceId &&
+            entry.research_run_id === identity.runId,
+        )
+        .find((entry) => {
+          const repair = record(record(entry.payload).repair);
+          return (
+            repair.repair_version === identity.repairVersion &&
+            repair.case_type === identity.caseType &&
+            String(repair.source_entry_id ?? '') ===
+              String(identity.sourceEntryId ?? '')
+          );
+        }) ?? null
     );
   }
 
@@ -1956,6 +2070,8 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-continuity/symbols/{symbol}/state', ['get']],
     ['/research-continuity/symbols/{symbol}/entries', ['get']],
     ['/research-continuity/entries/{id}', ['get']],
+    ['/research-continuity/repair/preview', ['get']],
+    ['/research-continuity/repair/run', ['post']],
     ['/journal/runs/{id}/workspace', ['get']],
     ['/journal/runs/{id}/evidence-bundle', ['get']],
     ['/signals', ['get']],
@@ -7418,6 +7534,334 @@ test('research continuity manual regenerate is idempotent by default and require
     ).length,
     2,
   );
+});
+
+test('research continuity repair preview discovers V1.3 candidates and dry-run writes nothing', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_missing',
+    thesisId: 'thesis_repair_missing',
+    debateId: 'debate_repair_missing',
+    marketSnapshotId: 'market_repair_missing',
+    signalSnapshotId: 'signal_repair_missing',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_repair_skipped',
+    thesisId: 'thesis_repair_skipped',
+    debateId: 'debate_repair_skipped',
+    marketSnapshotId: 'market_repair_skipped',
+    signalSnapshotId: 'signal_repair_skipped',
+    stance: 'bullish',
+    thesisDirection: 'long',
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_repair_legacy',
+    thesisId: 'thesis_repair_legacy',
+    debateId: 'debate_repair_legacy',
+    marketSnapshotId: 'market_repair_legacy',
+    signalSnapshotId: 'signal_repair_legacy',
+    stance: 'bearish',
+    thesisDirection: 'short',
+  });
+  journal.continuityEntries.set(key('continuity_repair_skipped', 'workspace_a'), {
+    id: 'continuity_repair_skipped',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_repair_skipped',
+    current_snapshot_id: null,
+    previous_entry_id: null,
+    entry_type: 'skipped',
+    status: 'skipped',
+    generated_at: '2026-05-10T00:00:00.000Z',
+    summary: 'Continuity skipped.',
+    sections: [],
+    events: [],
+    snapshot_quality: { status: 'skipped', score: 0 },
+    source_run_ids: ['run_repair_skipped'],
+    writer_metadata: {},
+    payload: { skip_reason: 'insufficient_structured_data' },
+  });
+  journal.continuityEntries.set(key('continuity_repair_legacy', 'workspace_a'), {
+    id: 'continuity_repair_legacy',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_repair_legacy',
+    current_snapshot_id: null,
+    previous_entry_id: null,
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-05-10T01:00:00.000Z',
+    summary: 'Legacy continuity entry.',
+    sections: [],
+    events: [],
+    snapshot_quality: { status: 'clean', score: 1 },
+    source_run_ids: ['run_repair_legacy'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+  const entryCount = journal.continuityEntries.size;
+  const snapshotCount = journal.researchSnapshots.size;
+  const stateCount = journal.continuityStates.size;
+
+  const preview = await researchContinuity.previewRepair(
+    { case_types: 'missing_continuity,skipped_or_degraded,legacy_evidence', limit: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  const eligible = preview.candidates.filter((candidate) => candidate.eligible);
+  assert.equal(preview.dry_run, true);
+  assert.equal(preview.candidate_count, preview.candidates.length);
+  assert.ok(
+    eligible.some(
+      (candidate) =>
+        candidate.run_id === 'run_repair_missing' &&
+        candidate.case_type === 'missing_continuity' &&
+        candidate.predicted_action === 'create_repair_entry',
+    ),
+  );
+  assert.ok(
+    eligible.some(
+      (candidate) =>
+        candidate.run_id === 'run_repair_skipped' &&
+        candidate.case_type === 'skipped_or_degraded',
+    ),
+  );
+  assert.ok(
+    eligible.some(
+      (candidate) =>
+        candidate.run_id === 'run_repair_legacy' &&
+        candidate.case_type === 'legacy_evidence',
+    ),
+  );
+  assert.equal(journal.continuityEntries.size, entryCount);
+  assert.equal(journal.researchSnapshots.size, snapshotCount);
+  assert.equal(journal.continuityStates.size, stateCount);
+
+  const dryRun = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity', 'skipped_or_degraded', 'legacy_evidence'],
+      limit: 10,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(dryRun.dry_run, true);
+  assert.equal(dryRun.repaired_count, 0);
+  assert.ok(dryRun.results.some((result) => result.action === 'dry_run'));
+  assert.equal(journal.continuityEntries.size, entryCount);
+  assert.equal(journal.researchSnapshots.size, snapshotCount);
+  assert.equal(journal.continuityStates.size, stateCount);
+});
+
+test('research continuity repair requires editor access', async () => {
+  const { researchContinuity } = buildHarness();
+
+  await assert.rejects(
+    () =>
+      researchContinuity.previewRepair(
+        { case_types: 'missing_continuity', limit: 5 },
+        'viewer_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+  await assert.rejects(
+    () =>
+      researchContinuity.runRepair(
+        {
+          case_types: ['missing_continuity'],
+          limit: 5,
+          dry_run: false,
+        },
+        'viewer_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+});
+
+test('research continuity repair execution is append-only and idempotent', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_execute',
+    thesisId: 'thesis_repair_execute',
+    debateId: 'debate_repair_execute',
+    marketSnapshotId: 'market_repair_execute',
+    signalSnapshotId: 'signal_repair_execute',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+  });
+
+  const executed = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(executed.dry_run, false);
+  assert.equal(executed.repaired_count, 1);
+  const created = executed.results.find(
+    (result) => result.run_id === 'run_repair_execute',
+  );
+  assert.equal(created?.action, 'created_repair_entry');
+  assert.ok(created?.new_entry_id);
+  const repairEntry = await journal.getResearchContinuityEntry(
+    String(created?.new_entry_id),
+    'workspace_a',
+  );
+  assert.ok(repairEntry);
+  assert.equal(record(record(repairEntry.payload).repair).case_type, 'missing_continuity');
+  assert.equal(record(record(repairEntry.payload).repair).repair_version, 'research-continuity-v1.3');
+  assert.equal(record(record(repairEntry.payload).repair).source_run_id, 'run_repair_execute');
+  assert.equal(record(record(repairEntry.payload).repair).source_entry_id, null);
+  assert.ok(
+    records(repairEntry.sections).some((section) => section.title === 'Repair Context'),
+  );
+
+  const repeated = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(repeated.repaired_count, 0);
+  assert.ok(
+    repeated.results.some(
+      (result) =>
+        result.run_id === 'run_repair_execute' &&
+        result.action === 'already_repaired',
+    ),
+  );
+  assert.equal(
+    [...journal.continuityEntries.values()].filter(
+      (entry) => entry.research_run_id === 'run_repair_execute',
+    ).length,
+    1,
+  );
+});
+
+test('research continuity repair reports already_has_continuity when a normal entry appears before execution', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_race',
+    thesisId: 'thesis_repair_race',
+    debateId: 'debate_repair_race',
+    marketSnapshotId: 'market_repair_race',
+    signalSnapshotId: 'signal_repair_race',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const preview = await researchContinuity.previewRepair(
+    { case_types: 'missing_continuity', limit: 5 },
+    'user_1',
+    'workspace_a',
+  );
+  assert.ok(
+    preview.candidates.some(
+      (candidate) =>
+        candidate.run_id === 'run_repair_race' &&
+        candidate.predicted_action === 'create_repair_entry',
+    ),
+  );
+
+  await researchContinuity.generateForRun(
+    'run_repair_race',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const executed = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.ok(
+    executed.results.some(
+      (result) =>
+        result.run_id === 'run_repair_race' &&
+        result.action === 'already_has_continuity',
+    ),
+  );
+  assert.equal(
+    [...journal.continuityEntries.values()].filter(
+      (entry) => entry.research_run_id === 'run_repair_race',
+    ).length,
+    1,
+  );
+});
+
+test('research continuity repair does not move state backward for historical repairs', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_old',
+    thesisId: 'thesis_repair_old',
+    debateId: 'debate_repair_old',
+    marketSnapshotId: 'market_repair_old',
+    signalSnapshotId: 'signal_repair_old',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_repair_latest2',
+    thesisId: 'thesis_repair_latest2',
+    debateId: 'debate_repair_latest2',
+    marketSnapshotId: 'market_repair_latest2',
+    signalSnapshotId: 'signal_repair_latest2',
+    stance: 'bullish',
+    thesisDirection: 'long',
+  });
+  const oldRun = journal.researchRuns.get(key('run_repair_old', 'workspace_a'));
+  const latestRun = journal.researchRuns.get(key('run_repair_latest2', 'workspace_a'));
+  assert.ok(oldRun);
+  assert.ok(latestRun);
+  oldRun.completed_at = '2026-05-10T00:00:00.000Z';
+  oldRun.started_at = '2026-05-10T00:00:00.000Z';
+  latestRun.completed_at = '2026-05-13T00:00:00.000Z';
+  latestRun.started_at = '2026-05-13T00:00:00.000Z';
+
+  const latest = await researchContinuity.generateForRun(
+    'run_repair_latest2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const repaired = await researchContinuity.runRepair(
+    {
+      symbol: 'BTC/USDT',
+      from: '2026-05-10T00:00:00.000Z',
+      to: '2026-05-10T23:59:59.999Z',
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const oldRepair = repaired.results.find(
+    (result) => result.run_id === 'run_repair_old',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(oldRepair?.action, 'created_repair_entry');
+  assert.equal(oldRepair?.state_updated, false);
+  assert.equal(state.state?.latest_run_id, 'run_repair_latest2');
+  assert.equal(state.state?.latest_entry_id, latest.entry.id);
 });
 
 test('research workspace derives stage timings from run events', async () => {

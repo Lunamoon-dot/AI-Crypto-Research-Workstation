@@ -1157,6 +1157,84 @@ a {
   word-break: normal;
 }
 
+.research-continuity-repair {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.research-continuity-repair-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.research-continuity-repair-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.research-continuity-repair-form .input {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.research-continuity-repair-cases,
+.research-continuity-repair-actions,
+.research-continuity-repair-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.research-continuity-repair-cases {
+  grid-column: 1 / -1;
+}
+
+.checkbox-row {
+  display: inline-flex !important;
+  width: fit-content;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.checkbox-row input {
+  margin: 0;
+}
+
+.research-continuity-repair-actions {
+  grid-column: 1 / -1;
+}
+
+.research-continuity-repair-results {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.research-continuity-repair-table {
+  min-width: 980px;
+}
+
+.research-continuity-repair-table td:nth-child(7),
+.research-continuity-repair-table td:nth-child(6) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .continuity-report-toolbar,
 .continuity-report-status,
 .continuity-report-actions,
@@ -3343,6 +3421,13 @@ button.thesis-pulse-row.active {
   width: 84px;
   text-align: center;
   white-space: nowrap;
+}
+
+.research-continuity-repair-table td:last-child,
+.research-continuity-repair-table th:last-child {
+  width: auto;
+  text-align: left;
+  white-space: normal;
 }
 
 .invalidation-preview {

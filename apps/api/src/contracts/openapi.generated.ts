@@ -252,6 +252,34 @@ export const openApiDocument = {
         ),
       },
     },
+    '/research-continuity/repair/preview': {
+      get: {
+        operationId: 'previewResearchContinuityRepair',
+        tags: ['research-continuity'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('from', { type: 'string', format: 'date-time' }),
+          queryParameter('to', { type: 'string', format: 'date-time' }),
+          queryParameter('case_types', { type: 'string' }),
+          limitParameter(25, 100),
+        ],
+        responses: jsonResponse(
+          'Dry-run repair and backfill candidates.',
+          'ResearchContinuityRepairPreviewResponse',
+        ),
+      },
+    },
+    '/research-continuity/repair/run': {
+      post: {
+        operationId: 'runResearchContinuityRepair',
+        tags: ['research-continuity'],
+        requestBody: jsonRequest('RunResearchContinuityRepairRequest'),
+        responses: jsonResponse(
+          'Repair and backfill execution results.',
+          'ResearchContinuityRepairRunResponse',
+        ),
+      },
+    },
     '/research-continuity/entries/{id}': {
       get: {
         operationId: 'getResearchContinuityEntry',
@@ -3525,6 +3553,154 @@ export const openApiDocument = {
           entries: {
             type: 'array',
             items: { $ref: '#/components/schemas/ResearchContinuityEntryResponse' },
+          },
+        },
+      },
+      RunResearchContinuityRepairRequest: {
+        type: 'object',
+        required: ['case_types', 'limit'],
+        properties: {
+          symbol: { type: 'string' },
+          from: { type: 'string', format: 'date-time' },
+          to: { type: 'string', format: 'date-time' },
+          case_types: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: [
+                'missing_continuity',
+                'skipped_or_degraded',
+                'legacy_evidence',
+              ],
+            },
+          },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+          dry_run: { type: 'boolean', default: true },
+        },
+      },
+      ResearchContinuityRepairCandidateResponse: {
+        type: 'object',
+        required: [
+          'candidate_id',
+          'run_id',
+          'symbol',
+          'run_completed_at',
+          'case_type',
+          'current_entry_id',
+          'current_entry_status',
+          'current_entry_type',
+          'eligible',
+          'reason',
+          'predicted_action',
+          'repair_version',
+        ],
+        properties: {
+          candidate_id: { type: 'string' },
+          run_id: { type: 'string' },
+          symbol: { type: 'string' },
+          run_completed_at: { type: ['string', 'null'] },
+          case_type: {
+            type: 'string',
+            enum: [
+              'missing_continuity',
+              'skipped_or_degraded',
+              'legacy_evidence',
+            ],
+          },
+          current_entry_id: { type: ['string', 'null'] },
+          current_entry_status: { type: ['string', 'null'] },
+          current_entry_type: { type: ['string', 'null'] },
+          eligible: { type: 'boolean' },
+          reason: { type: 'string' },
+          blocked_reason: { type: ['string', 'null'] },
+          predicted_action: {
+            type: 'string',
+            enum: [
+              'create_repair_entry',
+              'already_repaired',
+              'already_has_continuity',
+              'not_eligible',
+              'not_improved',
+            ],
+          },
+          repair_version: {
+            type: 'string',
+            enum: ['research-continuity-v1.3'],
+          },
+        },
+      },
+      ResearchContinuityRepairPreviewResponse: {
+        type: 'object',
+        required: ['dry_run', 'candidate_count', 'candidates'],
+        properties: {
+          dry_run: { type: 'boolean', const: true },
+          candidate_count: { type: 'integer' },
+          candidates: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityRepairCandidateResponse',
+            },
+          },
+        },
+      },
+      ResearchContinuityRepairRunResultResponse: {
+        type: 'object',
+        required: [
+          'candidate_id',
+          'run_id',
+          'symbol',
+          'case_type',
+          'action',
+          'previous_entry_id',
+          'new_entry_id',
+          'state_updated',
+          'reason',
+        ],
+        properties: {
+          candidate_id: { type: 'string' },
+          run_id: { type: 'string' },
+          symbol: { type: 'string' },
+          case_type: { type: 'string' },
+          action: {
+            type: 'string',
+            enum: [
+              'created_repair_entry',
+              'already_repaired',
+              'already_has_continuity',
+              'dry_run',
+              'not_eligible',
+              'not_improved',
+              'failed',
+            ],
+          },
+          previous_entry_id: { type: ['string', 'null'] },
+          new_entry_id: { type: ['string', 'null'] },
+          state_updated: { type: 'boolean' },
+          reason: { type: 'string' },
+          error: { type: ['string', 'null'] },
+        },
+      },
+      ResearchContinuityRepairRunResponse: {
+        type: 'object',
+        required: [
+          'dry_run',
+          'requested_count',
+          'repaired_count',
+          'skipped_count',
+          'failed_count',
+          'results',
+        ],
+        properties: {
+          dry_run: { type: 'boolean' },
+          requested_count: { type: 'integer' },
+          repaired_count: { type: 'integer' },
+          skipped_count: { type: 'integer' },
+          failed_count: { type: 'integer' },
+          results: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityRepairRunResultResponse',
+            },
           },
         },
       },

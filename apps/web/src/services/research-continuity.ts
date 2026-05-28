@@ -8,7 +8,11 @@ import type {
   GenerateResearchContinuityResponse,
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityRepairPreviewRequest,
+  ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunResponse,
   ResearchContinuityStateEnvelopeResponse,
+  RunResearchContinuityRepairRequest,
 } from '@/types';
 
 export function getResearchRunContinuity(
@@ -41,6 +45,20 @@ export function listResearchContinuityEntries(
   return generatedClient(auth).listResearchContinuityEntries(symbol, params);
 }
 
+export function previewResearchContinuityRepair(
+  params: ResearchContinuityRepairPreviewRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).previewResearchContinuityRepair(params);
+}
+
+export function runResearchContinuityRepair(
+  request: RunResearchContinuityRepairRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).runResearchContinuityRepair(request);
+}
+
 function generatedClient(auth: WorkspaceRequestContext) {
   return createApiClient((path, options) =>
     apiRequest(path, options, auth),
@@ -52,5 +70,9 @@ export type {
   GenerateResearchContinuityResponse,
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityRepairPreviewRequest,
+  ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunResponse,
   ResearchContinuityStateEnvelopeResponse,
+  RunResearchContinuityRepairRequest,
 };

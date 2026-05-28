@@ -1347,8 +1347,90 @@ export interface ResearchContinuityEntriesResponse {
   entries: ResearchContinuityEntryResponse[];
 }
 
+export type ResearchContinuityRepairCaseType =
+  | 'missing_continuity'
+  | 'skipped_or_degraded'
+  | 'legacy_evidence';
+
+export type ResearchContinuityRepairPredictedAction =
+  | 'create_repair_entry'
+  | 'already_repaired'
+  | 'already_has_continuity'
+  | 'not_eligible'
+  | 'not_improved';
+
+export type ResearchContinuityRepairRunAction =
+  | 'created_repair_entry'
+  | 'already_repaired'
+  | 'already_has_continuity'
+  | 'dry_run'
+  | 'not_eligible'
+  | 'not_improved'
+  | 'failed';
+
+export interface ResearchContinuityRepairCandidateResponse {
+  candidate_id: string;
+  run_id: string;
+  symbol: string;
+  run_completed_at: string | null;
+  case_type: ResearchContinuityRepairCaseType;
+  current_entry_id: string | null;
+  current_entry_status: string | null;
+  current_entry_type: string | null;
+  eligible: boolean;
+  reason: string;
+  blocked_reason?: string | null;
+  predicted_action: ResearchContinuityRepairPredictedAction;
+  repair_version: 'research-continuity-v1.3';
+}
+
+export interface ResearchContinuityRepairPreviewResponse {
+  dry_run: true;
+  candidate_count: number;
+  candidates: ResearchContinuityRepairCandidateResponse[];
+}
+
+export interface ResearchContinuityRepairRunResultResponse {
+  candidate_id: string;
+  run_id: string;
+  symbol: string;
+  case_type: ResearchContinuityRepairCaseType;
+  action: ResearchContinuityRepairRunAction;
+  previous_entry_id: string | null;
+  new_entry_id: string | null;
+  state_updated: boolean;
+  reason: string;
+  error?: string | null;
+}
+
+export interface ResearchContinuityRepairRunResponse {
+  dry_run: boolean;
+  requested_count: number;
+  repaired_count: number;
+  skipped_count: number;
+  failed_count: number;
+  results: ResearchContinuityRepairRunResultResponse[];
+}
+
 export type GenerateResearchContinuityRequest = {
   force?: boolean;
+};
+
+export type ResearchContinuityRepairPreviewRequest = {
+  symbol?: string;
+  from?: string;
+  to?: string;
+  case_types?: ResearchContinuityRepairCaseType[];
+  limit?: number;
+};
+
+export type RunResearchContinuityRepairRequest = {
+  symbol?: string;
+  from?: string;
+  to?: string;
+  case_types: ResearchContinuityRepairCaseType[];
+  limit: number;
+  dry_run?: boolean;
 };
 
 export interface EvidenceBundleResponse {
