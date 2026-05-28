@@ -29,7 +29,7 @@ export const router = createBrowserRouter([
       { path: 'workbench', element: <WorkbenchPage /> },
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
-      { path: 'research/continuity', element: <ResearchContinuityPage /> },
+      { path: 'research-continuity', element: <ResearchContinuityPage /> },
       { path: 'performance', element: <PerformanceAnalyticsPage /> },
       { path: 'calibration', element: <CalibrationLabPage /> },
       { path: 'compare', element: <RunComparisonPage /> },

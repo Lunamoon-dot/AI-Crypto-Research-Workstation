@@ -2,14 +2,14 @@ import { JsonRecord } from '../database/journal.types';
 
 export const CONTINUITY_SECTION_TITLES = [
   'Summary',
-  'View Change',
-  'What Changed',
-  'What Stayed Valid',
-  'What Became Invalid / Less Useful',
-  'New Risks',
-  'Resolved or Reduced Risks',
-  'Watch Next',
-  'Data Quality / Limitations',
+  'Current View',
+  'Material Changes',
+  'Reinforced And Updated Claims',
+  'Risks And Invalidations',
+  'Watchpoints And Levels',
+  'Resolved Or Weakened Items',
+  'Source And Evidence Trace',
+  'Data Quality',
 ] as const;
 
 export class ContinuityReportRenderer {
@@ -24,55 +24,73 @@ export class ContinuityReportRenderer {
     const sections = [
       section('Summary', [summary], 'No continuity summary available.'),
       section(
-        'View Change',
-        eventReasons(input.events, ['view_changed', 'view_observed', 'baseline_initialized']),
-        'No material view change detected.',
+        'Current View',
+        currentViewItems(input.snapshot, input.previousState, input.events),
+        'No current symbol view available.',
       ),
       section(
-        'What Changed',
-        eventReasons(input.events, [
+        'Material Changes',
+        eventLines(input.events, [
+          'view_changed',
           'claim_added',
-          'claim_weakened',
+          'claim_updated',
           'risk_added',
+          'risk_updated',
           'watchpoint_added',
+          'watchpoint_updated',
           'level_added',
+          'level_updated',
           'invalidation_added',
+          'invalidation_updated',
           'data_quality_changed',
           'agent_conflict_changed',
         ]),
         'No material changes detected.',
       ),
       section(
-        'What Stayed Valid',
-        eventReasons(input.events, [
-          'claim_reinforced',
+        'Reinforced And Updated Claims',
+        eventLines(input.events, ['claim_reinforced', 'claim_updated']),
+        'No reinforced or updated claims detected.',
+      ),
+      section(
+        'Risks And Invalidations',
+        eventLines(input.events, [
+          'risk_added',
           'risk_reinforced',
-          'watchpoint_carried',
+          'risk_updated',
+          'invalidation_added',
+          'invalidation_updated',
         ]),
-        'No carried-forward items detected.',
+        'No risk or invalidation changes detected.',
       ),
       section(
-        'What Became Invalid / Less Useful',
-        eventReasons(input.events, ['claim_weakened', 'level_invalidated']),
-        'No invalidated or weakened items in this run.',
+        'Watchpoints And Levels',
+        eventLines(input.events, [
+          'watchpoint_added',
+          'watchpoint_carried',
+          'watchpoint_updated',
+          'level_added',
+          'level_updated',
+        ]),
+        'No watchpoint or level changes detected.',
       ),
       section(
-        'New Risks',
-        eventReasons(input.events, ['risk_added']),
-        'No new risks identified.',
+        'Resolved Or Weakened Items',
+        eventLines(input.events, [
+          'claim_weakened',
+          'risk_resolved',
+          'watchpoint_resolved',
+          'level_invalidated',
+        ]),
+        'No resolved or weakened items in this run.',
       ),
       section(
-        'Resolved or Reduced Risks',
-        eventReasons(input.events, ['risk_resolved']),
-        'No resolved risks in this run.',
+        'Source And Evidence Trace',
+        traceItems(input.snapshot, input.previousState),
+        'No source or evidence trace available.',
       ),
       section(
-        'Watch Next',
-        watchNext(input.snapshot, input.events),
-        'No new watchpoints from this run.',
-      ),
-      section(
-        'Data Quality / Limitations',
+        'Data Quality',
         dataQualityItems(input.snapshot, input.skippedReason),
         'No new limitations reported.',
       ),
@@ -82,7 +100,7 @@ export class ContinuityReportRenderer {
       sections,
       writerMetadata: {
         writer_source: 'deterministic_renderer',
-        report_version: 'research_continuity.v1',
+        report_version: 'research_continuity.v1.1',
       },
     };
   }
@@ -104,9 +122,15 @@ function summaryText(input: {
     return 'Continuity entry saved with degraded snapshot quality; state updates were constrained.';
   }
   const changed = input.events.filter((event) =>
-    ['view_changed', 'claim_added', 'risk_added', 'watchpoint_added'].includes(
-      stringValue(event.event_type),
-    ),
+    [
+      'view_changed',
+      'claim_added',
+      'claim_updated',
+      'risk_added',
+      'risk_updated',
+      'watchpoint_added',
+      'watchpoint_updated',
+    ].includes(stringValue(event.event_type)),
   ).length;
   return changed > 0
     ? `Daily Research Delta recorded ${changed} material continuity changes.`
@@ -121,20 +145,67 @@ function section(title: string, items: string[], emptyState: string): JsonRecord
   };
 }
 
-function eventReasons(events: JsonRecord[], eventTypes: string[]): string[] {
+function currentViewItems(
+  snapshot: JsonRecord | null,
+  previousState: JsonRecord | null,
+  events: JsonRecord[],
+): string[] {
+  const view = recordValue(snapshot?.symbol_view ?? previousState?.current_view);
+  const viewItems = [
+    ['Directional bias', view.directional_bias],
+    ['Risk posture', view.risk_posture],
+    ['Conviction', view.conviction],
+    ['Time context', view.time_context],
+  ]
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([label, value]) => `${label}: ${String(value)}.`);
+  return [...viewItems, ...eventLines(events, ['view_changed'])];
+}
+
+function eventLines(events: JsonRecord[], eventTypes: string[]): string[] {
   return events
     .filter((event) => eventTypes.includes(stringValue(event.event_type)))
-    .map((event) => stringValue(event.reason))
+    .map(formatEventLine)
     .filter(Boolean);
 }
 
-function watchNext(snapshot: JsonRecord | null, events: JsonRecord[]): string[] {
-  const eventItems = eventReasons(events, ['watchpoint_added', 'watchpoint_carried']);
-  const snapshotItems = arrayRecords(snapshot?.tracked_items)
-    .filter((item) => stringValue(item.type) === 'watchpoint')
-    .map((item) => stringValue(item.text))
-    .filter(Boolean);
-  return [...eventItems, ...snapshotItems];
+function formatEventLine(event: JsonRecord): string {
+  const eventType = stringValue(event.event_type);
+  if (eventType.endsWith('_updated')) {
+    const previousText = stringValue(event.previous_text);
+    const currentText = stringValue(event.current_text);
+    if (previousText && currentText && previousText !== currentText) {
+      return `${eventType}: "${previousText}" -> "${currentText}".`;
+    }
+  }
+  return stringValue(event.reason);
+}
+
+function traceItems(
+  snapshot: JsonRecord | null,
+  previousState: JsonRecord | null,
+): string[] {
+  const quality = recordValue(snapshot?.data_quality);
+  const identityQuality = recordValue(quality.identity_quality);
+  const items = arrayRecords(snapshot?.tracked_items);
+  const legacyStateItemCount = arrayRecords(previousState?.active_items).filter(
+    (item) => !item.item_key_version || !item.trace_quality,
+  ).length;
+  const lowTraceItems = items
+    .filter((item) =>
+      ['unsourced', 'sourced'].includes(stringValue(item.trace_quality)),
+    )
+    .slice(0, 5)
+    .map((item) => `${stringValue(item.type, 'item')}: ${stringValue(item.text)}`);
+  return [
+    coverageLine('Source coverage', quality.source_coverage),
+    coverageLine('Evidence coverage', quality.evidence_coverage),
+    `Fallback identity count: ${numberText(identityQuality.fallback_hash_count)}.`,
+    legacyStateItemCount > 0
+      ? `Legacy state items without V1.1 trace fields: ${legacyStateItemCount}.`
+      : '',
+    ...lowTraceItems.map((item) => `Low-trace item: ${item}`),
+  ].filter(Boolean);
 }
 
 function dataQualityItems(
@@ -148,10 +219,30 @@ function dataQualityItems(
   const status = stringValue(quality.status);
   const score = quality.score;
   const reasons = stringList(quality.reasons);
+  const provenanceStatus = stringValue(quality.provenance_status);
+  const provenanceReasons = stringList(quality.provenance_reasons);
   return [
     status ? `Snapshot quality: ${status}${score === undefined ? '' : ` (${score})`}.` : '',
+    provenanceStatus ? `Provenance status: ${provenanceStatus}.` : '',
     ...reasons,
+    ...provenanceReasons,
   ].filter(Boolean);
+}
+
+function coverageLine(label: string, value: unknown): string {
+  if (value === undefined || value === null || value === '') {
+    return '';
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return `${label}: ${String(value)}.`;
+  }
+  return `${label}: ${Math.round(numeric * 100)}%.`;
+}
+
+function numberText(value: unknown): string {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? String(numeric) : '0';
 }
 
 function recordValue(value: unknown): JsonRecord {
@@ -175,9 +266,9 @@ function stringList(value: unknown): string[] {
     : [];
 }
 
-function stringValue(value: unknown): string {
+function stringValue(value: unknown, fallback = ''): string {
   if (value === null || value === undefined || value === '') {
-    return '';
+    return fallback;
   }
   return String(value);
 }

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6789,6 +6790,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
 
   assert.equal(baseline.created, true);
   assert.equal(baseline.entry.entry_type, 'baseline');
+  assert.equal(baseline.entry.snapshot_quality.evidence_coverage, 0);
   assert.equal(delta.entry.entry_type, 'delta');
   assert.equal(delta.entry.previous_entry_id, baseline.entry.id);
   assert.equal(runEntry?.id, delta.entry.id);
@@ -6799,14 +6801,14 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     delta.entry.sections.map((section: { title: string }) => section.title),
     [
       'Summary',
-      'View Change',
-      'What Changed',
-      'What Stayed Valid',
-      'What Became Invalid / Less Useful',
-      'New Risks',
-      'Resolved or Reduced Risks',
-      'Watch Next',
-      'Data Quality / Limitations',
+      'Current View',
+      'Material Changes',
+      'Reinforced And Updated Claims',
+      'Risks And Invalidations',
+      'Watchpoints And Levels',
+      'Resolved Or Weakened Items',
+      'Source And Evidence Trace',
+      'Data Quality',
     ],
   );
   assert.ok(
@@ -6817,6 +6819,244 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.ok(
     !JSON.stringify(delta.entry).toLowerCase().includes('correct'),
   );
+});
+
+test('research continuity V1.1 enriches snapshots with claims, provenance, evidence, and quality metrics', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v11_snapshot',
+    thesisId: 'thesis_btc_v11_snapshot',
+    debateId: 'debate_btc_v11_snapshot',
+    marketSnapshotId: 'market_btc_v11_snapshot',
+    signalSnapshotId: 'signal_btc_v11_snapshot',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is crowded.'],
+    monitorNext: ['Watch spot bid follow-through.'],
+  });
+  const thesis = journal.theses.get(key('thesis_btc_v11_snapshot', 'workspace_a'));
+  assert.ok(thesis);
+  thesis.summary = {
+    ...record(thesis.summary),
+    key_reasons: [
+      'Market structure remains the main driver.',
+      'Funding is crowded.',
+    ],
+    why_this_thesis: 'Spot demand keeps absorbing shallow pullbacks.',
+    supporting_evidence: ['Spot bid stayed firm.', 'Funding reset after the squeeze.'],
+  };
+  thesis.payload = {
+    structured_summary: {
+      key_reasons: ['Open interest expansion confirms participation.'],
+      supporting_evidence: ['OI rose with price instead of against it.'],
+    },
+  };
+
+  await researchContinuity.generateForRun(
+    'run_btc_v11_snapshot',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_btc_v11_snapshot',
+    'workspace_a',
+  );
+  assert.ok(snapshot);
+  const trackedItems = records(snapshot.tracked_items);
+  const claims = trackedItems.filter((item) => item.type === 'claim');
+  const risks = trackedItems.filter((item) => item.type === 'risk');
+  const marketStructureClaim = claims.find((item) =>
+    String(item.text).includes('Market structure remains'),
+  );
+  const fundingRisk = risks.find((item) =>
+    String(item.text).includes('Funding is crowded'),
+  );
+
+  assert.ok(marketStructureClaim);
+  assert.ok(fundingRisk);
+  assert.equal(
+    claims.some((item) => item.text === 'Funding is crowded.'),
+    false,
+  );
+  assert.equal(marketStructureClaim.source_artifact, 'thesis');
+  assert.equal(marketStructureClaim.source_id, 'thesis_btc_v11_snapshot');
+  assert.equal(marketStructureClaim.source_field, 'summary.key_reasons[0]');
+  assert.equal(marketStructureClaim.item_key_version, 'v1.1');
+  assert.match(String(marketStructureClaim.item_key), /^claim:market_structure:/);
+  assert.match(String(marketStructureClaim.legacy_item_key), /^claim:/);
+  assert.equal(
+    marketStructureClaim.canonical_text,
+    'market structure remains main driver',
+  );
+  assert.deepEqual(marketStructureClaim.identity_terms, ['market_structure']);
+  assert.equal(marketStructureClaim.identity_confidence, 'high');
+  assert.equal(marketStructureClaim.trace_quality, 'evidence_backed');
+  assert.deepEqual(marketStructureClaim.evidence, [
+    'Spot bid stayed firm.',
+    'Funding reset after the squeeze.',
+    'OI rose with price instead of against it.',
+  ]);
+
+  const quality = record(snapshot.data_quality);
+  assert.equal(quality.tracked_item_count, trackedItems.length);
+  assert.equal(quality.claim_count, claims.length);
+  assert.equal(quality.risk_count, risks.length);
+  assert.equal(quality.unsourced_item_count, 0);
+  assert.equal(quality.source_coverage, 1);
+  assert.equal(quality.evidence_attached_count, trackedItems.length);
+  assert.equal(quality.evidence_coverage, 1);
+  assert.equal(record(quality.identity_quality).fallback_hash_ratio, 0);
+  assert.equal(quality.provenance_status, 'clean');
+});
+
+test('research continuity V1.1 matches legacy item keys without fake churn', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  const riskText = 'Funding is crowded.';
+  journal.continuityStates.set(key('BTC/USDT', 'workspace_a'), {
+    id: 'continuity_state_BTC_USDT',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    latest_entry_id: 'continuity_legacy',
+    latest_run_id: 'run_legacy',
+    current_view: {
+      directional_bias: 'neutral',
+      risk_posture: 'balanced',
+      conviction: 'medium',
+      time_context: 'daily_context',
+    },
+    active_items: [
+      {
+        item_key: legacyItemKey('risk', riskText),
+        type: 'risk',
+        status: 'active',
+        text: riskText,
+        importance: 'medium',
+      },
+    ],
+    recent_resolved_items: [],
+    recent_invalidated_items: [],
+    data_quality: { status: 'clean', score: 1 },
+    updated_at: '2026-05-20T10:00:00.000Z',
+  });
+  journal.continuityEntries.set(key('continuity_legacy', 'workspace_a'), {
+    id: 'continuity_legacy',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_legacy',
+    generated_at: '2026-05-20T10:00:00.000Z',
+    entry_type: 'delta',
+    status: 'completed',
+    summary: 'Legacy entry.',
+    sections: [],
+    events: [],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v11_legacy_match',
+    thesisId: 'thesis_btc_v11_legacy_match',
+    debateId: 'debate_btc_v11_legacy_match',
+    marketSnapshotId: 'market_btc_v11_legacy_match',
+    signalSnapshotId: 'signal_btc_v11_legacy_match',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+    risks: [riskText],
+  });
+
+  const delta = await researchContinuity.generateForRun(
+    'run_btc_v11_legacy_match',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_btc_v11_legacy_match',
+    'workspace_a',
+  );
+  const currentRisk = records(snapshot?.tracked_items).find(
+    (item) => item.type === 'risk' && item.text === riskText,
+  );
+  assert.ok(currentRisk);
+  assert.notEqual(currentRisk.item_key, legacyItemKey('risk', riskText));
+  assert.equal(currentRisk.legacy_item_key, legacyItemKey('risk', riskText));
+
+  const eventTypes = delta.entry.events.map((event) => event.event_type);
+  assert.equal(eventTypes.includes('risk_added'), false);
+  assert.equal(eventTypes.includes('risk_resolved'), false);
+  assert.ok(
+    eventTypes.includes('risk_reinforced') ||
+      eventTypes.includes('risk_updated'),
+  );
+});
+
+test('research continuity V1.1 emits update events and preserves item lifecycle metadata', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v11_update_1',
+    thesisId: 'thesis_btc_v11_update_1',
+    debateId: 'debate_btc_v11_update_1',
+    marketSnapshotId: 'market_btc_v11_update_1',
+    signalSnapshotId: 'signal_btc_v11_update_1',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+    risks: ['Funding is slightly elevated.'],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v11_update_2',
+    thesisId: 'thesis_btc_v11_update_2',
+    debateId: 'debate_btc_v11_update_2',
+    marketSnapshotId: 'market_btc_v11_update_2',
+    signalSnapshotId: 'signal_btc_v11_update_2',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+    risks: ['Funding is extremely overheated.'],
+  });
+
+  await researchContinuity.generateForRun(
+    'run_btc_v11_update_1',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const delta = await researchContinuity.generateForRun(
+    'run_btc_v11_update_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+
+  const riskUpdated = delta.entry.events.find(
+    (event) => event.event_type === 'risk_updated',
+  );
+  assert.ok(riskUpdated);
+  assert.deepEqual(riskUpdated.changed_fields, ['text', 'canonical_text']);
+  assert.equal(riskUpdated.previous_text, 'Funding is slightly elevated.');
+  assert.equal(riskUpdated.current_text, 'Funding is extremely overheated.');
+  assert.equal(record(riskUpdated.source).source_artifact, 'thesis');
+  assert.equal(record(riskUpdated.source).source_field, 'summary.risks[0]');
+  assert.equal(
+    delta.entry.events.some((event) => event.event_type === 'risk_added'),
+    false,
+  );
+  assert.equal(
+    delta.entry.events.some((event) => event.event_type === 'risk_resolved'),
+    false,
+  );
+
+  const activeRisk = records(state.state?.active_items).find(
+    (item) => item.type === 'risk',
+  );
+  assert.ok(activeRisk);
+  assert.equal(activeRisk.first_seen_run_id, 'run_btc_v11_update_1');
+  assert.equal(activeRisk.last_seen_run_id, 'run_btc_v11_update_2');
+  assert.equal(activeRisk.occurrence_count, 2);
+  assert.equal(activeRisk.previous_text, 'Funding is slightly elevated.');
+  assert.equal(activeRisk.current_text, 'Funding is extremely overheated.');
 });
 
 test('research continuity skips insufficient runs and constrains degraded state updates', async () => {
@@ -8212,6 +8452,28 @@ function buildMarketDataHarness() {
 
 function key(id: string, workspaceId: string): string {
   return `${workspaceId}:${id}`;
+}
+
+function record(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function records(value: unknown): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is JsonRecord =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+    : [];
+}
+
+function legacyItemKey(type: string, text: string): string {
+  return `${type}:${createHash('sha1')
+    .update(text.trim().toLowerCase().replace(/\s+/g, ' '))
+    .digest('hex')
+    .slice(0, 12)}`;
 }
 
 function seedContinuityRun(

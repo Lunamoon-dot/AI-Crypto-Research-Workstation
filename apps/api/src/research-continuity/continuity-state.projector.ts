@@ -19,7 +19,7 @@ export class ContinuityStateProjector {
       ? recordValue(snapshot.symbol_view)
       : recordValue(previousState?.current_view);
     const activeItems = canUpdateItems
-      ? arrayRecords(snapshot.tracked_items)
+      ? lifecycleItems(previousState, snapshot, entry, events)
       : arrayRecords(previousState?.active_items);
     const resolved = events
       .filter((event) =>
@@ -52,12 +52,71 @@ export class ContinuityStateProjector {
       data_quality: quality,
       updated_at: stringValue(entry.generated_at, new Date().toISOString()),
       payload: {
-        schema_version: 'research_continuity_state.v1',
+        schema_version: 'research_continuity_state.v1.1',
         last_entry_type: stringValue(entry.entry_type),
         last_status: stringValue(entry.status),
       },
     };
   }
+}
+
+function lifecycleItems(
+  previousState: JsonRecord | null,
+  snapshot: JsonRecord,
+  entry: JsonRecord,
+  events: JsonRecord[],
+): JsonRecord[] {
+  const snapshotItems = arrayRecords(snapshot.tracked_items);
+  const capturedAt = stringValue(
+    snapshot.captured_at ?? entry.generated_at,
+    new Date().toISOString(),
+  );
+  const currentRunId = stringValue(
+    snapshot.research_run_id ?? entry.research_run_id,
+  );
+  return snapshotItems.map((item) => {
+    const matchedPrevious = matchedPreviousItem(item, events);
+    const previousOccurrence = numberValue(matchedPrevious?.occurrence_count);
+    const firstSeenAt =
+      nullableString(matchedPrevious?.first_seen_at) ??
+      nullableString(previousState?.updated_at) ??
+      capturedAt;
+    const firstSeenRunId =
+      nullableString(matchedPrevious?.first_seen_run_id) ??
+      nullableString(previousState?.latest_run_id) ??
+      currentRunId;
+    return {
+      ...item,
+      first_seen_at: firstSeenAt,
+      first_seen_run_id: firstSeenRunId,
+      last_seen_at: capturedAt,
+      last_seen_run_id: currentRunId,
+      occurrence_count: matchedPrevious ? Math.max(previousOccurrence, 1) + 1 : 1,
+      previous_text: matchedPrevious
+        ? stringValue(matchedPrevious.current_text ?? matchedPrevious.text)
+        : null,
+      current_text: stringValue(item.text),
+    };
+  });
+}
+
+function matchedPreviousItem(
+  item: JsonRecord,
+  events: JsonRecord[],
+): JsonRecord | null {
+  const itemKey = stringValue(item.item_key);
+  const legacyItemKey = stringValue(item.legacy_item_key);
+  const match = events.find((event) => {
+    const eventTo = recordValue(event.to);
+    return (
+      recordValue(event.from) &&
+      (stringValue(event.item_key) === itemKey ||
+        stringValue(eventTo.item_key) === itemKey ||
+        (legacyItemKey && stringValue(event.item_key) === legacyItemKey))
+    );
+  });
+  const previous = recordValue(match?.from);
+  return Object.keys(previous).length > 0 ? previous : null;
 }
 
 function recordValue(value: unknown): JsonRecord {

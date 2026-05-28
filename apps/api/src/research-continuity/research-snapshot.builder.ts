@@ -16,6 +16,46 @@ export interface ResearchSnapshotBuildResult {
   skippedReason: string | null;
 }
 
+type TrackedItemType = 'claim' | 'risk' | 'watchpoint' | 'level' | 'invalidation';
+type Importance = 'low' | 'medium' | 'high';
+
+interface TrackedItemSeed {
+  type: TrackedItemType;
+  text: string;
+  importance: Importance;
+  source_artifact: string | null;
+  source_id: string | null;
+  source_field: string | null;
+  attributes?: JsonRecord;
+}
+
+const TYPE_PRIORITY: Record<TrackedItemType, number> = {
+  invalidation: 5,
+  risk: 4,
+  watchpoint: 3,
+  level: 2,
+  claim: 1,
+};
+
+const STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'for',
+  'from',
+  'in',
+  'is',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'with',
+]);
+
 export class ResearchSnapshotBuilder {
   build(input: ResearchSnapshotBuildInput): ResearchSnapshotBuildResult {
     const runId = stringValue(input.run.id ?? input.run.run_id);
@@ -40,11 +80,11 @@ export class ResearchSnapshotBuilder {
       };
     }
 
-    const quality = snapshotQuality(input);
-    if (quality.skipped) {
+    const baseQuality = snapshotQuality(input);
+    if (baseQuality.skipped) {
       return {
         snapshot: null,
-        quality,
+        quality: baseQuality,
         skippedReason: 'insufficient_structured_data',
       };
     }
@@ -65,12 +105,17 @@ export class ResearchSnapshotBuilder {
       conviction: conviction(input),
       time_context: timeContext,
     };
-    const trackedItems = uniqueTrackedItems([
-      ...riskItems(input.thesis, input.agentOpinions),
-      ...watchpointItems(input.thesis),
-      ...invalidationItems(input.thesis, input.agentOpinions),
-      ...levelItems(input.thesis),
-    ]);
+    const evidence = evidenceItems(input);
+    const trackedItems = dedupeTrackedItems(
+      [
+        ...riskItems(input.thesis, input.agentOpinions),
+        ...watchpointItems(input.thesis),
+        ...invalidationItems(input.thesis, input.agentOpinions),
+        ...levelItems(input.thesis),
+        ...claimItems(input.thesis),
+      ].map((seed) => trackedItem(seed, evidence)),
+    );
+    const quality = snapshotQualityWithTrackedItems(baseQuality, trackedItems);
     const sourceArtifacts = {
       debate_id: nullableString(input.debate?.id ?? input.run.debate_id),
       agent_opinion_ids: input.agentOpinions
@@ -96,7 +141,7 @@ export class ResearchSnapshotBuilder {
       data_quality: quality,
       source_artifacts: sourceArtifacts,
       payload: {
-        schema_version: 'research_snapshot.v1',
+        schema_version: 'research_snapshot.v1.1',
         run_status: stringValue(input.run.status, 'unknown'),
         market: input.marketSnapshot
           ? {
@@ -165,6 +210,60 @@ function snapshotQuality(input: ResearchSnapshotBuildInput): JsonRecord {
     artifact_count: artifactCount,
     skipped,
     can_update_top_level_view: !skipped && roundedScore >= 0.65,
+  };
+}
+
+function snapshotQualityWithTrackedItems(
+  baseQuality: JsonRecord,
+  items: JsonRecord[],
+): JsonRecord {
+  const trackedItemCount = items.length;
+  const counts = {
+    claim_count: countItems(items, 'claim'),
+    risk_count: countItems(items, 'risk'),
+    watchpoint_count: countItems(items, 'watchpoint'),
+    level_count: countItems(items, 'level'),
+    invalidation_count: countItems(items, 'invalidation'),
+  };
+  const sourcedItemCount = items.filter(
+    (item) => stringValue(item.trace_quality) !== 'unsourced',
+  ).length;
+  const unsourcedItemCount = trackedItemCount - sourcedItemCount;
+  const evidenceAttachedCount = items.filter(
+    (item) => stringList(item.evidence).length > 0,
+  ).length;
+  const fallbackHashCount = items.filter(
+    (item) => stringValue(item.identity_confidence) !== 'high',
+  ).length;
+  const highConfidenceIdentityCount = items.filter(
+    (item) => stringValue(item.identity_confidence) === 'high',
+  ).length;
+  const provenanceReasons = [
+    unsourcedItemCount > 0
+      ? `${unsourcedItemCount} tracked items missing source provenance`
+      : '',
+    fallbackHashCount > 0
+      ? `${fallbackHashCount} tracked items use fallback text identity`
+      : '',
+  ].filter(Boolean);
+
+  return {
+    ...baseQuality,
+    tracked_item_count: trackedItemCount,
+    ...counts,
+    sourced_item_count: sourcedItemCount,
+    unsourced_item_count: unsourcedItemCount,
+    source_coverage: ratio(sourcedItemCount, trackedItemCount),
+    evidence_attached_count: evidenceAttachedCount,
+    evidence_coverage: ratio(evidenceAttachedCount, trackedItemCount),
+    identity_quality: {
+      stable_key_count: trackedItemCount - fallbackHashCount,
+      fallback_hash_count: fallbackHashCount,
+      fallback_hash_ratio: ratio(fallbackHashCount, trackedItemCount),
+      high_confidence_identity_count: highConfidenceIdentityCount,
+    },
+    provenance_status: provenanceReasons.length === 0 ? 'clean' : 'partial',
+    provenance_reasons: provenanceReasons,
   };
 }
 
@@ -262,70 +361,281 @@ function conviction(input: ResearchSnapshotBuildInput): string {
   return 'low';
 }
 
-function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): JsonRecord[] {
+function claimItems(thesis: JsonRecord | null): TrackedItemSeed[] {
+  const thesisId = nullableString(thesis?.id);
   const summary = recordValue(thesis?.summary);
-  const risks = [
-    ...stringList(thesis?.risks),
-    ...stringList(summary.risks),
-    ...opinions.flatMap((opinion) => stringList(recordValue(opinion.payload).risks)),
+  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  return [
+    ...indexedStrings(summary.key_reasons, (text, index) =>
+      seedItem('claim', text, 'medium', 'thesis', thesisId, `summary.key_reasons[${index}]`),
+    ),
+    ...singleString(summary.why_this_thesis, (text) =>
+      seedItem('claim', text, 'medium', 'thesis', thesisId, 'summary.why_this_thesis'),
+    ),
+    ...singleString(thesis?.why_this_thesis, (text) =>
+      seedItem('claim', text, 'medium', 'thesis', thesisId, 'why_this_thesis'),
+    ),
+    ...indexedStrings(payloadSummary.key_reasons, (text, index) =>
+      seedItem(
+        'claim',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        `payload.structured_summary.key_reasons[${index}]`,
+      ),
+    ),
+    ...singleString(payloadSummary.why_this_thesis, (text) =>
+      seedItem(
+        'claim',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        'payload.structured_summary.why_this_thesis',
+      ),
+    ),
   ];
-  return risks.map((risk) => trackedItem('risk', risk, 'medium'));
 }
 
-function watchpointItems(thesis: JsonRecord | null): JsonRecord[] {
+function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): TrackedItemSeed[] {
+  const thesisId = nullableString(thesis?.id);
+  const summary = recordValue(thesis?.summary);
   return [
-    ...stringList(thesis?.monitor_next),
-    ...stringList(recordValue(thesis?.summary).monitor_next),
-  ].map((item) => trackedItem('watchpoint', item, 'medium'));
+    ...indexedStrings(summary.risks, (text, index) =>
+      seedItem('risk', text, 'medium', 'thesis', thesisId, `summary.risks[${index}]`),
+    ),
+    ...indexedStrings(thesis?.risks, (text, index) =>
+      seedItem('risk', text, 'medium', 'thesis', thesisId, `risks[${index}]`),
+    ),
+    ...opinions.flatMap((opinion) => {
+      const payload = recordValue(opinion.payload);
+      return indexedStrings(payload.risks, (text, index) =>
+        seedItem(
+          'risk',
+          text,
+          'medium',
+          'agent_opinion',
+          nullableString(opinion.id),
+          `payload.risks[${index}]`,
+        ),
+      );
+    }),
+  ];
+}
+
+function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {
+  const thesisId = nullableString(thesis?.id);
+  const summary = recordValue(thesis?.summary);
+  return [
+    ...indexedStrings(thesis?.monitor_next, (text, index) =>
+      seedItem('watchpoint', text, 'medium', 'thesis', thesisId, `monitor_next[${index}]`),
+    ),
+    ...indexedStrings(summary.monitor_next, (text, index) =>
+      seedItem(
+        'watchpoint',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        `summary.monitor_next[${index}]`,
+      ),
+    ),
+  ];
 }
 
 function invalidationItems(
   thesis: JsonRecord | null,
   opinions: JsonRecord[],
-): JsonRecord[] {
-  const invalidations = [
-    nullableString(thesis?.invalidation_level),
-    nullableString(recordValue(thesis?.summary).invalidation),
-    ...opinions.map((opinion) => nullableString(recordValue(opinion.payload).invalidation)),
-  ].filter((value): value is string => Boolean(value));
-  return invalidations.map((item) => trackedItem('invalidation', item, 'high'));
+): TrackedItemSeed[] {
+  const thesisId = nullableString(thesis?.id);
+  const summary = recordValue(thesis?.summary);
+  return [
+    ...singleString(thesis?.invalidation_level, (text) =>
+      seedItem('invalidation', text, 'high', 'thesis', thesisId, 'invalidation_level'),
+    ),
+    ...singleString(summary.invalidation, (text) =>
+      seedItem('invalidation', text, 'high', 'thesis', thesisId, 'summary.invalidation'),
+    ),
+    ...opinions.flatMap((opinion) =>
+      singleString(recordValue(opinion.payload).invalidation, (text) =>
+        seedItem(
+          'invalidation',
+          text,
+          'high',
+          'agent_opinion',
+          nullableString(opinion.id),
+          'payload.invalidation',
+        ),
+      ),
+    ),
+  ];
 }
 
-function levelItems(thesis: JsonRecord | null): JsonRecord[] {
-  return stringList(thesis?.target_zones ?? recordValue(thesis?.summary).target_zones).map(
-    (item) => trackedItem('level', item, 'medium'),
+function levelItems(thesis: JsonRecord | null): TrackedItemSeed[] {
+  const thesisId = nullableString(thesis?.id);
+  const summary = recordValue(thesis?.summary);
+  const source = thesis?.target_zones ?? summary.target_zones;
+  const sourceField = thesis?.target_zones ? 'target_zones' : 'summary.target_zones';
+  return indexedStrings(source, (text, index) =>
+    seedItem('level', text, 'medium', 'thesis', thesisId, `${sourceField}[${index}]`),
   );
 }
 
-function trackedItem(
-  type: 'claim' | 'risk' | 'watchpoint' | 'level' | 'invalidation',
+function evidenceItems(input: ResearchSnapshotBuildInput): string[] {
+  const thesis = input.thesis;
+  const summary = recordValue(thesis?.summary);
+  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  return uniqueStrings([
+    ...stringList(summary.supporting_evidence),
+    ...stringList(thesis?.supporting_evidence),
+    ...stringList(payloadSummary.supporting_evidence),
+    ...input.agentOpinions.flatMap((opinion) => {
+      const payload = recordValue(opinion.payload);
+      return [
+        ...stringList(payload.evidence),
+        ...stringList(payload.supporting_evidence),
+      ];
+    }),
+  ]);
+}
+
+function seedItem(
+  type: TrackedItemType,
   text: string,
-  importance: 'low' | 'medium' | 'high',
-): JsonRecord {
+  importance: Importance,
+  sourceArtifact: string | null,
+  sourceId: string | null,
+  sourceField: string | null,
+): TrackedItemSeed {
   return {
-    item_key: `${type}:${hashKey(normalizedText(text))}`,
     type,
-    status: 'active',
     text,
     importance,
-    evidence: [],
-    source_artifact: 'research_snapshot',
-    source_id: null,
+    source_artifact: sourceArtifact,
+    source_id: sourceId,
+    source_field: sourceField,
   };
 }
 
-function uniqueTrackedItems(items: JsonRecord[]): JsonRecord[] {
-  const seen = new Set<string>();
-  const result: JsonRecord[] = [];
+function trackedItem(seed: TrackedItemSeed, evidence: string[]): JsonRecord {
+  const canonical = canonicalText(seed.text);
+  const identityTerms = identityTermsFor(seed.text);
+  const hasSource = Boolean(seed.source_artifact || seed.source_id || seed.source_field);
+  const identityConfidence = identityConfidenceFor(canonical, identityTerms, hasSource);
+  const topic = identityTerms[0] ?? 'text';
+  const identitySeed =
+    identityTerms.length > 0 ? identityTerms.join('|') : canonical || normalizedText(seed.text);
+  const stableKeyPart = identityTerms.length > 0 ? topic : 'text';
+  const itemEvidence = evidence.length > 0 ? evidence : [];
+  return {
+    item_key: `${seed.type}:${stableKeyPart}:${hashKey(identitySeed)}`,
+    legacy_item_key: legacyItemKey(seed.type, seed.text),
+    item_key_version: 'v1.1',
+    type: seed.type,
+    topic,
+    status: 'active',
+    text: seed.text,
+    canonical_text: canonical,
+    identity_terms: identityTerms,
+    identity_confidence: identityConfidence,
+    trace_quality: traceQuality(hasSource, itemEvidence.length > 0),
+    importance: seed.importance,
+    attributes: seed.attributes ?? {},
+    evidence: itemEvidence,
+    source_artifact: seed.source_artifact,
+    source_id: seed.source_id,
+    source_field: seed.source_field,
+  };
+}
+
+function dedupeTrackedItems(items: JsonRecord[]): JsonRecord[] {
+  const byIdentity = new Map<string, JsonRecord>();
   for (const item of items) {
-    const key = stringValue(item.item_key);
-    if (!key || seen.has(key)) {
+    const key = dedupeKey(item);
+    const existing = byIdentity.get(key);
+    if (!existing) {
+      byIdentity.set(key, item);
       continue;
     }
-    seen.add(key);
-    result.push(item);
+    if (typePriority(item) > typePriority(existing)) {
+      byIdentity.set(key, item);
+    }
   }
-  return result;
+  return [...byIdentity.values()];
+}
+
+function dedupeKey(item: JsonRecord): string {
+  const terms = stringList(item.identity_terms);
+  if (terms.length > 0) {
+    return `terms:${terms.join('|')}`;
+  }
+  return `text:${stringValue(item.canonical_text)}`;
+}
+
+function typePriority(item: JsonRecord): number {
+  const type = stringValue(item.type) as TrackedItemType;
+  return TYPE_PRIORITY[type] ?? 0;
+}
+
+function canonicalText(value: string): string {
+  return normalizedText(value)
+    .replace(/[$€£]?\d[\d,.]*(?:\.\d+)?%?/g, '<number>')
+    .replace(/[^a-z0-9_<>\s]/g, ' ')
+    .split(/\s+/)
+    .filter((part) => part && !STOPWORDS.has(part))
+    .join(' ');
+}
+
+function identityTermsFor(value: string): string[] {
+  const normalized = normalizedText(value);
+  const terms: string[] = [];
+  if (/\bmarket\s+structure\b/.test(normalized)) {
+    terms.push('market_structure');
+  }
+  if (/\b(perp\s+)?funding(\s+rates?)?\b/.test(normalized)) {
+    terms.push('funding');
+  }
+  if (/\b(late\s+longs?|long\s+entries|chasing\s+longs?)\b/.test(normalized)) {
+    terms.push('long_entry');
+  }
+  if (/\b(break(?:\s+back)?\s+below|lost\s+support|breakdown)\b/.test(normalized)) {
+    terms.push('break_below');
+  }
+  if (/\b(spot\s+bid|spot\s+demand)\b/.test(normalized)) {
+    terms.push('spot_demand');
+  }
+  if (/\b(open\s+interest|oi)\b/.test(normalized)) {
+    terms.push('open_interest');
+  }
+  return uniqueStrings(terms);
+}
+
+function identityConfidenceFor(
+  canonical: string,
+  identityTerms: string[],
+  hasSource: boolean,
+): 'high' | 'medium' | 'low' {
+  if (identityTerms.length > 0) {
+    return 'high';
+  }
+  if (hasSource && canonical.length >= 16) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function traceQuality(
+  hasSource: boolean,
+  hasEvidence: boolean,
+): 'evidence_backed' | 'sourced' | 'unsourced' {
+  if (hasSource && hasEvidence) {
+    return 'evidence_backed';
+  }
+  if (hasSource) {
+    return 'sourced';
+  }
+  return 'unsourced';
 }
 
 function timeContextValue(run: JsonRecord, thesis: JsonRecord | null): string {
@@ -341,6 +651,10 @@ function timeContextValue(run: JsonRecord, thesis: JsonRecord | null): string {
 
 function hashKey(value: string): string {
   return createHash('sha1').update(value).digest('hex').slice(0, 12);
+}
+
+function legacyItemKey(type: TrackedItemType, text: string): string {
+  return `${type}:${hashKey(normalizedText(text))}`;
 }
 
 function normalizedText(value: string): string {
@@ -360,6 +674,16 @@ function recordValue(value: unknown): JsonRecord {
 function nullableString(value: unknown): string | null {
   if (value === null || value === undefined || value === '') {
     return null;
+  }
+  if (typeof value === 'object') {
+    const record = recordValue(value);
+    return nullableString(
+      record.text ??
+        record.summary ??
+        record.reason ??
+        record.description ??
+        JSON.stringify(value),
+    );
   }
   return String(value);
 }
@@ -384,6 +708,32 @@ function stringList(value: unknown): string[] {
   }
   const text = nullableString(value);
   return text ? [text] : [];
+}
+
+function indexedStrings(
+  value: unknown,
+  mapper: (text: string, index: number) => TrackedItemSeed,
+): TrackedItemSeed[] {
+  return stringList(value).map((text, index) => mapper(text, index));
+}
+
+function singleString(
+  value: unknown,
+  mapper: (text: string) => TrackedItemSeed,
+): TrackedItemSeed[] {
+  const text = nullableString(value);
+  return text ? [mapper(text)] : [];
+}
+
+function countItems(items: JsonRecord[], type: TrackedItemType): number {
+  return items.filter((item) => stringValue(item.type) === type).length;
+}
+
+function ratio(numerator: number, denominator: number): number {
+  if (denominator === 0) {
+    return 0;
+  }
+  return Number((numerator / denominator).toFixed(2));
 }
 
 function uniqueStrings(values: string[]): string[] {

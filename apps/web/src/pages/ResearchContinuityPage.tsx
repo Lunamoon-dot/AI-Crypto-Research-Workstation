@@ -1,31 +1,41 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, History, RefreshCw } from 'lucide-react';
+import {
+  Activity,
+  FileText,
+  History,
+  Layers,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import {
   getResearchContinuityState,
   listResearchContinuityEntries,
 } from '@/services/research-continuity';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
-import { BentoGrid, DataPair } from '@/components/research/bento';
+import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
-import { StatusBadge } from '@/components/research/badges';
+import { IdChip, StatusBadge } from '@/components/research/badges';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import type {
+  JsonRecord,
   ResearchContinuityEntryResponse,
   ResearchContinuityStateResponse,
 } from '@/types';
 
+const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
+
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialSymbol = searchParams.get('symbol') ?? 'BTC/USDT';
-  const [symbolInput, setSymbolInput] = useState(initialSymbol);
-  const symbol = useMemo(() => initialSymbol.trim() || 'BTC/USDT', [initialSymbol]);
+  const selectedSymbol = searchParams.get('symbol') ?? 'BTC/USDT';
+  const [symbolInput, setSymbolInput] = useState(selectedSymbol);
+  const symbol = useMemo(() => selectedSymbol.trim() || 'BTC/USDT', [selectedSymbol]);
   const auth = useWorkspaceStore();
   const stateQuery = useQuery({
     queryKey: queryKeys.researchContinuityState(symbol),
@@ -34,8 +44,8 @@ export function ResearchContinuityPage() {
     retry: false,
   });
   const entriesQuery = useQuery({
-    queryKey: queryKeys.researchContinuityEntries({ symbol, limit: 20 }),
-    queryFn: () => listResearchContinuityEntries(symbol, { limit: 20 }, auth),
+    queryKey: queryKeys.researchContinuityEntries({ symbol, limit: 10 }),
+    queryFn: () => listResearchContinuityEntries(symbol, { limit: 10 }, auth),
     enabled: Boolean(symbol),
     retry: false,
   });
@@ -50,12 +60,14 @@ export function ResearchContinuityPage() {
 
   const state = stateQuery.data?.state ?? null;
   const entries = entriesQuery.data?.entries ?? [];
+  const latestEntry = stateQuery.data?.latest_entry ?? entries[0] ?? null;
+  const quality = record(state?.data_quality ?? latestEntry?.snapshot_quality);
 
   return (
     <main className="page">
       <PageHeader
-        eyebrow="Research Continuity"
-        title="Daily Research Delta"
+        eyebrow="Luna Research"
+        title="Research Continuity"
         description={symbol}
         action={
           <form className="top-strip-meta" onSubmit={applySymbol}>
@@ -80,55 +92,30 @@ export function ResearchContinuityPage() {
         }
       />
 
+      {stateQuery.isError ? <ErrorState error={stateQuery.error} /> : null}
+      {entriesQuery.isError ? <ErrorState error={entriesQuery.error} /> : null}
+
       <BentoGrid>
-        <Panel className="span-4 emphasis" title="Latest state">
+        <Panel className="span-4 emphasis" title="Current View">
           {stateQuery.isLoading ? <LoadingState label="Loading continuity state..." /> : null}
-          {stateQuery.isError ? <ErrorState error={stateQuery.error} /> : null}
-          {!stateQuery.isLoading && !stateQuery.isError ? (
-            <ContinuityStateSummary state={state} />
-          ) : null}
+          {!stateQuery.isLoading ? <CurrentView state={state} latestEntry={latestEntry} /> : null}
         </Panel>
 
-        <Panel className="span-8" title="Current view">
-          {state ? (
-            <div className="stack">
-              <div className="bento-grid compact">
-                {Object.entries(state.current_view).map(([name, value]) => (
-                  <DataPair key={name} label={name.replaceAll('_', ' ')} value={String(value)} />
-                ))}
-              </div>
-              <details>
-                <summary className="button">Raw state</summary>
-                <JsonView value={state} />
-              </details>
-            </div>
-          ) : (
-            <EmptyState label="No continuity state for this symbol yet." />
-          )}
+        <Panel className="span-8" title="Trust And Quality">
+          <TrustQuality quality={quality} />
         </Panel>
 
-        <Panel className="span-5" title="Active tracked items">
-          {state?.active_items.length ? (
-            <div className="stack">
-              {state.active_items.slice(0, 8).map((item, index) => (
-                <div className="list-row" key={String(item.item_key ?? index)}>
-                  <div className="row">
-                    <strong>{String(item.type ?? 'item')}</strong>
-                    <span className="badge">{String(item.importance ?? 'medium')}</span>
-                  </div>
-                  <p className="small muted">{String(item.text ?? '')}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState label="No active tracked items." />
-          )}
+        <Panel className="span-7" title="Active Items">
+          <ActiveItems state={state} />
         </Panel>
 
-        <Panel className="span-7" title="Recent entries">
+        <Panel className="span-5" title="Latest Delta Report">
+          <LatestReport entry={latestEntry} />
+        </Panel>
+
+        <Panel className="span-12" title="Recent Entries">
           {entriesQuery.isLoading ? <LoadingState label="Loading continuity entries..." /> : null}
-          {entriesQuery.isError ? <ErrorState error={entriesQuery.error} /> : null}
-          {!entriesQuery.isLoading && !entriesQuery.isError && entries.length === 0 ? (
+          {!entriesQuery.isLoading && entries.length === 0 ? (
             <EmptyState label="No Daily Research Delta entries found." />
           ) : null}
           <div className="stack">
@@ -142,33 +129,138 @@ export function ResearchContinuityPage() {
   );
 }
 
-function ContinuityStateSummary({
+function CurrentView({
   state,
+  latestEntry,
 }: {
   state: ResearchContinuityStateResponse | null;
+  latestEntry: ResearchContinuityEntryResponse | null;
 }) {
   if (!state) {
-    return <EmptyState label="Continuity state has not been initialized." />;
+    return <EmptyState label="No continuity state for this symbol yet." />;
   }
+  const view = record(state.current_view);
   return (
-    <div className="stack small">
-      <DataPair label="Symbol" value={state.symbol} />
-      <DataPair label="Updated" value={formatDateTime(state.updated_at)} />
-      <DataPair label="Latest run" value={state.latest_run_id ?? 'n/a'} />
-      <DataPair label="Latest entry" value={state.latest_entry_id ?? 'n/a'} />
-      <DataPair
-        label="Quality"
-        value={String(state.data_quality.status ?? 'unknown')}
-      />
+    <div className="stack">
+      <div className="bento-grid compact">
+        <DataPair label="Directional bias" value={stringValue(view.directional_bias)} />
+        <DataPair label="Risk posture" value={stringValue(view.risk_posture)} />
+        <DataPair label="Conviction" value={stringValue(view.conviction)} />
+        <DataPair label="Time context" value={stringValue(view.time_context)} />
+        <DataPair label="Latest run" value={<IdChip value={state.latest_run_id} />} />
+        <DataPair label="Latest entry" value={<IdChip value={state.latest_entry_id} />} />
+      </div>
       <div className="row">
         <span className="badge primary">
           <Activity aria-hidden size={13} />
           {state.active_items.length} active
         </span>
-        <span className="badge">
-          <History aria-hidden size={13} />
-          {state.recent_resolved_items.length} resolved
-        </span>
+        <StatusBadge value={latestEntry?.status ?? 'unknown'} />
+        <span className="small muted">{formatDateTime(state.updated_at)}</span>
+      </div>
+    </div>
+  );
+}
+
+function TrustQuality({ quality }: { quality: JsonRecord }) {
+  const identityQuality = record(quality.identity_quality);
+  const trackedCount = numberValue(quality.tracked_item_count);
+  const stableCount = numberValue(identityQuality.stable_key_count);
+  const stableCoverage = trackedCount > 0 ? stableCount / trackedCount : null;
+  return (
+    <div className="bento-grid compact">
+      <MetricTile
+        icon={<ShieldCheck aria-hidden size={15} />}
+        label="Snapshot status"
+        value={stringValue(quality.status, 'unknown')}
+        meta={quality.score === undefined ? null : `Score ${String(quality.score)}`}
+        tone={stringValue(quality.status) === 'clean' ? 'constructive' : 'warning'}
+      />
+      <MetricTile
+        icon={<Layers aria-hidden size={15} />}
+        label="Source coverage"
+        value={formatCoverage(quality.source_coverage)}
+        meta={`${numberValue(quality.sourced_item_count)} sourced`}
+        tone="primary"
+      />
+      <MetricTile
+        icon={<FileText aria-hidden size={15} />}
+        label="Evidence coverage"
+        value={formatCoverage(quality.evidence_coverage)}
+        meta={`${numberValue(quality.evidence_attached_count)} evidence-backed`}
+        tone="constructive"
+      />
+      <MetricTile
+        icon={<Activity aria-hidden size={15} />}
+        label="Stable identity"
+        value={formatCoverage(stableCoverage)}
+        meta={`${numberValue(identityQuality.fallback_hash_count)} fallback`}
+        tone={numberValue(identityQuality.fallback_hash_count) > 0 ? 'warning' : 'constructive'}
+      />
+    </div>
+  );
+}
+
+function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null }) {
+  const items = records(state?.active_items);
+  if (items.length === 0) {
+    return <EmptyState label="No active tracked items." />;
+  }
+  return (
+    <div className="stack">
+      {ITEM_TYPES.map((type) => {
+        const group = items.filter((item) => item.type === type);
+        if (group.length === 0) {
+          return null;
+        }
+        return (
+          <section className="stack small" key={type}>
+            <div className="row">
+              <strong>{typeLabel(type)}</strong>
+              <span className="badge">{group.length}</span>
+            </div>
+            {group.map((item, index) => (
+              <div className="list-row" key={String(item.item_key ?? `${type}-${index}`)}>
+                <div className="row">
+                  <span className="badge">{stringValue(item.importance, 'medium')}</span>
+                  <TraceBadge value={stringValue(item.trace_quality, 'unsourced')} />
+                  <span className="small muted">
+                    {numberValue(item.occurrence_count) || 1} seen
+                  </span>
+                </div>
+                <p className="small muted">{stringValue(item.current_text ?? item.text)}</p>
+              </div>
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null }) {
+  if (!entry) {
+    return <EmptyState label="No latest continuity report." />;
+  }
+  return (
+    <div className="stack">
+      <div className="row">
+        <span className="badge primary">{entry.entry_type}</span>
+        <StatusBadge value={entry.status} />
+        <span className="small muted">{formatDateTime(entry.generated_at)}</span>
+      </div>
+      <p className="muted">{entry.summary}</p>
+      <div className="stack small">
+        {entry.sections.map((section) => (
+          <details key={section.title}>
+            <summary className="button">{section.title}</summary>
+            <ul className="stack small">
+              {section.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </details>
+        ))}
       </div>
     </div>
   );
@@ -198,4 +290,53 @@ function ContinuityEntryRow({
       </div>
     </div>
   );
+}
+
+function TraceBadge({ value }: { value: string }) {
+  const tone =
+    value === 'evidence_backed'
+      ? 'constructive'
+      : value === 'sourced'
+        ? 'primary'
+        : 'warning';
+  return <span className={`badge ${tone}`}>{value.replaceAll('_', ' ')}</span>;
+}
+
+function typeLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1) + 's';
+}
+
+function formatCoverage(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return 'n/a';
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(numeric * 100)}%` : String(value);
+}
+
+function record(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function records(value: unknown): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is JsonRecord =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+    : [];
+}
+
+function stringValue(value: unknown, fallback = 'n/a'): string {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  return String(value);
+}
+
+function numberValue(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }

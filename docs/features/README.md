@@ -33,7 +33,7 @@ Rules:
 | Feature | Latest doc | Status | Notes |
 | --- | --- | --- | --- |
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
-| Research Continuity | [research-continuity/v1/implementation-plan.md](research-continuity/v1/implementation-plan.md) | implemented | Daily symbol memory and diff reports across research runs. |
+| Research Continuity | [research-continuity/v1.1/implementation-plan.md](research-continuity/v1.1/implementation-plan.md) | goal-ready | Post-research continuity tracking, evidence trace, and symbol-level delta reports. |
 
 ## Standalone Plans To Promote When Active
 
