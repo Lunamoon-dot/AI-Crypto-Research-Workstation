@@ -7,6 +7,8 @@ import { Pool, PoolClient } from 'pg';
 import { randomUUID } from 'node:crypto';
 import {
   AgentCalibrationSourceFilters,
+  ContinuityRepairIdentity,
+  ContinuityRepairRunFilters,
   JournalRepository,
   JsonRecord,
   MaturedEvaluationThesisFilters,
@@ -478,6 +480,38 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     );
   }
 
+  async listResearchRunsForContinuityRepair(
+    filters: ContinuityRepairRunFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const where = [
+      'workspace_id = $1',
+      "status IN ('completed', 'completed_degraded')",
+    ];
+    const params: unknown[] = [workspaceId];
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    if (filters.from) {
+      params.push(filters.from);
+      where.push(`COALESCE(completed_at, started_at) >= $${params.length}::timestamptz`);
+    }
+    if (filters.to) {
+      params.push(filters.to);
+      where.push(`COALESCE(completed_at, started_at) <= $${params.length}::timestamptz`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT ${researchRunPayloadSql()} AS payload_json
+       FROM research_runs
+       WHERE ${where.join(' AND ')}
+       ORDER BY COALESCE(completed_at, started_at) ASC, id ASC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
   async getLatestResearchContinuityEntryForRun(
     runId: string,
     workspaceId: string,
@@ -489,6 +523,70 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
        ORDER BY generated_at DESC, id DESC
        LIMIT 1`,
       [runId, workspaceId],
+    );
+  }
+
+  async getLatestResearchContinuityEntryBeforeRun(
+    symbol: string,
+    before: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchContinuityEntryPayloadSql('entry')} AS payload_json
+       FROM research_continuity_entries entry
+       JOIN research_runs run
+         ON run.id = entry.research_run_id
+        AND run.workspace_id = entry.workspace_id
+       WHERE entry.workspace_id = $1
+         AND entry.symbol = $2
+         AND COALESCE(run.completed_at, run.started_at) < $3::timestamptz
+         AND entry.current_snapshot_id IS NOT NULL
+         AND entry.status IN ('completed', 'degraded')
+       ORDER BY COALESCE(run.completed_at, run.started_at) DESC,
+                entry.generated_at DESC,
+                entry.id DESC
+       LIMIT 1`,
+      [workspaceId, symbol, before],
+    );
+  }
+
+  async getLatestCompletedResearchRunForContinuity(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchRunPayloadSql()} AS payload_json
+       FROM research_runs
+       WHERE workspace_id = $1
+         AND symbol = $2
+         AND status IN ('completed', 'completed_degraded')
+       ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
+       LIMIT 1`,
+      [workspaceId, symbol],
+    );
+  }
+
+  async findResearchContinuityRepairEntry(
+    identity: ContinuityRepairIdentity,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
+       FROM research_continuity_entries
+       WHERE workspace_id = $1
+         AND research_run_id = $2
+         AND payload_json->'repair'->>'repair_version' = $3
+         AND payload_json->'repair'->>'case_type' = $4
+         AND COALESCE(payload_json->'repair'->>'source_entry_id', '') = COALESCE($5, '')
+       ORDER BY generated_at DESC, id DESC
+       LIMIT 1`,
+      [
+        workspaceId,
+        identity.runId,
+        identity.repairVersion,
+        identity.caseType,
+        identity.sourceEntryId ?? '',
+      ],
     );
   }
 
@@ -3126,6 +3224,30 @@ function researchSnapshotPayloadSql(alias = ''): string {
     'source_artifacts', ${p}source_artifacts_json,
     'source_artifacts_json', ${p}source_artifacts_json,
     'payload', ${p}payload_json
+  )`;
+}
+
+function researchRunPayloadSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `${p}payload_json || jsonb_build_object(
+    'id', ${p}id,
+    'workspace_id', ${p}workspace_id,
+    'symbol', ${p}symbol,
+    'asset_class', ${p}asset_class,
+    'timeframe', ${p}timeframe,
+    'status', ${p}status,
+    'started_at', ${p}started_at,
+    'completed_at', ${p}completed_at,
+    'market_snapshot_id', ${p}market_snapshot_id,
+    'signal_snapshot_id', ${p}signal_snapshot_id,
+    'debate_id', ${p}debate_id,
+    'thesis_id', ${p}thesis_id,
+    'decision_id', ${p}decision_id,
+    'user_decision_id', ${p}user_decision_id,
+    'outcome_review_id', ${p}outcome_review_id,
+    'degradation_reasons', ${p}degradation_reasons_json,
+    'missing_core_data', ${p}missing_core_data_json,
+    'missing_optional_data', ${p}missing_optional_data_json
   )`;
 }
 

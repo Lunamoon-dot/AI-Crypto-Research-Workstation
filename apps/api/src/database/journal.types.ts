@@ -206,6 +206,20 @@ export interface ResearchRunFailure {
   completedAt?: string;
 }
 
+export interface ContinuityRepairRunFilters {
+  symbol?: string;
+  from?: string;
+  to?: string;
+  limit: number;
+}
+
+export interface ContinuityRepairIdentity {
+  runId: string;
+  caseType: string;
+  repairVersion: string;
+  sourceEntryId?: string | null;
+}
+
 export interface JournalRepository {
   listResearchRuns(
     filters: {
@@ -244,8 +258,25 @@ export interface JournalRepository {
     id: string,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
+  listResearchRunsForContinuityRepair(
+    filters: ContinuityRepairRunFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   getLatestResearchContinuityEntryForRun(
     runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  getLatestResearchContinuityEntryBeforeRun(
+    symbol: string,
+    before: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  getLatestCompletedResearchRunForContinuity(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  findResearchContinuityRepairEntry(
+    identity: ContinuityRepairIdentity,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
   listResearchContinuityEntriesBySymbol(

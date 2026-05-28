@@ -14,9 +14,13 @@ import type {
   RecordThesisReviewRequest,
   RemoveWatchlistResponse,
   RemoveWatchlistItemResponse,
+  ResearchContinuityRepairPreviewRequest,
+  ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunResponse,
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryResponse,
   ResearchContinuityStateEnvelopeResponse,
+  RunResearchContinuityRepairRequest,
   SignalCountResponse,
   SignalDetailResponse,
   SignalResponse,
@@ -357,6 +361,26 @@ export function createApiClient(request: ApiTransport) {
       request<ResearchContinuityEntriesResponse>(
         `/research-continuity/symbols/${encodeURIComponent(symbol)}/entries`,
         { query: { limit: params.limit ?? 20 } },
+      ),
+    previewResearchContinuityRepair: (
+      params: ResearchContinuityRepairPreviewRequest = {},
+    ) =>
+      request<ResearchContinuityRepairPreviewResponse>(
+        '/research-continuity/repair/preview',
+        {
+          query: {
+            symbol: params.symbol,
+            from: params.from,
+            to: params.to,
+            case_types: params.case_types?.join(','),
+            limit: params.limit ?? 25,
+          },
+        },
+      ),
+    runResearchContinuityRepair: (body: RunResearchContinuityRepairRequest) =>
+      request<ResearchContinuityRepairRunResponse>(
+        '/research-continuity/repair/run',
+        { method: 'POST', body },
       ),
     getResearchContinuityEntry: (id: string) =>
       request<ResearchContinuityEntryResponse>(

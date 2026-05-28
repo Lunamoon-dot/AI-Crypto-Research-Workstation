@@ -1,10 +1,81 @@
-import { IsBoolean, IsOptional } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { JsonRecord } from '../../database/journal.types';
 
 export class GenerateResearchContinuityDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+}
+
+export const RESEARCH_CONTINUITY_REPAIR_VERSION = 'research-continuity-v1.3';
+
+export const RESEARCH_CONTINUITY_REPAIR_CASE_TYPES = [
+  'missing_continuity',
+  'skipped_or_degraded',
+  'legacy_evidence',
+] as const;
+
+export type ResearchContinuityRepairCaseType =
+  (typeof RESEARCH_CONTINUITY_REPAIR_CASE_TYPES)[number];
+
+export type ResearchContinuityRepairPredictedAction =
+  | 'create_repair_entry'
+  | 'already_repaired'
+  | 'already_has_continuity'
+  | 'not_eligible'
+  | 'not_improved';
+
+export type ResearchContinuityRepairRunAction =
+  | 'created_repair_entry'
+  | 'already_repaired'
+  | 'already_has_continuity'
+  | 'dry_run'
+  | 'not_eligible'
+  | 'not_improved'
+  | 'failed';
+
+export interface ResearchContinuityRepairPreviewFilters {
+  symbol?: string;
+  from?: string;
+  to?: string;
+  case_types?: string | ResearchContinuityRepairCaseType[];
+  limit?: number | string;
+}
+
+export class RunResearchContinuityRepairDto {
+  @IsOptional()
+  @IsString()
+  symbol?: string;
+
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  @IsArray()
+  @IsIn(RESEARCH_CONTINUITY_REPAIR_CASE_TYPES, { each: true })
+  case_types!: ResearchContinuityRepairCaseType[];
+
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  dry_run?: boolean;
 }
 
 export interface ContinuitySectionResponse {
@@ -76,4 +147,48 @@ export interface ResearchContinuityStateEnvelopeResponse {
 export interface ResearchContinuityEntriesResponse {
   symbol: string;
   entries: ResearchContinuityEntryResponse[];
+}
+
+export interface ResearchContinuityRepairCandidateResponse {
+  candidate_id: string;
+  run_id: string;
+  symbol: string;
+  run_completed_at: string | null;
+  case_type: ResearchContinuityRepairCaseType;
+  current_entry_id: string | null;
+  current_entry_status: string | null;
+  current_entry_type: string | null;
+  eligible: boolean;
+  reason: string;
+  blocked_reason?: string | null;
+  predicted_action: ResearchContinuityRepairPredictedAction;
+  repair_version: typeof RESEARCH_CONTINUITY_REPAIR_VERSION;
+}
+
+export interface ResearchContinuityRepairPreviewResponse {
+  dry_run: true;
+  candidate_count: number;
+  candidates: ResearchContinuityRepairCandidateResponse[];
+}
+
+export interface ResearchContinuityRepairRunResultResponse {
+  candidate_id: string;
+  run_id: string;
+  symbol: string;
+  case_type: ResearchContinuityRepairCaseType;
+  action: ResearchContinuityRepairRunAction;
+  previous_entry_id: string | null;
+  new_entry_id: string | null;
+  state_updated: boolean;
+  reason: string;
+  error?: string | null;
+}
+
+export interface ResearchContinuityRepairRunResponse {
+  dry_run: boolean;
+  requested_count: number;
+  repaired_count: number;
+  skipped_count: number;
+  failed_count: number;
+  results: ResearchContinuityRepairRunResultResponse[];
 }

@@ -1,16 +1,21 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   FileText,
   Layers,
+  Play,
   RefreshCw,
+  Search,
   ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 import {
   getResearchContinuityState,
   listResearchContinuityEntries,
+  previewResearchContinuityRepair,
+  runResearchContinuityRepair,
 } from '@/services/research-continuity';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -22,13 +27,22 @@ import { IdChip, StatusBadge } from '@/components/research/badges';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import type {
   JsonRecord,
   ResearchContinuityEntryResponse,
+  ResearchContinuityRepairCaseType,
+  ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunResponse,
   ResearchContinuityStateResponse,
 } from '@/types';
 
 const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
+const REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
+  'missing_continuity',
+  'skipped_or_degraded',
+  'legacy_evidence',
+];
 
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -36,6 +50,7 @@ export function ResearchContinuityPage() {
   const [symbolInput, setSymbolInput] = useState(selectedSymbol);
   const symbol = useMemo(() => selectedSymbol.trim() || 'BTC/USDT', [selectedSymbol]);
   const auth = useWorkspaceStore();
+  const queryClient = useQueryClient();
   const stateQuery = useQuery({
     queryKey: queryKeys.researchContinuityState(symbol),
     queryFn: () => getResearchContinuityState(symbol, auth),
@@ -61,6 +76,15 @@ export function ResearchContinuityPage() {
   const entries = entriesQuery.data?.entries ?? [];
   const latestEntry = stateQuery.data?.latest_entry ?? entries[0] ?? null;
   const quality = record(state?.data_quality ?? latestEntry?.snapshot_quality);
+
+  function refreshContinuityQueries() {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuityState(symbol),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuityEntries({ symbol, limit: 10 }),
+    });
+  }
 
   return (
     <main className="page">
@@ -127,6 +151,18 @@ export function ResearchContinuityPage() {
           description="Claims, risks, watchpoints, invalidations, and levels"
         >
           <ActiveItems state={state} />
+        </Panel>
+
+        <Panel
+          className="span-12 research-continuity-panel"
+          title="Repair & Backfill"
+          description="Manual V1.3 continuity ledger control"
+        >
+          <RepairBackfillPanel
+            auth={auth}
+            onExecuted={refreshContinuityQueries}
+            symbol={symbol}
+          />
         </Panel>
 
         <Panel className="span-12" title="Recent Entries">
@@ -298,6 +334,256 @@ function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null 
           </section>
         );
       })}
+    </div>
+  );
+}
+
+function RepairBackfillPanel({
+  auth,
+  onExecuted,
+  symbol,
+}: {
+  auth: WorkspaceRequestContext;
+  onExecuted: () => void;
+  symbol: string;
+}) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [caseTypes, setCaseTypes] =
+    useState<ResearchContinuityRepairCaseType[]>(REPAIR_CASE_TYPES);
+  const previewMutation = useMutation<ResearchContinuityRepairPreviewResponse>({
+    mutationFn: () =>
+      previewResearchContinuityRepair(
+        {
+          symbol,
+          from: from || undefined,
+          to: to || undefined,
+          case_types: caseTypes,
+          limit,
+        },
+        auth,
+      ),
+  });
+  const runMutation = useMutation<ResearchContinuityRepairRunResponse, Error, boolean>({
+    mutationFn: (dryRun) =>
+      runResearchContinuityRepair(
+        {
+          symbol,
+          from: from || undefined,
+          to: to || undefined,
+          case_types: caseTypes,
+          limit,
+          dry_run: dryRun,
+        },
+        auth,
+      ),
+    onSuccess: (result) => {
+      if (!result.dry_run && result.repaired_count > 0) {
+        onExecuted();
+      }
+    },
+  });
+  const preview = previewMutation.data;
+  const results = runMutation.data;
+  const busy = previewMutation.isPending || runMutation.isPending;
+  const canRun = Boolean(preview) && caseTypes.length > 0 && !busy;
+
+  function toggleCaseType(caseType: ResearchContinuityRepairCaseType) {
+    setCaseTypes((current) =>
+      current.includes(caseType)
+        ? current.filter((item) => item !== caseType)
+        : [...current, caseType],
+    );
+  }
+
+  function submitPreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    previewMutation.mutate();
+  }
+
+  return (
+    <div className="research-continuity-repair">
+      <form className="research-continuity-repair-form" onSubmit={submitPreview}>
+        <label>
+          <span>From</span>
+          <input
+            className="input"
+            onChange={(event) => setFrom(event.target.value)}
+            type="datetime-local"
+            value={from}
+          />
+        </label>
+        <label>
+          <span>To</span>
+          <input
+            className="input"
+            onChange={(event) => setTo(event.target.value)}
+            type="datetime-local"
+            value={to}
+          />
+        </label>
+        <label>
+          <span>Limit</span>
+          <input
+            className="input"
+            max={100}
+            min={1}
+            onChange={(event) => setLimit(clampLimit(event.target.value))}
+            type="number"
+            value={limit}
+          />
+        </label>
+        <div className="research-continuity-repair-cases" role="group">
+          {REPAIR_CASE_TYPES.map((caseType) => (
+            <label className="checkbox-row" key={caseType}>
+              <input
+                checked={caseTypes.includes(caseType)}
+                onChange={() => toggleCaseType(caseType)}
+                type="checkbox"
+              />
+              <span>{repairCaseLabel(caseType)}</span>
+            </label>
+          ))}
+        </div>
+        <div className="research-continuity-repair-actions">
+          <button className="button" disabled={busy || caseTypes.length === 0} type="submit">
+            <Search aria-hidden size={15} />
+            Preview
+          </button>
+          <button
+            className="button"
+            disabled={!canRun}
+            onClick={() => runMutation.mutate(true)}
+            type="button"
+          >
+            <Wrench aria-hidden size={15} />
+            Dry run
+          </button>
+          <button
+            className="button primary"
+            disabled={!canRun}
+            onClick={() => runMutation.mutate(false)}
+            type="button"
+          >
+            <Play aria-hidden size={15} />
+            Execute repair
+          </button>
+        </div>
+      </form>
+
+      {previewMutation.isError ? <ErrorState error={previewMutation.error} /> : null}
+      {runMutation.isError ? <ErrorState error={runMutation.error} /> : null}
+      {previewMutation.isPending || runMutation.isPending ? (
+        <LoadingState label="Running continuity repair check..." />
+      ) : null}
+
+      {preview ? <RepairCandidateTable preview={preview} /> : null}
+      {results ? <RepairRunResults results={results} /> : null}
+    </div>
+  );
+}
+
+function RepairCandidateTable({
+  preview,
+}: {
+  preview: ResearchContinuityRepairPreviewResponse;
+}) {
+  if (preview.candidates.length === 0) {
+    return <EmptyState label="No repair candidates found." />;
+  }
+  return (
+    <div className="table-scroll">
+      <table className="table research-continuity-repair-table">
+        <thead>
+          <tr>
+            <th>Run</th>
+            <th>Completed</th>
+            <th>Case</th>
+            <th>Status</th>
+            <th>Eligible</th>
+            <th>Action</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {preview.candidates.map((candidate) => (
+            <tr key={candidate.candidate_id}>
+              <td>
+                <IdChip value={candidate.run_id} />
+              </td>
+              <td>{formatDateTime(candidate.run_completed_at)}</td>
+              <td>{repairCaseLabel(candidate.case_type)}</td>
+              <td>
+                {candidate.current_entry_status ? (
+                  <StatusBadge value={candidate.current_entry_status} />
+                ) : (
+                  <span className="badge">none</span>
+                )}
+              </td>
+              <td>
+                <span className={`badge ${candidate.eligible ? 'constructive' : 'warning'}`}>
+                  {candidate.eligible ? 'yes' : 'no'}
+                </span>
+              </td>
+              <td>{repairActionLabel(candidate.predicted_action)}</td>
+              <td>{candidate.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RepairRunResults({
+  results,
+}: {
+  results: ResearchContinuityRepairRunResponse;
+}) {
+  return (
+    <div className="research-continuity-repair-results">
+      <div className="research-continuity-repair-summary">
+        <span className="badge primary">{results.dry_run ? 'dry run' : 'executed'}</span>
+        <span className="badge constructive">{results.repaired_count} repaired</span>
+        <span className="badge">{results.skipped_count} skipped</span>
+        <span className={results.failed_count > 0 ? 'badge warning' : 'badge'}>
+          {results.failed_count} failed
+        </span>
+      </div>
+      {results.results.length === 0 ? <EmptyState label="No repair results." /> : null}
+      {results.results.length > 0 ? (
+        <div className="table-scroll">
+          <table className="table research-continuity-repair-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Case</th>
+                <th>Action</th>
+                <th>New entry</th>
+                <th>State</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.results.map((result) => (
+                <tr key={`${result.candidate_id}-${result.action}`}>
+                  <td>
+                    <IdChip value={result.run_id} />
+                  </td>
+                  <td>{repairCaseLabel(result.case_type)}</td>
+                  <td>{repairActionLabel(result.action)}</td>
+                  <td>
+                    <IdChip value={result.new_entry_id} />
+                  </td>
+                  <td>{result.state_updated ? 'updated' : 'unchanged'}</td>
+                  <td>{result.error ?? result.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -482,6 +768,31 @@ function reportSectionPreview(section: ResearchContinuityEntryResponse['sections
     hiddenCount: Math.max(0, items.length - 2),
     items: items.slice(0, 2),
   };
+}
+
+function repairCaseLabel(value: ResearchContinuityRepairCaseType): string {
+  switch (value) {
+    case 'missing_continuity':
+      return 'Missing continuity';
+    case 'skipped_or_degraded':
+      return 'Skipped or degraded';
+    case 'legacy_evidence':
+      return 'Legacy evidence';
+    default:
+      return value;
+  }
+}
+
+function repairActionLabel(value: string): string {
+  return value.replaceAll('_', ' ');
+}
+
+function clampLimit(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 25;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), 1), 100);
 }
 
 function formatCoverage(value: unknown): string {

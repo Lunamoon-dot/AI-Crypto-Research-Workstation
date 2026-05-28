@@ -19,10 +19,20 @@ export class ContinuityReportRenderer {
     previousState: JsonRecord | null;
     events: JsonRecord[];
     skippedReason?: string | null;
+    repairContext?: JsonRecord | null;
   }): { summary: string; sections: JsonRecord[]; writerMetadata: JsonRecord } {
     const summary = summaryText(input);
     const sections = [
       section('Summary', [summary], 'No continuity summary available.'),
+      ...(input.repairContext
+        ? [
+            section(
+              'Repair Context',
+              repairContextItems(input.repairContext),
+              'No repair context available.',
+            ),
+          ]
+        : []),
       section(
         'Current View',
         currentViewItems(input.snapshot, input.previousState, input.events),
@@ -95,16 +105,28 @@ export class ContinuityReportRenderer {
         'No new limitations reported.',
       ),
     ];
-    return {
-      summary,
-      sections,
-      writerMetadata: {
-        writer_source: 'deterministic_renderer',
-        report_version: 'research_continuity.v1.1',
-        evidence_contract_version: 'research_evidence.v1.2',
-      },
+    const writerMetadata: JsonRecord = {
+      writer_source: 'deterministic_renderer',
+      report_version: 'research_continuity.v1.1',
+      evidence_contract_version: 'research_evidence.v1.2',
     };
+    if (input.repairContext) {
+      writerMetadata.repair_context = input.repairContext;
+    }
+    return { summary, sections, writerMetadata };
   }
+}
+
+function repairContextItems(context: JsonRecord): string[] {
+  return [
+    `Case type: ${stringValue(context.case_type, 'unknown')}.`,
+    `Source run: ${stringValue(context.source_run_id, 'unknown')}.`,
+    `Source entry: ${stringValue(context.source_entry_id, 'none')}.`,
+    `Previous context entry: ${stringValue(context.previous_context_entry_id, 'none')}.`,
+    `Reason: ${stringValue(context.reason, 'unspecified')}.`,
+    `Repair version: ${stringValue(context.repair_version, 'unknown')}.`,
+    `State updated: ${Boolean(context.state_updated) ? 'yes' : 'no'}.`,
+  ];
 }
 
 function summaryText(input: {
