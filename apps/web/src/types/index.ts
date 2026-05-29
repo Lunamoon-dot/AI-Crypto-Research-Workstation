@@ -1013,6 +1013,20 @@ export interface LlmHealthSummaryResponse {
   by_provider: Record<string, { calls: number; errors: number; tokens: number }>;
 }
 
+export interface OperationsContinuityHealthResponse {
+  workspace_id: string;
+  lookback_days: number;
+  audit_available: boolean;
+  missing_entries_recent: number;
+  degraded_entries_recent: number;
+  stale_symbols: number;
+  last_repair_run_at: string | null;
+  last_repair_status: string | null;
+  repair_failures_24h: number;
+  debug_access_24h: number;
+  debug_denied_24h: number;
+}
+
 export interface OperationsHealthResponse {
   generated_at: string;
   providers: ProviderHealthResponse[];
@@ -1061,6 +1075,7 @@ export interface OperationsHealthResponse {
     failure_rate: number | null;
     average_latency_ms: number | null;
   };
+  continuity: OperationsContinuityHealthResponse;
 }
 
 export interface SignalResponse {
@@ -1515,12 +1530,46 @@ export interface ResearchContinuityRepairRunResultResponse {
 }
 
 export interface ResearchContinuityRepairRunResponse {
+  audit_run_id: string;
   dry_run: boolean;
   requested_count: number;
   repaired_count: number;
   skipped_count: number;
   failed_count: number;
   results: ResearchContinuityRepairRunResultResponse[];
+}
+
+export type ResearchContinuityRepairRunStatus =
+  | 'started'
+  | 'completed'
+  | 'completed_with_failures'
+  | 'failed';
+
+export interface ResearchContinuityRepairRunSummaryResponse {
+  id: string;
+  workspace_id: string;
+  requested_by_user_id: string;
+  requested_at: string | null;
+  completed_at: string | null;
+  dry_run: boolean;
+  status: ResearchContinuityRepairRunStatus;
+  idempotency_key: string | null;
+  filters: JsonRecord;
+  requested_count: number;
+  repaired_count: number;
+  skipped_count: number;
+  failed_count: number;
+  created_entry_ids: string[];
+  error_message: string | null;
+}
+
+export interface ResearchContinuityRepairRunDetailResponse
+  extends ResearchContinuityRepairRunSummaryResponse {
+  results: ResearchContinuityRepairRunResultResponse[];
+}
+
+export interface ResearchContinuityRepairRunsResponse {
+  runs: ResearchContinuityRepairRunSummaryResponse[];
 }
 
 export type GenerateResearchContinuityRequest = {
@@ -1542,6 +1591,7 @@ export type RunResearchContinuityRepairRequest = {
   case_types: ResearchContinuityRepairCaseType[];
   limit: number;
   dry_run?: boolean;
+  idempotency_key?: string;
 };
 
 export interface EvidenceBundleResponse {

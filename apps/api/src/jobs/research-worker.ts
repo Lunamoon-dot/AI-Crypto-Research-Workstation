@@ -6,6 +6,7 @@ import { AuthService } from '../auth/auth.service';
 import { loadWorkspaceEnv } from '../config/env';
 import { EngineRunRequest } from '../database/journal.types';
 import { PostgresJournalRepository } from '../database/postgres-journal.repository';
+import { PostgresResearchContinuityAuditRepository } from '../research-continuity/research-continuity-audit.repository';
 import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { JobLifecycleService } from './job-lifecycle.service';
@@ -27,9 +28,11 @@ async function bootstrap() {
   const lifecycle = new JobLifecycleService();
   const sqliteSync = new SqliteJournalSyncService();
   const journal = new PostgresJournalRepository();
+  const continuityAudit = new PostgresResearchContinuityAuditRepository();
   const workspaces = new WorkspacesService();
   const continuity = new ResearchContinuityService(
     journal,
+    continuityAudit,
     new AuthService(),
     workspaces,
   );
@@ -88,6 +91,7 @@ async function bootstrap() {
     await sqliteSync.onModuleDestroy();
     await lifecycle.onModuleDestroy();
     await journal.onModuleDestroy();
+    await continuityAudit.onModuleDestroy();
     await workspaces.onModuleDestroy();
   };
   process.once('SIGINT', () => {

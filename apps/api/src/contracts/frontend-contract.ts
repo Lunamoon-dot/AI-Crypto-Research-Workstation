@@ -1036,6 +1036,20 @@ export interface LlmMemoHealthResponse {
   average_latency_ms: number | null;
 }
 
+export interface OperationsContinuityHealthResponse {
+  workspace_id: string;
+  lookback_days: number;
+  audit_available: boolean;
+  missing_entries_recent: number;
+  degraded_entries_recent: number;
+  stale_symbols: number;
+  last_repair_run_at: string | null;
+  last_repair_status: string | null;
+  repair_failures_24h: number;
+  debug_access_24h: number;
+  debug_denied_24h: number;
+}
+
 export interface OperationsHealthResponse {
   generated_at: string;
   providers: ProviderHealthResponse[];
@@ -1055,6 +1069,7 @@ export interface OperationsHealthResponse {
   monitoring_workers: MonitoringWorkersHealthResponse;
   monitoring_retention: MonitoringRetentionHealthResponse;
   llm_memo_health: LlmMemoHealthResponse;
+  continuity: OperationsContinuityHealthResponse;
 }
 
 export interface SignalResponse {

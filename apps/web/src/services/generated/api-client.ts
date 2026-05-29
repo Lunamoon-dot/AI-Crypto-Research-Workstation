@@ -16,7 +16,9 @@ import type {
   RemoveWatchlistItemResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
+  ResearchContinuityRepairRunsResponse,
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryDebugResponse,
   ResearchContinuityEntryDetailResponse,
@@ -383,6 +385,28 @@ export function createApiClient(request: ApiTransport) {
       request<ResearchContinuityRepairRunResponse>(
         '/research-continuity/repair/run',
         { method: 'POST', body },
+      ),
+    listResearchContinuityRepairRuns: (
+      params: {
+        dry_run?: boolean;
+        limit?: number;
+        status?: string;
+      } = {},
+    ) =>
+      request<ResearchContinuityRepairRunsResponse>(
+        '/research-continuity/repair/runs',
+        {
+          query: {
+            dry_run: params.dry_run,
+            limit: params.limit ?? 20,
+            status: params.status,
+          },
+        },
+      ),
+    getResearchContinuityRepairRun: (id: string) =>
+      request<ResearchContinuityRepairRunDetailResponse>(
+        `/research-continuity/repair/runs/${encodeURIComponent(id)}`,
+        {},
       ),
     getResearchContinuityEntry: (id: string) =>
       request<ResearchContinuityEntryDetailResponse>(

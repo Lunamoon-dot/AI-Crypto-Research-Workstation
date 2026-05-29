@@ -82,6 +82,7 @@ class EngineRunResult(BaseModel):
     thesis_id: str | None = None
     summary: str = ""
     events_written: int = 0
+    journal_path: str | None = None
     error_type: str | None = None
     error: str | None = None
 

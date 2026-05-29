@@ -302,6 +302,67 @@ export const openApiDocument = {
         ),
       },
     },
+    '/research-continuity/debug-audits': {
+      get: {
+        operationId: 'listResearchContinuityDebugAudits',
+        tags: ['research-continuity'],
+        parameters: [
+          limitParameter(50, 200),
+          queryParameter('entry_id', { type: 'string' }),
+          queryParameter('decision', {
+            type: 'string',
+            enum: ['allowed', 'denied'],
+          }),
+          queryParameter('reason', {
+            type: 'string',
+            enum: [
+              'allowed',
+              'disabled_by_policy',
+              'missing_user',
+              'missing_workspace',
+              'workspace_denied',
+              'permission_required',
+              'entry_not_found',
+              'audit_unavailable',
+            ],
+          }),
+          queryParameter('requested_by_user_id', { type: 'string' }),
+        ],
+        responses: jsonResponse(
+          'Workspace-scoped continuity debug access audit rows.',
+          'ResearchContinuityDebugAccessAuditsResponse',
+        ),
+      },
+    },
+    '/research-continuity/repair/runs': {
+      get: {
+        operationId: 'listResearchContinuityRepairRuns',
+        tags: ['research-continuity'],
+        parameters: [
+          limitParameter(20, 100),
+          queryParameter('status', {
+            type: 'string',
+            enum: ['started', 'completed', 'completed_with_failures', 'failed'],
+          }),
+          queryParameter('dry_run', { type: 'boolean' }),
+        ],
+        responses: jsonResponse(
+          'Workspace-scoped continuity repair run history.',
+          'ResearchContinuityRepairRunsResponse',
+        ),
+      },
+    },
+    '/research-continuity/repair/runs/{id}': {
+      get: {
+        operationId: 'getResearchContinuityRepairRun',
+        tags: ['research-continuity'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped continuity repair run detail.',
+          'ResearchContinuityRepairRunDetailResponse',
+        ),
+      },
+    },
     '/research-runs/{id}': {
       get: {
         operationId: 'getResearchRun',
@@ -3319,6 +3380,35 @@ export const openApiDocument = {
           by_provider: { type: 'object', additionalProperties: true },
         },
       },
+      OperationsContinuityHealthResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'lookback_days',
+          'audit_available',
+          'missing_entries_recent',
+          'degraded_entries_recent',
+          'stale_symbols',
+          'last_repair_run_at',
+          'last_repair_status',
+          'repair_failures_24h',
+          'debug_access_24h',
+          'debug_denied_24h',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          lookback_days: { type: 'integer' },
+          audit_available: { type: 'boolean' },
+          missing_entries_recent: { type: 'integer' },
+          degraded_entries_recent: { type: 'integer' },
+          stale_symbols: { type: 'integer' },
+          last_repair_run_at: { type: ['string', 'null'], format: 'date-time' },
+          last_repair_status: { type: ['string', 'null'] },
+          repair_failures_24h: { type: 'integer' },
+          debug_access_24h: { type: 'integer' },
+          debug_denied_24h: { type: 'integer' },
+        },
+      },
       OperationsHealthResponse: {
         type: 'object',
         required: [
@@ -3332,6 +3422,7 @@ export const openApiDocument = {
           'monitoring_workers',
           'monitoring_retention',
           'llm_memo_health',
+          'continuity',
         ],
         properties: {
           generated_at: { type: 'string' },
@@ -3397,6 +3488,7 @@ export const openApiDocument = {
               average_latency_ms: { type: ['number', 'null'] },
             },
           },
+          continuity: { $ref: '#/components/schemas/OperationsContinuityHealthResponse' },
         },
       },
       JournalRunWorkspaceResponse: {
@@ -3875,6 +3967,7 @@ export const openApiDocument = {
           },
           limit: { type: 'integer', minimum: 1, maximum: 100 },
           dry_run: { type: 'boolean', default: true },
+          idempotency_key: { type: 'string' },
         },
       },
       ResearchContinuityRepairCandidateResponse: {
@@ -3982,6 +4075,7 @@ export const openApiDocument = {
       ResearchContinuityRepairRunResponse: {
         type: 'object',
         required: [
+          'audit_run_id',
           'dry_run',
           'requested_count',
           'repaired_count',
@@ -3990,6 +4084,7 @@ export const openApiDocument = {
           'results',
         ],
         properties: {
+          audit_run_id: { type: 'string' },
           dry_run: { type: 'boolean' },
           requested_count: { type: 'integer' },
           repaired_count: { type: 'integer' },
@@ -3999,6 +4094,126 @@ export const openApiDocument = {
             type: 'array',
             items: {
               $ref: '#/components/schemas/ResearchContinuityRepairRunResultResponse',
+            },
+          },
+        },
+      },
+      ResearchContinuityDebugAccessAuditResponse: {
+        type: 'object',
+        required: [
+          'id',
+          'workspace_id',
+          'entry_id',
+          'research_run_id',
+          'symbol',
+          'requested_by_user_id',
+          'decision',
+          'reason',
+          'requested_at',
+          'metadata',
+        ],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: ['string', 'null'] },
+          entry_id: { type: 'string' },
+          research_run_id: { type: ['string', 'null'] },
+          symbol: { type: ['string', 'null'] },
+          requested_by_user_id: { type: ['string', 'null'] },
+          decision: { type: 'string', enum: ['allowed', 'denied'] },
+          reason: {
+            type: 'string',
+            enum: [
+              'allowed',
+              'disabled_by_policy',
+              'missing_user',
+              'missing_workspace',
+              'workspace_denied',
+              'permission_required',
+              'entry_not_found',
+              'audit_unavailable',
+            ],
+          },
+          requested_at: { type: ['string', 'null'], format: 'date-time' },
+          metadata: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      ResearchContinuityDebugAccessAuditsResponse: {
+        type: 'object',
+        required: ['audits'],
+        properties: {
+          audits: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityDebugAccessAuditResponse',
+            },
+          },
+        },
+      },
+      ResearchContinuityRepairRunSummaryResponse: {
+        type: 'object',
+        required: [
+          'id',
+          'workspace_id',
+          'requested_by_user_id',
+          'requested_at',
+          'completed_at',
+          'dry_run',
+          'status',
+          'idempotency_key',
+          'filters',
+          'requested_count',
+          'repaired_count',
+          'skipped_count',
+          'failed_count',
+          'created_entry_ids',
+          'error_message',
+        ],
+        properties: {
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          requested_by_user_id: { type: 'string' },
+          requested_at: { type: ['string', 'null'], format: 'date-time' },
+          completed_at: { type: ['string', 'null'], format: 'date-time' },
+          dry_run: { type: 'boolean' },
+          status: {
+            type: 'string',
+            enum: ['started', 'completed', 'completed_with_failures', 'failed'],
+          },
+          idempotency_key: { type: ['string', 'null'] },
+          filters: { $ref: '#/components/schemas/JsonRecord' },
+          requested_count: { type: 'integer' },
+          repaired_count: { type: 'integer' },
+          skipped_count: { type: 'integer' },
+          failed_count: { type: 'integer' },
+          created_entry_ids: { type: 'array', items: { type: 'string' } },
+          error_message: { type: ['string', 'null'] },
+        },
+      },
+      ResearchContinuityRepairRunDetailResponse: {
+        allOf: [
+          { $ref: '#/components/schemas/ResearchContinuityRepairRunSummaryResponse' },
+          {
+            type: 'object',
+            required: ['results'],
+            properties: {
+              results: {
+                type: 'array',
+                items: {
+                  $ref: '#/components/schemas/ResearchContinuityRepairRunResultResponse',
+                },
+              },
+            },
+          },
+        ],
+      },
+      ResearchContinuityRepairRunsResponse: {
+        type: 'object',
+        required: ['runs'],
+        properties: {
+          runs: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityRepairRunSummaryResponse',
             },
           },
         },

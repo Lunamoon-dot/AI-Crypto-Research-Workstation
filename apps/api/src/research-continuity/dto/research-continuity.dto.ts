@@ -9,6 +9,11 @@ import {
   Min,
 } from 'class-validator';
 import { JsonRecord } from '../../database/journal.types';
+import type {
+  ResearchContinuityDebugAuditDecision,
+  ResearchContinuityDebugAuditReason,
+  ResearchContinuityRepairRunStatus,
+} from '../research-continuity-audit.types';
 
 export class GenerateResearchContinuityDto {
   @IsOptional()
@@ -76,6 +81,10 @@ export class RunResearchContinuityRepairDto {
   @IsOptional()
   @IsBoolean()
   dry_run?: boolean;
+
+  @IsOptional()
+  @IsString()
+  idempotency_key?: string;
 }
 
 export interface ContinuitySectionResponse {
@@ -309,10 +318,55 @@ export interface ResearchContinuityRepairRunResultResponse {
 }
 
 export interface ResearchContinuityRepairRunResponse {
+  audit_run_id: string;
   dry_run: boolean;
   requested_count: number;
   repaired_count: number;
   skipped_count: number;
   failed_count: number;
   results: ResearchContinuityRepairRunResultResponse[];
+}
+
+export interface ResearchContinuityDebugAccessAuditResponse {
+  id: string | null;
+  workspace_id: string | null;
+  entry_id: string;
+  research_run_id: string | null;
+  symbol: string | null;
+  requested_by_user_id: string | null;
+  decision: ResearchContinuityDebugAuditDecision;
+  reason: ResearchContinuityDebugAuditReason;
+  requested_at: string | null;
+  metadata: JsonRecord;
+}
+
+export interface ResearchContinuityDebugAccessAuditsResponse {
+  audits: ResearchContinuityDebugAccessAuditResponse[];
+}
+
+export interface ResearchContinuityRepairRunSummaryResponse {
+  id: string;
+  workspace_id: string;
+  requested_by_user_id: string;
+  requested_at: string | null;
+  completed_at: string | null;
+  dry_run: boolean;
+  status: ResearchContinuityRepairRunStatus;
+  idempotency_key: string | null;
+  filters: JsonRecord;
+  requested_count: number;
+  repaired_count: number;
+  skipped_count: number;
+  failed_count: number;
+  created_entry_ids: string[];
+  error_message: string | null;
+}
+
+export interface ResearchContinuityRepairRunDetailResponse
+  extends ResearchContinuityRepairRunSummaryResponse {
+  results: ResearchContinuityRepairRunResultResponse[];
+}
+
+export interface ResearchContinuityRepairRunsResponse {
+  runs: ResearchContinuityRepairRunSummaryResponse[];
 }

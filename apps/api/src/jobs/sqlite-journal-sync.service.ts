@@ -15,6 +15,10 @@ export interface SqliteJournalSyncResult {
   tables: Record<string, number>;
 }
 
+export interface SqliteJournalSyncOptions {
+  sqlitePath?: string;
+}
+
 interface SyncContext {
   runId: string;
   workspaceId: string;
@@ -271,6 +275,7 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
   async syncRun(
     runId: string,
     workspaceId: string,
+    options: SqliteJournalSyncOptions = {},
   ): Promise<SqliteJournalSyncResult | null> {
     if (
       process.env.JOURNAL_POSTGRES_SYNC === '0' ||
@@ -282,8 +287,8 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
       return null;
     }
 
-    const sqlitePath = resolveSqlitePath();
-    const exported = await this.exportRun(runId);
+    const sqlitePath = resolveSqlitePath(options.sqlitePath);
+    const exported = await this.exportRun(runId, sqlitePath);
     if (!exported) {
       throw new Error(`Run ${runId} was not found in SQLite journal ${sqlitePath}`);
     }
@@ -315,8 +320,10 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
     }
   }
 
-  async exportRun(runId: string): Promise<ExportedJournal | null> {
-    const sqlitePath = resolveSqlitePath();
+  async exportRun(
+    runId: string,
+    sqlitePath = resolveSqlitePath(),
+  ): Promise<ExportedJournal | null> {
     if (!existsSync(sqlitePath)) {
       return null;
     }
@@ -530,7 +537,10 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function resolveSqlitePath(): string {
+function resolveSqlitePath(configured?: string): string {
+  if (configured?.trim()) {
+    return configured.trim();
+  }
   return (
     process.env.TRADINGAGENTS_JOURNAL_DB ??
     join(homedir(), '.luna_workstation', 'cache', 'research_journal.sqlite')

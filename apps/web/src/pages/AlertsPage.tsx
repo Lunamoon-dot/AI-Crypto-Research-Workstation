@@ -52,7 +52,7 @@ export function AlertsPage() {
     <main className="page">
       <PageHeader
         title="Alerts"
-        description="Research alerts and watchlist changes."
+        description="Research alerts and continuity changes."
         action={
           <HeaderStats
             stats={[
@@ -78,7 +78,7 @@ export function AlertsPage() {
               },
               {
                 icon: <CheckCircle2 aria-hidden size={14} />,
-                label: 'Enabled lists',
+                label: 'Enabled scopes',
                 meta: 'workspace scopes',
                 value: scheduler.data?.workspace_enabled_watchlists ?? '...',
               },
@@ -123,11 +123,11 @@ export function AlertsPage() {
               }
             />
             <DataPair label="Interval" value={`${scheduler.data?.interval_ms ?? 0} ms`} />
-            <DataPair label="Enabled lists" value={scheduler.data?.workspace_enabled_watchlists ?? 0} />
+            <DataPair label="Enabled scopes" value={scheduler.data?.workspace_enabled_watchlists ?? 0} />
             <DataPair label="Last run" value={formatDateTime(scheduler.data?.last_run_at)} />
             {runSchedulerMutation.data ? (
               <div className="callout">
-                Checked {runSchedulerMutation.data.checked_watchlists} list(s), created{' '}
+                Checked {runSchedulerMutation.data.checked_watchlists} scope(s), created{' '}
                 {runSchedulerMutation.data.alerts_created} alert(s).
               </div>
             ) : null}

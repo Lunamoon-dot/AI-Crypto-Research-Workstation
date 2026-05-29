@@ -2,7 +2,6 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { MainLayout } from '@/layouts/MainLayout';
 import { AlertsPage } from '@/pages/AlertsPage';
 import { CalibrationLabPage } from '@/pages/CalibrationLabPage';
-import { DailyBriefsPage } from '@/pages/DailyBriefsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OperationsPage } from '@/pages/OperationsPage';
 import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
@@ -19,14 +18,13 @@ import { SignalsPage } from '@/pages/SignalsPage';
 import { ThesisDetailPage } from '@/pages/ThesisDetailPage';
 import { ThesisLibraryPage } from '@/pages/ThesisLibraryPage';
 import { ThesisMonitorPage } from '@/pages/ThesisMonitorPage';
-import { WatchlistsPage } from '@/pages/WatchlistsPage';
 import { WorkbenchPage } from '@/pages/WorkbenchPage';
 
 export const router = createBrowserRouter([
   {
     element: <MainLayout />,
     children: [
-      { index: true, element: <Navigate to="/workbench" replace /> },
+      { index: true, element: <Navigate to="/research/new" replace /> },
       { path: 'workbench', element: <WorkbenchPage /> },
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
@@ -47,8 +45,8 @@ export const router = createBrowserRouter([
       { path: 'signals/:id', element: <SignalDetailPage /> },
       { path: 'scenarios', element: <ScenarioMonitorPage /> },
       { path: 'alerts', element: <AlertsPage /> },
-      { path: 'watchlists', element: <WatchlistsPage /> },
-      { path: 'briefs/daily', element: <DailyBriefsPage /> },
+      { path: 'watchlists', element: <Navigate to="/research-continuity" replace /> },
+      { path: 'briefs/daily', element: <Navigate to="/research/history" replace /> },
       { path: 'operations', element: <OperationsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <NotFoundPage /> },

@@ -13,7 +13,10 @@ import type {
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
+  ResearchContinuityRepairRunsResponse,
+  ResearchContinuityRepairRunSummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
   RunResearchContinuityRepairRequest,
@@ -77,6 +80,20 @@ export function runResearchContinuityRepair(
   return generatedClient(auth).runResearchContinuityRepair(request);
 }
 
+export function listResearchContinuityRepairRuns(
+  params: { dry_run?: boolean; limit?: number; status?: string },
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).listResearchContinuityRepairRuns(params);
+}
+
+export function getResearchContinuityRepairRun(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getResearchContinuityRepairRun(id);
+}
+
 function generatedClient(auth: WorkspaceRequestContext) {
   return createApiClient((path, options) =>
     apiRequest(path, options, auth),
@@ -93,7 +110,10 @@ export type {
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
+  ResearchContinuityRepairRunsResponse,
+  ResearchContinuityRepairRunSummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
   RunResearchContinuityRepairRequest,
