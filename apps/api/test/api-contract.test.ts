@@ -66,6 +66,14 @@ import { WorkbenchService } from '../src/workbench/workbench.service';
 import { redactForDebug } from '../src/common/redaction';
 import { ResearchContinuityController } from '../src/research-continuity/research-continuity.controller';
 import { ResearchContinuityService } from '../src/research-continuity/research-continuity.service';
+import type {
+  ResearchContinuityAuditRepository,
+  ResearchContinuityDebugAccessAuditInput,
+  ResearchContinuityDebugAccessAuditFilters,
+  ResearchContinuityRepairRunCreateInput,
+  ResearchContinuityRepairRunFilters,
+  ResearchContinuityRepairRunFinalizeInput,
+} from '../src/research-continuity/research-continuity-audit.types';
 import {
   openApiDocument,
 } from '../src/contracts/openapi.generated';
@@ -1564,6 +1572,176 @@ class FakeJournalRepository implements JournalRepository {
   }
 }
 
+class FakeResearchContinuityAuditRepository
+  implements ResearchContinuityAuditRepository
+{
+  readonly debugAudits: JsonRecord[] = [];
+  readonly repairRuns = new Map<string, JsonRecord>();
+  continuityHealth: JsonRecord | null = null;
+  failDebugAudit = false;
+  failRepairRunCreate = false;
+  failRepairRunFinalize = false;
+  failHealth = false;
+  healthError: unknown | null = null;
+  lastHealthRequest: { workspaceId: string; lookbackDays: number } | null = null;
+
+  async recordDebugAccessAudit(
+    input: ResearchContinuityDebugAccessAuditInput,
+  ): Promise<JsonRecord> {
+    if (this.failDebugAudit) {
+      throw new ServiceUnavailableException('debug audit unavailable');
+    }
+    const audit: JsonRecord = {
+      id: input.id ?? `debug_audit_${this.debugAudits.length + 1}`,
+      workspace_id: input.workspace_id ?? null,
+      entry_id: input.entry_id,
+      research_run_id: input.research_run_id ?? null,
+      symbol: input.symbol ?? null,
+      requested_by_user_id: input.requested_by_user_id ?? null,
+      decision: input.decision,
+      reason: input.reason,
+      requested_at: input.requested_at ?? '2026-05-12T00:00:00.000Z',
+      metadata: input.metadata ?? {},
+    };
+    this.debugAudits.push(audit);
+    return audit;
+  }
+
+  async listDebugAccessAudits(
+    filters: ResearchContinuityDebugAccessAuditFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.debugAudits
+      .filter((audit) => audit.workspace_id === workspaceId)
+      .filter((audit) => !filters.entry_id || audit.entry_id === filters.entry_id)
+      .filter((audit) => !filters.decision || audit.decision === filters.decision)
+      .filter((audit) => !filters.reason || audit.reason === filters.reason)
+      .filter(
+        (audit) =>
+          !filters.requested_by_user_id ||
+          audit.requested_by_user_id === filters.requested_by_user_id,
+      )
+      .slice(0, filters.limit);
+  }
+
+  async createRepairRun(
+    input: ResearchContinuityRepairRunCreateInput,
+  ): Promise<JsonRecord> {
+    if (this.failRepairRunCreate) {
+      throw new ServiceUnavailableException('repair audit unavailable');
+    }
+    const existing = input.idempotency_key
+      ? [...this.repairRuns.values()].find(
+          (run) =>
+            run.workspace_id === input.workspace_id &&
+            run.idempotency_key === input.idempotency_key,
+        )
+      : null;
+    if (existing) {
+      return { ...existing, _existing: true };
+    }
+    const run: JsonRecord = {
+      id: input.id ?? `repair_run_${this.repairRuns.size + 1}`,
+      workspace_id: input.workspace_id,
+      requested_by_user_id: input.requested_by_user_id,
+      requested_at: input.requested_at ?? '2026-05-12T00:00:00.000Z',
+      completed_at: null,
+      dry_run: input.dry_run,
+      status: 'started',
+      idempotency_key: input.idempotency_key ?? null,
+      filters: input.filters,
+      requested_count: 0,
+      repaired_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+      created_entry_ids: [],
+      results: [],
+      error_message: null,
+    };
+    this.repairRuns.set(String(run.id), run);
+    return { ...run, _existing: false };
+  }
+
+  async finalizeRepairRun(
+    id: string,
+    workspaceId: string,
+    result: ResearchContinuityRepairRunFinalizeInput,
+  ): Promise<JsonRecord> {
+    if (this.failRepairRunFinalize) {
+      throw new ServiceUnavailableException('repair audit finalize unavailable');
+    }
+    const run = await this.getRepairRun(id, workspaceId);
+    if (!run) {
+      throw new NotFoundException(`Repair run ${id} not found`);
+    }
+    Object.assign(run, {
+      completed_at: result.completed_at ?? '2026-05-12T00:05:00.000Z',
+      status: result.status,
+      requested_count: result.requested_count,
+      repaired_count: result.repaired_count,
+      skipped_count: result.skipped_count,
+      failed_count: result.failed_count,
+      created_entry_ids: result.created_entry_ids,
+      results: result.results,
+      error_message: result.error_message ?? null,
+    });
+    return run;
+  }
+
+  async getRepairRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const run = this.repairRuns.get(id);
+    return run?.workspace_id === workspaceId ? run : null;
+  }
+
+  async listRepairRuns(
+    filters: ResearchContinuityRepairRunFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.repairRuns.values()]
+      .filter((run) => run.workspace_id === workspaceId)
+      .filter((run) => !filters.status || run.status === filters.status)
+      .filter(
+        (run) =>
+          filters.dry_run === undefined || run.dry_run === filters.dry_run,
+      )
+      .slice(0, filters.limit)
+      .map(({ results, ...run }) => run);
+  }
+
+  async getContinuityOperationsHealth(
+    workspaceId: string,
+    options: { lookbackDays: number },
+  ): Promise<JsonRecord> {
+    if (this.failHealth) {
+      throw new ServiceUnavailableException('continuity health unavailable');
+    }
+    if (this.healthError) {
+      throw this.healthError;
+    }
+    this.lastHealthRequest = {
+      workspaceId,
+      lookbackDays: options.lookbackDays,
+    };
+    return {
+      workspace_id: workspaceId,
+      lookback_days: options.lookbackDays,
+      audit_available: true,
+      missing_entries_recent: 0,
+      degraded_entries_recent: 0,
+      stale_symbols: 0,
+      last_repair_run_at: null,
+      last_repair_status: null,
+      repair_failures_24h: 0,
+      debug_access_24h: 0,
+      debug_denied_24h: 0,
+      ...(this.continuityHealth ?? {}),
+    };
+  }
+}
+
 test('POST /research-runs rejects x-workspace-id mismatches', async () => {
   const { researchRuns } = buildHarness();
 
@@ -2069,6 +2247,25 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
   assert.ok(
     'ResearchContinuityEntryDebugResponse' in openApiDocument.components.schemas,
   );
+  assert.ok(
+    'ResearchContinuityDebugAccessAuditResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityRepairRunSummaryResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityRepairRunDetailResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'OperationsContinuityHealthResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'continuity' in
+      openApiDocument.components.schemas.OperationsHealthResponse.properties,
+  );
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -2087,8 +2284,11 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-continuity/symbols/{symbol}/entries', ['get']],
     ['/research-continuity/entries/{id}', ['get']],
     ['/research-continuity/entries/{id}/debug', ['get']],
+    ['/research-continuity/debug-audits', ['get']],
     ['/research-continuity/repair/preview', ['get']],
     ['/research-continuity/repair/run', ['post']],
+    ['/research-continuity/repair/runs', ['get']],
+    ['/research-continuity/repair/runs/{id}', ['get']],
     ['/journal/runs/{id}/workspace', ['get']],
     ['/journal/runs/{id}/evidence-bundle', ['get']],
     ['/signals', ['get']],
@@ -2428,13 +2628,21 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
       queueJobId: 'job_processor_sync',
       maxAttempts: 2,
     });
+    let syncOptions: { sqlitePath?: string } | undefined;
     const sqliteSync = {
-      syncRun: async (runId: string, workspaceId: string) => ({
-        run_id: runId,
-        workspace_id: workspaceId,
-        sqlite_path: '/tmp/research.sqlite',
-        tables: { research_runs: 1, run_events: 2 },
-      }),
+      syncRun: async (
+        runId: string,
+        workspaceId: string,
+        options?: { sqlitePath?: string },
+      ) => {
+        syncOptions = options;
+        return {
+          run_id: runId,
+          workspace_id: workspaceId,
+          sqlite_path: options?.sqlitePath ?? '/tmp/research.sqlite',
+          tables: { research_runs: 1, run_events: 2 },
+        };
+      },
     } as unknown as SqliteJournalSyncService;
     const processor = new ResearchJobProcessor(
       {
@@ -2442,6 +2650,7 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
           status: 'completed',
           run_id: engineRequest.run_id,
           workspace_id: engineRequest.workspace_id,
+          journal_path: '/tmp/engine-written-research.sqlite',
         }),
       } as unknown as PythonEngineClient,
       lifecycle,
@@ -2457,6 +2666,7 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
     const status = await lifecycle.get('run_processor_sync');
 
     assert.equal(result.postgres_sync && typeof result.postgres_sync, 'object');
+    assert.equal(syncOptions?.sqlitePath, '/tmp/engine-written-research.sqlite');
     assert.equal(status?.status, 'completed');
     assert.equal(status?.attempts, 1);
     assert.equal(status?.heartbeat_at !== null, true);
@@ -5498,7 +5708,7 @@ test('monitoring retention dry-run preserves protected baseline tables', async (
 });
 
 test('operations health exposes monitoring queue, worker, retention, and memo health', async () => {
-  const { journal, operations } = buildHarness();
+  const { audit, journal, operations } = buildHarness();
   journal.monitoringHealth = {
     monitoring_queue: {
       queued: 3,
@@ -5535,6 +5745,16 @@ test('operations health exposes monitoring queue, worker, retention, and memo he
       average_latency_ms: 900,
     },
   };
+  audit.continuityHealth = {
+    missing_entries_recent: 3,
+    degraded_entries_recent: 2,
+    stale_symbols: 1,
+    last_repair_run_at: '2026-05-12T00:05:00.000Z',
+    last_repair_status: 'completed_with_failures',
+    repair_failures_24h: 1,
+    debug_access_24h: 4,
+    debug_denied_24h: 2,
+  };
 
   const health = await operations.health(20, 'user_1', 'workspace_a');
 
@@ -5543,6 +5763,31 @@ test('operations health exposes monitoring queue, worker, retention, and memo he
   assert.equal(health.monitoring_workers.recent_error_types[0], 'timeout');
   assert.equal(health.monitoring_retention.last_deleted_counts.deleted_jobs, 5);
   assert.equal(health.llm_memo_health.failure_rate, 0.25);
+  assert.equal(health.continuity.workspace_id, 'workspace_a');
+  assert.equal(health.continuity.lookback_days, 30);
+  assert.equal(health.continuity.audit_available, true);
+  assert.equal(health.continuity.missing_entries_recent, 3);
+  assert.equal(health.continuity.last_repair_status, 'completed_with_failures');
+  assert.equal(health.continuity.debug_denied_24h, 2);
+  assert.deepEqual(audit.lastHealthRequest, {
+    workspaceId: 'workspace_a',
+    lookbackDays: 30,
+  });
+
+  audit.failHealth = true;
+  const degraded = await operations.health(20, 'user_1', 'workspace_a');
+  assert.equal(degraded.continuity.audit_available, false);
+  assert.equal(degraded.continuity.debug_access_24h, 0);
+  assert.equal(degraded.continuity.last_repair_run_at, null);
+
+  audit.failHealth = false;
+  audit.healthError = Object.assign(
+    new Error('relation "research_continuity_repair_runs" does not exist'),
+    { code: '42P01' },
+  );
+  const missingTable = await operations.health(20, 'user_1', 'workspace_a');
+  assert.equal(missingTable.continuity.audit_available, false);
+  assert.equal(missingTable.continuity.repair_failures_24h, 0);
 });
 
 test('monitoring DTO parity keeps SQLite export and Postgres rows equivalent', () => {
@@ -5673,6 +5918,48 @@ test('postgres monitoring schema declares normalized tables and idempotency inde
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
   }
+});
+
+test('postgres research continuity audit schema declares debug and repair history tables', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  );
+  for (const fragment of [
+    'CREATE TABLE IF NOT EXISTS research_continuity_debug_access_audits',
+    "decision TEXT NOT NULL CHECK (decision IN ('allowed', 'denied'))",
+    'idx_research_continuity_debug_audits_workspace_requested',
+    'idx_research_continuity_debug_audits_workspace_entry',
+    'CREATE TABLE IF NOT EXISTS research_continuity_repair_runs',
+    "status TEXT NOT NULL CHECK (\n        status IN ('started', 'completed', 'completed_with_failures', 'failed')",
+    'idx_research_continuity_repair_runs_workspace_requested',
+    'idx_research_continuity_repair_runs_idempotency',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
+test('postgres research continuity audit repository uses idempotent repair insert and missing-run health metric', () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      'src',
+      'research-continuity',
+      'research-continuity-audit.repository.ts',
+    ),
+    'utf8',
+  );
+  for (const fragment of [
+    'ON CONFLICT (workspace_id, idempotency_key)',
+    'DO NOTHING',
+    'selectRepairRunByIdempotencyKey',
+    "status IN ('completed', 'completed_degraded')",
+    'LEFT JOIN research_continuity_entries entry',
+    'entry.id IS NULL',
+  ]) {
+    assert.ok(source.includes(fragment), `missing repository fragment: ${fragment}`);
+  }
+  assert.equal(source.includes('getRepairRunByIdempotencyKey('), false);
 });
 
 test('postgres calibration rerun schema declares append-only audit table', () => {
@@ -7171,6 +7458,142 @@ test('research continuity V1.5 debug access is disabled by policy and gated by w
   }
 });
 
+test('research continuity V1.6 records debug access audits for denied and allowed attempts', async () => {
+  const { audit, journal, researchContinuity, workspaces } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v16_debug',
+    thesisId: 'thesis_btc_v16_debug',
+    debateId: 'debate_btc_v16_debug',
+    marketSnapshotId: 'market_btc_v16_debug',
+    signalSnapshotId: 'signal_btc_v16_debug',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const generated = await researchContinuity.generateForRun(
+    'run_btc_v16_debug',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const entryId = String(generated.entry.id);
+
+  await withEnv({ ENABLE_RESEARCH_CONTINUITY_DEBUG: 'false' }, async () => {
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'ghost_user', 'workspace_a'),
+      hasForbiddenCode('debug_access_disabled'),
+    );
+  });
+  assert.equal(audit.debugAudits.at(-1)?.decision, 'denied');
+  assert.equal(audit.debugAudits.at(-1)?.reason, 'disabled_by_policy');
+  assert.equal(audit.debugAudits.at(-1)?.entry_id, entryId);
+  assert.equal(audit.debugAudits.at(-1)?.requested_by_user_id, 'ghost_user');
+
+  await withEnv({ ENABLE_RESEARCH_CONTINUITY_DEBUG: 'true' }, async () => {
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, undefined, 'workspace_a'),
+      isException(UnauthorizedException),
+    );
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'missing_user');
+
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'editor_1', undefined),
+      hasForbiddenCode('debug_permission_required'),
+    );
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'missing_workspace');
+    assert.equal(audit.debugAudits.at(-1)?.workspace_id, null);
+
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'ghost_user', 'workspace_a'),
+      hasForbiddenCode('debug_permission_required'),
+    );
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'workspace_denied');
+
+    workspaces.setMembershipsForTest([
+      { user_id: 'viewer_user', workspace_id: 'workspace_a', role: 'viewer' },
+      { user_id: 'editor_user', workspace_id: 'workspace_a', role: 'editor' },
+      { user_id: 'user_1', workspace_id: 'workspace_a', role: 'owner' },
+    ]);
+
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'viewer_user', 'workspace_a'),
+      hasForbiddenCode('debug_permission_required'),
+    );
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'permission_required');
+
+    await assert.rejects(
+      () =>
+        researchContinuity.getEntryDebug(
+          'missing_continuity_entry',
+          'editor_user',
+          'workspace_a',
+        ),
+      isException(NotFoundException),
+    );
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'entry_not_found');
+    assert.equal(audit.debugAudits.at(-1)?.entry_id, 'missing_continuity_entry');
+
+    const debug = await researchContinuity.getEntryDebug(
+      entryId,
+      'editor_user',
+      'workspace_a',
+    );
+    assert.equal(debug.id, entryId);
+    assert.equal(audit.debugAudits.at(-1)?.decision, 'allowed');
+    assert.equal(audit.debugAudits.at(-1)?.reason, 'allowed');
+    assert.equal(audit.debugAudits.at(-1)?.research_run_id, 'run_btc_v16_debug');
+    assert.equal(audit.debugAudits.at(-1)?.symbol, 'BTC/USDT');
+  });
+
+  const denied = await researchContinuity.listDebugAccessAudits(
+    { decision: 'denied', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+  assert.ok(denied.length >= 4);
+  assert.ok(denied.every((auditRow) => auditRow.decision === 'denied'));
+  await assert.rejects(
+    () =>
+      researchContinuity.listDebugAccessAudits(
+        { limit: 20 },
+        'editor_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+});
+
+test('research continuity V1.6 requires allowed debug audits before returning payloads', async () => {
+  const { audit, journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v16_debug_strict',
+    thesisId: 'thesis_btc_v16_debug_strict',
+    debateId: 'debate_btc_v16_debug_strict',
+    marketSnapshotId: 'market_btc_v16_debug_strict',
+    signalSnapshotId: 'signal_btc_v16_debug_strict',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const generated = await researchContinuity.generateForRun(
+    'run_btc_v16_debug_strict',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  audit.failDebugAudit = true;
+
+  await withEnv({ ENABLE_RESEARCH_CONTINUITY_DEBUG: 'true' }, async () => {
+    await assert.rejects(
+      () =>
+        researchContinuity.getEntryDebug(
+          String(generated.entry.id),
+          'editor_1',
+          'workspace_a',
+        ),
+      isException(ServiceUnavailableException),
+    );
+  });
+});
+
 test('research continuity V1.1 enriches snapshots with claims, provenance, evidence, and quality metrics', async () => {
   const { journal, researchContinuity } = buildHarness();
   seedContinuityRun(journal, {
@@ -8043,6 +8466,226 @@ test('research continuity repair preview discovers V1.3 candidates and dry-run w
   assert.equal(journal.continuityEntries.size, entryCount);
   assert.equal(journal.researchSnapshots.size, snapshotCount);
   assert.equal(journal.continuityStates.size, stateCount);
+});
+
+test('research continuity V1.6 repair dry-runs create durable history and admin reads', async () => {
+  const { audit, journal, researchContinuity, researchContinuityController } =
+    buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_v16_dry',
+    thesisId: 'thesis_repair_v16_dry',
+    debateId: 'debate_repair_v16_dry',
+    marketSnapshotId: 'market_repair_v16_dry',
+    signalSnapshotId: 'signal_repair_v16_dry',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+
+  const dryRun = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      idempotency_key: 'repair-dry-run-key',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(dryRun.dry_run, true);
+  assert.match(dryRun.audit_run_id, /^repair_run_/);
+  const detail = await researchContinuity.getRepairRun(
+    dryRun.audit_run_id,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(detail?.id, dryRun.audit_run_id);
+  assert.equal(detail?.status, 'completed');
+  assert.equal(detail?.dry_run, true);
+  assert.equal(record(detail?.filters).limit, 5);
+  assert.equal(records(detail?.results).length, dryRun.results.length);
+  assert.deepEqual(detail?.created_entry_ids, []);
+
+  const repeated = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      idempotency_key: 'repair-dry-run-key',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(repeated.audit_run_id, dryRun.audit_run_id);
+  assert.equal(audit.repairRuns.size, 1);
+
+  const list = await researchContinuityController.listRepairRuns(
+    undefined,
+    undefined,
+    '20',
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(list.runs[0]?.id, dryRun.audit_run_id);
+  assert.equal('results' in (list.runs[0] as unknown as Record<string, unknown>), false);
+
+  await assert.rejects(
+    () =>
+      researchContinuity.getRepairRun(
+        dryRun.audit_run_id,
+        'editor_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+});
+
+test('research continuity V1.6 repair cannot start without audit envelope', async () => {
+  const { audit, journal, researchContinuity } = buildHarness();
+  let discoveryCalls = 0;
+  const originalDiscover = journal.listResearchRunsForContinuityRepair.bind(journal);
+  journal.listResearchRunsForContinuityRepair = async (filters, workspaceId) => {
+    discoveryCalls += 1;
+    return originalDiscover(filters, workspaceId);
+  };
+  audit.failRepairRunCreate = true;
+
+  await assert.rejects(
+    () =>
+      researchContinuity.runRepair(
+        {
+          case_types: ['missing_continuity'],
+          limit: 5,
+          dry_run: false,
+        },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(ServiceUnavailableException),
+  );
+  assert.equal(discoveryCalls, 0);
+});
+
+test('research continuity V1.6 repair retries return started idempotent history without executing', async () => {
+  const { audit, journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_v16_started_retry',
+    thesisId: 'thesis_repair_v16_started_retry',
+    debateId: 'debate_repair_v16_started_retry',
+    marketSnapshotId: 'market_repair_v16_started_retry',
+    signalSnapshotId: 'signal_repair_v16_started_retry',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const existing = await audit.createRepairRun({
+    workspace_id: 'workspace_a',
+    requested_by_user_id: 'user_1',
+    dry_run: false,
+    idempotency_key: 'repair-started-key',
+    filters: { case_types: ['missing_continuity'], limit: 5 },
+  });
+  let discoveryCalls = 0;
+  const originalDiscover = journal.listResearchRunsForContinuityRepair.bind(journal);
+  journal.listResearchRunsForContinuityRepair = async (filters, workspaceId) => {
+    discoveryCalls += 1;
+    return originalDiscover(filters, workspaceId);
+  };
+
+  const repeated = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+      idempotency_key: 'repair-started-key',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(repeated.audit_run_id, existing.id);
+  assert.equal(discoveryCalls, 0);
+  assert.equal(audit.repairRuns.size, 1);
+  assert.equal(audit.repairRuns.get(String(existing.id))?.status, 'started');
+});
+
+test('research continuity V1.6 real repair history stores created IDs and partial failures', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_repair_v16_real',
+    thesisId: 'thesis_repair_v16_real',
+    debateId: 'debate_repair_v16_real',
+    marketSnapshotId: 'market_repair_v16_real',
+    signalSnapshotId: 'signal_repair_v16_real',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+
+  const executed = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const created = executed.results.find(
+    (result) => result.run_id === 'run_repair_v16_real',
+  );
+  assert.equal(executed.repaired_count, 1);
+  assert.ok(created?.new_entry_id);
+
+  const detail = await researchContinuity.getRepairRun(
+    executed.audit_run_id,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(detail?.status, 'completed');
+  assert.deepEqual(detail?.created_entry_ids, [created?.new_entry_id]);
+  assert.equal(records(detail?.results)[0]?.action, 'created_repair_entry');
+
+  seedContinuityRun(journal, {
+    runId: 'run_repair_v16_failure',
+    thesisId: 'thesis_repair_v16_failure',
+    debateId: 'debate_repair_v16_failure',
+    marketSnapshotId: 'market_repair_v16_failure',
+    signalSnapshotId: 'signal_repair_v16_failure',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const originalSave = journal.saveResearchContinuityEntry.bind(journal);
+  journal.saveResearchContinuityEntry = async (entry, workspaceId) => {
+    if (entry.research_run_id === 'run_repair_v16_failure') {
+      throw new Error('continuity insert failed');
+    }
+    return originalSave(entry, workspaceId);
+  };
+
+  const partial = await researchContinuity.runRepair(
+    {
+      symbol: 'BTC/USDT',
+      from: '2026-05-12T00:00:00.000Z',
+      to: '2026-05-12T23:59:59.999Z',
+      case_types: ['missing_continuity'],
+      limit: 20,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const partialDetail = await researchContinuity.getRepairRun(
+    partial.audit_run_id,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(partial.failed_count, 1);
+  assert.equal(partialDetail?.status, 'completed_with_failures');
+  assert.ok(
+    records(partialDetail?.results).some(
+      (result) =>
+        result.run_id === 'run_repair_v16_failure' &&
+        result.action === 'failed' &&
+        !String(result.error).includes('Error:'),
+    ),
+  );
 });
 
 test('fake journal repair lookup supports Postgres-shaped nested repair metadata', async () => {
@@ -9367,6 +10010,7 @@ async function waitForJobStatus(
 
 function buildHarness() {
   const journal = new FakeJournalRepository();
+  const audit = new FakeResearchContinuityAuditRepository();
   const auth = new AuthService();
   const workspaces = new WorkspacesService();
   workspaces.setMembershipsForTest([
@@ -9638,12 +10282,14 @@ function buildHarness() {
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
   const researchContinuity = new ResearchContinuityService(
     journal,
+    audit,
     auth,
     workspaces,
   );
   const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
   const monitoringJobs = new MonitoringJobsService(journal, thesisEngine);
   return {
+    audit,
     journal,
     workspaces,
     evaluationEngineCalls,
@@ -9682,7 +10328,7 @@ function buildHarness() {
     performance: new PerformanceService(journal, auth, workspaces),
     comparisons: new ComparisonsService(journal, auth, workspaces),
     scenarios: new ScenariosService(journal, auth, workspaces),
-    operations: new OperationsService(journal, auth, workspaces),
+    operations: new OperationsService(journal, audit, auth, workspaces),
     workbench: new WorkbenchService(journal, auth, workspaces),
   };
 }

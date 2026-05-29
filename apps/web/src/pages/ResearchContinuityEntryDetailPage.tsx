@@ -50,7 +50,7 @@ export function ResearchContinuityEntryDetailPage() {
                 Open source run
               </Link>
             ) : null}
-            <Link className="button" to="/research-continuity">
+            <Link className="button" to={routes.researchContinuity()}>
               Back to continuity
             </Link>
           </div>

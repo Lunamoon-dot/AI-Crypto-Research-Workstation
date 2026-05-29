@@ -142,7 +142,7 @@ export class ResearchJobProcessor {
   ): Promise<JsonRecord> {
     const result = await this.pythonEngine.runInline(request, { signal });
     await this.lifecycle.heartbeat(request.run_id, { phase: 'postgres_sync' });
-    const sync = await this.syncRun(request);
+    const sync = await this.syncRun(request, result);
     return sync
       ? ({
           ...result,
@@ -153,9 +153,12 @@ export class ResearchJobProcessor {
 
   private async syncRun(
     request: EngineRunRequest,
+    result: JsonRecord,
   ): Promise<SqliteJournalSyncResult | null> {
     return (
-      (await this.sqliteSync?.syncRun(request.run_id, request.workspace_id)) ??
+      (await this.sqliteSync?.syncRun(request.run_id, request.workspace_id, {
+        sqlitePath: optionalString(result.journal_path),
+      })) ??
       null
     );
   }
@@ -178,4 +181,11 @@ function stringValue(value: unknown, fallback: string): string {
     return value;
   }
   return fallback;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim()) {
+    return value;
+  }
+  return undefined;
 }

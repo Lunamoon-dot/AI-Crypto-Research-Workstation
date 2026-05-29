@@ -102,13 +102,14 @@ is required.
 | V1.3 | implemented | [v1.3/implementation-plan.md](v1.3/implementation-plan.md) |
 | V1.4 | implemented | [v1.4/implementation-plan.md](v1.4/implementation-plan.md) |
 | V1.5 | implemented | [v1.5/implementation-plan.md](v1.5/implementation-plan.md) |
+| V1.6 | goal-ready | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.6+: debug audit persistence, workspace debug settings, repair job audit
-  table, scheduled repair, or richer operations after V1.5 proves the compact
-  read boundary.
+- V1.7+: workspace debug settings, scheduled repair, richer operations, or
+  dedicated report view columns after V1.6 proves auditability and repair
+  history.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

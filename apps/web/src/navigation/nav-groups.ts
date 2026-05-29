@@ -6,7 +6,6 @@ import {
   BookOpen,
   Bot,
   ClipboardList,
-  FileText,
   FlaskConical,
   Gauge,
   GitCompare,
@@ -78,9 +77,9 @@ export const navGroups: NavigationGroup[] = [
       },
       {
         id: 'research-continuity',
-        label: 'Research Continuity',
-        title: 'Research Continuity',
-        href: '/research-continuity',
+        label: 'Continuity',
+        title: 'Research continuity ledger',
+        href: routes.researchContinuity(),
         icon: Activity,
         mobile: true,
       },
@@ -121,25 +120,10 @@ export const navGroups: NavigationGroup[] = [
     icon: ClipboardList,
     items: [
       {
-        id: 'watchlists',
-        label: 'Watchlists',
-        title: 'Watchlists and briefs',
-        href: routes.watchlists,
-        icon: ClipboardList,
-        mobile: true,
-      },
-      {
         id: 'alerts',
         label: 'Alerts',
         href: routes.alerts,
         icon: Bell,
-      },
-      {
-        id: 'briefs-daily',
-        label: 'Briefs',
-        title: 'Daily briefs archive',
-        href: routes.briefsDaily,
-        icon: FileText,
       },
       {
         id: 'performance',

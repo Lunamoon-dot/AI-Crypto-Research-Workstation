@@ -601,14 +601,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                 <Link className="button primary" to={routes.thesis(workspace.thesis.id ?? '')}>
                   Open thesis
                 </Link>
-                {workspace.thesis.id ? (
-                  <Link
-                    className="button"
-                    to={`${routes.watchlists}?track_thesis=${encodeURIComponent(workspace.thesis.id)}`}
-                  >
-                    Track this thesis
-                  </Link>
-                ) : null}
               </div>
             </div>
           ) : (
@@ -742,12 +734,12 @@ function DailyDeltaPanel({
             <div className="daily-delta-actions">
               <Link
                 className="button"
-                to={`/research-continuity?symbol=${encodeURIComponent(entry.symbol)}`}
+                to={routes.researchContinuity(entry.symbol)}
               >
                 Open continuity
               </Link>
               {entry.id ? (
-                <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+                <Link className="button" to={routes.researchContinuityEntry(entry.id)}>
                   Details
                 </Link>
               ) : null}

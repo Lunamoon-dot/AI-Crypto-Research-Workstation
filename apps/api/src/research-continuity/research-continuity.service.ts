@@ -34,6 +34,7 @@ import {
   RESEARCH_CONTINUITY_REPAIR_CASE_TYPES,
   RESEARCH_CONTINUITY_REPAIR_VERSION,
   ResearchContinuityEntriesResponse,
+  ResearchContinuityDebugAccessAuditResponse,
   ResearchContinuityEntryDebugResponse,
   ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntryResponse,
@@ -45,8 +46,10 @@ import {
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewFilters,
   ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunResultResponse,
+  ResearchContinuityRepairRunSummaryResponse,
   ResearchContinuityStateTransitionDigestResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityStateResponse,
@@ -55,6 +58,17 @@ import {
   ResearchSnapshotResponse,
   RunResearchContinuityRepairDto,
 } from './dto/research-continuity.dto';
+import {
+  RESEARCH_CONTINUITY_AUDIT_REPOSITORY,
+} from './research-continuity-audit.repository';
+import type {
+  ResearchContinuityAuditRepository,
+  ResearchContinuityDebugAccessAuditFilters,
+  ResearchContinuityDebugAuditDecision,
+  ResearchContinuityDebugAuditReason,
+  ResearchContinuityRepairRunFilters,
+  ResearchContinuityRepairRunStatus,
+} from './research-continuity-audit.types';
 
 interface NormalizedRepairFilters {
   symbol?: string;
@@ -80,6 +94,8 @@ export class ResearchContinuityService {
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
+    @Inject(RESEARCH_CONTINUITY_AUDIT_REPOSITORY)
+    private readonly audit: ResearchContinuityAuditRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
@@ -156,24 +172,90 @@ export class ResearchContinuityService {
     userId?: string,
     workspaceHeader?: string,
   ): Promise<ResearchContinuityEntryDebugResponse> {
+    const entryId = stringValue(id).trim();
+    const requestedByUserId = trimOptional(userId);
+    const requestedWorkspaceId = trimOptional(workspaceHeader);
     if (!isResearchContinuityDebugEnabled()) {
+      await this.tryRecordDebugAccessAudit({
+        entryId,
+        workspaceId: requestedWorkspaceId,
+        requestedByUserId,
+        decision: 'denied',
+        reason: 'disabled_by_policy',
+      });
       throwDebugDisabled();
     }
+
+    let resolvedUserId: string;
+    try {
+      resolvedUserId = this.auth.resolveUser(userId);
+    } catch (error) {
+      await this.tryRecordDebugAccessAudit({
+        entryId,
+        workspaceId: requestedWorkspaceId,
+        requestedByUserId,
+        decision: 'denied',
+        reason: 'missing_user',
+      });
+      throw error;
+    }
+
     let workspaceId: string;
     try {
-      workspaceId = await this.resolveWorkspaceAccess(
-        userId,
-        workspaceHeader,
-        'editor',
-      );
+      workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     } catch (error) {
+      await this.tryRecordDebugAccessAudit({
+        entryId,
+        workspaceId: null,
+        requestedByUserId: resolvedUserId,
+        decision: 'denied',
+        reason: 'missing_workspace',
+      });
       throwDebugPermissionRequired(error);
     }
-    const entry = await this.journal.getResearchContinuityEntry(id, workspaceId);
-    if (!entry) {
-      throw new NotFoundException(`Research continuity entry ${id} not found`);
+
+    try {
+      await this.workspaces.assertAccess(resolvedUserId, workspaceId, 'editor');
+    } catch (error) {
+      const reason = await this.debugPermissionDeniedReason(
+        error,
+        resolvedUserId,
+        workspaceId,
+      );
+      await this.tryRecordDebugAccessAudit({
+        entryId,
+        workspaceId,
+        requestedByUserId: resolvedUserId,
+        decision: 'denied',
+        reason,
+      });
+      throwDebugPermissionRequired(error);
     }
-    return toEntryDebugResponse(entry, this.auth.resolveUser(userId));
+    const entry = await this.journal.getResearchContinuityEntry(entryId, workspaceId);
+    if (!entry) {
+      await this.tryRecordDebugAccessAudit({
+        entryId,
+        workspaceId,
+        requestedByUserId: resolvedUserId,
+        decision: 'denied',
+        reason: 'entry_not_found',
+      });
+      throw new NotFoundException(`Research continuity entry ${entryId} not found`);
+    }
+    await this.audit.recordDebugAccessAudit({
+      workspace_id: workspaceId,
+      entry_id: entryId,
+      research_run_id: nullableString(entry.research_run_id),
+      symbol: nullableString(entry.symbol),
+      requested_by_user_id: resolvedUserId,
+      decision: 'allowed',
+      reason: 'allowed',
+      requested_at: new Date().toISOString(),
+      metadata: {
+        source: 'research_continuity_debug',
+      },
+    });
+    return toEntryDebugResponse(entry, resolvedUserId);
   }
 
   async getSymbolState(
@@ -259,38 +341,114 @@ export class ResearchContinuityService {
       workspaceHeader,
       'admin',
     );
+    const requestedByUserId = this.auth.resolveUser(userId);
     const normalized = normalizeRepairFilters(dto, true);
     const dryRun = dto.dry_run !== false;
-    const candidates = await this.discoverRepairCandidates(
-      normalized,
+    const auditRun = await this.audit.createRepairRun({
+      workspace_id: workspaceId,
+      requested_by_user_id: requestedByUserId,
+      requested_at: new Date().toISOString(),
+      dry_run: dryRun,
+      idempotency_key: trimOptional(dto.idempotency_key),
+      filters: repairFiltersJson(normalized),
+    });
+    if (booleanValue(auditRun._existing, false)) {
+      return toRepairRunResponse(auditRun);
+    }
+
+    try {
+      const candidates = await this.discoverRepairCandidates(
+        normalized,
+        workspaceId,
+      );
+      const results: ResearchContinuityRepairRunResultResponse[] = [];
+      for (const candidate of candidates) {
+        if (dryRun) {
+          results.push(toDryRunResult(candidate));
+          continue;
+        }
+        results.push(await this.executeRepairCandidate(candidate, workspaceId, userId));
+      }
+      const counts = summarizeRepairResults(results);
+      const finalized = await this.audit.finalizeRepairRun(
+        stringValue(auditRun.id),
+        workspaceId,
+        {
+          status: counts.failed_count > 0 ? 'completed_with_failures' : 'completed',
+          requested_count: counts.requested_count,
+          repaired_count: counts.repaired_count,
+          skipped_count: counts.skipped_count,
+          failed_count: counts.failed_count,
+          created_entry_ids: createdEntryIds(results),
+          results,
+          error_message: null,
+        },
+      );
+      return toRepairRunResponse(finalized);
+    } catch (error) {
+      await this.audit.finalizeRepairRun(stringValue(auditRun.id), workspaceId, {
+        status: 'failed',
+        requested_count: 0,
+        repaired_count: 0,
+        skipped_count: 0,
+        failed_count: 0,
+        created_entry_ids: [],
+        results: [],
+        error_message: sanitizedErrorMessage(error),
+      });
+      throw error;
+    }
+  }
+
+  async listDebugAccessAudits(
+    filters: Partial<ResearchContinuityDebugAccessAuditFilters>,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityDebugAccessAuditResponse[]> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const rows = await this.audit.listDebugAccessAudits(
+      normalizeDebugAuditFilters(filters),
       workspaceId,
     );
-    const results: ResearchContinuityRepairRunResultResponse[] = [];
-    for (const candidate of candidates) {
-      if (dryRun) {
-        results.push(toDryRunResult(candidate));
-        continue;
-      }
-      results.push(await this.executeRepairCandidate(candidate, workspaceId, userId));
+    return rows.map(toDebugAccessAuditResponse);
+  }
+
+  async listRepairRuns(
+    filters: Partial<ResearchContinuityRepairRunFilters>,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityRepairRunSummaryResponse[]> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const rows = await this.audit.listRepairRuns(
+      normalizeRepairRunFilters(filters),
+      workspaceId,
+    );
+    return rows.map(toRepairRunSummaryResponse);
+  }
+
+  async getRepairRun(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityRepairRunDetailResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const run = await this.audit.getRepairRun(id, workspaceId);
+    if (!run) {
+      throw new NotFoundException(`Research continuity repair run ${id} not found`);
     }
-    return {
-      dry_run: dryRun,
-      requested_count: results.length,
-      repaired_count: results.filter(
-        (result) => result.action === 'created_repair_entry',
-      ).length,
-      skipped_count: results.filter((result) =>
-        [
-          'already_repaired',
-          'already_has_continuity',
-          'dry_run',
-          'not_eligible',
-          'not_improved',
-        ].includes(result.action),
-      ).length,
-      failed_count: results.filter((result) => result.action === 'failed').length,
-      results,
-    };
+    return toRepairRunDetailResponse(run);
   }
 
   private async discoverRepairCandidates(
@@ -1070,6 +1228,46 @@ export class ResearchContinuityService {
     };
   }
 
+  private async tryRecordDebugAccessAudit(input: {
+    entryId: string;
+    workspaceId: string | null;
+    requestedByUserId: string | null;
+    decision: ResearchContinuityDebugAuditDecision;
+    reason: ResearchContinuityDebugAuditReason;
+  }): Promise<void> {
+    try {
+      await this.audit.recordDebugAccessAudit({
+        workspace_id: input.workspaceId,
+        entry_id: input.entryId,
+        requested_by_user_id: input.requestedByUserId,
+        decision: input.decision,
+        reason: input.reason,
+        requested_at: new Date().toISOString(),
+        metadata: {
+          source: 'research_continuity_debug',
+        },
+      });
+    } catch {
+      // Denied debug paths are best-effort audited; preserve the original denial.
+    }
+  }
+
+  private async debugPermissionDeniedReason(
+    error: unknown,
+    userId: string,
+    workspaceId: string,
+  ): Promise<ResearchContinuityDebugAuditReason> {
+    if (!(error instanceof ForbiddenException)) {
+      throw error;
+    }
+    try {
+      await this.workspaces.assertAccess(userId, workspaceId, 'viewer');
+      return 'permission_required';
+    } catch {
+      return 'workspace_denied';
+    }
+  }
+
   private async getRunOrThrow(
     runId: string,
     workspaceId: string,
@@ -1141,6 +1339,78 @@ function normalizeRepairFilters(
   };
 }
 
+function repairFiltersJson(filters: NormalizedRepairFilters): JsonRecord {
+  return {
+    symbol: filters.symbol ?? null,
+    from: filters.from ?? null,
+    to: filters.to ?? null,
+    case_types: filters.caseTypes,
+    limit: filters.limit,
+  };
+}
+
+function normalizeDebugAuditFilters(
+  filters: Partial<ResearchContinuityDebugAccessAuditFilters>,
+): ResearchContinuityDebugAccessAuditFilters {
+  return {
+    limit: normalizeLimit(filters.limit),
+    entry_id: trimOptional(filters.entry_id) ?? undefined,
+    decision: debugAuditDecisionValue(filters.decision),
+    reason: debugAuditReasonValue(filters.reason),
+    requested_by_user_id:
+      trimOptional(filters.requested_by_user_id) ?? undefined,
+  };
+}
+
+function normalizeRepairRunFilters(
+  filters: Partial<ResearchContinuityRepairRunFilters>,
+): ResearchContinuityRepairRunFilters {
+  return {
+    limit: normalizeLimit(filters.limit),
+    status: repairRunStatusValue(filters.status),
+    dry_run:
+      typeof filters.dry_run === 'boolean' ? filters.dry_run : undefined,
+  };
+}
+
+function summarizeRepairResults(
+  results: ResearchContinuityRepairRunResultResponse[],
+): Pick<
+  ResearchContinuityRepairRunResponse,
+  'requested_count' | 'repaired_count' | 'skipped_count' | 'failed_count'
+> {
+  return {
+    requested_count: results.length,
+    repaired_count: results.filter(
+      (result) => result.action === 'created_repair_entry',
+    ).length,
+    skipped_count: results.filter((result) =>
+      [
+        'already_repaired',
+        'already_has_continuity',
+        'dry_run',
+        'not_eligible',
+        'not_improved',
+      ].includes(result.action),
+    ).length,
+    failed_count: results.filter((result) => result.action === 'failed').length,
+  };
+}
+
+function createdEntryIds(
+  results: ResearchContinuityRepairRunResultResponse[],
+): string[] {
+  return results
+    .filter((result) => result.action === 'created_repair_entry')
+    .map((result) => result.new_entry_id)
+    .filter((id): id is string => Boolean(id));
+}
+
+function sanitizedErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split(/\r?\n/)[0]?.slice(0, 500) || 'Repair run failed.';
+}
+
 function parseRepairCaseTypes(
   value: string | ResearchContinuityRepairCaseType[] | undefined,
 ): ResearchContinuityRepairCaseType[] {
@@ -1210,6 +1480,69 @@ function toRepairCandidateResponse(
     blocked_reason: candidate.blocked_reason ?? null,
     predicted_action: candidate.predicted_action,
     repair_version: candidate.repair_version,
+  };
+}
+
+function toDebugAccessAuditResponse(
+  row: JsonRecord,
+): ResearchContinuityDebugAccessAuditResponse {
+  return {
+    id: nullableString(row.id),
+    workspace_id: nullableString(row.workspace_id),
+    entry_id: stringValue(row.entry_id),
+    research_run_id: nullableString(row.research_run_id),
+    symbol: nullableString(row.symbol),
+    requested_by_user_id: nullableString(row.requested_by_user_id),
+    decision: debugAuditDecisionValue(row.decision) ?? 'denied',
+    reason: debugAuditReasonValue(row.reason) ?? 'audit_unavailable',
+    requested_at: nullableString(row.requested_at),
+    metadata: recordValue(row.metadata ?? row.metadata_json),
+  };
+}
+
+function toRepairRunResponse(
+  row: JsonRecord,
+): ResearchContinuityRepairRunResponse {
+  const detail = toRepairRunDetailResponse(row);
+  return {
+    audit_run_id: detail.id,
+    dry_run: detail.dry_run,
+    requested_count: detail.requested_count,
+    repaired_count: detail.repaired_count,
+    skipped_count: detail.skipped_count,
+    failed_count: detail.failed_count,
+    results: detail.results,
+  };
+}
+
+function toRepairRunSummaryResponse(
+  row: JsonRecord,
+): ResearchContinuityRepairRunSummaryResponse {
+  return {
+    id: stringValue(row.id),
+    workspace_id: stringValue(row.workspace_id),
+    requested_by_user_id: stringValue(row.requested_by_user_id),
+    requested_at: nullableString(row.requested_at),
+    completed_at: nullableString(row.completed_at),
+    dry_run: booleanValue(row.dry_run, true),
+    status: repairRunStatusValue(row.status) ?? 'failed',
+    idempotency_key: nullableString(row.idempotency_key),
+    filters: recordValue(row.filters ?? row.filters_json),
+    requested_count: numberValue(row.requested_count, 0),
+    repaired_count: numberValue(row.repaired_count, 0),
+    skipped_count: numberValue(row.skipped_count, 0),
+    failed_count: numberValue(row.failed_count, 0),
+    created_entry_ids: stringList(row.created_entry_ids ?? row.created_entry_ids_json),
+    error_message: nullableString(row.error_message),
+  };
+}
+
+function toRepairRunDetailResponse(
+  row: JsonRecord,
+): ResearchContinuityRepairRunDetailResponse {
+  return {
+    ...toRepairRunSummaryResponse(row),
+    results: repairRunResults(row.results ?? row.results_json),
   };
 }
 
@@ -1728,6 +2061,90 @@ function normalizeLimit(value: number | undefined): number {
   return Math.min(Math.max(Math.trunc(value), 1), 100);
 }
 
+function debugAuditDecisionValue(
+  value: unknown,
+): ResearchContinuityDebugAuditDecision | undefined {
+  const normalized = stringValue(value);
+  return ['allowed', 'denied'].includes(normalized)
+    ? (normalized as ResearchContinuityDebugAuditDecision)
+    : undefined;
+}
+
+function debugAuditReasonValue(
+  value: unknown,
+): ResearchContinuityDebugAuditReason | undefined {
+  const normalized = stringValue(value);
+  return [
+    'allowed',
+    'disabled_by_policy',
+    'missing_user',
+    'missing_workspace',
+    'workspace_denied',
+    'permission_required',
+    'entry_not_found',
+    'audit_unavailable',
+  ].includes(normalized)
+    ? (normalized as ResearchContinuityDebugAuditReason)
+    : undefined;
+}
+
+function repairRunStatusValue(
+  value: unknown,
+): ResearchContinuityRepairRunStatus | undefined {
+  const normalized = stringValue(value);
+  return [
+    'started',
+    'completed',
+    'completed_with_failures',
+    'failed',
+  ].includes(normalized)
+    ? (normalized as ResearchContinuityRepairRunStatus)
+    : undefined;
+}
+
+function repairRunResults(
+  value: unknown,
+): ResearchContinuityRepairRunResultResponse[] {
+  return arrayRecords(value).map((result) => ({
+    candidate_id: stringValue(result.candidate_id),
+    run_id: stringValue(result.run_id),
+    symbol: stringValue(result.symbol),
+    case_type: repairCaseTypeValue(result.case_type),
+    action: repairRunActionValue(result.action),
+    previous_entry_id: nullableString(result.previous_entry_id),
+    new_entry_id: nullableString(result.new_entry_id),
+    state_updated: booleanValue(result.state_updated, false),
+    reason: stringValue(result.reason),
+    error: nullableString(result.error),
+  }));
+}
+
+function repairCaseTypeValue(value: unknown): ResearchContinuityRepairCaseType {
+  const normalized = stringValue(value);
+  return RESEARCH_CONTINUITY_REPAIR_CASE_TYPES.includes(
+    normalized as ResearchContinuityRepairCaseType,
+  )
+    ? (normalized as ResearchContinuityRepairCaseType)
+    : 'missing_continuity';
+}
+
+function repairRunActionValue(
+  value: unknown,
+): ResearchContinuityRepairRunResultResponse['action'] {
+  const normalized = stringValue(value);
+  return [
+    'created_repair_entry',
+    'already_repaired',
+    'already_has_continuity',
+    'dry_run',
+    'not_eligible',
+    'not_improved',
+    'failed',
+  ].includes(normalized)
+    ? (normalized as ResearchContinuityRepairRunResultResponse['action'])
+    : 'failed';
+}
+
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -1853,8 +2270,36 @@ function numberOrNull(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function numberValue(value: unknown, fallback: number): number {
+  return numberOrNull(value) ?? fallback;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    if (['true', '1', 'yes'].includes(normalized)) {
+      return true;
+    }
+    if (['false', '0', 'no'].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function stringValue(value: unknown, fallback = ''): string {
   return nullableString(value) ?? fallback;
+}
+
+function trimOptional(value: unknown): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed || null;
 }
 
 function safeId(value: string): string {

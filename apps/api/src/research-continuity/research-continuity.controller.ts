@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { RunResearchContinuityRepairDto } from './dto/research-continuity.dto';
+import type {
+  ResearchContinuityDebugAuditDecision,
+  ResearchContinuityDebugAuditReason,
+  ResearchContinuityRepairRunStatus,
+} from './research-continuity-audit.types';
 import { ResearchContinuityService } from './research-continuity.service';
 
 @Controller('research-continuity')
@@ -49,6 +54,31 @@ export class ResearchContinuityController {
     return this.continuity.getEntryDebug(id, userId, workspaceId);
   }
 
+  @Get('debug-audits')
+  async listDebugAccessAudits(
+    @Query('limit') limit?: string,
+    @Query('entry_id') entryId?: string,
+    @Query('decision') decision?: ResearchContinuityDebugAuditDecision,
+    @Query('reason') reason?: ResearchContinuityDebugAuditReason,
+    @Query('requested_by_user_id') requestedByUserId?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return {
+      audits: await this.continuity.listDebugAccessAudits(
+        {
+          limit: parseListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
+          entry_id: entryId,
+          decision,
+          reason,
+          requested_by_user_id: requestedByUserId,
+        },
+        userId,
+        workspaceId,
+      ),
+    };
+  }
+
   @Get('repair/preview')
   previewRepair(
     @Query('symbol') symbol?: string,
@@ -80,4 +110,41 @@ export class ResearchContinuityController {
   ) {
     return this.continuity.runRepair(dto, userId, workspaceId);
   }
+
+  @Get('repair/runs')
+  async listRepairRuns(
+    @Query('status') status?: ResearchContinuityRepairRunStatus,
+    @Query('dry_run') dryRun?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return {
+      runs: await this.continuity.listRepairRuns(
+        {
+          status,
+          dry_run: parseOptionalBoolean(dryRun),
+          limit: parseListLimit(limit, { defaultLimit: 20, maxLimit: 100 }),
+        },
+        userId,
+        workspaceId,
+      ),
+    };
+  }
+
+  @Get('repair/runs/:id')
+  getRepairRun(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.getRepairRun(id, userId, workspaceId);
+  }
+}
+
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }

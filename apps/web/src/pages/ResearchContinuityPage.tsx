@@ -14,12 +14,14 @@ import {
 import {
   getResearchContinuityState,
   listResearchContinuityEntries,
+  listResearchContinuityRepairRuns,
   previewResearchContinuityRepair,
   runResearchContinuityRepair,
 } from '@/services/research-continuity';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
+import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { IdChip, StatusBadge } from '@/components/research/badges';
@@ -33,6 +35,7 @@ import type {
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
+  ResearchContinuityRepairRunSummaryResponse,
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
 } from '@/types';
@@ -82,6 +85,8 @@ export function ResearchContinuityPage() {
   const entries = entriesQuery.data?.entries ?? [];
   const latestEntry = stateQuery.data?.latest_entry ?? entries[0] ?? null;
   const quality = record(state?.data_quality ?? latestEntry?.thin_report?.quality);
+  const activeItemCount = state?.active_items.length ?? 0;
+  const qualityStatus = stringValue(quality.status, 'unknown');
 
   function refreshContinuityQueries() {
     void queryClient.invalidateQueries({
@@ -90,35 +95,68 @@ export function ResearchContinuityPage() {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.researchContinuityEntries({ symbol, limit: 10 }),
     });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuityRepairRuns({ limit: 5 }),
+    });
   }
 
   return (
     <main className="page">
       <PageHeader
         eyebrow="Luna Research"
-        title="Research Continuity"
-        description={symbol}
+        title="Research continuity ledger"
+        description={`Evidence-backed memory for ${symbol}. Continuity carries claims, risks, invalidations, and source coverage into the next research run.`}
         action={
-          <form className="top-strip-meta research-continuity-symbol-form" onSubmit={applySymbol}>
-            <label className="research-continuity-symbol-field">
-              <span>Symbol</span>
-              <input
-                className="input"
-                list="research-continuity-symbols"
-                onChange={(event) => setSymbolInput(event.target.value)}
-                value={symbolInput}
-              />
-            </label>
-            <datalist id="research-continuity-symbols">
-              <option value="BTC/USDT" />
-              <option value="ETH/USDT" />
-              <option value="SOL/USDT" />
-            </datalist>
-            <button className="button" type="submit">
-              <RefreshCw aria-hidden size={15} />
-              Load
-            </button>
-          </form>
+          <div className="research-continuity-header-action">
+            <HeaderStats
+              className="research-continuity-header-stats"
+              stats={[
+                {
+                  icon: <Activity aria-hidden size={14} />,
+                  label: 'Active memory',
+                  meta: 'Tracked items',
+                  tone: 'primary',
+                  value: stateQuery.isLoading ? '...' : activeItemCount,
+                },
+                {
+                  icon: <FileText aria-hidden size={14} />,
+                  label: 'Entries',
+                  meta: latestEntry ? formatDateTime(latestEntry.generated_at) : 'No entry yet',
+                  tone: latestEntry ? 'constructive' : 'degraded',
+                  value: entriesQuery.isLoading ? '...' : entries.length,
+                },
+                {
+                  icon: <ShieldCheck aria-hidden size={14} />,
+                  label: 'Evidence',
+                  meta: 'Coverage health',
+                  tone: qualityStatus === 'clean' ? 'constructive' : 'warning',
+                  value: qualityStatus,
+                },
+              ]}
+            />
+            <form className="top-strip-meta research-continuity-symbol-form" onSubmit={applySymbol}>
+              <label className="research-continuity-symbol-field">
+                <span>Symbol</span>
+                <input
+                  className="input"
+                  list="research-continuity-symbols"
+                  onChange={(event) => setSymbolInput(event.target.value)}
+                  value={symbolInput}
+                />
+              </label>
+              <datalist id="research-continuity-symbols">
+                <option value="BTC/USDT" />
+                <option value="ETH/USDT" />
+                <option value="SOL/USDT" />
+                <option value="LINK/USDT" />
+                <option value="BNB/USDT" />
+              </datalist>
+              <button className="button" type="submit">
+                <RefreshCw aria-hidden size={15} />
+                Load ledger
+              </button>
+            </form>
+          </div>
         }
       />
 
@@ -128,8 +166,8 @@ export function ResearchContinuityPage() {
       <BentoGrid className="research-continuity-grid">
         <Panel
           className="span-4 emphasis research-continuity-panel"
-          title="Current View"
-          description="State carried into the next run"
+          title="Continuity snapshot"
+          description="State carried into the next research run"
         >
           {stateQuery.isLoading ? <LoadingState label="Loading continuity state..." /> : null}
           {!stateQuery.isLoading ? <CurrentView state={state} latestEntry={latestEntry} /> : null}
@@ -137,46 +175,48 @@ export function ResearchContinuityPage() {
 
         <Panel
           className="span-8 research-continuity-panel"
-          title="Latest Delta"
-          description="Newest continuity report"
+          title="Latest research delta"
+          description="Newest transition from the research ledger"
         >
           <LatestReport entry={latestEntry} />
         </Panel>
 
         <Panel
           className="span-12 research-continuity-panel"
-          title="Trust And Evidence"
-          description="Snapshot health and evidence coverage"
+          title="Evidence health"
+          description="Snapshot quality and source coverage"
         >
           <TrustQuality quality={quality} />
         </Panel>
 
         <Panel
           className="span-12 research-continuity-panel"
-          title="Tracked Items"
-          description="Claims, risks, watchpoints, invalidations, and levels"
+          title="Active research memory"
+          description="Claims, risks, monitored signals, invalidations, and levels"
         >
           <ActiveItems state={state} />
         </Panel>
 
-        {ENABLE_RESEARCH_CONTINUITY_REPAIR ? (
-          <Panel
-            className="span-12 research-continuity-panel"
-            title="Repair & Backfill"
-            description="Manual V1.3 continuity ledger control"
-          >
+        <Panel
+          className="span-12 research-continuity-panel"
+          title="Ledger repair"
+          description="Manual continuity ledger control"
+        >
+          {ENABLE_RESEARCH_CONTINUITY_REPAIR ? (
             <RepairBackfillPanel
               auth={auth}
               onExecuted={refreshContinuityQueries}
               symbol={symbol}
             />
-          </Panel>
-        ) : null}
+          ) : (
+            <RecentRepairRunsPanel auth={auth} />
+          )}
+        </Panel>
 
-        <Panel className="span-12" title="Recent Entries">
+        <Panel className="span-12" title="Continuity entries">
           {entriesQuery.isLoading ? <LoadingState label="Loading continuity entries..." /> : null}
           {!entriesQuery.isLoading && entries.length === 0 ? (
-            <EmptyState label="No Daily Research Delta entries found." />
+            <EmptyState label="No continuity entries found." />
           ) : null}
           <div className="stack">
             {entries.map((entry) => (
@@ -394,10 +434,8 @@ function RepairBackfillPanel({
         },
         auth,
       ),
-    onSuccess: (result) => {
-      if (!result.dry_run && result.repaired_count > 0) {
-        onExecuted();
-      }
+    onSuccess: () => {
+      onExecuted();
     },
   });
   const preview = previewMutation.data;
@@ -496,7 +534,28 @@ function RepairBackfillPanel({
 
       {preview ? <RepairCandidateTable preview={preview} /> : null}
       {results ? <RepairRunResults results={results} /> : null}
+      <RecentRepairRunsPanel auth={auth} />
     </div>
+  );
+}
+
+function RecentRepairRunsPanel({
+  auth,
+}: {
+  auth: WorkspaceRequestContext;
+}) {
+  const repairRunsQuery = useQuery({
+    queryKey: queryKeys.researchContinuityRepairRuns({ limit: 5 }),
+    queryFn: () => listResearchContinuityRepairRuns({ limit: 5 }, auth),
+    retry: false,
+  });
+  return (
+    <RecentRepairRuns
+      error={repairRunsQuery.error}
+      isError={repairRunsQuery.isError}
+      isLoading={repairRunsQuery.isLoading}
+      runs={repairRunsQuery.data?.runs ?? []}
+    />
   );
 }
 
@@ -561,6 +620,7 @@ function RepairRunResults({
     <div className="research-continuity-repair-results">
       <div className="research-continuity-repair-summary">
         <span className="badge primary">{results.dry_run ? 'dry run' : 'executed'}</span>
+        <span className="badge mono">{results.audit_run_id}</span>
         <span className="badge constructive">{results.repaired_count} repaired</span>
         <span className="badge">{results.skipped_count} skipped</span>
         <span className={results.failed_count > 0 ? 'badge warning' : 'badge'}>
@@ -600,6 +660,55 @@ function RepairRunResults({
           </table>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function RecentRepairRuns({
+  error,
+  isError,
+  isLoading,
+  runs,
+}: {
+  error: Error | null;
+  isError: boolean;
+  isLoading: boolean;
+  runs: ResearchContinuityRepairRunSummaryResponse[];
+}) {
+  return (
+    <div className="research-continuity-repair-history">
+      <div className="row">
+        <strong>Recent Repair Runs</strong>
+        <span className="small muted">{runs.length} shown</span>
+      </div>
+      {isLoading ? <LoadingState label="Loading repair history..." /> : null}
+      {isError ? <ErrorState error={error} /> : null}
+      {!isLoading && runs.length === 0 ? (
+        <EmptyState label="No repair runs recorded." />
+      ) : null}
+      <div className="stack">
+        {runs.map((run) => (
+          <div className="list-row" key={run.id}>
+            <div className="row">
+              <div className="row start">
+                <span className={run.dry_run ? 'badge primary' : 'badge constructive'}>
+                  {run.dry_run ? 'dry run' : 'executed'}
+                </span>
+                <span className={run.failed_count > 0 ? 'badge warning' : 'badge'}>
+                  {run.status.replaceAll('_', ' ')}
+                </span>
+              </div>
+              <span className="small muted">{formatDateTime(run.requested_at)}</span>
+            </div>
+            <div className="grid two">
+              <DataPair label="Audit run" value={<IdChip value={run.id} />} />
+              <DataPair label="Requested" value={run.requested_count} />
+              <DataPair label="Repaired" value={run.repaired_count} />
+              <DataPair label="Failed" value={run.failed_count} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -648,7 +757,7 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntrySummaryResponse
             Open source run
           </Link>
           {entry.id ? (
-            <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+            <Link className="button" to={routes.researchContinuityEntry(entry.id)}>
               Details
             </Link>
           ) : null}
@@ -700,7 +809,7 @@ function ContinuityEntryRow({
           Open source run
         </Link>
         {entry.id ? (
-          <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+          <Link className="button" to={routes.researchContinuityEntry(entry.id)}>
             Details
           </Link>
         ) : null}

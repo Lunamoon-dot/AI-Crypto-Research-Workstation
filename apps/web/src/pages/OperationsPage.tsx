@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Database, ServerCog, Sparkles } from 'lucide-react';
+import { Activity, Database, ServerCog, ShieldCheck, Sparkles } from 'lucide-react';
 import { BentoGrid, DataPair } from '@/components/research/bento';
 import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
@@ -19,6 +19,7 @@ export function OperationsPage() {
     refetchInterval: 30_000,
   });
   const data = health.data;
+  const continuity = data?.continuity;
   const providerIssues = data?.providers.filter((row) => !healthyStatus(row.status)).length ?? 0;
 
   return (
@@ -57,6 +58,13 @@ export function OperationsPage() {
                 meta: `${data?.monitoring_queue.running ?? 0} running`,
                 tone: (data?.monitoring_queue.dead_letter ?? 0) > 0 ? 'risk' : 'primary',
                 value: data?.monitoring_queue.queued ?? '...',
+              },
+              {
+                icon: <ShieldCheck aria-hidden size={14} />,
+                label: 'Workspace',
+                meta: continuity?.audit_available === false ? 'audit unavailable' : 'active',
+                tone: continuity?.audit_available === false ? 'warning' : 'primary',
+                value: continuity?.workspace_id ?? auth.workspaceId,
               },
             ]}
           />
@@ -174,6 +182,43 @@ export function OperationsPage() {
             <DataPair
               label="LLM memo failures"
               value={formatConfidence(data?.llm_memo_health.failure_rate)}
+            />
+          </div>
+        </Panel>
+
+        <Panel className="span-6" title="Continuity Health">
+          <div className="grid two">
+            <DataPair label="Workspace" value={continuity?.workspace_id ?? auth.workspaceId} />
+            <DataPair
+              label="Audit"
+              value={
+                <span className={continuity?.audit_available === false ? 'badge warning' : 'badge constructive'}>
+                  {continuity?.audit_available === false ? 'unavailable' : 'available'}
+                </span>
+              }
+            />
+            <DataPair label="Missing recent" value={continuity?.missing_entries_recent ?? 0} />
+            <DataPair label="Degraded recent" value={continuity?.degraded_entries_recent ?? 0} />
+            <DataPair label="Stale symbols" value={continuity?.stale_symbols ?? 0} />
+            <DataPair
+              label="Last repair"
+              value={formatDateTime(continuity?.last_repair_run_at)}
+            />
+            <DataPair
+              label="Repair status"
+              value={continuity?.last_repair_status ?? 'none'}
+            />
+            <DataPair
+              label="Repair failures"
+              value={continuity?.repair_failures_24h ?? 0}
+            />
+            <DataPair
+              label="Debug allowed"
+              value={continuity?.debug_access_24h ?? 0}
+            />
+            <DataPair
+              label="Debug denied"
+              value={continuity?.debug_denied_24h ?? 0}
             />
           </div>
         </Panel>

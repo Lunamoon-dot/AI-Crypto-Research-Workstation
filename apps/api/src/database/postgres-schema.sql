@@ -183,6 +183,70 @@ ON research_continuity_entries(workspace_id, symbol, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_research_continuity_entries_run
 ON research_continuity_entries(workspace_id, research_run_id, generated_at DESC);
 
+CREATE TABLE IF NOT EXISTS research_continuity_debug_access_audits (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT,
+    entry_id TEXT NOT NULL,
+    research_run_id TEXT,
+    symbol TEXT,
+    requested_by_user_id TEXT,
+    decision TEXT NOT NULL CHECK (decision IN ('allowed', 'denied')),
+    reason TEXT NOT NULL CHECK (
+        reason IN (
+            'allowed',
+            'disabled_by_policy',
+            'missing_user',
+            'missing_workspace',
+            'workspace_denied',
+            'permission_required',
+            'entry_not_found',
+            'audit_unavailable'
+        )
+    ),
+    requested_at TIMESTAMPTZ NOT NULL,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_debug_audits_workspace_requested
+ON research_continuity_debug_access_audits(workspace_id, requested_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_debug_audits_workspace_entry
+ON research_continuity_debug_access_audits(workspace_id, entry_id);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_debug_audits_workspace_decision
+ON research_continuity_debug_access_audits(workspace_id, decision, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_continuity_repair_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    requested_by_user_id TEXT NOT NULL,
+    requested_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    dry_run BOOLEAN NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('started', 'completed', 'completed_with_failures', 'failed')
+    ),
+    idempotency_key TEXT,
+    filters_json JSONB NOT NULL,
+    requested_count INTEGER NOT NULL DEFAULT 0,
+    repaired_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    created_entry_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    results_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_repair_runs_workspace_requested
+ON research_continuity_repair_runs(workspace_id, requested_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_repair_runs_workspace_status
+ON research_continuity_repair_runs(workspace_id, status, requested_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_research_continuity_repair_runs_idempotency
+ON research_continuity_repair_runs(workspace_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS research_continuity_states (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

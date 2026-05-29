@@ -259,6 +259,7 @@ class EngineRunner:
             thesis_id=thesis_id,
             summary=summary,
             events_written=len(events),
+            journal_path=str(journal.db_path),
             error_type=error_type,
             error=error,
         )

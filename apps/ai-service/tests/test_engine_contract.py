@@ -54,6 +54,7 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
         "thesis_id": None,
         "summary": "Dry run validated request and persistence contract.",
         "events_written": 2,
+        "journal_path": str(db_path),
         "error_type": None,
         "error": None,
     }

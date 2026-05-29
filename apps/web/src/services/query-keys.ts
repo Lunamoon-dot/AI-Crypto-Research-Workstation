@@ -60,6 +60,8 @@ export const queryKeys = {
     ['research-continuity-entry-debug', queryIdentity(), id] as const,
   researchContinuityRepairPreview: (filters: Record<string, unknown>) =>
     scopedFilters('research-continuity-repair-preview', filters),
+  researchContinuityRepairRuns: (filters: Record<string, unknown>) =>
+    scopedFilters('research-continuity-repair-runs', filters),
   researchRunSnapshots: (id: string) =>
     ['research-run-snapshots', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,

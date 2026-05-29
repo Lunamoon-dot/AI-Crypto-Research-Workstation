@@ -33,7 +33,7 @@ Rules:
 | Feature | Latest doc | Status | Notes |
 | --- | --- | --- | --- |
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
-| Research Continuity | [research-continuity/v1.5/implementation-plan.md](research-continuity/v1.5/implementation-plan.md) | implemented | Compact read boundary and explicit debug access for continuity entries. |
+| Research Continuity | [research-continuity/v1.6/implementation-plan.md](research-continuity/v1.6/implementation-plan.md) | goal-ready | Auditability, repair history, and operational trust before scheduled repair. |
 
 ## Standalone Plans To Promote When Active
 

@@ -6,6 +6,12 @@ import {
   JsonRecord,
 } from '../database/journal.types';
 import {
+  RESEARCH_CONTINUITY_AUDIT_REPOSITORY,
+} from '../research-continuity/research-continuity-audit.repository';
+import type {
+  ResearchContinuityAuditRepository,
+} from '../research-continuity/research-continuity-audit.types';
+import {
   DataFreshnessResponse,
   LlmCallResponse,
   LlmHealthSummaryResponse,
@@ -22,6 +28,8 @@ export class OperationsService {
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
+    @Inject(RESEARCH_CONTINUITY_AUDIT_REPOSITORY)
+    private readonly continuityAudit: ResearchContinuityAuditRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
@@ -38,6 +46,7 @@ export class OperationsService {
       this.dataFreshnessForWorkspace(limit, workspaceId),
     ]);
     const monitoring = await this.monitoringHealthForWorkspace(workspaceId);
+    const continuity = await this.continuityHealthForWorkspace(workspaceId);
     return {
       generated_at: new Date().toISOString(),
       providers,
@@ -53,6 +62,7 @@ export class OperationsService {
         redis_configured: Boolean(process.env.REDIS_URL?.trim()),
       },
       ...monitoring,
+      continuity,
     };
   }
 
@@ -277,6 +287,36 @@ export class OperationsService {
     return defaultMonitoringHealth();
   }
 
+  private async continuityHealthForWorkspace(
+    workspaceId: string,
+  ): Promise<OperationsHealthResponse['continuity']> {
+    const lookbackDays = 30;
+    try {
+      const health = await this.continuityAudit.getContinuityOperationsHealth(
+        workspaceId,
+        { lookbackDays },
+      );
+      return {
+        workspace_id: workspaceId,
+        lookback_days: numberValue(health.lookback_days, lookbackDays),
+        audit_available: booleanValue(health.audit_available, true),
+        missing_entries_recent: numberValue(health.missing_entries_recent, 0),
+        degraded_entries_recent: numberValue(health.degraded_entries_recent, 0),
+        stale_symbols: numberValue(health.stale_symbols, 0),
+        last_repair_run_at: nullableString(health.last_repair_run_at),
+        last_repair_status: nullableString(health.last_repair_status),
+        repair_failures_24h: numberValue(health.repair_failures_24h, 0),
+        debug_access_24h: numberValue(health.debug_access_24h, 0),
+        debug_denied_24h: numberValue(health.debug_denied_24h, 0),
+      };
+    } catch (error) {
+      if (!isRepositoryUnavailable(error)) {
+        throw error;
+      }
+      return defaultContinuityHealth(workspaceId, lookbackDays);
+    }
+  }
+
   private async resolveWorkspace(
     userId?: string,
     workspaceHeader?: string,
@@ -415,6 +455,25 @@ function defaultMonitoringHealth(): Pick<
   };
 }
 
+function defaultContinuityHealth(
+  workspaceId: string,
+  lookbackDays: number,
+): OperationsHealthResponse['continuity'] {
+  return {
+    workspace_id: workspaceId,
+    lookback_days: lookbackDays,
+    audit_available: false,
+    missing_entries_recent: 0,
+    degraded_entries_recent: 0,
+    stale_symbols: 0,
+    last_repair_run_at: null,
+    last_repair_status: null,
+    repair_failures_24h: 0,
+    debug_access_24h: 0,
+    debug_denied_24h: 0,
+  };
+}
+
 function recordValue(value: unknown): JsonRecord {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as JsonRecord;
@@ -479,5 +538,9 @@ function isRepositoryUnavailable(error: unknown): boolean {
     return true;
   }
   const status = (error as { status?: unknown } | null)?.status;
-  return status === 503;
+  if (status === 503) {
+    return true;
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  return ['42P01', '42703'].includes(String(code));
 }

@@ -194,6 +194,48 @@ model ResearchContinuityEntry {
   @@map("research_continuity_entries")
 }
 
+model ResearchContinuityDebugAccessAudit {
+  id                String   @id
+  workspaceId       String?  @map("workspace_id")
+  entryId           String   @map("entry_id")
+  researchRunId     String?  @map("research_run_id")
+  symbol            String?
+  requestedByUserId String?  @map("requested_by_user_id")
+  decision          String
+  reason            String
+  requestedAt       DateTime @map("requested_at") @db.Timestamptz(6)
+  metadataJson      Json     @default("{}") @map("metadata_json")
+
+  @@index([workspaceId, requestedAt(sort: Desc)], map: "idx_research_continuity_debug_audits_workspace_requested")
+  @@index([workspaceId, entryId], map: "idx_research_continuity_debug_audits_workspace_entry")
+  @@index([workspaceId, decision, requestedAt(sort: Desc)], map: "idx_research_continuity_debug_audits_workspace_decision")
+  @@map("research_continuity_debug_access_audits")
+}
+
+model ResearchContinuityRepairRun {
+  id                  String    @id
+  workspaceId         String    @map("workspace_id")
+  requestedByUserId   String    @map("requested_by_user_id")
+  requestedAt         DateTime  @map("requested_at") @db.Timestamptz(6)
+  completedAt         DateTime? @map("completed_at") @db.Timestamptz(6)
+  dryRun              Boolean   @map("dry_run")
+  status              String
+  idempotencyKey      String?   @map("idempotency_key")
+  filtersJson         Json      @map("filters_json")
+  requestedCount      Int       @default(0) @map("requested_count")
+  repairedCount       Int       @default(0) @map("repaired_count")
+  skippedCount        Int       @default(0) @map("skipped_count")
+  failedCount         Int       @default(0) @map("failed_count")
+  createdEntryIdsJson Json      @default("[]") @map("created_entry_ids_json")
+  resultsJson         Json      @default("[]") @map("results_json")
+  errorMessage        String?   @map("error_message")
+
+  @@index([workspaceId, requestedAt(sort: Desc)], map: "idx_research_continuity_repair_runs_workspace_requested")
+  @@index([workspaceId, status, requestedAt(sort: Desc)], map: "idx_research_continuity_repair_runs_workspace_status")
+  @@unique([workspaceId, idempotencyKey], map: "idx_research_continuity_repair_runs_idempotency")
+  @@map("research_continuity_repair_runs")
+}
+
 model ResearchContinuityState {
   id                         String   @id
   workspaceId                String   @default("local") @map("workspace_id")
