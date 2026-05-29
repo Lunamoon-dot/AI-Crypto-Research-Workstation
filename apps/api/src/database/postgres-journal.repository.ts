@@ -575,9 +575,19 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
        FROM research_continuity_entries
        WHERE workspace_id = $1
          AND research_run_id = $2
-         AND payload_json->'repair'->>'repair_version' = $3
-         AND payload_json->'repair'->>'case_type' = $4
-         AND COALESCE(payload_json->'repair'->>'source_entry_id', '') = COALESCE($5, '')
+         AND COALESCE(
+           payload_json#>>'{payload,repair,repair_version}',
+           payload_json#>>'{repair,repair_version}'
+         ) = $3
+         AND COALESCE(
+           payload_json#>>'{payload,repair,case_type}',
+           payload_json#>>'{repair,case_type}'
+         ) = $4
+         AND COALESCE(
+           payload_json#>>'{payload,repair,source_entry_id}',
+           payload_json#>>'{repair,source_entry_id}',
+           ''
+         ) = COALESCE($5, '')
        ORDER BY generated_at DESC, id DESC
        LIMIT 1`,
       [

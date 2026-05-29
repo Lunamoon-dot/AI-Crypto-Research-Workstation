@@ -64,6 +64,30 @@ const STOPWORDS = new Set([
   'with',
 ]);
 
+const AGENT_OPINION_RISK_TERMS = [
+  /\brisk(s)?\b/,
+  /\bfunding\b/,
+  /\bcrowded\b/,
+  /\boverheat(?:ed|ing)?\b/,
+  /\bfade\b/,
+  /\bliquidation(s)?\b/,
+  /\bvolatility\b/,
+  /\bdrawdown\b/,
+  /\bbreak(?:s|ing)?(?:\s+back)?\s+below\b/,
+  /\blost\s+support\b/,
+  /\bbreakdown\b/,
+  /\binvalidat(?:e|es|ed|ion)\b/,
+  /\bsupport\b/,
+  /\bresistance\b/,
+  /\bopen\s+interest\b/,
+  /\boi\b/,
+  /\bmacro\b/,
+  /\bliquidity\b/,
+  /\bmissing\b/,
+  /\bunavailable\b/,
+  /\bstale\b/,
+];
+
 export class ResearchSnapshotBuilder {
   build(input: ResearchSnapshotBuildInput): ResearchSnapshotBuildResult {
     const runId = stringValue(input.run.id ?? input.run.run_id);
@@ -480,20 +504,45 @@ function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): TrackedIt
         item.supporting_evidence,
       ),
     ),
-    ...opinions.flatMap((opinion) => {
-      const payload = recordValue(opinion.payload);
-      return indexedStrings(payload.risks, (text, index) =>
-        seedItem(
-          'risk',
-          text,
-          'medium',
-          'agent_opinion',
-          nullableString(opinion.id),
-          `payload.risks[${index}]`,
-        ),
-      );
-    }),
+    ...opinions.flatMap(agentOpinionRiskItems),
   ];
+}
+
+function agentOpinionRiskItems(opinion: JsonRecord): TrackedItemSeed[] {
+  const payload = recordValue(opinion.payload);
+  return normalizeResearchItems(payload.risks).flatMap((item, index) => {
+    if (!isPromotableAgentOpinionRisk(item)) {
+      return [];
+    }
+    return [
+      seedItem(
+        'risk',
+        item.text,
+        'medium',
+        'agent_opinion',
+        nullableString(opinion.id),
+        `payload.risks[${index}]`,
+        item.supporting_evidence,
+      ),
+    ];
+  });
+}
+
+function isPromotableAgentOpinionRisk(item: {
+  text: string;
+  supporting_evidence: ResearchEvidenceItem[];
+}): boolean {
+  const normalized = normalizedText(item.text);
+  if (!normalized || normalized.endsWith('?')) {
+    return false;
+  }
+  if (/^(you|your)\b/.test(normalized)) {
+    return false;
+  }
+  if (item.supporting_evidence.length > 0) {
+    return true;
+  }
+  return AGENT_OPINION_RISK_TERMS.some((pattern) => pattern.test(normalized));
 }
 
 function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {

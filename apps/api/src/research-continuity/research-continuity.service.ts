@@ -762,7 +762,7 @@ export class ResearchContinuityService {
     run: JsonRecord,
     workspaceId: string,
   ): Promise<string | null> {
-    const payload = recordValue(entry.payload ?? entry.payload_json);
+    const payload = continuityEntryPayload(entry);
     if (stringValue(payload.evidence_contract_version) !== 'research_evidence.v1.2') {
       return 'entry payload missing research_evidence.v1.2 contract';
     }
@@ -1232,12 +1232,12 @@ function stateFromEntryAndSnapshot(
     recent_invalidated_items: [],
     data_quality: recordValue(snapshot.data_quality ?? entry.snapshot_quality),
     updated_at: nullableString(entry.generated_at),
-    payload: recordValue(entry.payload ?? entry.payload_json),
+    payload: continuityEntryPayload(entry),
   };
 }
 
 function isRepairEntry(entry: JsonRecord): boolean {
-  return Boolean(recordValue(recordValue(entry.payload ?? entry.payload_json).repair).is_repair);
+  return Boolean(repairMetadataFromEntry(entry).is_repair);
 }
 
 function runTimestamp(run: JsonRecord): string | null {
@@ -1275,7 +1275,7 @@ function toEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
     snapshot_quality: recordValue(entry.snapshot_quality),
     source_run_ids: stringList(entry.source_run_ids),
     writer_metadata: recordValue(entry.writer_metadata),
-    payload: recordValue(entry.payload ?? entry.payload_json),
+    payload: continuityEntryPayload(entry),
   };
 }
 
@@ -1346,6 +1346,25 @@ function recordValue(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
     : {};
+}
+
+function continuityEntryPayload(entry: JsonRecord): JsonRecord {
+  const payload = recordValue(entry.payload ?? entry.payload_json);
+  const nestedPayload = recordValue(payload.payload);
+  return hasContinuityEntryMetadata(nestedPayload) ? nestedPayload : payload;
+}
+
+function repairMetadataFromEntry(entry: JsonRecord): JsonRecord {
+  return recordValue(continuityEntryPayload(entry).repair);
+}
+
+function hasContinuityEntryMetadata(payload: JsonRecord): boolean {
+  return (
+    payload.schema_version !== undefined ||
+    payload.evidence_contract_version !== undefined ||
+    payload.repair !== undefined ||
+    payload.skip_reason !== undefined
+  );
 }
 
 function arrayRecords(value: unknown): JsonRecord[] {

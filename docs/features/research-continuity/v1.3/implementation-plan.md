@@ -1,7 +1,7 @@
 # Research Continuity V1.3 Repair And Backfill Control Implementation Plan
 
 Last updated: 2026-05-28
-Status: goal-ready
+Status: shipped
 
 V1.3 adds explicit operational control for Research Continuity history after the
 V1.2 evidence contract. V1.2 made snapshots and tracked items more trustworthy,
@@ -82,25 +82,35 @@ The answer should come from deterministic API/service logic, not LLM judgment.
 
 ## Verifiable End State
 
-- [ ] `GET /research-continuity/repair/preview` exists and returns repair
+- [x] `GET /research-continuity/repair/preview` exists and returns repair
       candidates without writing database rows.
-- [ ] `POST /research-continuity/repair/run` exists and defaults to dry-run or
+- [x] `POST /research-continuity/repair/run` exists and defaults to dry-run or
       requires `dry_run: false` for writes.
-- [ ] Candidate discovery supports `missing_continuity`.
-- [ ] Candidate discovery supports `skipped_or_degraded`.
-- [ ] Candidate discovery supports `legacy_evidence`.
-- [ ] Repair execution creates append-only continuity entries and preserves old
+- [x] Candidate discovery supports `missing_continuity`.
+- [x] Candidate discovery supports `skipped_or_degraded`.
+- [x] Candidate discovery supports `legacy_evidence`.
+- [x] Repair execution creates append-only continuity entries and preserves old
       entries.
-- [ ] Repair entries include audit metadata identifying repair version, case
+- [x] Repair entries include audit metadata identifying repair version, case
       type, source run, source entry, reason, execution source, and timestamp.
-- [ ] Repeating the same repair request is idempotent.
-- [ ] Repairing a historical run does not move `ContinuityState` backward.
-- [ ] Repairing the latest eligible run can update `ContinuityState` when the
+- [x] Repeating the same repair request is idempotent.
+- [x] Repairing a historical run does not move `ContinuityState` backward.
+- [x] Repairing the latest eligible run can update `ContinuityState` when the
       new entry passes quality gates.
-- [ ] Repair reports include a repair context section or header.
-- [ ] `/research-continuity` includes an MVP repair/backfill panel.
-- [ ] API build, API tests, web typecheck, and manual UI smoke pass, or
+- [x] Repair reports include a repair context section or header.
+- [x] `/research-continuity` includes an MVP repair/backfill panel.
+- [x] API build, API tests, web typecheck, and manual UI smoke pass, or
       blockers are documented.
+
+Completion notes:
+
+- Implemented in PR #7 (`research-continuity-v1.3`) and merged into `main`.
+- Follow-up PR #8 hides the maintenance panel by default behind
+  `VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR=true` and requires `admin` access for
+  repair preview/run APIs.
+- Final validation during implementation: `pnpm build:api`,
+  `pnpm --filter @lunaperception/api test`, `pnpm --filter @lunaperception/web
+  typecheck`, `pnpm --filter @lunaperception/web build`, and local UI smoke.
 
 ## Version Placement
 
@@ -272,8 +282,8 @@ POST /research-continuity/repair/run
 Use existing workspace auth patterns. Recommended access level:
 
 ```text
-preview: editor
-run: editor
+preview: admin
+run: admin
 ```
 
 Preview query parameters:
@@ -626,8 +636,8 @@ render repair entries in the same entry list as normal entries.
 
 Update only `/research-continuity`.
 
-Add a compact "Repair & Backfill" panel. It can be collapsed by default if the
-page is already dense.
+Add a compact "Repair & Backfill" panel. It is maintenance-only and hidden by
+default unless `VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR=true`.
 
 Controls:
 
@@ -699,63 +709,63 @@ Explicitly do not:
 
 ## Implementation Checklist
 
-- [ ] Inspect current continuity service, repository, DTO, OpenAPI, and web
+- [x] Inspect current continuity service, repository, DTO, OpenAPI, and web
       service patterns.
-- [ ] Add repair DTO/request/response types.
-- [ ] Add repository methods for bounded candidate discovery and repair
+- [x] Add repair DTO/request/response types.
+- [x] Add repository methods for bounded candidate discovery and repair
       idempotency lookup.
-- [ ] Add preview service logic for the three candidate types.
-- [ ] Add historical previous-context selection for repair generation.
-- [ ] Add repair execution logic that re-checks candidates server-side.
-- [ ] Add append-only repair metadata and idempotency identity.
-- [ ] Add state projection guard so historical repair cannot move state
+- [x] Add preview service logic for the three candidate types.
+- [x] Add historical previous-context selection for repair generation.
+- [x] Add repair execution logic that re-checks candidates server-side.
+- [x] Add append-only repair metadata and idempotency identity.
+- [x] Add state projection guard so historical repair cannot move state
       backward.
-- [ ] Add repair context to report rendering.
-- [ ] Add controller endpoints and OpenAPI/generated client updates.
-- [ ] Add `/research-continuity` repair/backfill panel.
-- [ ] Add focused API tests and web typecheck coverage.
-- [ ] Run validation commands.
+- [x] Add repair context to report rendering.
+- [x] Add controller endpoints and OpenAPI/generated client updates.
+- [x] Add `/research-continuity` repair/backfill panel.
+- [x] Add focused API tests and web typecheck coverage.
+- [x] Run validation commands.
 
 ## Required Tests
 
 API contract/service tests:
 
-- [ ] Preview returns `missing_continuity` for a completed run without an entry.
-- [ ] Preview returns `skipped_or_degraded` for a skipped/degraded latest entry
+- [x] Preview returns `missing_continuity` for a completed run without an entry.
+- [x] Preview returns `skipped_or_degraded` for a skipped/degraded latest entry
       when artifacts now build a better snapshot.
-- [ ] Preview returns `legacy_evidence` when entry payload or snapshot quality
+- [x] Preview returns `legacy_evidence` when entry payload or snapshot quality
       lacks V1.2 evidence metadata.
-- [ ] Preview does not write snapshots, entries, or state.
-- [ ] Dry-run `POST /repair/run` writes nothing.
-- [ ] Executed repair creates an append-only entry and preserves the old entry.
-- [ ] Re-running the same repair returns `already_repaired` and does not create
+- [x] Preview does not write snapshots, entries, or state.
+- [x] Dry-run `POST /repair/run` writes nothing.
+- [x] Executed repair creates an append-only entry and preserves the old entry.
+- [x] Re-running the same repair returns `already_repaired` and does not create
       duplicates.
-- [ ] Missing-continuity execution returns `already_has_continuity` if a normal
+- [x] Missing-continuity execution returns `already_has_continuity` if a normal
       entry appeared after preview.
-- [ ] Historical repair uses previous context before the target run, not current
+- [x] Historical repair uses previous context before the target run, not current
       latest state.
-- [ ] Repairing an old run does not move `ContinuityState` backward.
-- [ ] Repairing the latest eligible completed run can update state.
-- [ ] Repair entry payload includes `payload.repair` audit metadata.
-- [ ] Repair report includes repair context.
-- [ ] Unauthorized or insufficient workspace access is rejected according to
+- [x] Repairing an old run does not move `ContinuityState` backward.
+- [x] Repairing the latest eligible completed run can update state.
+- [x] Repair entry payload includes `payload.repair` audit metadata.
+- [x] Repair report includes repair context.
+- [x] Unauthorized or insufficient workspace access is rejected according to
       existing auth patterns.
 
 Repository tests or fake repository coverage:
 
-- [ ] Candidate discovery is bounded by workspace.
-- [ ] Symbol filter works.
-- [ ] Date range filter works.
-- [ ] Limit is enforced.
-- [ ] Repair identity lookup finds prior repair entries.
+- [x] Candidate discovery is bounded by workspace.
+- [x] Symbol filter works.
+- [x] Date range filter works.
+- [x] Limit is enforced.
+- [x] Repair identity lookup finds prior repair entries.
 
 Web checks:
 
-- [ ] `/research-continuity` compiles with repair DTO/service types.
-- [ ] Preview form calls the preview API and renders candidates.
-- [ ] Run action calls the run API and renders result summary.
-- [ ] UI handles empty candidate list.
-- [ ] UI handles partial failures without crashing.
+- [x] `/research-continuity` compiles with repair DTO/service types.
+- [x] Preview form calls the preview API and renders candidates.
+- [x] Run action calls the run API and renders result summary.
+- [x] UI handles empty candidate list.
+- [x] UI handles partial failures without crashing.
 
 No required tests:
 

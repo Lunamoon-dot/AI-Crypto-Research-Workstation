@@ -390,7 +390,7 @@ class FakeJournalRepository implements JournalRepository {
             entry.research_run_id === identity.runId,
         )
         .find((entry) => {
-          const repair = record(record(entry.payload).repair);
+          const repair = continuityEntryRepairMetadata(entry);
           return (
             repair.repair_version === identity.repairVersion &&
             repair.case_type === identity.caseType &&
@@ -7033,6 +7033,55 @@ test('research continuity V1.1 enriches snapshots with claims, provenance, evide
   assert.equal(quality.provenance_status, 'clean');
 });
 
+test('research continuity does not promote rhetorical agent opinion risks into tracked risks', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_agent_risk_noise',
+    thesisId: 'thesis_agent_risk_noise',
+    debateId: 'debate_agent_risk_noise',
+    marketSnapshotId: 'market_agent_risk_noise',
+    signalSnapshotId: 'signal_agent_risk_noise',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const opinions = journal.agentOpinions.get(
+    key('debate_agent_risk_noise', 'workspace_a'),
+  );
+  assert.ok(opinions?.[0]);
+  opinions[0].payload = {
+    risks: [
+      'You call that weakness',
+      'Funding is becoming crowded.',
+    ],
+    invalidation: 'Break back below the reclaimed range.',
+  };
+
+  await researchContinuity.generateForRun(
+    'run_agent_risk_noise',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_agent_risk_noise',
+    'workspace_a',
+  );
+  assert.ok(snapshot);
+  const risks = records(snapshot.tracked_items).filter(
+    (item) => item.type === 'risk',
+  );
+
+  assert.equal(
+    risks.some((item) => item.text === 'You call that weakness'),
+    false,
+  );
+  assert.ok(
+    risks.some((item) => item.text === 'Funding is becoming crowded.'),
+  );
+  assert.equal(record(snapshot.data_quality).risk_count, risks.length);
+});
+
 test('research evidence V1.2 normalizes legacy strings and malformed objects safely', () => {
   const evidence = normalizeEvidenceItems([
     'Legacy thesis evidence.',
@@ -7653,6 +7702,181 @@ test('research continuity repair preview discovers V1.3 candidates and dry-run w
   assert.equal(journal.continuityEntries.size, entryCount);
   assert.equal(journal.researchSnapshots.size, snapshotCount);
   assert.equal(journal.continuityStates.size, stateCount);
+});
+
+test('fake journal repair lookup supports Postgres-shaped nested repair metadata', async () => {
+  const journal = new FakeJournalRepository();
+  journal.continuityEntries.set(
+    key('continuity_nested_repair_lookup', 'workspace_a'),
+    postgresContinuityEntryShape({
+      id: 'continuity_nested_repair_lookup',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      research_run_id: 'run_nested_repair_lookup',
+      current_snapshot_id: null,
+      previous_entry_id: 'continuity_nested_source',
+      entry_type: 'delta',
+      status: 'completed',
+      generated_at: '2026-05-12T00:00:00.000Z',
+      summary: 'Nested repair entry.',
+      sections: [],
+      events: [],
+      snapshot_quality: { status: 'clean', score: 1 },
+      source_run_ids: ['run_nested_repair_lookup'],
+      writer_metadata: {},
+      payload: {
+        schema_version: 'research_continuity_entry.v1.1',
+        evidence_contract_version: 'research_evidence.v1.2',
+        repair: {
+          is_repair: true,
+          repair_version: 'research-continuity-v1.3',
+          case_type: 'skipped_or_degraded',
+          source_run_id: 'run_nested_repair_lookup',
+          source_entry_id: 'continuity_nested_source',
+        },
+      },
+    }),
+  );
+
+  const found = await journal.findResearchContinuityRepairEntry(
+    {
+      runId: 'run_nested_repair_lookup',
+      caseType: 'skipped_or_degraded',
+      repairVersion: 'research-continuity-v1.3',
+      sourceEntryId: 'continuity_nested_source',
+    },
+    'workspace_a',
+  );
+
+  assert.equal(found?.id, 'continuity_nested_repair_lookup');
+});
+
+test('research continuity repair preview reads Postgres-shaped V1.2 payload before treating evidence as legacy', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_nested_v12_payload',
+    thesisId: 'thesis_nested_v12_payload',
+    debateId: 'debate_nested_v12_payload',
+    marketSnapshotId: 'market_nested_v12_payload',
+    signalSnapshotId: 'signal_nested_v12_payload',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  journal.continuityEntries.set(
+    key('continuity_nested_v12_payload', 'workspace_a'),
+    postgresContinuityEntryShape({
+      id: 'continuity_nested_v12_payload',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      research_run_id: 'run_nested_v12_payload',
+      current_snapshot_id: null,
+      previous_entry_id: null,
+      entry_type: 'delta',
+      status: 'completed',
+      generated_at: '2026-05-12T00:00:00.000Z',
+      summary: 'V1.2 continuity entry.',
+      sections: [],
+      events: [],
+      snapshot_quality: {
+        status: 'clean',
+        score: 1,
+        observed_evidence_coverage: 1,
+        reasoning_only_item_count: 0,
+        missing_evidence_item_count: 0,
+        no_evidence_item_count: 0,
+      },
+      source_run_ids: ['run_nested_v12_payload'],
+      writer_metadata: { evidence_contract_version: 'research_evidence.v1.2' },
+      payload: {
+        schema_version: 'research_continuity_entry.v1.1',
+        evidence_contract_version: 'research_evidence.v1.2',
+        deterministic: true,
+      },
+    }),
+  );
+
+  const preview = await researchContinuity.previewRepair(
+    { case_types: 'legacy_evidence', limit: 5 },
+    'user_1',
+    'workspace_a',
+  );
+  const candidate = preview.candidates.find(
+    (item) => item.run_id === 'run_nested_v12_payload',
+  );
+
+  assert.ok(candidate);
+  assert.equal(candidate.eligible, false);
+  assert.equal(candidate.blocked_reason, 'not_legacy_evidence');
+});
+
+test('research continuity missing repair race guard recognizes Postgres-shaped repair entries', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_nested_repair_race',
+    thesisId: 'thesis_nested_repair_race',
+    debateId: 'debate_nested_repair_race',
+    marketSnapshotId: 'market_nested_repair_race',
+    signalSnapshotId: 'signal_nested_repair_race',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+
+  const originalGetLatest =
+    journal.getLatestResearchContinuityEntryForRun.bind(journal);
+  let latestCalls = 0;
+  journal.getLatestResearchContinuityEntryForRun = async (
+    runId: string,
+    workspaceId: string,
+  ) => {
+    latestCalls += 1;
+    if (runId === 'run_nested_repair_race' && latestCalls > 1) {
+      return postgresContinuityEntryShape({
+        id: 'continuity_nested_repair_race_existing',
+        workspace_id: workspaceId,
+        symbol: 'BTC/USDT',
+        research_run_id: runId,
+        current_snapshot_id: null,
+        previous_entry_id: null,
+        entry_type: 'skipped',
+        status: 'skipped',
+        generated_at: '2026-05-12T00:01:00.000Z',
+        summary: 'Concurrent repair entry.',
+        sections: [],
+        events: [],
+        snapshot_quality: { status: 'skipped', score: 0 },
+        source_run_ids: [runId],
+        writer_metadata: {},
+        payload: {
+          schema_version: 'research_continuity_entry.v1.1',
+          evidence_contract_version: 'research_evidence.v1.2',
+          repair: {
+            is_repair: true,
+            repair_version: 'research-continuity-v1.3',
+            case_type: 'legacy_evidence',
+            source_run_id: runId,
+            source_entry_id: 'continuity_other_source',
+          },
+        },
+      });
+    }
+    return originalGetLatest(runId, workspaceId);
+  };
+
+  const result = await researchContinuity.runRepair(
+    {
+      case_types: ['missing_continuity'],
+      limit: 5,
+      dry_run: false,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const repaired = result.results.find(
+    (item) => item.run_id === 'run_nested_repair_race',
+  );
+
+  assert.equal(repaired?.action, 'created_repair_entry');
+  assert.equal(result.repaired_count, 1);
 });
 
 test('research continuity repair requires admin access', async () => {
@@ -9144,6 +9368,25 @@ function record(value: unknown): JsonRecord {
     : {};
 }
 
+function continuityEntryPayload(entry: JsonRecord): JsonRecord {
+  const payload = record(entry.payload ?? entry.payload_json);
+  const nestedPayload = record(payload.payload);
+  return hasContinuityEntryMetadata(nestedPayload) ? nestedPayload : payload;
+}
+
+function continuityEntryRepairMetadata(entry: JsonRecord): JsonRecord {
+  return record(continuityEntryPayload(entry).repair);
+}
+
+function hasContinuityEntryMetadata(payload: JsonRecord): boolean {
+  return (
+    payload.schema_version !== undefined ||
+    payload.evidence_contract_version !== undefined ||
+    payload.repair !== undefined ||
+    payload.skip_reason !== undefined
+  );
+}
+
 function records(value: unknown): JsonRecord[] {
   return Array.isArray(value)
     ? value.filter(
@@ -9151,6 +9394,18 @@ function records(value: unknown): JsonRecord[] {
           Boolean(item) && typeof item === 'object' && !Array.isArray(item),
       )
     : [];
+}
+
+function postgresContinuityEntryShape(entry: JsonRecord): JsonRecord {
+  return {
+    ...entry,
+    sections_json: entry.sections ?? [],
+    events_json: entry.events ?? [],
+    snapshot_quality_json: entry.snapshot_quality ?? {},
+    source_run_ids_json: entry.source_run_ids ?? [],
+    writer_metadata_json: entry.writer_metadata ?? {},
+    payload: { ...entry },
+  };
 }
 
 function numberValue(value: unknown): number {
