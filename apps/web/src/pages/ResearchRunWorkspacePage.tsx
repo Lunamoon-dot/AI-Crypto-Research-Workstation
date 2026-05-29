@@ -52,7 +52,7 @@ import { routes } from '@/lib/routes';
 import type {
   AgentOpinionResponse,
   ResearchRunArtifactsResponse,
-  ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
   ResearchRunEventResponse,
   JournalRunWorkspaceResponse,
   ResearchRunStageTimingResponse,
@@ -258,10 +258,9 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const continuityMutation = useMutation({
     mutationFn: () => generateResearchRunContinuity(runId, { force: true }, auth),
     onSuccess: (response) => {
-      queryClient.setQueryData(
-        queryKeys.researchRunContinuity(runId),
-        response.entry,
-      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchRunContinuity(runId),
+      });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.researchContinuityState(response.entry.symbol),
       });
@@ -701,17 +700,14 @@ function DailyDeltaPanel({
   isRegenerating,
   onRegenerate,
 }: {
-  entry: ResearchContinuityEntryResponse | null;
+  entry: ResearchContinuityEntrySummaryResponse | null;
   error: unknown;
   isError: boolean;
   isLoading: boolean;
   isRegenerating: boolean;
   onRegenerate: () => void;
 }) {
-  const detailSections =
-    entry?.sections.filter(
-      (section) => section.title.trim().toLowerCase() !== 'summary',
-    ) ?? [];
+  const detailSections = entry?.thin_report?.sections ?? [];
 
   return (
     <Panel
@@ -750,6 +746,11 @@ function DailyDeltaPanel({
               >
                 Open continuity
               </Link>
+              {entry.id ? (
+                <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+                  Details
+                </Link>
+              ) : null}
               <button
                 className="button"
                 disabled={isRegenerating}
@@ -770,9 +771,9 @@ function DailyDeltaPanel({
           {detailSections.length > 0 ? (
             <div className="daily-delta-section-grid">
               {detailSections.slice(0, 4).map((section) => (
-                <section className="daily-delta-section" key={section.title}>
+                <section className="daily-delta-section" key={section.id}>
                   <h4>{section.title}</h4>
-                  <p>{section.items[0] ?? section.empty_state}</p>
+                  <p>{section.items[0] ?? 'No changes reported.'}</p>
                 </section>
               ))}
             </div>
@@ -784,8 +785,8 @@ function DailyDeltaPanel({
               <IdChip value={entry.research_run_id} />
             </div>
             <div>
-              <span className="small muted">Previous entry</span>
-              <IdChip value={entry.previous_entry_id} />
+              <span className="small muted">Entry</span>
+              <IdChip value={entry.id} />
             </div>
           </div>
         </div>

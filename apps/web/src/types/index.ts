@@ -1316,6 +1316,97 @@ export interface ResearchContinuityThinReport {
   }>;
 }
 
+export interface ResearchContinuityDebugAccessResponse {
+  available: boolean;
+  reason:
+    | 'available'
+    | 'disabled_by_policy'
+    | 'permission_required'
+    | 'not_available';
+  requires_permission: 'view_debug_trace';
+  url: string | null;
+  redacted: true;
+}
+
+export interface ResearchContinuityEntrySummaryResponse {
+  id: string | null;
+  workspace_id: string;
+  symbol: string;
+  research_run_id: string;
+  entry_type: 'baseline' | 'delta' | 'degraded' | 'skipped';
+  status: 'completed' | 'degraded' | 'skipped' | 'failed';
+  generated_at: string | null;
+  summary: string;
+  thin_report: ResearchContinuityThinReport | null;
+  debug: ResearchContinuityDebugAccessResponse;
+}
+
+export interface ResearchContinuityQualityExplanationResponse {
+  status: string;
+  score: number | null;
+  observed_evidence_coverage: number | null;
+  evidence_coverage: number | null;
+  provenance_status: string | null;
+  warnings: string[];
+  reasons: string[];
+}
+
+export interface ResearchContinuityEvidenceDigestResponse {
+  observed_count: number | null;
+  reasoning_count: number | null;
+  missing_count: number | null;
+  no_evidence_count: number | null;
+  stale_count: number | null;
+  observed_coverage: number | null;
+  missing_categories: string[];
+  stale_categories: string[];
+  health_line: string;
+}
+
+export interface ResearchContinuityMaterialEventDigestResponse {
+  type: string;
+  label: string;
+  severity: 'info' | 'warning' | 'critical';
+  summary: string;
+  evidence_status: string | null;
+}
+
+export interface ResearchContinuityStateTransitionDigestResponse {
+  previous_entry_id: string | null;
+  current_snapshot_id: string | null;
+  source_run_ids: string[];
+  transition: 'baseline' | 'delta' | 'degraded' | 'skipped';
+  reason: string;
+}
+
+export interface ResearchContinuityEntryDetailResponse
+  extends ResearchContinuityEntrySummaryResponse {
+  quality_explanation: ResearchContinuityQualityExplanationResponse;
+  evidence_digest: ResearchContinuityEvidenceDigestResponse;
+  material_events_digest: ResearchContinuityMaterialEventDigestResponse[];
+  state_transition: ResearchContinuityStateTransitionDigestResponse;
+}
+
+export interface ResearchContinuityEntryDebugResponse {
+  id: string | null;
+  workspace_id: string;
+  symbol: string;
+  research_run_id: string;
+  generated_at: string | null;
+  debug_view: 'redacted';
+  redacted: true;
+  requested_by_user_id: string;
+  returned_at: string;
+  entry: {
+    sections: ContinuitySectionResponse[];
+    events: JsonRecord[];
+    snapshot_quality: JsonRecord;
+    source_run_ids: string[];
+    writer_metadata: JsonRecord;
+    payload: JsonRecord;
+  };
+}
+
 export interface ResearchContinuityEntryResponse {
   id: string | null;
   workspace_id: string;
@@ -1349,23 +1440,22 @@ export interface ResearchContinuityStateResponse {
   recent_invalidated_items: JsonRecord[];
   data_quality: JsonRecord;
   updated_at: string | null;
-  payload: JsonRecord;
 }
 
 export interface GenerateResearchContinuityResponse {
   created: boolean;
-  entry: ResearchContinuityEntryResponse;
+  entry: ResearchContinuityEntryDetailResponse;
 }
 
 export interface ResearchContinuityStateEnvelopeResponse {
   symbol: string;
   state: ResearchContinuityStateResponse | null;
-  latest_entry: ResearchContinuityEntryResponse | null;
+  latest_entry: ResearchContinuityEntrySummaryResponse | null;
 }
 
 export interface ResearchContinuityEntriesResponse {
   symbol: string;
-  entries: ResearchContinuityEntryResponse[];
+  entries: ResearchContinuityEntrySummaryResponse[];
 }
 
 export type ResearchContinuityRepairCaseType =

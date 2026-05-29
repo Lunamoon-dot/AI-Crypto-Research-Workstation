@@ -54,6 +54,10 @@ export const queryKeys = {
     ['research-continuity-state', queryIdentity(), symbol] as const,
   researchContinuityEntries: (filters: Record<string, unknown>) =>
     scopedFilters('research-continuity-entries', filters),
+  researchContinuityEntry: (id: string) =>
+    ['research-continuity-entry', queryIdentity(), id] as const,
+  researchContinuityEntryDebug: (id: string) =>
+    ['research-continuity-entry-debug', queryIdentity(), id] as const,
   researchContinuityRepairPreview: (filters: Record<string, unknown>) =>
     scopedFilters('research-continuity-repair-preview', filters),
   researchRunSnapshots: (id: string) =>

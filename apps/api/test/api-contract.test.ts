@@ -63,6 +63,7 @@ import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
+import { redactForDebug } from '../src/common/redaction';
 import { ResearchContinuityController } from '../src/research-continuity/research-continuity.controller';
 import { ResearchContinuityService } from '../src/research-continuity/research-continuity.service';
 import {
@@ -2059,6 +2060,15 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
   assert.ok(
     'ResearchContinuityThinReport' in openApiDocument.components.schemas,
   );
+  assert.ok(
+    'ResearchContinuityEntrySummaryResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityEntryDetailResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityEntryDebugResponse' in openApiDocument.components.schemas,
+  );
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -2076,6 +2086,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-continuity/symbols/{symbol}/state', ['get']],
     ['/research-continuity/symbols/{symbol}/entries', ['get']],
     ['/research-continuity/entries/{id}', ['get']],
+    ['/research-continuity/entries/{id}/debug', ['get']],
     ['/research-continuity/repair/preview', ['get']],
     ['/research-continuity/repair/run', ['post']],
     ['/journal/runs/{id}/workspace', ['get']],
@@ -6899,6 +6910,14 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     'user_1',
     'workspace_a',
   );
+  const rawBaseline = await journal.getResearchContinuityEntry(
+    String(baseline.entry.id),
+    'workspace_a',
+  );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
   const runEntry = await researchContinuity.getRunContinuity(
     'run_btc_day_2',
     'viewer_1',
@@ -6917,10 +6936,12 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   );
 
   assert.equal(baseline.created, true);
+  assert.ok(rawBaseline);
+  assert.ok(rawDelta);
   assert.equal(baseline.entry.entry_type, 'baseline');
-  assert.equal(baseline.entry.snapshot_quality.evidence_coverage, 0);
+  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 0);
   assert.equal(delta.entry.entry_type, 'delta');
-  assert.equal(delta.entry.previous_entry_id, baseline.entry.id);
+  assert.equal(delta.entry.state_transition.previous_entry_id, baseline.entry.id);
   assert.equal(delta.entry.thin_report?.version, 'research_continuity_thin.v1');
   assert.equal(delta.entry.thin_report?.debug_available, true);
   assert.equal(delta.entry.thin_report?.debug_requires_role, 'editor');
@@ -6935,7 +6956,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     ),
   );
   assert.equal(
-    record(record(delta.entry.payload.report_views).thin).version,
+    record(record(continuityEntryPayload(rawDelta).report_views).thin).version,
     'research_continuity_thin.v1',
   );
   assert.equal(runEntry?.id, delta.entry.id);
@@ -6943,7 +6964,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.equal(state.state?.current_view.directional_bias, 'cautious_bullish');
   assert.equal(entries.entries.length, 2);
   assert.deepEqual(
-    delta.entry.sections.map((section: { title: string }) => section.title),
+    records(rawDelta.sections).map((section) => section.title),
     [
       'Summary',
       'Current View',
@@ -6957,13 +6978,197 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     ],
   );
   assert.ok(
-    delta.entry.events.some(
+    records(rawDelta.events).some(
       (event) => event.event_type === 'view_changed',
     ),
   );
   assert.ok(
     !JSON.stringify(delta.entry).toLowerCase().includes('correct'),
   );
+});
+
+test('research continuity V1.5 default reads are compact and detail exposes digest fields', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v15_boundary',
+    thesisId: 'thesis_btc_v15_boundary',
+    debateId: 'debate_btc_v15_boundary',
+    marketSnapshotId: 'market_btc_v15_boundary',
+    signalSnapshotId: 'signal_btc_v15_boundary',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is becoming crowded.'],
+    monitorNext: ['Watch whether spot demand follows the breakout.'],
+  });
+
+  const generated = await researchContinuity.generateForRun(
+    'run_btc_v15_boundary',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const generatedRecord = generated.entry as unknown as Record<string, unknown>;
+  assert.ok(generated.entry.quality_explanation);
+  assert.ok(generated.entry.evidence_digest);
+  assert.equal('events' in generatedRecord, false);
+  assert.equal('payload' in generatedRecord, false);
+  assert.equal('writer_metadata' in generatedRecord, false);
+  assert.equal('snapshot_quality' in generatedRecord, false);
+
+  const list = await researchContinuity.listSymbolEntries(
+    'BTC/USDT',
+    { limit: 10 },
+    'viewer_1',
+    'workspace_a',
+  );
+  const entrySummary = list.entries[0] as unknown as Record<string, unknown>;
+  assert.ok(entrySummary.thin_report);
+  assert.equal('events' in entrySummary, false);
+  assert.equal('payload' in entrySummary, false);
+  assert.equal('writer_metadata' in entrySummary, false);
+  assert.equal('snapshot_quality' in entrySummary, false);
+
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const stateRecord = state.state as unknown as Record<string, unknown>;
+  assert.equal('payload' in stateRecord, false);
+  const latestEntry = state.latest_entry as unknown as Record<string, unknown>;
+  assert.ok(latestEntry.thin_report);
+  assert.equal('events' in latestEntry, false);
+  assert.equal('payload' in latestEntry, false);
+  assert.equal('writer_metadata' in latestEntry, false);
+  assert.equal('snapshot_quality' in latestEntry, false);
+
+  const runContinuity = await researchContinuity.getRunContinuity(
+    'run_btc_v15_boundary',
+    'viewer_1',
+    'workspace_a',
+  );
+  const runRecord = runContinuity as unknown as Record<string, unknown>;
+  assert.ok(runRecord.thin_report);
+  assert.equal('events' in runRecord, false);
+  assert.equal('payload' in runRecord, false);
+  assert.equal('writer_metadata' in runRecord, false);
+  assert.equal('snapshot_quality' in runRecord, false);
+
+  const detail = await researchContinuity.getEntry(
+    String(entrySummary.id),
+    'viewer_1',
+    'workspace_a',
+  );
+  const detailRecord = detail as unknown as Record<string, unknown>;
+  const evidenceDigest = record(detailRecord.evidence_digest);
+  const stateTransition = record(detailRecord.state_transition);
+  assert.ok(detailRecord.quality_explanation);
+  assert.ok(evidenceDigest);
+  assert.ok(Array.isArray(detailRecord.material_events_digest));
+  assert.ok(String(evidenceDigest.health_line).length > 0);
+  assert.ok((detailRecord.material_events_digest as unknown[]).length <= 10);
+  assert.ok(String(stateTransition.reason).length > 0);
+  assert.equal(record(detailRecord.debug).requires_permission, 'view_debug_trace');
+  assert.equal('events' in detailRecord, false);
+  assert.equal('payload' in detailRecord, false);
+  assert.equal('writer_metadata' in detailRecord, false);
+  assert.equal('snapshot_quality' in detailRecord, false);
+});
+
+test('redactForDebug recursively redacts debug payloads', () => {
+  const redacted = redactForDebug({
+    authorization: 'Bearer abc',
+    nested: {
+      api_key: 'secret',
+      token: 'tok',
+      safe: 'keep',
+    },
+    list: [{ cookie: 'session=abc' }],
+    large: 'x'.repeat(5001),
+    largeList: Array.from({ length: 205 }, (_, index) => index),
+    largeObject: Object.fromEntries(
+      Array.from({ length: 205 }, (_, index) => [`key_${index}`, index]),
+    ),
+  }) as JsonRecord;
+
+  assert.equal(redacted.authorization, '[REDACTED]');
+  assert.equal(record(redacted.nested).api_key, '[REDACTED]');
+  assert.equal(record(redacted.nested).token, '[REDACTED]');
+  assert.equal(record(redacted.nested).safe, 'keep');
+  assert.equal(records(redacted.list)[0]?.cookie, '[REDACTED]');
+  assert.equal(String(redacted.large).endsWith('[TRUNCATED]'), true);
+  assert.equal((redacted.largeList as unknown[]).length, 201);
+  assert.deepEqual((redacted.largeList as unknown[]).at(-1), {
+    __truncated__: true,
+    omitted_count: 5,
+  });
+  assert.equal(record(redacted.largeObject).__truncated__, true);
+  assert.equal(record(redacted.largeObject).__omitted_key_count__, 5);
+});
+
+test('research continuity V1.5 debug access is disabled by policy and gated by workspace role', async () => {
+  const { journal, researchContinuity, workspaces } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_v15_debug',
+    thesisId: 'thesis_btc_v15_debug',
+    debateId: 'debate_btc_v15_debug',
+    marketSnapshotId: 'market_btc_v15_debug',
+    signalSnapshotId: 'signal_btc_v15_debug',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const generated = await researchContinuity.generateForRun(
+    'run_btc_v15_debug',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const entryId = String(generated.entry.id);
+  const raw = await journal.getResearchContinuityEntry(entryId, 'workspace_a');
+  assert.ok(raw);
+  raw.payload = {
+    ...record(raw.payload),
+    nested: {
+      token: 'super-secret-token',
+    },
+  };
+
+  const previousFlag = process.env.ENABLE_RESEARCH_CONTINUITY_DEBUG;
+  try {
+    process.env.ENABLE_RESEARCH_CONTINUITY_DEBUG = 'false';
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'editor_1', 'workspace_a'),
+      hasForbiddenCode('debug_access_disabled'),
+    );
+
+    process.env.ENABLE_RESEARCH_CONTINUITY_DEBUG = 'true';
+    workspaces.setMembershipsForTest([
+      { user_id: 'viewer_user', workspace_id: 'workspace_a', role: 'viewer' },
+      { user_id: 'editor_user', workspace_id: 'workspace_a', role: 'editor' },
+    ]);
+    await assert.rejects(
+      () => researchContinuity.getEntryDebug(entryId, 'viewer_user', 'workspace_a'),
+      hasForbiddenCode('debug_permission_required'),
+    );
+
+    const debug = await researchContinuity.getEntryDebug(
+      entryId,
+      'editor_user',
+      'workspace_a',
+    );
+    assert.equal(debug.debug_view, 'redacted');
+    assert.equal(debug.redacted, true);
+    assert.equal(debug.requested_by_user_id, 'editor_user');
+    assert.ok(debug.entry.payload);
+    assert.equal(JSON.stringify(debug).includes('super-secret-token'), false);
+    assert.equal(record(record(debug.entry.payload).nested).token, '[REDACTED]');
+  } finally {
+    if (previousFlag === undefined) {
+      delete process.env.ENABLE_RESEARCH_CONTINUITY_DEBUG;
+    } else {
+      process.env.ENABLE_RESEARCH_CONTINUITY_DEBUG = previousFlag;
+    }
+  }
 });
 
 test('research continuity V1.1 enriches snapshots with claims, provenance, evidence, and quality metrics', async () => {
@@ -7296,17 +7501,22 @@ test('research continuity V1.2 attaches item evidence before global fallback and
     'run_btc_v12_evidence',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
   assert.ok(snapshot);
+  assert.ok(rawDelta);
   assert.equal(
     record(snapshot.payload).evidence_contract_version,
     'research_evidence.v1.2',
   );
   assert.equal(
-    delta.entry.writer_metadata.evidence_contract_version,
+    record(rawDelta.writer_metadata).evidence_contract_version,
     'research_evidence.v1.2',
   );
   assert.equal(
-    delta.entry.payload.evidence_contract_version,
+    continuityEntryPayload(rawDelta).evidence_contract_version,
     'research_evidence.v1.2',
   );
   const trackedItems = records(snapshot.tracked_items);
@@ -7350,10 +7560,13 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   assert.ok(numberValue(quality.reasoning_only_item_count) >= 1);
   assert.equal(quality.no_evidence_item_count, 0);
   assert.ok(
-    delta.entry.sections.some(
+    records(rawDelta.sections).some(
       (section) =>
         section.title === 'Source And Evidence Trace' &&
-        section.items.some((item: string) => item.includes('Observed evidence coverage')),
+        Array.isArray(section.items) &&
+        section.items.some((item) =>
+          String(item).includes('Observed evidence coverage'),
+        ),
     ),
   );
 });
@@ -7420,6 +7633,11 @@ test('research continuity V1.1 matches legacy item keys without fake churn', asy
     'run_btc_v11_legacy_match',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
+  assert.ok(rawDelta);
   const currentRisk = records(snapshot?.tracked_items).find(
     (item) => item.type === 'risk' && item.text === riskText,
   );
@@ -7427,7 +7645,9 @@ test('research continuity V1.1 matches legacy item keys without fake churn', asy
   assert.notEqual(currentRisk.item_key, legacyItemKey('risk', riskText));
   assert.equal(currentRisk.legacy_item_key, legacyItemKey('risk', riskText));
 
-  const eventTypes = delta.entry.events.map((event) => event.event_type);
+  const eventTypes = records(rawDelta.events).map((event) =>
+    String(event.event_type),
+  );
   assert.equal(eventTypes.includes('risk_added'), false);
   assert.equal(eventTypes.includes('risk_resolved'), false);
   assert.ok(
@@ -7476,8 +7696,13 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
     'viewer_1',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
+  assert.ok(rawDelta);
 
-  const riskUpdated = delta.entry.events.find(
+  const riskUpdated = records(rawDelta.events).find(
     (event) => event.event_type === 'risk_updated',
   );
   assert.ok(riskUpdated);
@@ -7487,11 +7712,13 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
   assert.equal(record(riskUpdated.source).source_artifact, 'thesis');
   assert.equal(record(riskUpdated.source).source_field, 'summary.risks[0]');
   assert.equal(
-    delta.entry.events.some((event) => event.event_type === 'risk_added'),
+    records(rawDelta.events).some((event) => event.event_type === 'risk_added'),
     false,
   );
   assert.equal(
-    delta.entry.events.some((event) => event.event_type === 'risk_resolved'),
+    records(rawDelta.events).some(
+      (event) => event.event_type === 'risk_resolved',
+    ),
     false,
   );
 
@@ -7635,7 +7862,15 @@ test('research continuity exposes runtime thin-report fallback for legacy entrie
   assert.ok(
     response.thin_report?.sections.some((section) => section.id === 'quality'),
   );
-  assert.equal(record(response.payload.report_views).thin, undefined);
+  assert.ok(response.quality_explanation.status.length > 0);
+  assert.ok(response.evidence_digest.health_line.length > 0);
+  assert.equal((response as unknown as Record<string, unknown>).payload, undefined);
+
+  const raw = await journal.getResearchContinuityEntry(
+    'continuity_old_without_thin',
+    'workspace_a',
+  );
+  assert.equal(record(record(raw?.payload).report_views).thin, undefined);
 });
 
 test('research continuity manual regenerate is idempotent by default and requires editor access', async () => {
@@ -9410,6 +9645,7 @@ function buildHarness() {
   const monitoringJobs = new MonitoringJobsService(journal, thesisEngine);
   return {
     journal,
+    workspaces,
     evaluationEngineCalls,
     jobs,
     marketPriceCalls,
@@ -9903,4 +10139,18 @@ function isException(
   exceptionType: new (...args: string[]) => Error,
 ): (error: unknown) => boolean {
   return (error: unknown): boolean => error instanceof exceptionType;
+}
+
+function hasForbiddenCode(code: string): (error: unknown) => boolean {
+  return (error: unknown): boolean => {
+    if (!(error instanceof ForbiddenException)) {
+      return false;
+    }
+    const response = error.getResponse();
+    const record =
+      response && typeof response === 'object'
+        ? (response as Record<string, unknown>)
+        : {};
+    return record.code === code && record.statusCode === 403;
+  };
 }

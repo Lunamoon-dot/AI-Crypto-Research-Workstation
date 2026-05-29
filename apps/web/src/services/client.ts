@@ -1,13 +1,9 @@
 import axios, { AxiosError, type Method } from 'axios';
 import { env } from '@/lib/env';
+import { isApiError, normalizeApiError } from '@/services/api-error';
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 
-export type ApiError = {
-  status: number;
-  code: string;
-  message: string;
-  details?: unknown;
-};
+export type { ApiError } from '@/services/api-error';
 
 export type ApiOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -62,58 +58,6 @@ function cleanQuery(query: ApiOptions['query']) {
   );
 }
 
-function normalizeApiError(error: AxiosError): ApiError {
-  const response = error.response;
-  const payload = response?.data;
-  if (isErrorEnvelope(payload)) {
-    return {
-      status: response?.status ?? 0,
-      code: payload.error.code,
-      message: payload.error.message,
-      details: payload.error.details,
-    };
-  }
-  if (isNestError(payload)) {
-    const message = Array.isArray(payload.message)
-      ? payload.message.join(', ')
-      : String(payload.message ?? response?.statusText ?? error.message);
-    return {
-      status: response?.status ?? 0,
-      code: String(payload.error ?? `http_${response?.status ?? 0}`),
-      message,
-      details: payload,
-    };
-  }
-  return {
-    status: response?.status ?? 0,
-    code: response ? `http_${response.status}` : 'network_error',
-    message: response?.statusText || error.message || 'API request failed.',
-    details: payload,
-  };
-}
-
-function isErrorEnvelope(value: unknown): value is {
-  error: { code: string; message: string; details?: unknown };
-} {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const error = (value as { error?: unknown }).error;
-  return Boolean(
-    error &&
-      typeof error === 'object' &&
-      typeof (error as { code?: unknown }).code === 'string' &&
-      typeof (error as { message?: unknown }).message === 'string',
-  );
-}
-
-function isNestError(value: unknown): value is {
-  message?: string | string[];
-  error?: string;
-} {
-  return Boolean(value && typeof value === 'object' && 'message' in value);
-}
-
 export function errorMessage(error: unknown): string {
   if (isApiError(error)) {
     return error.message;
@@ -122,13 +66,4 @@ export function errorMessage(error: unknown): string {
     return error.message;
   }
   return 'Unknown error.';
-}
-
-function isApiError(value: unknown): value is ApiError {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      typeof (value as ApiError).status === 'number' &&
-      typeof (value as ApiError).message === 'string',
-  );
 }

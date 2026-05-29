@@ -7,7 +7,10 @@ import type {
   GenerateResearchContinuityRequest,
   GenerateResearchContinuityResponse,
   ResearchContinuityEntriesResponse,
+  ResearchContinuityEntryDebugResponse,
+  ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
@@ -46,6 +49,20 @@ export function listResearchContinuityEntries(
   return generatedClient(auth).listResearchContinuityEntries(symbol, params);
 }
 
+export function getResearchContinuityEntry(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getResearchContinuityEntry(id);
+}
+
+export function getResearchContinuityEntryDebug(
+  id: string,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getResearchContinuityEntryDebug(id);
+}
+
 export function previewResearchContinuityRepair(
   params: ResearchContinuityRepairPreviewRequest,
   auth: WorkspaceRequestContext,
@@ -70,7 +87,10 @@ export type {
   GenerateResearchContinuityRequest,
   GenerateResearchContinuityResponse,
   ResearchContinuityEntriesResponse,
+  ResearchContinuityEntryDebugResponse,
+  ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,

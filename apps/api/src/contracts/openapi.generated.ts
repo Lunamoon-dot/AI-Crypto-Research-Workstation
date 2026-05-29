@@ -215,7 +215,7 @@ export const openApiDocument = {
         parameters: [pathParameter('id')],
         responses: jsonNullableResponse(
           'Latest continuity entry for a research run.',
-          'ResearchContinuityEntryResponse',
+          'ResearchContinuityEntrySummaryResponse',
         ),
       },
       post: {
@@ -286,8 +286,19 @@ export const openApiDocument = {
         tags: ['research-continuity'],
         parameters: [pathParameter('id')],
         responses: jsonResponse(
-          'Workspace-scoped continuity entry.',
-          'ResearchContinuityEntryResponse',
+          'Workspace-scoped continuity entry detail digest.',
+          'ResearchContinuityEntryDetailResponse',
+        ),
+      },
+    },
+    '/research-continuity/entries/{id}/debug': {
+      get: {
+        operationId: 'getResearchContinuityEntryDebug',
+        tags: ['research-continuity'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Redacted continuity debug trace.',
+          'ResearchContinuityEntryDebugResponse',
         ),
       },
     },
@@ -3554,6 +3565,227 @@ export const openApiDocument = {
           },
         },
       },
+      ResearchContinuityDebugAccessResponse: {
+        type: 'object',
+        required: [
+          'available',
+          'reason',
+          'requires_permission',
+          'url',
+          'redacted',
+        ],
+        properties: {
+          available: { type: 'boolean' },
+          reason: {
+            type: 'string',
+            enum: [
+              'available',
+              'disabled_by_policy',
+              'permission_required',
+              'not_available',
+            ],
+          },
+          requires_permission: { type: 'string', enum: ['view_debug_trace'] },
+          url: { type: ['string', 'null'] },
+          redacted: { type: 'boolean', enum: [true] },
+        },
+      },
+      ResearchContinuityEntrySummaryResponse: {
+        type: 'object',
+        required: [
+          'id',
+          'workspace_id',
+          'symbol',
+          'research_run_id',
+          'entry_type',
+          'status',
+          'generated_at',
+          'summary',
+          'thin_report',
+          'debug',
+        ],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          symbol: { type: 'string' },
+          research_run_id: { type: 'string' },
+          entry_type: {
+            type: 'string',
+            enum: ['baseline', 'delta', 'degraded', 'skipped'],
+          },
+          status: {
+            type: 'string',
+            enum: ['completed', 'degraded', 'skipped', 'failed'],
+          },
+          generated_at: { type: ['string', 'null'] },
+          summary: { type: 'string' },
+          thin_report: {
+            anyOf: [
+              { $ref: '#/components/schemas/ResearchContinuityThinReport' },
+              { type: 'null' },
+            ],
+          },
+          debug: {
+            $ref: '#/components/schemas/ResearchContinuityDebugAccessResponse',
+          },
+        },
+      },
+      ResearchContinuityQualityExplanationResponse: {
+        type: 'object',
+        required: [
+          'status',
+          'score',
+          'observed_evidence_coverage',
+          'evidence_coverage',
+          'provenance_status',
+          'warnings',
+          'reasons',
+        ],
+        properties: {
+          status: { type: 'string' },
+          score: { type: ['number', 'null'] },
+          observed_evidence_coverage: { type: ['number', 'null'] },
+          evidence_coverage: { type: ['number', 'null'] },
+          provenance_status: { type: ['string', 'null'] },
+          warnings: { type: 'array', items: { type: 'string' } },
+          reasons: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      ResearchContinuityEvidenceDigestResponse: {
+        type: 'object',
+        required: [
+          'observed_count',
+          'reasoning_count',
+          'missing_count',
+          'no_evidence_count',
+          'stale_count',
+          'observed_coverage',
+          'missing_categories',
+          'stale_categories',
+          'health_line',
+        ],
+        properties: {
+          observed_count: { type: ['number', 'null'] },
+          reasoning_count: { type: ['number', 'null'] },
+          missing_count: { type: ['number', 'null'] },
+          no_evidence_count: { type: ['number', 'null'] },
+          stale_count: { type: ['number', 'null'] },
+          observed_coverage: { type: ['number', 'null'] },
+          missing_categories: { type: 'array', items: { type: 'string' } },
+          stale_categories: { type: 'array', items: { type: 'string' } },
+          health_line: { type: 'string' },
+        },
+      },
+      ResearchContinuityMaterialEventDigestResponse: {
+        type: 'object',
+        required: ['type', 'label', 'severity', 'summary', 'evidence_status'],
+        properties: {
+          type: { type: 'string' },
+          label: { type: 'string' },
+          severity: { type: 'string', enum: ['info', 'warning', 'critical'] },
+          summary: { type: 'string' },
+          evidence_status: { type: ['string', 'null'] },
+        },
+      },
+      ResearchContinuityStateTransitionDigestResponse: {
+        type: 'object',
+        required: [
+          'previous_entry_id',
+          'current_snapshot_id',
+          'source_run_ids',
+          'transition',
+          'reason',
+        ],
+        properties: {
+          previous_entry_id: { type: ['string', 'null'] },
+          current_snapshot_id: { type: ['string', 'null'] },
+          source_run_ids: { type: 'array', items: { type: 'string' } },
+          transition: {
+            type: 'string',
+            enum: ['baseline', 'delta', 'degraded', 'skipped'],
+          },
+          reason: { type: 'string' },
+        },
+      },
+      ResearchContinuityEntryDetailResponse: {
+        allOf: [
+          { $ref: '#/components/schemas/ResearchContinuityEntrySummaryResponse' },
+          {
+            type: 'object',
+            required: [
+              'quality_explanation',
+              'evidence_digest',
+              'material_events_digest',
+              'state_transition',
+            ],
+            properties: {
+              quality_explanation: {
+                $ref: '#/components/schemas/ResearchContinuityQualityExplanationResponse',
+              },
+              evidence_digest: {
+                $ref: '#/components/schemas/ResearchContinuityEvidenceDigestResponse',
+              },
+              material_events_digest: {
+                type: 'array',
+                items: {
+                  $ref: '#/components/schemas/ResearchContinuityMaterialEventDigestResponse',
+                },
+              },
+              state_transition: {
+                $ref: '#/components/schemas/ResearchContinuityStateTransitionDigestResponse',
+              },
+            },
+          },
+        ],
+      },
+      ResearchContinuityEntryDebugResponse: {
+        type: 'object',
+        required: [
+          'id',
+          'workspace_id',
+          'symbol',
+          'research_run_id',
+          'generated_at',
+          'debug_view',
+          'redacted',
+          'requested_by_user_id',
+          'returned_at',
+          'entry',
+        ],
+        properties: {
+          id: { type: ['string', 'null'] },
+          workspace_id: { type: 'string' },
+          symbol: { type: 'string' },
+          research_run_id: { type: 'string' },
+          generated_at: { type: ['string', 'null'] },
+          debug_view: { type: 'string', enum: ['redacted'] },
+          redacted: { type: 'boolean', enum: [true] },
+          requested_by_user_id: { type: 'string' },
+          returned_at: { type: 'string', format: 'date-time' },
+          entry: {
+            type: 'object',
+            required: [
+              'sections',
+              'events',
+              'snapshot_quality',
+              'source_run_ids',
+              'writer_metadata',
+              'payload',
+            ],
+            properties: {
+              sections: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/ContinuitySectionResponse' },
+              },
+              events: { type: 'array', items: { type: 'object' } },
+              snapshot_quality: { type: 'object' },
+              source_run_ids: { type: 'array', items: { type: 'string' } },
+              writer_metadata: { type: 'object' },
+              payload: { type: 'object' },
+            },
+          },
+        },
+      },
       ResearchContinuityStateResponse: {
         type: 'object',
         required: [
@@ -3569,7 +3801,6 @@ export const openApiDocument = {
           'recent_invalidated_items',
           'data_quality',
           'updated_at',
-          'payload',
         ],
         properties: {
           id: { type: ['string', 'null'] },
@@ -3584,7 +3815,6 @@ export const openApiDocument = {
           recent_invalidated_items: { type: 'array', items: { type: 'object' } },
           data_quality: { type: 'object' },
           updated_at: { type: ['string', 'null'] },
-          payload: { type: 'object' },
         },
       },
       GenerateResearchContinuityResponse: {
@@ -3592,7 +3822,7 @@ export const openApiDocument = {
         required: ['created', 'entry'],
         properties: {
           created: { type: 'boolean' },
-          entry: { $ref: '#/components/schemas/ResearchContinuityEntryResponse' },
+          entry: { $ref: '#/components/schemas/ResearchContinuityEntryDetailResponse' },
         },
       },
       ResearchContinuityStateEnvelopeResponse: {
@@ -3608,7 +3838,7 @@ export const openApiDocument = {
           },
           latest_entry: {
             anyOf: [
-              { $ref: '#/components/schemas/ResearchContinuityEntryResponse' },
+              { $ref: '#/components/schemas/ResearchContinuityEntrySummaryResponse' },
               { type: 'null' },
             ],
           },
@@ -3621,7 +3851,7 @@ export const openApiDocument = {
           symbol: { type: 'string' },
           entries: {
             type: 'array',
-            items: { $ref: '#/components/schemas/ResearchContinuityEntryResponse' },
+            items: { $ref: '#/components/schemas/ResearchContinuityEntrySummaryResponse' },
           },
         },
       },
