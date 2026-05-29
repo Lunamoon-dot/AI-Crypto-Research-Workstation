@@ -136,7 +136,7 @@ config/
   default.toml
   local.example.toml
 
-tradingagents/config/
+luna_workstation/config/
   loader.py
   schema.py
 ```
@@ -293,7 +293,7 @@ engine. The frontend must call NestJS, not Python.
 apps/web
   -> apps/api (NestJS)
   -> BullMQ/Redis or compatible job boundary
-  -> tradingagents Python engine
+  -> luna_workstation Python engine
   -> Python SQLite journal today / normalized Postgres persistence target
 ```
 
@@ -458,7 +458,7 @@ ExecutionTicket
 ## Acceptance Criteria
 
 - Assisted execution can be fully disabled.
-- No background loop can place orders.
+- Background processes cannot mutate user decisions.
 - Every submitted order maps to a user-confirmed ticket.
 - Audit trail is complete.
 
@@ -636,7 +636,7 @@ Before cloud:
 The correct direction is:
 
 ```text
-Crypto-first research workstation, not autonomous trading automation.
+Crypto-first research workstation for thesis discipline.
 ```
 
 The highest-value product identity is:

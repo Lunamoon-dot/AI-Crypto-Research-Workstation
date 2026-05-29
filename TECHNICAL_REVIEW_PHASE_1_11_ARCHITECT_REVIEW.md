@@ -16,10 +16,10 @@ Verified locally:
 |---|---:|
 | `python -m ruff check .` in `apps/ai-service` | Pass |
 | `python -m ruff format --check .` in `apps/ai-service` | Pass, 264 files formatted |
-| `python -m mypy tradingagents cli` in `apps/ai-service` | Pass, 200 source files |
+| `python -m mypy luna_workstation cli` in `apps/ai-service` | Pass, 200 source files |
 | `python -m pytest -q` in `apps/ai-service` | Pass, `596 passed, 42 subtests passed` |
 | `python -m pytest tests/test_sqlite_migration_backup_restore.py -q` | Pass, 1 test |
-| `python -m pytest --cov=tradingagents --cov=cli --cov-report=term-missing --cov-fail-under=55` | Pass, total coverage `62.88%` |
+| `python -m pytest --cov=luna_workstation --cov=cli --cov-report=term-missing --cov-fail-under=55` | Pass, total coverage `62.88%` |
 | `pnpm lint` | Pass, 3 packages |
 | `pnpm build:api` | Pass |
 | `pnpm --filter @lunaperception/api test` | Pass, 14 tests |
@@ -35,7 +35,7 @@ Current rough repository size inspected:
 
 | Area | Files |
 |---|---:|
-| Python AI service: `tradingagents`, `cli`, tests | 255 |
+| Python AI service: `luna_workstation`, `cli`, tests | 255 |
 | API/database context: `apps/api`, `packages/database/prisma` | 43 |
 
 ## 1. Overall Project Purpose
@@ -88,7 +88,7 @@ Verdict in one sentence: **Phase 1-11 is now a serious local research product fo
 
 ### 3.1 Product Boundary Is Mature
 
-The repo consistently avoids the worst mistake in this domain: pretending an LLM research system is an autonomous trading engine. The active product is research support, journaling, and review.
+The repo consistently keeps the active product centered on research support, journaling, and review.
 
 Why this is strong:
 
@@ -114,11 +114,11 @@ Why this matters:
 
 Good examples:
 
-- `apps/ai-service/tradingagents/storage/schema.py`
-- `apps/ai-service/tradingagents/services/journal_service.py`
-- `apps/ai-service/tradingagents/graph/journal_bridge.py`
-- `apps/ai-service/tradingagents/services/evaluation_service.py`
-- `apps/ai-service/tradingagents/services/performance_tracker.py`
+- `apps/ai-service/luna_workstation/storage/schema.py`
+- `apps/ai-service/luna_workstation/services/journal_service.py`
+- `apps/ai-service/luna_workstation/graph/journal_bridge.py`
+- `apps/ai-service/luna_workstation/services/evaluation_service.py`
+- `apps/ai-service/luna_workstation/services/performance_tracker.py`
 
 ### 3.3 Deterministic Signals Before LLM Synthesis
 
@@ -139,13 +139,13 @@ This was previously the biggest trust weakness. It is now materially better.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/dataflows/historical_contract.py:200` validates provider contracts.
-- `apps/ai-service/tradingagents/dataflows/historical_contract.py:224` rejects `HYBRID` endpoints in strict replay when `allow_hybrid_as_of=False`.
-- `apps/ai-service/tradingagents/dataflows/interface.py:464` passes `allow_hybrid_as_of=not strict_mode`.
-- `apps/ai-service/tradingagents/dataflows/interface.py:686` prepares historical calls and injects temporal parameters.
-- `apps/ai-service/tradingagents/dataflows/interface.py:781` records historical provider calls.
-- `apps/ai-service/tradingagents/graph/historical_replay.py:234` rejects replay runs with timestamp issues.
-- `apps/ai-service/tradingagents/graph/historical_replay.py:458` includes timestamp issues in the replay audit.
+- `apps/ai-service/luna_workstation/dataflows/historical_contract.py:200` validates provider contracts.
+- `apps/ai-service/luna_workstation/dataflows/historical_contract.py:224` rejects `HYBRID` endpoints in strict replay when `allow_hybrid_as_of=False`.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:464` passes `allow_hybrid_as_of=not strict_mode`.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:686` prepares historical calls and injects temporal parameters.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:781` records historical provider calls.
+- `apps/ai-service/luna_workstation/graph/historical_replay.py:234` rejects replay runs with timestamp issues.
+- `apps/ai-service/luna_workstation/graph/historical_replay.py:458` includes timestamp issues in the replay audit.
 - `apps/ai-service/tests/test_replay_smoke.py:140` tests strict replay rejection of hybrid endpoints.
 - `apps/ai-service/tests/test_replay_smoke.py:201` tests rejection of provider calls after the anchor.
 
@@ -165,10 +165,10 @@ Previously, journal persistence was too best-effort for a product whose value de
 
 Evidence:
 
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:110` starts runs.
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:128` raises `StorageError` when `start_run` fails.
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:245` raises `StorageError` when quant signal persistence fails.
-- `apps/ai-service/tradingagents/graph/journal_bridge.py:325` raises `StorageError` when completion persistence fails.
+- `apps/ai-service/luna_workstation/graph/journal_bridge.py:110` starts runs.
+- `apps/ai-service/luna_workstation/graph/journal_bridge.py:128` raises `StorageError` when `start_run` fails.
+- `apps/ai-service/luna_workstation/graph/journal_bridge.py:245` raises `StorageError` when quant signal persistence fails.
+- `apps/ai-service/luna_workstation/graph/journal_bridge.py:325` raises `StorageError` when completion persistence fails.
 - `apps/ai-service/tests/test_journal_criticality.py:51` tests `start_run` criticality.
 - `apps/ai-service/tests/test_journal_criticality.py:59` tests `save_quant_signals` criticality.
 - `apps/ai-service/tests/test_journal_criticality.py:72` tests `complete_run` criticality.
@@ -185,9 +185,9 @@ Freshness policy is now actually passed into signal conversion.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/signals/provenance.py:73` accepts `max_age_hours`.
-- `apps/ai-service/tradingagents/signals/provenance.py:86` uses `_freshness_window(max_age_hours)`.
-- `apps/ai-service/tradingagents/signals/provenance.py:124` passes `max_age_hours` into domain signal conversion.
+- `apps/ai-service/luna_workstation/signals/provenance.py:73` accepts `max_age_hours`.
+- `apps/ai-service/luna_workstation/signals/provenance.py:86` uses `_freshness_window(max_age_hours)`.
+- `apps/ai-service/luna_workstation/signals/provenance.py:124` passes `max_age_hours` into domain signal conversion.
 - `apps/ai-service/tests/test_signal_provenance.py:85` tests configurable freshness policy.
 - `apps/ai-service/tests/test_signal_provenance.py:104` tests signal conversion with max-age override.
 
@@ -224,7 +224,7 @@ The system now has clearer operational error classes.
 
 Evidence:
 
-- `apps/ai-service/tradingagents/exceptions.py` defines `ErrorCategory`, `ErrorIntent`, and structured classification.
+- `apps/ai-service/luna_workstation/exceptions.py` defines `ErrorCategory`, `ErrorIntent`, and structured classification.
 - `StorageError`, `PolicyViolationError`, `LLMOutputError`, `ProviderTimeoutError`, and provider error categories are modeled explicitly.
 - `is_retryable_error()` no longer treats arbitrary unknown errors as retryable by default; it needs typed errors or transient markers.
 
@@ -267,9 +267,9 @@ The provider runtime now uses a shared bounded executor, which is a real improve
 
 Evidence:
 
-- `apps/ai-service/tradingagents/dataflows/interface.py:593` submits provider calls into a shared executor.
-- `apps/ai-service/tradingagents/dataflows/interface.py:621` applies resilience around blocking provider work.
-- `apps/ai-service/tradingagents/dataflows/interface.py:389` still implements async vendor routing through `asyncio.to_thread`.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:593` submits provider calls into a shared executor.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:621` applies resilience around blocking provider work.
+- `apps/ai-service/luna_workstation/dataflows/interface.py:389` still implements async vendor routing through `asyncio.to_thread`.
 
 Why it is problematic:
 
@@ -296,9 +296,9 @@ The unreachable thesis-building code has been removed, and execution is delegate
 
 Evidence:
 
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:493` now delegates thesis building cleanly.
-- `apps/ai-service/tradingagents/graph/research_agents_graph.py:531`, `:552`, and `:573` delegate propagation/run behavior through `ResearchRunOrchestrator`.
-- `apps/ai-service/tradingagents/graph/run_orchestrator.py:168` owns `run_graph`.
+- `apps/ai-service/luna_workstation/graph/research_agents_graph.py:493` now delegates thesis building cleanly.
+- `apps/ai-service/luna_workstation/graph/research_agents_graph.py:531`, `:552`, and `:573` delegate propagation/run behavior through `ResearchRunOrchestrator`.
+- `apps/ai-service/luna_workstation/graph/run_orchestrator.py:168` owns `run_graph`.
 
 Why it is problematic:
 
@@ -377,8 +377,8 @@ The observability layer has strong redaction helpers, including unsafe tool-arg 
 
 Evidence:
 
-- `apps/ai-service/tradingagents/observability/logging.py:113` defines `redact_tool_call_args`.
-- `apps/ai-service/tradingagents/observability/logging.py:357` sanitizes `tool_args` passed through `log_event`.
+- `apps/ai-service/luna_workstation/observability/logging.py:113` defines `redact_tool_call_args`.
+- `apps/ai-service/luna_workstation/observability/logging.py:357` sanitizes `tool_args` passed through `log_event`.
 - `apps/ai-service/cli/orchestrator.py:149` writes `message_tool.log`.
 - `apps/ai-service/cli/orchestrator.py:323` writes tool-call arguments from `obj.tool_calls[-1]`.
 
@@ -405,10 +405,10 @@ Workspace identity exists in important tables, but not uniformly across all loca
 
 Evidence:
 
-- `apps/ai-service/tradingagents/storage/schema.py:6` adds `workspace_id` to `research_runs`.
-- `apps/ai-service/tradingagents/storage/schema.py:62` adds it to `signals`.
-- `apps/ai-service/tradingagents/storage/schema.py:140` adds it to `trade_theses`.
-- `apps/ai-service/tradingagents/storage/schema.py:200` adds it to `run_events`.
+- `apps/ai-service/luna_workstation/storage/schema.py:6` adds `workspace_id` to `research_runs`.
+- `apps/ai-service/luna_workstation/storage/schema.py:62` adds it to `signals`.
+- `apps/ai-service/luna_workstation/storage/schema.py:140` adds it to `trade_theses`.
+- `apps/ai-service/luna_workstation/storage/schema.py:200` adds it to `run_events`.
 - But `market_snapshots`, `signal_snapshots`, `debates`, `agent_opinions`, `scenarios`, `user_decisions`, `outcome_reviews`, `thesis_evaluations`, and `reliability_snapshots` are still largely linked indirectly.
 
 Why it is problematic:
@@ -431,13 +431,13 @@ Better approach:
 
 Problem:
 
-The old `backtrader` dependency appears to be gone, which is good. But `redis` and `yfinance` remain in the core dependency list, and the package name is still `tradingagents`.
+The old `backtrader` dependency appears to be gone, which is good. But `redis` and `yfinance` remain in the core dependency list, and the package name is still `luna_workstation`.
 
 Evidence:
 
 - `apps/ai-service/pyproject.toml:25` still includes `redis`.
 - `apps/ai-service/pyproject.toml:33` still includes `yfinance`.
-- `apps/ai-service/pyproject.toml:5` still names the Python project `tradingagents`.
+- `apps/ai-service/pyproject.toml:5` still names the Python project `luna_workstation`.
 
 Why it is problematic:
 
@@ -463,10 +463,10 @@ The system now separates heuristic confidence from empirical confidence and uses
 
 Evidence:
 
-- `apps/ai-service/tradingagents/signals/base.py` models `heuristic_confidence`, `empirical_confidence`, sample size, and out-of-sample sample size.
-- `apps/ai-service/tradingagents/signals/composite.py` versions signal weights with `SIGNAL_WEIGHT_VERSION`.
-- `apps/ai-service/tradingagents/services/evaluation_service.py` builds confidence calibration curves.
-- `apps/ai-service/tradingagents/services/performance_tracker.py` marks insufficient calibration data.
+- `apps/ai-service/luna_workstation/signals/base.py` models `heuristic_confidence`, `empirical_confidence`, sample size, and out-of-sample sample size.
+- `apps/ai-service/luna_workstation/signals/composite.py` versions signal weights with `SIGNAL_WEIGHT_VERSION`.
+- `apps/ai-service/luna_workstation/services/evaluation_service.py` builds confidence calibration curves.
+- `apps/ai-service/luna_workstation/services/performance_tracker.py` marks insufficient calibration data.
 
 Why it is problematic:
 
@@ -586,7 +586,6 @@ Missing for hosted scale:
 | Paid local/pro desktop product | Plausible after UX/docs hardening |
 | Hosted SaaS | Not ready yet |
 | Regulated financial-advice product | Not ready |
-| Autonomous trading/execution | Out of scope and should remain out of scope |
 
 Local beta production-readiness score: **8.0 / 10**
 Broad hosted production-readiness score: **5.3 / 10**

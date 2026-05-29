@@ -5,7 +5,7 @@ turns market context, deterministic signals, agent debate, and outcome review
 into auditable research artifacts.
 
 It lives in `apps/ai-service`, keeps the existing Python package name
-`tradingagents` for import compatibility, and exposes the public CLI command as
+`luna_workstation` for import compatibility, and exposes the public CLI command as
 `lunacrypto`.
 
 A local-first Spot/Perp AI workstation for crypto market research,
@@ -76,21 +76,21 @@ High-level architecture:
 cli/
   interactive CLI, journal commands, signal explorer
 
-tradingagents/graph/
+luna_workstation/graph/
   LangGraph orchestration, journal bridge, planning helpers
 
-tradingagents/domain/
+luna_workstation/domain/
   ResearchRun, Signal, TradeThesis, MarketSnapshot, SignalSnapshot,
   UserDecision, OutcomeReview, Scenario
 
-tradingagents/signals/
+luna_workstation/signals/
   deterministic signal engine, factor signals, provenance adapter,
   snapshot builders
 
-tradingagents/storage/
+luna_workstation/storage/
   SQLite schema, persistence helpers, repositories
 
-tradingagents/services/
+luna_workstation/services/
   application services such as JournalService
 ```
 
@@ -112,15 +112,15 @@ ResearchAgentsGraph
 By default, local state is stored under:
 
 ```text
-~/.tradingagents/
+~/.luna_workstation/
 ```
 
 Important paths:
 
 ```text
-~/.tradingagents/cache/research_journal.sqlite
-~/.tradingagents/memory/trading_memory.md
-~/.tradingagents/cache/checkpoints/
+~/.luna_workstation/cache/research_journal.sqlite
+~/.luna_workstation/memory/trading_memory.md
+~/.luna_workstation/cache/checkpoints/
 ```
 
 Override journal DB path:
@@ -278,8 +278,8 @@ lunacrypto brief daily
 Use the research-oriented graph entrypoint:
 
 ```python
-from tradingagents.graph import ResearchAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
+from luna_workstation.graph import ResearchAgentsGraph
+from luna_workstation.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
 config["llm_provider"] = "deepseek"
@@ -307,7 +307,7 @@ Run local quality gates:
 ```bash
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 ```
 
 Run focused tests:

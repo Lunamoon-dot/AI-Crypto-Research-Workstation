@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/python.cjs -m cli.main",
-    "build": "node scripts/python.cjs -m compileall tradingagents cli",
+    "build": "node scripts/python.cjs -m compileall luna_workstation cli",
     "lint": "node scripts/python.cjs -m ruff check . && node scripts/python.cjs -m ruff format --check .",
-    "typecheck": "node scripts/python.cjs -m mypy tradingagents cli",
+    "typecheck": "node scripts/python.cjs -m mypy luna_workstation cli",
     "test": "node scripts/python.cjs -m pytest"
   }
 }

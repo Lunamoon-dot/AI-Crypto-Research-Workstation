@@ -1,7 +1,7 @@
 import pytest
 
-from tradingagents.agents.utils.rating import DecisionConsistencyError
-from tradingagents.reporting.report_generator import ReportGenerator
+from luna_workstation.agents.utils.rating import DecisionConsistencyError
+from luna_workstation.reporting.report_generator import ReportGenerator
 
 
 def test_report_final_rating_uses_official_rating_label_only():

@@ -3,9 +3,9 @@ import warnings
 
 import pytest
 
-from tradingagents.llm_clients.base_client import BaseLLMClient
-from tradingagents.llm_clients.model_catalog import get_known_models
-from tradingagents.llm_clients.validators import validate_model
+from luna_workstation.llm_clients.base_client import BaseLLMClient
+from luna_workstation.llm_clients.model_catalog import get_known_models
+from luna_workstation.llm_clients.validators import validate_model
 
 
 class DummyLLMClient(BaseLLMClient):

@@ -1,6 +1,6 @@
 import pytest
 
-from tradingagents.domain import (
+from luna_workstation.domain import (
     AgentOpinion,
     AgentStance,
     ConflictLevel,
@@ -23,7 +23,7 @@ from tradingagents.domain import (
     UserDecisionAction,
     Watchlist,
 )
-from tradingagents.services import JournalService
+from luna_workstation.services import JournalService
 
 
 def _config(tmp_path):

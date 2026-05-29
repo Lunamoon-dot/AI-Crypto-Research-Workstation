@@ -13,23 +13,23 @@ from typer.testing import CliRunner
 
 from cli import config_cmd
 from cli.config_cmd import _write_toml_section
-from tradingagents.agents.researchers.bull_researcher import create_bull_researcher
-from tradingagents.dataflows import async_route_to_vendor
-from tradingagents.dataflows import interface
-from tradingagents.dataflows.health import build_system_health_report
-from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.exceptions import (
+from luna_workstation.agents.researchers.bull_researcher import create_bull_researcher
+from luna_workstation.dataflows import async_route_to_vendor
+from luna_workstation.dataflows import interface
+from luna_workstation.dataflows.health import build_system_health_report
+from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
+from luna_workstation.exceptions import (
     ErrorIntent,
     ProviderTimeoutError,
     StorageError,
     classify_error,
 )
-from tradingagents.graph.node_names import AnalystNode, DebateNode, ToolKey
-from tradingagents.graph.tooling import create_tool_nodes
-from tradingagents.observability.tracing import configure_opentelemetry, start_span
-from tradingagents.services import AsyncJournalService, JournalService
-from tradingagents.storage.migrations import migrate_path
-from tradingagents.storage.sqlite import SQLiteStore
+from luna_workstation.graph.node_names import AnalystNode, DebateNode, ToolKey
+from luna_workstation.graph.tooling import create_tool_nodes
+from luna_workstation.observability.tracing import configure_opentelemetry, start_span
+from luna_workstation.services import AsyncJournalService, JournalService
+from luna_workstation.storage.migrations import migrate_path
+from luna_workstation.storage.sqlite import SQLiteStore
 
 
 def _config(tmp_path):
@@ -51,16 +51,16 @@ def test_create_tool_nodes_uses_node_name_constants_without_name_error():
 def test_graph_modules_do_not_use_wildcard_agent_imports():
     root = Path(__file__).resolve().parents[1]
     for rel in (
-        "tradingagents/graph/setup.py",
-        "tradingagents/graph/research_agents_graph.py",
+        "luna_workstation/graph/setup.py",
+        "luna_workstation/graph/research_agents_graph.py",
     ):
         text = (root / rel).read_text(encoding="utf-8")
-        assert "from tradingagents.agents import *" not in text
+        assert "from luna_workstation.agents import *" not in text
 
 
 def test_graph_run_context_mixin_preserves_legacy_state_accessors():
-    from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
-    from tradingagents.graph.run_context import GraphRunContext
+    from luna_workstation.graph.research_agents_graph import ResearchAgentsGraph
+    from luna_workstation.graph.run_context import GraphRunContext
 
     graph = object.__new__(ResearchAgentsGraph)
 
@@ -116,7 +116,7 @@ def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
     )
     assert store.path.exists()
 
-    from tradingagents.storage.repositories import JournalRepository
+    from luna_workstation.storage.repositories import JournalRepository
 
     repo = JournalRepository(store)
     assert repo.has_alert(
@@ -439,7 +439,7 @@ def test_prompt_untrusted_context_delimits_malicious_report_text():
 def test_external_text_sources_are_prompt_injection_wrapped():
     root = Path(__file__).resolve().parents[1]
     expected_labels = {
-        "tradingagents/agents/researchers/bull_researcher.py": {
+        "luna_workstation/agents/researchers/bull_researcher.py": {
             "market_report",
             "sentiment_report",
             "news_report",
@@ -447,7 +447,7 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             "debate_history",
             "last_bear_argument",
         },
-        "tradingagents/agents/researchers/bear_researcher.py": {
+        "luna_workstation/agents/researchers/bear_researcher.py": {
             "market_report",
             "sentiment_report",
             "news_report",
@@ -455,7 +455,7 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             "debate_history",
             "last_bull_argument",
         },
-        "tradingagents/agents/risk_mgmt/aggressive_debator.py": {
+        "luna_workstation/agents/risk_mgmt/aggressive_debator.py": {
             "setup_proposal",
             "market_report",
             "sentiment_report",
@@ -465,7 +465,7 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             "last_conservative_argument",
             "last_neutral_argument",
         },
-        "tradingagents/agents/risk_mgmt/conservative_debator.py": {
+        "luna_workstation/agents/risk_mgmt/conservative_debator.py": {
             "setup_proposal",
             "market_report",
             "sentiment_report",
@@ -475,7 +475,7 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             "last_aggressive_argument",
             "last_neutral_argument",
         },
-        "tradingagents/agents/risk_mgmt/neutral_debator.py": {
+        "luna_workstation/agents/risk_mgmt/neutral_debator.py": {
             "setup_proposal",
             "market_report",
             "sentiment_report",
@@ -485,25 +485,25 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             "last_aggressive_argument",
             "last_conservative_argument",
         },
-        "tradingagents/agents/managers/research_manager.py": {
+        "luna_workstation/agents/managers/research_manager.py": {
             "investment_debate_history",
         },
-        "tradingagents/agents/managers/portfolio_manager.py": {
+        "luna_workstation/agents/managers/portfolio_manager.py": {
             "past_context",
             "performance_feedback",
             "research_plan",
             "setup_proposal",
             "risk_debate_history",
         },
-        "tradingagents/agents/planners/setup_planner.py": {
+        "luna_workstation/agents/planners/setup_planner.py": {
             "investment_plan",
         },
-        "tradingagents/agents/planners/scenario_planner.py": {
+        "luna_workstation/agents/planners/scenario_planner.py": {
             "portfolio_manager_decision",
             "investment_plan",
             "research_reports",
         },
-        "tradingagents/agents/utils/agent_utils.py": {
+        "luna_workstation/agents/utils/agent_utils.py": {
             "source_report_type",
         },
     }
@@ -519,7 +519,7 @@ def test_external_text_sources_are_prompt_injection_wrapped():
             ), f"{rel_path} does not guard {label}"
 
     scenario_text = (
-        root / "tradingagents/agents/planners/scenario_planner.py"
+        root / "luna_workstation/agents/planners/scenario_planner.py"
     ).read_text(encoding="utf-8")
     assert "for k, v in research_reports.items()" in scenario_text
     assert "guard_untrusted_context(k, v)" in scenario_text

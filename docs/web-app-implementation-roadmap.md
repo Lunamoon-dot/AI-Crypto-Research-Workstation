@@ -58,9 +58,6 @@ after the research/journal loop is useful end to end.
   IDs, source timestamps, payload drawers, and timeline events.
 - Use thesis language: "Run research", "Watch", "Review", "Record decision",
   "Scenario active", "Invalidation risk", "Evidence trail", "Confidence".
-- Reserve execution terms such as "Buy now", "Sell now", "Auto trade",
-  "Guaranteed", "Profit signal", and "Enter trade" for a future audited
-  execution product, not the workstation.
 - Do not add order execution, position management, leverage automation, or
   broker integration in the web MVP.
 - Do not show Sharpe, alpha, annualized return, or broker-style PnL unless a
@@ -726,13 +723,12 @@ Goal: make sure everyone builds the same product, not a generic dashboard.
 
 - Product name in web: `LunaCrypto Research Workstation`.
 - Short positioning: `AI crypto research workstation`.
-- Avoid product copy that implies autonomous execution.
+- Keep product copy focused on research, journaling, monitoring, and review.
 - Add copy rules to future web README.
 
 Done when:
 
-- No route, nav item, or button says `Trading`, `Orders`, `Positions`,
-  `Execution`, or `Auto trade`.
+- No route, nav item, or button uses broker-style account or order-management language.
 - Nav uses research concepts: Workbench, Research, Journal, Theses, Signals,
   Watchlists, Briefs, Performance, Compare, Operations, Settings.
 
@@ -814,7 +810,7 @@ If Python changes are involved:
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 python -m pytest
 ```
 
@@ -3011,7 +3007,7 @@ Python gate if AI/service code changed:
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 python -m pytest
 ```
 

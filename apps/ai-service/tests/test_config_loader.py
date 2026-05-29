@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from tradingagents.config.loader import load_config_file
-from tradingagents.exceptions import ConfigurationError
+from luna_workstation.config.loader import load_config_file
+from luna_workstation.exceptions import ConfigurationError
 
 
 def test_load_toml_config_file(tmp_path: Path):

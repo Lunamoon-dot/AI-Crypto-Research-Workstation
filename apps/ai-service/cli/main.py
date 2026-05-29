@@ -17,8 +17,8 @@ import typer
 from rich.console import Console
 from typer import Context
 
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.services import ResearchService
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.services import ResearchService
 
 # -- Post-split imports --------------------------------------------------
 from cli.orchestrator import run_analysis as _run_analysis
@@ -389,7 +389,7 @@ def engine_run(
     ),
 ) -> None:
     """Run the Python research engine from a structured JSON request."""
-    from tradingagents.engine import run_engine_request_file
+    from luna_workstation.engine import run_engine_request_file
 
     result = run_engine_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
@@ -410,7 +410,7 @@ def engine_monitor_plan(
     ),
 ) -> None:
     """Create, read, or update a thesis monitor plan from a structured request."""
-    from tradingagents.engine import run_monitor_plan_request_file
+    from luna_workstation.engine import run_monitor_plan_request_file
 
     result = run_monitor_plan_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
@@ -431,7 +431,7 @@ def engine_pulse(
     ),
 ) -> None:
     """Run a deterministic manual thesis pulse from a structured request."""
-    from tradingagents.engine import run_pulse_request_file
+    from luna_workstation.engine import run_pulse_request_file
 
     result = run_pulse_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
@@ -452,7 +452,7 @@ def engine_pulse_memo(
     ),
 ) -> None:
     """Run a manual structured memo over recent thesis pulses."""
-    from tradingagents.engine import run_pulse_memo_request_file
+    from luna_workstation.engine import run_pulse_memo_request_file
 
     result = run_pulse_memo_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
@@ -473,7 +473,7 @@ def engine_evaluate(
     ),
 ) -> None:
     """Evaluate one thesis from a structured JSON request."""
-    from tradingagents.engine import run_evaluate_request_file
+    from luna_workstation.engine import run_evaluate_request_file
 
     result = run_evaluate_request_file(request)
     console.print_json(data=result.model_dump(mode="json"))
@@ -484,7 +484,7 @@ def engine_evaluate(
 @engine_app.command("schema")
 def engine_schema() -> None:
     """Emit the JSON schemas used by the worker engine contract."""
-    from tradingagents.engine import (
+    from luna_workstation.engine import (
         EngineEvaluateRequest,
         EngineEvaluateResult,
         EngineMonitorPlanRequest,
@@ -547,7 +547,7 @@ def engine_validate_market(
     ),
 ) -> None:
     """Validate that core market data exists before queuing research."""
-    from tradingagents.engine.market_validation import validate_market_data
+    from luna_workstation.engine.market_validation import validate_market_data
 
     console.print_json(
         data=validate_market_data(

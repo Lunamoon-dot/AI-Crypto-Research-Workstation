@@ -1,6 +1,6 @@
 # Research Continuity
 
-Last updated: 2026-05-28
+Last updated: 2026-05-29
 Status: implemented feature overview
 
 ## Purpose
@@ -99,13 +99,14 @@ is required.
 | V1 | implemented | [v1/implementation-plan.md](v1/implementation-plan.md) |
 | V1.1 | implemented | [v1.1/implementation-plan.md](v1.1/implementation-plan.md) |
 | V1.2 | implemented | [v1.2/implementation-plan.md](v1.2/implementation-plan.md) |
-| V1.3 | goal-ready | [v1.3/implementation-plan.md](v1.3/implementation-plan.md) |
+| V1.3 | implemented | [v1.3/implementation-plan.md](v1.3/implementation-plan.md) |
+| V1.4 | implemented | [v1.4/implementation-plan.md](v1.4/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.4+: optional repair job audit table, scheduled repair, or richer
-  operations after V1.3 proves the manual control surface.
+- V1.5+: optional debug response trimming, repair job audit table, scheduled
+  repair, or richer operations after V1.4 proves the thin read model.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

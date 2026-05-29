@@ -2,11 +2,11 @@ import logging
 
 import pytest
 
-from tradingagents.config_validation import validate_and_normalize_config
-from tradingagents.dataflows.config import config_context
-from tradingagents.dataflows.interface import route_to_vendor
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.exceptions import (
+from luna_workstation.config_validation import validate_and_normalize_config
+from luna_workstation.dataflows.config import config_context
+from luna_workstation.dataflows.interface import route_to_vendor
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.exceptions import (
     ConfigurationValidationError,
     DataProviderError,
     LLMCredentialError,
@@ -50,7 +50,7 @@ def test_validate_config_preserves_stale_data_max_age_override():
 
 
 def test_route_to_vendor_skips_disabled_provider(monkeypatch):
-    from tradingagents.dataflows import interface
+    from luna_workstation.dataflows import interface
 
     method = "__unit_test_dummy_method__"
     monkeypatch.setitem(interface.VENDOR_METHODS, method, {"ccxt": lambda: "ok"})

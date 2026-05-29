@@ -3437,6 +3437,69 @@ export const openApiDocument = {
           empty_state: { type: 'string' },
         },
       },
+      ResearchContinuityThinSection: {
+        type: 'object',
+        required: ['id', 'title', 'items'],
+        properties: {
+          id: {
+            type: 'string',
+            enum: [
+              'quality',
+              'current_view',
+              'material_changes',
+              'active_risks',
+              'watchpoints',
+              'resolved_or_weakened',
+              'evidence_health',
+            ],
+          },
+          title: { type: 'string' },
+          items: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      ResearchContinuityThinReport: {
+        type: 'object',
+        required: [
+          'version',
+          'generated_at',
+          'debug_available',
+          'debug_requires_role',
+          'quality',
+          'sections',
+        ],
+        properties: {
+          version: {
+            type: 'string',
+            enum: ['research_continuity_thin.v1'],
+          },
+          generated_at: { type: ['string', 'null'] },
+          debug_available: { type: 'boolean' },
+          debug_requires_role: { type: 'string', enum: ['editor'] },
+          quality: {
+            type: 'object',
+            required: [
+              'status',
+              'score',
+              'observed_evidence_coverage',
+              'evidence_coverage',
+              'provenance_status',
+              'warnings',
+            ],
+            properties: {
+              status: { type: 'string' },
+              score: { type: ['number', 'null'] },
+              observed_evidence_coverage: { type: ['number', 'null'] },
+              evidence_coverage: { type: ['number', 'null'] },
+              provenance_status: { type: ['string', 'null'] },
+              warnings: { type: 'array', items: { type: 'string' } },
+            },
+          },
+          sections: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ResearchContinuityThinSection' },
+          },
+        },
+      },
       ResearchContinuityEntryResponse: {
         type: 'object',
         required: [
@@ -3483,6 +3546,12 @@ export const openApiDocument = {
           source_run_ids: { type: 'array', items: { type: 'string' } },
           writer_metadata: { type: 'object' },
           payload: { type: 'object' },
+          thin_report: {
+            anyOf: [
+              { $ref: '#/components/schemas/ResearchContinuityThinReport' },
+              { type: 'null' },
+            ],
+          },
         },
       },
       ResearchContinuityStateResponse: {

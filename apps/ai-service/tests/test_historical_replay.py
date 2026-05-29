@@ -15,12 +15,12 @@ from typer.testing import CliRunner
 
 from cli import main as cli_main
 
-from tradingagents.graph.historical_replay import (
+from luna_workstation.graph.historical_replay import (
     HistoricalReplay,
     ReplayResult,
     _save_replay_audit_event,
 )
-from tradingagents.dataflows.historical_contract import DataWindow
+from luna_workstation.dataflows.historical_contract import DataWindow
 
 # Rich/Typer colorize option names so "--strict" is not a contiguous substring in stdout.
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;:]*m")
@@ -184,12 +184,12 @@ class TestHistoricalReplay:
         """When ResearchAgentsGraph propagates an error, it's captured."""
         replay = HistoricalReplay()
         with patch(
-            "tradingagents.graph.historical_replay.ResearchAgentsGraph"
+            "luna_workstation.graph.historical_replay.ResearchAgentsGraph"
         ) as mock_graph_class:
             mock_graph = MagicMock()
             mock_graph.propagate.side_effect = RuntimeError("Simulated failure")
             mock_graph_class.return_value = mock_graph
-            with patch("tradingagents.graph.historical_replay.config_context"):
+            with patch("luna_workstation.graph.historical_replay.config_context"):
                 result = replay.run(
                     ticker="BTC/USDT",
                     anchor_date=date(2025, 1, 15),
@@ -429,7 +429,7 @@ class TestReplayAuditPersistence:
                 captured["payload"] = payload
 
         monkeypatch.setattr(
-            "tradingagents.services.journal_service.JournalService",
+            "luna_workstation.services.journal_service.JournalService",
             FakeJournalService,
         )
 

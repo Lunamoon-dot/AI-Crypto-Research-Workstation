@@ -1,4 +1,4 @@
-﻿# Secret Scan Triage
+# Secret Scan Triage
 
 Date: 2026-05-12
 Tool: detect-secrets 1.5.0
@@ -16,4 +16,4 @@ Result: PASS after manual triage. The scanner reported 21 potential findings, al
 | `tests/test_journal_service.py` | 45, 72 | Deterministic test config hashes, not credentials. |
 | `tests/test_observability_logging.py` | 69 | Redaction test fixture intentionally containing fake key shape. |
 | `tests/test_phase34_hardening.py` | 161 | Deterministic test config hash, not a credential. |
-| `tradingagents/llm_clients/openai_client.py` | 223 | Literal `ollama` dummy API key required by local Ollama-compatible client path. |
+| `luna_workstation/llm_clients/openai_client.py` | 223 | Literal `ollama` dummy API key required by local Ollama-compatible client path. |

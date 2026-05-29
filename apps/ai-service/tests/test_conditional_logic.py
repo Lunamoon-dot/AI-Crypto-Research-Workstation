@@ -1,6 +1,6 @@
 """Tests for graph/conditional_logic.py — debate and risk routing."""
 
-from tradingagents.graph.conditional_logic import ConditionalLogic
+from luna_workstation.graph.conditional_logic import ConditionalLogic
 
 
 # ---------------------------------------------------------------------------

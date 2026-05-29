@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-from tradingagents.storage.migrations import backfill_legacy_signal_payloads
+from luna_workstation.storage.migrations import backfill_legacy_signal_payloads
 
 revision = "0006_signal_legacy_normalization"
 down_revision = "0005_workspace_tenancy"

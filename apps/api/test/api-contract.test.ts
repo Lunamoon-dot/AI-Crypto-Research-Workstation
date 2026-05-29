@@ -2053,6 +2053,12 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
     'failed',
     'missing',
   ]);
+  const continuityProperties =
+    openApiDocument.components.schemas.ResearchContinuityEntryResponse.properties;
+  assert.ok('thin_report' in continuityProperties);
+  assert.ok(
+    'ResearchContinuityThinReport' in openApiDocument.components.schemas,
+  );
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -6915,6 +6921,23 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.equal(baseline.entry.snapshot_quality.evidence_coverage, 0);
   assert.equal(delta.entry.entry_type, 'delta');
   assert.equal(delta.entry.previous_entry_id, baseline.entry.id);
+  assert.equal(delta.entry.thin_report?.version, 'research_continuity_thin.v1');
+  assert.equal(delta.entry.thin_report?.debug_available, true);
+  assert.equal(delta.entry.thin_report?.debug_requires_role, 'editor');
+  assert.ok(
+    delta.entry.thin_report?.sections.some(
+      (section) => section.id === 'quality',
+    ),
+  );
+  assert.ok(
+    delta.entry.thin_report?.sections.some(
+      (section) => section.id === 'current_view',
+    ),
+  );
+  assert.equal(
+    record(record(delta.entry.payload.report_views).thin).version,
+    'research_continuity_thin.v1',
+  );
   assert.equal(runEntry?.id, delta.entry.id);
   assert.equal(state.state?.latest_entry_id, delta.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'cautious_bullish');
@@ -7051,12 +7074,14 @@ test('research continuity does not promote rhetorical agent opinion risks into t
   opinions[0].payload = {
     risks: [
       'You call that weakness',
+      "But that's precisely the risk-reward sweet spot",
+      "That's acceleration to the downside.",
       'Funding is becoming crowded.',
     ],
     invalidation: 'Break back below the reclaimed range.',
   };
 
-  await researchContinuity.generateForRun(
+  const generated = await researchContinuity.generateForRun(
     'run_agent_risk_noise',
     {},
     'user_1',
@@ -7076,10 +7101,30 @@ test('research continuity does not promote rhetorical agent opinion risks into t
     risks.some((item) => item.text === 'You call that weakness'),
     false,
   );
+  assert.equal(
+    risks.some(
+      (item) => item.text === "But that's precisely the risk-reward sweet spot",
+    ),
+    false,
+  );
+  assert.equal(
+    risks.some((item) => item.text === "That's acceleration to the downside."),
+    false,
+  );
   assert.ok(
     risks.some((item) => item.text === 'Funding is becoming crowded.'),
   );
   assert.equal(record(snapshot.data_quality).risk_count, risks.length);
+  const serializedThin = JSON.stringify(generated.entry.thin_report);
+  assert.equal(serializedThin.includes('You call that weakness'), false);
+  assert.equal(
+    serializedThin.includes("But that's precisely the risk-reward sweet spot"),
+    false,
+  );
+  assert.equal(
+    serializedThin.includes("That's acceleration to the downside."),
+    false,
+  );
 });
 
 test('research evidence V1.2 normalizes legacy strings and malformed objects safely', () => {
@@ -7527,9 +7572,70 @@ test('research continuity skips insufficient runs and constrains degraded state 
   assert.equal(skipped.entry.status, 'skipped');
   assert.equal(skipped.entry.summary, 'Continuity skipped: insufficient_structured_data.');
   assert.equal(degraded.entry.entry_type, 'degraded');
+  const thin = degraded.entry.thin_report;
+  assert.equal(thin?.quality.status, 'degraded');
+  assert.equal(thin?.sections[0]?.id, 'quality');
+  assert.ok(
+    thin?.sections[0]?.items.some((item) =>
+      item.toLowerCase().includes('snapshot degraded'),
+    ),
+  );
+  assert.equal(JSON.stringify(thin).includes('source_id'), false);
+  assert.equal(JSON.stringify(thin).includes('canonical_text'), false);
   assert.equal(state.state?.latest_entry_id, degraded.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity exposes runtime thin-report fallback for legacy entries without mutating payload', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  journal.continuityEntries.set(key('continuity_old_without_thin', 'workspace_a'), {
+    id: 'continuity_old_without_thin',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_old_without_thin',
+    current_snapshot_id: null,
+    previous_entry_id: null,
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-05-12T00:00:00.000Z',
+    summary: 'Legacy continuity entry.',
+    sections: [
+      {
+        title: 'Current View',
+        items: ['Directional bias: neutral.', 'Risk posture: balanced.'],
+        empty_state: 'No current symbol view available.',
+      },
+      {
+        title: 'Data Quality',
+        items: ['Snapshot quality: clean (1).'],
+        empty_state: 'No new limitations reported.',
+      },
+    ],
+    events: [],
+    snapshot_quality: {
+      status: 'clean',
+      score: 1,
+      observed_evidence_coverage: 1,
+      evidence_coverage: 1,
+      provenance_status: 'clean',
+    },
+    source_run_ids: ['run_old_without_thin'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+
+  const response = await researchContinuity.getEntry(
+    'continuity_old_without_thin',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.thin_report?.version, 'research_continuity_thin.v1');
+  assert.ok(
+    response.thin_report?.sections.some((section) => section.id === 'quality'),
+  );
+  assert.equal(record(response.payload.report_views).thin, undefined);
 });
 
 test('research continuity manual regenerate is idempotent by default and requires editor access', async () => {
@@ -9383,7 +9489,8 @@ function hasContinuityEntryMetadata(payload: JsonRecord): boolean {
     payload.schema_version !== undefined ||
     payload.evidence_contract_version !== undefined ||
     payload.repair !== undefined ||
-    payload.skip_reason !== undefined
+    payload.skip_reason !== undefined ||
+    payload.report_views !== undefined
   );
 }
 

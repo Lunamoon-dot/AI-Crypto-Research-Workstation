@@ -22,7 +22,7 @@
 
 ### Phase 12: NestJS Product Backend Boundary
 
-- [x] Monorepo app structure exists: `apps/api`, `apps/web`, and existing Python `tradingagents`.
+- [x] Monorepo app structure exists: `apps/api`, `apps/web`, and existing Python `luna_workstation`.
 - [x] NestJS modules exist for auth, users, workspaces, research runs, theses, signals, watchlists, briefs, and jobs.
 - [x] Core REST endpoints are implemented for research runs, run events, theses, thesis decisions/reviews, signals, watchlists, watchlist items, and daily briefs.
 - [x] High-priority workstation read endpoints are implemented for journal workspace, run snapshots, run debate, thesis scenarios, and alerts.
@@ -197,7 +197,7 @@ Monorepo/app structure:
 
 apps/api/              # NestJS backend
 apps/web/              # frontend sau này
-python/tradingagents/  # hoặc giữ tradingagents/ làm Python engine
+python/luna_workstation/  # hoặc giữ luna_workstation/ làm Python engine
 NestJS modules:
 
 AuthModule

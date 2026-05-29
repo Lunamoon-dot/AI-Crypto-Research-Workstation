@@ -5,7 +5,7 @@ Usage:
 """
 
 if __name__ == "__main__":
-    from tradingagents.graph import ResearchAgentsGraph
+    from luna_workstation.graph import ResearchAgentsGraph
 
     ta = ResearchAgentsGraph(debug=True)
     _, decision = ta.propagate("ETH/USDT", "2024-05-10")

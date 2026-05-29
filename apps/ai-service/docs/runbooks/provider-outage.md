@@ -12,7 +12,7 @@
 
 | Signal | Source | Meaning |
 |--------|--------|---------|
-| `provider.rate_limit` event in structured log | `tradingagents.observability` | A data or LLM provider returned 429 |
+| `provider.rate_limit` event in structured log | `luna_workstation.observability` | A data or LLM provider returned 429 |
 | `circuit_opened` event | `LLMOrchestrator` | Consecutive failures tripped the circuit breaker for an LLM provider |
 | `health.failed` event | Data provider health check | A data vendor is unreachable |
 | `data.stale` event | Signal engine | Cached data exceeds `max_age_hours` |
@@ -26,7 +26,7 @@ lunacrypto journal timeline --limit 20
 
 # Run a targeted health check
 python -c "
-from tradingagents.dataflows.health import check_provider_health
+from luna_workstation.dataflows.health import check_provider_health
 print(check_provider_health('ccxt'))
 "
 ```

@@ -1,7 +1,7 @@
 # Research Continuity V1.3 Repair And Backfill Control Implementation Plan
 
-Last updated: 2026-05-28
-Status: shipped
+Last updated: 2026-05-29
+Status: implemented
 
 V1.3 adds explicit operational control for Research Continuity history after the
 V1.2 evidence contract. V1.2 made snapshots and tracked items more trustworthy,
@@ -120,12 +120,16 @@ V1.0.1 Auto-run patch for JobsService and BullMQ worker paths.
 V1.1   Snapshot quality, evidence trace, identity stability, MVP workspace.
 V1.2   Research Evidence Contract.
 V1.3   Repair and Backfill Control Layer.
-V1.4+  Optional repair job audit table, scheduled repair, or richer operations.
+V1.4   Thin Report Read Model.
+V1.5+  Optional debug response trimming, repair job audit table, scheduled
+       repair, or richer operations after the thin read model proves out.
 V2.x   Timeline, graph/node model, provenance explorer, and multi-symbol views.
 ```
 
 V1.3 should make continuity history controllable and trustworthy. It must not
 become graph, analytics, calibration, or long-range intelligence work.
+V1.4 is the planned follow-up for compact default reads; it must not be folded
+back into V1.3 repair/backfill scope.
 
 ## Relevant Context
 
@@ -136,6 +140,7 @@ Supporting materials:
 - [docs/features/research-continuity/v1/implementation-plan.md](../v1/implementation-plan.md)
 - [docs/features/research-continuity/v1.1/implementation-plan.md](../v1.1/implementation-plan.md)
 - [docs/features/research-continuity/v1.2/implementation-plan.md](../v1.2/implementation-plan.md)
+- [docs/features/research-continuity/v1.4/implementation-plan.md](../v1.4/implementation-plan.md)
 
 Current repo facts:
 

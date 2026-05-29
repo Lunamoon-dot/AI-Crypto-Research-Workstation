@@ -32,7 +32,7 @@ python -m pip install -e ".[dev]"
 lunacrypto
 python -m cli.main
 python -m pytest
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 python -m ruff check .
 python -m ruff format --check .
 ```
@@ -54,9 +54,9 @@ The current product surface spans `apps/ai-service`, `apps/api`, and `apps/web`.
 
 ## AI Service Notes
 
-- Keep the Python import namespace `tradingagents` stable, but expose the public CLI as `lunacrypto`.
+- Keep the Python import namespace `luna_workstation` stable, but expose the public CLI as `lunacrypto`.
 - Service-specific docs are in `apps/ai-service/README.md`.
 - Docker Compose is still run from the repo root, but builds from `apps/ai-service`.
-- Local runtime state is still under `~/.tradingagents/`.
+- Local runtime state is still under `~/.luna_workstation/`.
 - The Python journal is SQLite-backed. `packages/database` and `apps/api` model the product Postgres boundary; set `DATABASE_URL` when API routes need repository-backed reads/writes.
 - The graph does not place live orders; execution remains outside the AI research boundary.

@@ -29,8 +29,6 @@ Visual rules:
 - Use 8px radius or less.
 - Use research language: Run research, Watch, Review, Record decision, Scenario
   active, Invalidation risk.
-- Do not use execution language: Buy now, Sell now, Auto trade, Profit signal,
-  Guaranteed.
 - Keep provenance, freshness, missing data, confidence, invalidation, and
   monitor-next fields near decision surfaces.
 

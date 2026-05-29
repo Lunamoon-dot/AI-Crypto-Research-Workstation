@@ -14,7 +14,11 @@ import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { normalizeCryptoSymbol } from '../common/market-symbols';
 import { ContinuityDeltaEngine } from './continuity-delta.engine';
-import { ContinuityReportRenderer } from './continuity-report.renderer';
+import {
+  buildLegacyThinReport,
+  ContinuityReportRenderer,
+  RESEARCH_CONTINUITY_THIN_REPORT_VERSION,
+} from './continuity-report.renderer';
 import { ContinuityStateProjector } from './continuity-state.projector';
 import {
   ResearchSnapshotBuilder,
@@ -35,6 +39,8 @@ import {
   ResearchContinuityRepairRunResultResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityStateResponse,
+  ResearchContinuityThinReport,
+  ResearchContinuityThinSectionId,
   ResearchSnapshotResponse,
   RunResearchContinuityRepairDto,
 } from './dto/research-continuity.dto';
@@ -571,12 +577,14 @@ export class ResearchContinuityService {
       stateUpdated: canUpdateState,
       userId: input.userId,
     });
+    const generatedAt = new Date().toISOString();
     const report = this.reportRenderer.render({
       entryType,
       snapshot: snapshotForProjection,
       previousState: previous.state,
       events,
       repairContext: repair,
+      generatedAt,
     });
     const entry = await this.journal.saveResearchContinuityEntry(
       {
@@ -588,7 +596,7 @@ export class ResearchContinuityService {
         previous_entry_id: previous.entryId,
         entry_type: entryType,
         status: entryType === 'degraded' ? 'degraded' : 'completed',
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt,
         summary: report.summary,
         sections: report.sections,
         events,
@@ -597,12 +605,12 @@ export class ResearchContinuityService {
           (id): id is string => Boolean(id),
         ),
         writer_metadata: report.writerMetadata,
-        payload: {
+        payload: payloadWithThinReport({
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           deterministic: true,
           repair,
-        },
+        }, report.thinReport),
       },
       workspaceId,
     );
@@ -661,6 +669,7 @@ export class ResearchContinuityService {
         reason: input.reason,
       },
     ];
+    const generatedAt = new Date().toISOString();
     const report = this.reportRenderer.render({
       entryType: 'skipped',
       snapshot: null,
@@ -668,6 +677,7 @@ export class ResearchContinuityService {
       events,
       skippedReason: input.reason,
       repairContext: repair,
+      generatedAt,
     });
     return this.journal.saveResearchContinuityEntry(
       {
@@ -679,19 +689,19 @@ export class ResearchContinuityService {
         previous_entry_id: previous.entryId,
         entry_type: 'skipped',
         status: 'skipped',
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt,
         summary: report.summary,
         sections: report.sections,
         events,
         snapshot_quality: input.quality,
         source_run_ids: [input.candidate.run_id],
         writer_metadata: report.writerMetadata,
-        payload: {
+        payload: payloadWithThinReport({
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           skip_reason: input.reason,
           repair,
-        },
+        }, report.thinReport),
       },
       input.workspaceId,
     );
@@ -860,11 +870,13 @@ export class ResearchContinuityService {
           ? 'delta'
           : 'baseline';
     const events = this.deltaEngine.compute(snapshot, previousState);
+    const generatedAt = new Date().toISOString();
     const report = this.reportRenderer.render({
       entryType,
       snapshot,
       previousState,
       events,
+      generatedAt,
     });
     const entry = await this.journal.saveResearchContinuityEntry(
       {
@@ -876,7 +888,7 @@ export class ResearchContinuityService {
         previous_entry_id: previousEntryId,
         entry_type: entryType,
         status: entryType === 'degraded' ? 'degraded' : 'completed',
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt,
         summary: report.summary,
         sections: report.sections,
         events,
@@ -885,11 +897,11 @@ export class ResearchContinuityService {
           (id): id is string => Boolean(id),
         ),
         writer_metadata: report.writerMetadata,
-        payload: {
+        payload: payloadWithThinReport({
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           deterministic: true,
-        },
+        }, report.thinReport),
       },
       workspaceId,
     );
@@ -932,12 +944,14 @@ export class ResearchContinuityService {
         reason: input.reason,
       },
     ];
+    const generatedAt = new Date().toISOString();
     const report = this.reportRenderer.render({
       entryType: 'skipped',
       snapshot: null,
       previousState: null,
       events,
       skippedReason: input.reason,
+      generatedAt,
     });
     return this.journal.saveResearchContinuityEntry(
       {
@@ -949,18 +963,18 @@ export class ResearchContinuityService {
         previous_entry_id: input.previousEntryId,
         entry_type: 'skipped',
         status: 'skipped',
-        generated_at: new Date().toISOString(),
+        generated_at: generatedAt,
         summary: report.summary,
         sections: report.sections,
         events,
         snapshot_quality: quality,
         source_run_ids: [runId],
         writer_metadata: report.writerMetadata,
-        payload: {
+        payload: payloadWithThinReport({
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           skip_reason: input.reason,
-        },
+        }, report.thinReport),
       },
       input.workspaceId,
     );
@@ -1255,6 +1269,9 @@ function qualityRank(value: string): number {
 }
 
 function toEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
+  const sections = arrayRecords(entry.sections);
+  const snapshotQuality = recordValue(entry.snapshot_quality);
+  const payload = continuityEntryPayload(entry);
   return {
     id: nullableString(entry.id),
     workspace_id: stringValue(entry.workspace_id, 'local'),
@@ -1266,16 +1283,23 @@ function toEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
     status: entryStatusValue(entry.status),
     generated_at: nullableString(entry.generated_at),
     summary: stringValue(entry.summary),
-    sections: arrayRecords(entry.sections).map((section) => ({
+    sections: sections.map((section) => ({
       title: stringValue(section.title),
       items: stringList(section.items),
       empty_state: stringValue(section.empty_state),
     })),
     events: arrayRecords(entry.events),
-    snapshot_quality: recordValue(entry.snapshot_quality),
+    snapshot_quality: snapshotQuality,
     source_run_ids: stringList(entry.source_run_ids),
     writer_metadata: recordValue(entry.writer_metadata),
-    payload: continuityEntryPayload(entry),
+    payload,
+    thin_report:
+      thinReportFromPayload(payload) ??
+      buildLegacyThinReport({
+        generatedAt: nullableString(entry.generated_at),
+        sections,
+        snapshotQuality,
+      }),
   };
 }
 
@@ -1354,6 +1378,74 @@ function continuityEntryPayload(entry: JsonRecord): JsonRecord {
   return hasContinuityEntryMetadata(nestedPayload) ? nestedPayload : payload;
 }
 
+function payloadWithThinReport(
+  payload: JsonRecord,
+  thinReport: ResearchContinuityThinReport,
+): JsonRecord {
+  return {
+    ...payload,
+    report_views: {
+      ...recordValue(payload.report_views),
+      thin: thinReport,
+    },
+  };
+}
+
+function thinReportFromPayload(
+  payload: JsonRecord,
+): ResearchContinuityThinReport | null {
+  const thin = recordValue(recordValue(payload.report_views).thin);
+  if (stringValue(thin.version) !== RESEARCH_CONTINUITY_THIN_REPORT_VERSION) {
+    return null;
+  }
+  const quality = recordValue(thin.quality);
+  return {
+    version: RESEARCH_CONTINUITY_THIN_REPORT_VERSION,
+    generated_at: nullableString(thin.generated_at),
+    debug_available: Boolean(thin.debug_available),
+    debug_requires_role: 'editor',
+    quality: {
+      status: stringValue(quality.status, 'unknown'),
+      score: numberOrNull(quality.score),
+      observed_evidence_coverage: numberOrNull(
+        quality.observed_evidence_coverage,
+      ),
+      evidence_coverage: numberOrNull(quality.evidence_coverage),
+      provenance_status: nullableString(quality.provenance_status),
+      warnings: stringList(quality.warnings),
+    },
+    sections: arrayRecords(thin.sections)
+      .map((section) => ({
+        id: thinSectionIdValue(section.id),
+        title: stringValue(section.title),
+        items: stringList(section.items),
+      }))
+      .filter(
+        (
+          section,
+        ): section is ResearchContinuityThinReport['sections'][number] =>
+          section.id !== null,
+      ),
+  };
+}
+
+function thinSectionIdValue(
+  value: unknown,
+): ResearchContinuityThinSectionId | null {
+  const normalized = stringValue(value);
+  return [
+    'quality',
+    'current_view',
+    'material_changes',
+    'active_risks',
+    'watchpoints',
+    'resolved_or_weakened',
+    'evidence_health',
+  ].includes(normalized)
+    ? (normalized as ResearchContinuityThinSectionId)
+    : null;
+}
+
 function repairMetadataFromEntry(entry: JsonRecord): JsonRecord {
   return recordValue(continuityEntryPayload(entry).repair);
 }
@@ -1363,7 +1455,8 @@ function hasContinuityEntryMetadata(payload: JsonRecord): boolean {
     payload.schema_version !== undefined ||
     payload.evidence_contract_version !== undefined ||
     payload.repair !== undefined ||
-    payload.skip_reason !== undefined
+    payload.skip_reason !== undefined ||
+    payload.report_views !== undefined
   );
 }
 
@@ -1391,6 +1484,11 @@ function nullableString(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+function numberOrNull(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function stringValue(value: unknown, fallback = ''): string {

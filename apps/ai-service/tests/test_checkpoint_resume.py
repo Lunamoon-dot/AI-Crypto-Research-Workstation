@@ -9,8 +9,8 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from tradingagents.domain import AgentOpinion, AgentStance
-from tradingagents.graph.checkpointer import (
+from luna_workstation.domain import AgentOpinion, AgentStance
+from luna_workstation.graph.checkpointer import (
     checkpoint_step,
     clear_checkpoint,
     get_checkpointer,

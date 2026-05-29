@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-from tradingagents.storage.migrations import (
+from luna_workstation.storage.migrations import (
     HARDENING_SQL,
     backfill_alert_trigger_keys,
     ensure_column,

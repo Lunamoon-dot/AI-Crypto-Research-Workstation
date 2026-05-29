@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tradingagents.agents.utils.rating import DecisionConsistencyError
-from tradingagents.domain import (
+from luna_workstation.agents.utils.rating import DecisionConsistencyError
+from luna_workstation.domain import (
     AgentOpinion,
     AgentStance,
     DataFreshness,
@@ -16,7 +16,7 @@ from tradingagents.domain import (
     TradeThesis,
     TradeThesisStructuredSummary,
 )
-from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
+from luna_workstation.graph.research_agents_graph import ResearchAgentsGraph
 
 
 class _ThesisMemoryService:

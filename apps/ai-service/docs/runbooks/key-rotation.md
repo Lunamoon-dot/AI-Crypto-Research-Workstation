@@ -129,7 +129,7 @@ If the current key is already expired, skip to Section 4.
    # Requires `secrets.source = "keyring"` or `"env,keyring"` in config
    python -c "
    import keyring
-   keyring.set_password('tradingagents', 'DEEPSEEK_API_KEY', 'sk-new-key-value')
+   keyring.set_password('luna_workstation', 'DEEPSEEK_API_KEY', 'sk-new-key-value')
    "
    ```
 
@@ -211,7 +211,7 @@ lunacrypto journal timeline <run_id>
 
 ```bash
 python -c "
-from tradingagents.observability.logging import redact_secrets
+from luna_workstation.observability.logging import redact_secrets
 payload = {'api_key': 'should-be-redacted', 'model': 'v4-pro'}
 print(redact_secrets(payload))
 # Expected: {'api_key': '[REDACTED]', 'model': 'v4-pro'}
@@ -270,7 +270,7 @@ If results found, those rows need manual cleanup.
 
 Planned enhancements:
 
-- `tradingagents key rotate` CLI command to automate key rotation.
+- `luna_workstation key rotate` CLI command to automate key rotation.
 - Key expiration tracking in config with warnings.
 - Integration with provider key management APIs.
 

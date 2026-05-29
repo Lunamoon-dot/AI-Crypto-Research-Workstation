@@ -2,9 +2,9 @@ import time
 
 import pytest
 
-from tradingagents.exceptions import ProviderRetryExhaustedError
-from tradingagents.dataflows import interface
-from tradingagents.dataflows.config import config_context, get_config
+from luna_workstation.exceptions import ProviderRetryExhaustedError
+from luna_workstation.dataflows import interface
+from luna_workstation.dataflows.config import config_context, get_config
 
 
 def test_route_to_vendor_retries_then_succeeds(monkeypatch):

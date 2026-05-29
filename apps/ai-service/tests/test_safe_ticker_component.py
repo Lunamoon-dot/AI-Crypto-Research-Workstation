@@ -5,7 +5,7 @@ import unittest
 
 import pytest
 
-from tradingagents.dataflows.utils import safe_ticker_component
+from luna_workstation.dataflows.utils import safe_ticker_component
 
 
 @pytest.mark.unit

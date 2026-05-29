@@ -42,7 +42,7 @@ docs/
   and UX references
 ```
 
-The Python import namespace intentionally remains `tradingagents` for compatibility; the public CLI command is `lunacrypto`.
+The Python import namespace intentionally remains `luna_workstation` for compatibility; the public CLI command is `lunacrypto`.
 
 Project documentation starts at [docs/README.md](docs/README.md). Feature
 implementation plans use the versioned layout documented in
@@ -51,9 +51,8 @@ implementation plans use the versioned layout documented in
 ## Product Boundary
 
 LunaCrypto is built around research artifacts and user-reviewed decisions. It
-does not place orders or promise returns; that boundary protects the audit trail
-and keeps product language focused on decision quality instead of fantasy
-performance.
+keeps the audit trail and product language focused on decision quality,
+evidence, invalidation, monitoring, and review.
 
 ## Root Commands
 
@@ -112,7 +111,7 @@ pnpm --filter @lunaperception/api test
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 python -m pytest
 ```
 

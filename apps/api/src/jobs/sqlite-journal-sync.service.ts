@@ -533,6 +533,6 @@ function unique(values: string[]): string[] {
 function resolveSqlitePath(): string {
   return (
     process.env.TRADINGAGENTS_JOURNAL_DB ??
-    join(homedir(), '.tradingagents', 'cache', 'research_journal.sqlite')
+    join(homedir(), '.luna_workstation', 'cache', 'research_journal.sqlite')
   );
 }

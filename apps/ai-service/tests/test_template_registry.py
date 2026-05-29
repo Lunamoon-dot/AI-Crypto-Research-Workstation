@@ -2,8 +2,8 @@
 
 import pytest
 
-from tradingagents.domain.template import SetupTemplate
-from tradingagents.templates.registry import TemplateRegistry
+from luna_workstation.domain.template import SetupTemplate
+from luna_workstation.templates.registry import TemplateRegistry
 
 
 # Reset registry to a clean state before each test

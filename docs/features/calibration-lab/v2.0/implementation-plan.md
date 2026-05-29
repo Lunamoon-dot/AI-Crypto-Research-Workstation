@@ -30,7 +30,7 @@ Do not implement:
 - Charts/trends.
 - Long-window product gating.
 - LLM stance parsing.
-- Autonomous trading or broker execution.
+- Broker execution.
 
 Definition of done:
 - A background matured evaluation job can run to completion and be inspected.

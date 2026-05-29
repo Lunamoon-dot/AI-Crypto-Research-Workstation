@@ -754,7 +754,7 @@ function resolveResultsDir(): string {
   const configured = process.env.TRADINGAGENTS_RESULTS_DIR?.trim();
   return configured
     ? resolve(configured)
-    : join(homedir(), '.tradingagents', 'logs');
+    : join(homedir(), '.luna_workstation', 'logs');
 }
 
 function researchDateComponent(run: JsonRecord): string {

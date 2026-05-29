@@ -7,9 +7,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.domain import WatchlistItem
-from tradingagents.services import WatchlistService
-from tradingagents.services.watchlist_service import BriefAlertRow, BriefThesisRow
+from luna_workstation.domain import WatchlistItem
+from luna_workstation.services import WatchlistService
+from luna_workstation.services.watchlist_service import BriefAlertRow, BriefThesisRow
 from cli.json_emit import (
     ensure_single_output_mode,
     print_json_stdout,

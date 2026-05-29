@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from tradingagents.dataflows.historical_contract import (
+from luna_workstation.dataflows.historical_contract import (
     CCXT_DECLARATION,
     COINGECKO_DECLARATION,
     PROVIDER_DECLARATIONS,

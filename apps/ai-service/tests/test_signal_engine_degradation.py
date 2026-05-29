@@ -1,8 +1,8 @@
-from tradingagents.graph import quant_signals
-from tradingagents.signals import engine as engine_module
-from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
-from tradingagents.signals.engine import SignalEngine
-from tradingagents.signals.provenance import signal_result_to_domain_signals
+from luna_workstation.graph import quant_signals
+from luna_workstation.signals import engine as engine_module
+from luna_workstation.signals.base import FactorSignal, SignalResult, SignalScore
+from luna_workstation.signals.engine import SignalEngine
+from luna_workstation.signals.provenance import signal_result_to_domain_signals
 
 
 _OHLCV_CSV = """Date,Open,High,Low,Close,Volume

@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from tradingagents.observability import (
+from luna_workstation.observability import (
     redact_secrets,
     redact_tool_call_args,
 )

@@ -1,4 +1,4 @@
-from tradingagents.domain import (
+from luna_workstation.domain import (
     AgentStance,
     ConflictLevel,
     DataFreshness,
@@ -10,7 +10,7 @@ from tradingagents.domain import (
     ThesisDirection,
     TradeThesis,
 )
-from tradingagents.graph.scenarios import build_scenarios_for_thesis
+from luna_workstation.graph.scenarios import build_scenarios_for_thesis
 
 
 def test_build_scenarios_for_long_thesis_with_conflict():

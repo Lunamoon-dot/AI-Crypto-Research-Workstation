@@ -1,4 +1,4 @@
-from tradingagents.exceptions import (
+from luna_workstation.exceptions import (
     ErrorCategory,
     ConfigurationError,
     ConfigurationValidationError,

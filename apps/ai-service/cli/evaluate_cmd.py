@@ -18,8 +18,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.services.evaluation_service import EvaluationService
-from tradingagents.services.performance_tracker import PerformanceTracker
+from luna_workstation.services.evaluation_service import EvaluationService
+from luna_workstation.services.performance_tracker import PerformanceTracker
 
 from cli.json_emit import print_json_stdout
 

@@ -9,8 +9,8 @@ hypothesis = pytest.importorskip("hypothesis")
 st = pytest.importorskip("hypothesis.strategies")
 
 from cli.config_cmd import _write_toml_section
-from tradingagents.utils.collections import dedupe, deep_merge
-from tradingagents.utils.numbers import extract_numbers
+from luna_workstation.utils.collections import dedupe, deep_merge
+from luna_workstation.utils.numbers import extract_numbers
 
 
 simple_key = st.text(

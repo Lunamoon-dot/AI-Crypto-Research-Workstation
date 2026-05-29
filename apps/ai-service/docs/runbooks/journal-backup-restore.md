@@ -1,7 +1,7 @@
 # Journal Backup And Restore Runbook
 
 **Last updated**: 2026-05-12
-**Scope**: Local SQLite research journal at `TRADINGAGENTS_JOURNAL_DB` or the default `~/.tradingagents/cache/research_journal.sqlite`.
+**Scope**: Local SQLite research journal at `TRADINGAGENTS_JOURNAL_DB` or the default `~/.luna_workstation/cache/research_journal.sqlite`.
 
 ## Backup
 

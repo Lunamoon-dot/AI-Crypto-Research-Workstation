@@ -78,7 +78,7 @@ services:
       WORKER_HEALTH_FILE: /tmp/lunacrypto-worker-health
       WORKSPACE_MEMBERSHIPS: local:local-user:owner
     volumes:
-      - tradingagents_data:/root/.tradingagents
+      - luna_workstation_data:/root/.luna_workstation
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,7 +120,7 @@ services:
     env_file:
       - .env
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
+      - luna_workstation_data:/home/appuser/.luna_workstation
     tty: true
     stdin_open: true
     profiles:
@@ -142,7 +142,7 @@ services:
     environment:
       LLM_PROVIDER: ollama
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
+      - luna_workstation_data:/home/appuser/.luna_workstation
     depends_on:
       - ollama
     tty: true
@@ -153,5 +153,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  tradingagents_data:
+  luna_workstation_data:
   ollama_data:

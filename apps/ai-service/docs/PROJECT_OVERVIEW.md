@@ -43,14 +43,14 @@ docs/
   backend/frontend architecture and UX docs
 ```
 
-Python package name van la `tradingagents` de giu compatibility. Public CLI command la `lunacrypto`.
+Python package name van la `luna_workstation` de giu compatibility. Public CLI command la `lunacrypto`.
 
 ## 3. Ranh Gioi Du Lieu Hien Tai
 
 Current source of truth for the Python engine:
 
 ```text
-~/.tradingagents/cache/research_journal.sqlite
+~/.luna_workstation/cache/research_journal.sqlite
 ```
 
 `TRADINGAGENTS_JOURNAL_DB` co the override path nay.
@@ -105,7 +105,7 @@ cli/
   replay_cmd.py           historical replay commands
   diff_cmd.py             thesis/run diff commands
 
-tradingagents/
+luna_workstation/
   agents/                 analyst, researcher, manager, risk, planner agents
   config/                 config loader/schema/secrets/provider registry
   dataflows/              provider routing, CCXT/onchain/news, historical contract

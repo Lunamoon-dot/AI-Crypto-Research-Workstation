@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
-from tradingagents.agents.utils.agent_utils import create_analyst_opinion_builder
-from tradingagents.domain import AgentOpinion, AgentStance
-from tradingagents.graph.opinions import build_agent_opinions, opinion_from_text
-from tradingagents.graph.analyst_runtime import make_analyst_runner
-from tradingagents.graph.setup import ANALYST_DEFINITIONS, DEFAULT_ANALYSTS
+from luna_workstation.agents.utils.agent_utils import create_analyst_opinion_builder
+from luna_workstation.domain import AgentOpinion, AgentStance
+from luna_workstation.graph.opinions import build_agent_opinions, opinion_from_text
+from luna_workstation.graph.analyst_runtime import make_analyst_runner
+from luna_workstation.graph.setup import ANALYST_DEFINITIONS, DEFAULT_ANALYSTS
 
 
 @dataclass

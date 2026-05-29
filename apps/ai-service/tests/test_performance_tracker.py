@@ -6,13 +6,13 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 
-from tradingagents.domain.trending import HealthReport, TrendPoint
-from tradingagents.domain.evaluation import (
+from luna_workstation.domain.trending import HealthReport, TrendPoint
+from luna_workstation.domain.evaluation import (
     EvaluationAnalytics,
     EvaluationMetricsRow,
     ThesisEvaluation,
 )
-from tradingagents.domain.outcome import OutcomeResult
+from luna_workstation.domain.outcome import OutcomeResult
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ class TestHealthReport:
 
 def _make_tracker(eval_svc=None, journal_svc=None):
     """Create a PerformanceTracker with pre-set mocked service attributes."""
-    from tradingagents.services.performance_tracker import PerformanceTracker
+    from luna_workstation.services.performance_tracker import PerformanceTracker
 
     tracker = PerformanceTracker()
     tracker._eval_svc = eval_svc or MagicMock()
@@ -90,7 +90,7 @@ def _make_tracker(eval_svc=None, journal_svc=None):
 
 
 def _make_thesis(thesis_id, symbol="BTC/USDT", days_ago=30):
-    from tradingagents.domain.thesis import TradeThesis, ThesisDirection
+    from luna_workstation.domain.thesis import TradeThesis, ThesisDirection
 
     return TradeThesis(
         id=thesis_id,
@@ -165,7 +165,7 @@ class TestEvaluateMaturedTheses:
         assert tracker._eval_svc.evaluate_thesis.call_count == 3
 
     def test_disabled_via_config(self):
-        from tradingagents.services.performance_tracker import PerformanceTracker
+        from luna_workstation.services.performance_tracker import PerformanceTracker
 
         config = {"evaluation": {"auto_evaluate_enabled": False}}
         tracker = PerformanceTracker(config)
@@ -289,7 +289,7 @@ class TestDetectDegradation:
 
 class TestBuildFeedbackContext:
     def test_returns_empty_when_disabled(self):
-        from tradingagents.services.performance_tracker import PerformanceTracker
+        from luna_workstation.services.performance_tracker import PerformanceTracker
 
         config = {"evaluation": {"feedback_enabled": False}}
         tracker = PerformanceTracker(config)

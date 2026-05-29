@@ -17,7 +17,7 @@ pnpm --filter @lunaperception/api test
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy tradingagents cli
+python -m mypy luna_workstation cli
 python -m pytest
 ```
 

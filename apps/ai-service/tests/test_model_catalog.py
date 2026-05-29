@@ -2,12 +2,12 @@
 
 import pytest
 
-from tradingagents.llm_clients.model_catalog import (
+from luna_workstation.llm_clients.model_catalog import (
     MODEL_OPTIONS,
     get_model_options,
     get_known_models,
 )
-from tradingagents.llm_clients.validators import VALID_MODELS, validate_model
+from luna_workstation.llm_clients.validators import VALID_MODELS, validate_model
 
 
 # ---------------------------------------------------------------------------

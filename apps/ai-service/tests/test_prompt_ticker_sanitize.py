@@ -2,7 +2,7 @@
 
 import pytest
 
-from tradingagents.agents.utils.agent_utils import (
+from luna_workstation.agents.utils.agent_utils import (
     build_instrument_context,
     sanitize_ticker_for_prompt,
 )

@@ -1,7 +1,7 @@
 import pytest
 
-from tradingagents.dataflows.crypto_news_provider import format_cryptopanic_for_tool
-from tradingagents.exceptions import DataProviderError
+from luna_workstation.dataflows.crypto_news_provider import format_cryptopanic_for_tool
+from luna_workstation.exceptions import DataProviderError
 
 
 def test_production_mode_rejects_placeholder_cryptopanic_news(monkeypatch):

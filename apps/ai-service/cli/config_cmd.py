@@ -13,19 +13,19 @@ from rich.syntax import Syntax
 from pathlib import Path
 import yaml
 
-from tradingagents.config_manager import (
+from luna_workstation.config_manager import (
     save_profile,
     list_profiles,
     load_profile,
     delete_profile,
 )
-from tradingagents.dataflows.health import (
+from luna_workstation.dataflows.health import (
     build_system_health_report,
     provider_health_snapshot,
 )
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.exceptions import ConfigurationError
-from tradingagents.services.journal_service import resolve_journal_db_path
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.exceptions import ConfigurationError
+from luna_workstation.services.journal_service import resolve_journal_db_path
 from cli.json_emit import print_json_stdout
 
 console = Console()
@@ -33,7 +33,7 @@ config_app = typer.Typer(help="Manage configuration profiles.")
 
 
 def _profile_file_for_display(profile_name: str) -> Path | None:
-    base = Path.home() / ".tradingagents" / "profiles"
+    base = Path.home() / ".luna_workstation" / "profiles"
     for ext in (".yaml", ".yml", ".toml"):
         path = base / f"{profile_name}{ext}"
         if path.exists():
@@ -64,7 +64,7 @@ def config_save(
             raise typer.Exit(code=1)
         console.print(f"[dim]Loaded existing profile '{source_profile}' as base.[/dim]")
     else:
-        from tradingagents.default_config import DEFAULT_CONFIG
+        from luna_workstation.default_config import DEFAULT_CONFIG
 
         config = deepcopy(DEFAULT_CONFIG)
         console.print("[dim]Using default configuration as base.[/dim]")
@@ -80,7 +80,7 @@ def config_list():
     profiles = list_profiles()
     if not profiles:
         console.print("[yellow]No saved profiles.[/yellow]")
-        console.print("[dim]Profiles are stored in ~/.tradingagents/profiles/[/dim]")
+        console.print("[dim]Profiles are stored in ~/.luna_workstation/profiles/[/dim]")
         return
 
     table = Table(title="Saved Configuration Profiles")
@@ -115,7 +115,7 @@ def config_show(
     Use --effective to see the full resolution chain (defaults + files + env vars + profile).
     """
     if effective:
-        from tradingagents.config.loader import ConfigLoader
+        from luna_workstation.config.loader import ConfigLoader
 
         loader = ConfigLoader()
         config = loader.load(profile=profile_name, fail_fast=False)
@@ -281,8 +281,8 @@ def config_health(
 
 def _check_llm_health(config: dict | None) -> None:
     """Test LLM provider connectivity with a minimal API call."""
-    from tradingagents.config.providers import PROVIDER_REGISTRY
-    from tradingagents.config.secrets import SecretsManager
+    from luna_workstation.config.providers import PROVIDER_REGISTRY
+    from luna_workstation.config.secrets import SecretsManager
 
     cfg = config or DEFAULT_CONFIG
     provider = cfg.get("llm_provider", "").lower()
@@ -303,7 +303,7 @@ def _check_llm_health(config: dict | None) -> None:
     console.print(f"\n[bold]LLM connectivity check ({label})...[/bold]")
 
     try:
-        from tradingagents.llm_clients import create_llm_client
+        from luna_workstation.llm_clients import create_llm_client
 
         quick_model = cfg.get("quick_think_llm", "")
         client = create_llm_client(
@@ -388,8 +388,8 @@ def config_validate(
     ),
 ):
     """Validate the effective configuration (defaults + overrides merged)."""
-    from tradingagents.config.loader import ConfigLoader
-    from tradingagents.exceptions import (
+    from luna_workstation.config.loader import ConfigLoader
+    from luna_workstation.exceptions import (
         ConfigurationValidationError,
         LLMCredentialError,
     )
@@ -436,7 +436,7 @@ def config_init():
     file that overrides the defaults without modifying the project files.
     """
     from pathlib import Path
-    from tradingagents.config.providers import PROVIDER_REGISTRY
+    from luna_workstation.config.providers import PROVIDER_REGISTRY
 
     local_path = Path.cwd() / "config" / "local.toml"
     if local_path.exists():
@@ -564,7 +564,7 @@ def config_effective(
     Unlike ``config show --full`` which shows only profile+defaults, this
     includes env vars, local.toml, and CLI overrides in the merged result.
     """
-    from tradingagents.config.loader import ConfigLoader
+    from luna_workstation.config.loader import ConfigLoader
 
     loader = ConfigLoader()
     config = loader.load(profile=profile_name, fail_fast=False)

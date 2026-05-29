@@ -1,21 +1,21 @@
 from datetime import datetime, timedelta, timezone
 
-from tradingagents.domain import (
+from luna_workstation.domain import (
     DataFreshness,
     Signal,
     SignalDirection,
     SignalProvenance,
     ThesisDirection,
 )
-from tradingagents.graph import ResearchAgentsGraph
-from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
-from tradingagents.signals.provenance import (
+from luna_workstation.graph import ResearchAgentsGraph
+from luna_workstation.signals.base import FactorSignal, SignalResult, SignalScore
+from luna_workstation.signals.provenance import (
     freshness_from_timestamp,
     parse_signal_timestamp,
     signal_result_to_domain_signals,
     signal_score_to_direction,
 )
-from tradingagents.signals.rules import (
+from luna_workstation.signals.rules import (
     build_watch_condition_payload,
     canonical_signal_type,
     classify_signal,
@@ -233,15 +233,15 @@ def test_thesis_signal_classification_by_direction():
 
 
 def test_build_reliability_map_from_evaluations_empty():
-    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
+    from luna_workstation.signals.provenance import build_reliability_map_from_evaluations
 
     result = build_reliability_map_from_evaluations([])
     assert result == {}
 
 
 def test_build_reliability_map_from_factor_reliability_objects():
-    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
-    from tradingagents.domain.calibration import FactorReliability
+    from luna_workstation.signals.provenance import build_reliability_map_from_evaluations
+    from luna_workstation.domain.calibration import FactorReliability
 
     factors = [
         FactorReliability(
@@ -273,7 +273,7 @@ def test_build_reliability_map_from_factor_reliability_objects():
 
 
 def test_build_reliability_map_skips_nameless():
-    from tradingagents.signals.provenance import build_reliability_map_from_evaluations
+    from luna_workstation.signals.provenance import build_reliability_map_from_evaluations
 
     class NamelessEval:
         factor_name = None
@@ -285,7 +285,7 @@ def test_build_reliability_map_skips_nameless():
 
 
 def test_reliability_map_passed_to_signal_result():
-    from tradingagents.signals.provenance import signal_result_to_domain_signals
+    from luna_workstation.signals.provenance import signal_result_to_domain_signals
 
     now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
     result = _sample_result("2026-05-08T10:00:00Z")
@@ -316,7 +316,7 @@ def test_reliability_map_passed_to_signal_result():
 
 
 def test_legacy_composite_quant_reliability_key_still_maps_to_quant_bias():
-    from tradingagents.signals.provenance import signal_result_to_domain_signals
+    from luna_workstation.signals.provenance import signal_result_to_domain_signals
 
     now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
     result = _sample_result("2026-05-08T10:00:00Z")
@@ -335,7 +335,7 @@ def test_legacy_composite_quant_reliability_key_still_maps_to_quant_bias():
 
 
 def test_reliability_map_missing_key_no_effect():
-    from tradingagents.signals.provenance import signal_result_to_domain_signals
+    from luna_workstation.signals.provenance import signal_result_to_domain_signals
 
     now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
     result = _sample_result("2026-05-08T10:00:00Z")

@@ -30,8 +30,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.services.journal_service import (
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.services.journal_service import (
     JournalService,
     resolve_journal_db_path,
 )

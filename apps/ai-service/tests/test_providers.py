@@ -1,6 +1,6 @@
 """Tests for the centralized provider registry."""
 
-from tradingagents.config.providers import (
+from luna_workstation.config.providers import (
     PROVIDER_REGISTRY,
     KNOWN_PROVIDERS,
     ALL_API_KEY_ENV_VARS,

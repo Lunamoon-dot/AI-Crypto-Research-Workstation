@@ -64,28 +64,52 @@ const STOPWORDS = new Set([
   'with',
 ]);
 
-const AGENT_OPINION_RISK_TERMS = [
-  /\brisk(s)?\b/,
-  /\bfunding\b/,
+const AGENT_OPINION_DIRECT_RISK_TERMS = [
+  /\bdownside\s+(?:risk|pressure|break|breakdown)\b/,
+  /\brisk\s+of\s+(?:further\s+)?downside\b/,
+  /\bfurther\s+downside\b/,
+  /\belevated\b/,
   /\bcrowded\b/,
   /\boverheat(?:ed|ing)?\b/,
   /\bfade\b/,
+  /\btighten(?:ed|ing)?\b/,
   /\bliquidation(s)?\b/,
   /\bvolatility\b/,
   /\bdrawdown\b/,
   /\bbreak(?:s|ing)?(?:\s+back)?\s+below\b/,
   /\blost\s+support\b/,
   /\bbreakdown\b/,
+  /\breject(?:s|ed|ion)?\b/,
   /\binvalidat(?:e|es|ed|ion)\b/,
+  /\bmissing\b/,
+  /\bunavailable\b/,
+  /\bstale\b/,
+];
+
+const AGENT_OPINION_CONTEXTUAL_RISK_TERMS = [
+  /\brisk(s)?\b/,
+  /\bfunding\b/,
   /\bsupport\b/,
   /\bresistance\b/,
   /\bopen\s+interest\b/,
   /\boi\b/,
   /\bmacro\b/,
   /\bliquidity\b/,
-  /\bmissing\b/,
-  /\bunavailable\b/,
-  /\bstale\b/,
+];
+
+const AGENT_OPINION_ADVERSE_RISK_TERMS = [
+  /\bcould\b/,
+  /\bmay\b/,
+  /\bmight\b/,
+  /\bwould\b/,
+  /\bcan\b/,
+  /\bif\b/,
+  /\bunless\b/,
+  /\bfail(?:s|ed|ure)?\b/,
+  /\bpressure\b/,
+  /\bstress\b/,
+  /\bweak(?:en|ness)?\b/,
+  ...AGENT_OPINION_DIRECT_RISK_TERMS,
 ];
 
 export class ResearchSnapshotBuilder {
@@ -542,7 +566,17 @@ function isPromotableAgentOpinionRisk(item: {
   if (item.supporting_evidence.length > 0) {
     return true;
   }
-  return AGENT_OPINION_RISK_TERMS.some((pattern) => pattern.test(normalized));
+  if (AGENT_OPINION_DIRECT_RISK_TERMS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+  return (
+    AGENT_OPINION_CONTEXTUAL_RISK_TERMS.some((pattern) =>
+      pattern.test(normalized),
+    ) &&
+    AGENT_OPINION_ADVERSE_RISK_TERMS.some((pattern) =>
+      pattern.test(normalized),
+    )
+  );
 }
 
 function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {

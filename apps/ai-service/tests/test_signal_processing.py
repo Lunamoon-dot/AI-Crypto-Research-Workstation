@@ -2,7 +2,7 @@
 
 The Portfolio Manager produces a typed PortfolioDecision via structured
 output and renders it to markdown that always contains a ``**Rating**: X``
-header.  The deterministic heuristic in ``tradingagents.agents.utils.rating``
+header.  The deterministic heuristic in ``luna_workstation.agents.utils.rating``
 is therefore sufficient to extract the rating downstream — no second LLM
 call is needed — and SignalProcessor is now a thin adapter that delegates
 to it.
@@ -12,20 +12,20 @@ from pathlib import Path
 
 import pytest
 
-from tradingagents.agents.schemas import (
+from luna_workstation.agents.schemas import (
     PortfolioDecision,
     PortfolioRating,
     render_pm_decision,
 )
 
-from tradingagents.agents.utils.rating import (
+from luna_workstation.agents.utils.rating import (
     RATINGS_5_TIER,
     DecisionConsistencyError,
     ensure_no_conflicting_rating_mentions,
     parse_rating,
 )
-from tradingagents.graph.run_orchestrator import resolve_final_signal
-from tradingagents.graph.signal_processing import SignalProcessor
+from luna_workstation.graph.run_orchestrator import resolve_final_signal
+from luna_workstation.graph.signal_processing import SignalProcessor
 
 
 # ---------------------------------------------------------------------------

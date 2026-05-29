@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tradingagents.graph import run_orchestrator
-from tradingagents.graph.run_orchestrator import ResearchRunOrchestrator
+from luna_workstation.graph import run_orchestrator
+from luna_workstation.graph.run_orchestrator import ResearchRunOrchestrator
 
 
 class _Graph:

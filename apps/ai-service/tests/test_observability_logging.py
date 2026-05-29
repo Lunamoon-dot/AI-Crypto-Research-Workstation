@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tradingagents.dataflows import interface
-from tradingagents.domain import ResearchRun
-from tradingagents.observability.logging import (
+from luna_workstation.dataflows import interface
+from luna_workstation.domain import ResearchRun
+from luna_workstation.observability.logging import (
     SecretRedactionFilter,
     bind_observability_context,
     configure_plain_observability_logging,
@@ -16,31 +16,31 @@ from tradingagents.observability.logging import (
     observability_run_event_persistence,
     redact_tool_call_args,
 )
-from tradingagents.services import JournalService
+from luna_workstation.services import JournalService
 
 
 @pytest.fixture(autouse=True)
 def _reset_plain_logging_handler():
     """Avoid leaking stderr handlers across tests."""
     yield
-    root_pkg = logging.getLogger("tradingagents")
+    root_pkg = logging.getLogger("luna_workstation")
     root_pkg.handlers = [
         h
         for h in root_pkg.handlers
-        if not getattr(h, "_tradingagents_plain_stderr", False)
+        if not getattr(h, "_luna_workstation_plain_stderr", False)
     ]
 
 
 def test_configure_plain_observability_logging_is_idempotent():
-    log = logging.getLogger("tradingagents")
+    log = logging.getLogger("luna_workstation")
     configure_plain_observability_logging(logging.INFO)
     plain_handlers = [
-        h for h in log.handlers if getattr(h, "_tradingagents_plain_stderr", False)
+        h for h in log.handlers if getattr(h, "_luna_workstation_plain_stderr", False)
     ]
     assert len(plain_handlers) == 1
     configure_plain_observability_logging(logging.WARNING)
     plain_after = [
-        h for h in log.handlers if getattr(h, "_tradingagents_plain_stderr", False)
+        h for h in log.handlers if getattr(h, "_luna_workstation_plain_stderr", False)
     ]
     assert len(plain_after) == 1
     assert plain_after[0].level == logging.WARNING
@@ -176,7 +176,7 @@ def test_route_to_vendor_emits_provider_observability_events(monkeypatch, caplog
     )
     monkeypatch.setattr(interface, "get_vendor", lambda _category, _method: "bad")
 
-    from tradingagents.dataflows.config import config_context
+    from luna_workstation.dataflows.config import config_context
 
     with caplog.at_level(logging.INFO, logger=interface.logger.name):
         with config_context({"data_vendors": {"test_data": "bad"}}):
@@ -254,7 +254,7 @@ def test_log_event_samples_data_provider_calls_to_timeline(monkeypatch):
     logger = logging.getLogger("tests.observability.sample")
     journal = MagicMock()
     monkeypatch.setattr(
-        "tradingagents.observability.logging.random.random", lambda: 0.9
+        "luna_workstation.observability.logging.random.random", lambda: 0.9
     )
     with observability_run_event_persistence(
         journal,
@@ -359,7 +359,7 @@ def test_log_event_persists_structured_observability_tables(tmp_path):
 
 
 def test_timeline_message_data_fetched():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message("data.fetched", {"vendor": "ccxt, coingecko"})
     assert "ccxt" in msg
@@ -367,7 +367,7 @@ def test_timeline_message_data_fetched():
 
 
 def test_timeline_message_signal_generated():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message(
         "signal.generated",
@@ -378,7 +378,7 @@ def test_timeline_message_signal_generated():
 
 
 def test_timeline_message_research_stage_events():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     opinions = _timeline_message(
         "analyst.opinions.recorded",
@@ -404,14 +404,14 @@ def test_timeline_message_research_stage_events():
 
 
 def test_timeline_message_decision_created():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message("decision.created", {"thesis_direction": "LONG"})
     assert "LONG" in msg
 
 
 def test_timeline_message_risk_checked():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message(
         "risk.checked",
@@ -422,14 +422,14 @@ def test_timeline_message_risk_checked():
 
 
 def test_timeline_message_plan_recorded():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message("plan.recorded", {"action": "plan_long"})
     assert "plan_long" in msg
 
 
 def test_timeline_message_budget_events():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     exceeded = _timeline_message("budget.exceeded", {"stage": "analyst"})
     summary = _timeline_message("budget.summary", {})
@@ -438,7 +438,7 @@ def test_timeline_message_budget_events():
 
 
 def test_timeline_message_agent_node_events():
-    from tradingagents.observability.logging import _timeline_message
+    from luna_workstation.observability.logging import _timeline_message
 
     msg = _timeline_message(
         "agent.node.completed",
@@ -573,7 +573,7 @@ def test_decision_id_in_observability_context(caplog):
 
 
 def test_all_new_timeline_event_types_are_mapped():
-    from tradingagents.observability.logging import _TIMELINE_EVENT_TYPES
+    from luna_workstation.observability.logging import _TIMELINE_EVENT_TYPES
 
     for name in (
         "data_fetched",

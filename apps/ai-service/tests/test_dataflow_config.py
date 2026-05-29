@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tradingagents.dataflows.config import (
+from luna_workstation.dataflows.config import (
     config_context,
     get_config,
     reset_context_config,
@@ -112,22 +112,22 @@ class TestThreadIsolation:
 
 class TestCategoryLookup:
     def test_valid_method(self):
-        from tradingagents.dataflows.interface import get_category_for_method
+        from luna_workstation.dataflows.interface import get_category_for_method
 
         assert get_category_for_method("get_indicators") == "technical_indicators"
 
     def test_news_method(self):
-        from tradingagents.dataflows.interface import get_category_for_method
+        from luna_workstation.dataflows.interface import get_category_for_method
 
         assert get_category_for_method("get_news") == "news_data"
 
     def test_onchain_method(self):
-        from tradingagents.dataflows.interface import get_category_for_method
+        from luna_workstation.dataflows.interface import get_category_for_method
 
         assert get_category_for_method("get_crypto_nvt") == "crypto_onchain"
 
     def test_unknown_method_raises(self):
-        from tradingagents.dataflows.interface import get_category_for_method
+        from luna_workstation.dataflows.interface import get_category_for_method
 
         with pytest.raises(ValueError, match="not found"):
             get_category_for_method("nonexistent_method")

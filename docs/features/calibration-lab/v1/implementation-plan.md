@@ -135,9 +135,9 @@ apps/api/src/theses/theses.service.ts
 apps/api/src/theses/theses.controller.ts
 apps/api/test/api-contract.test.ts
 
-apps/ai-service/tradingagents/domain/evaluation.py
-apps/ai-service/tradingagents/services/evaluation_service.py
-apps/ai-service/tradingagents/engine/schemas.py
+apps/ai-service/luna_workstation/domain/evaluation.py
+apps/ai-service/luna_workstation/services/evaluation_service.py
+apps/ai-service/luna_workstation/engine/schemas.py
 apps/ai-service/cli/main.py
 apps/ai-service/cli/evaluate_cmd.py
 apps/ai-service/tests/test_evaluation_window_guard.py
@@ -169,7 +169,7 @@ apps/api/src/contracts/frontend-contract.ts
 apps/api/src/contracts/openapi.generated.ts
 apps/api/test/api-contract.test.ts
 
-apps/ai-service/tradingagents/engine/schemas.py
+apps/ai-service/luna_workstation/engine/schemas.py
 apps/ai-service/cli/main.py
 apps/ai-service/tests/test_evaluation_window_guard.py
 
@@ -435,8 +435,7 @@ Auto-recorded from Calibration Lab evaluation eval_abc over 14 day(s). Result: h
 Copy rules:
 
 - Use "evaluate", "review", "calibrate", and "thesis quality".
-- Do not use "guaranteed", "profit", "auto trade", "buy now", "sell now",
-  broker PnL, Sharpe, or alpha language.
+- Keep copy focused on evidence, outcomes, calibration, and thesis quality.
 
 ## Implementation Checklist
 
@@ -553,4 +552,3 @@ codebase contradicts the plan.
 - Web renders result/evidence/warnings/history and collapsed raw JSON.
 - `/performance` remains based on `OutcomeReview`.
 - Relevant tests and checks pass, or exact blockers are documented.
-

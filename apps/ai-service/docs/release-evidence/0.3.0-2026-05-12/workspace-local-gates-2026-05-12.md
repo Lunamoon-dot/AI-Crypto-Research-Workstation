@@ -13,8 +13,8 @@ interpreter in this workstation does not have the full dev dependency set.
 |---|---|---|
 | Ruff lint | `.\.venv\Scripts\python.exe -m ruff check .` | PASS: `All checks passed!` |
 | Ruff format | `.\.venv\Scripts\python.exe -m ruff format --check .` | PASS: `225 files already formatted` |
-| Mypy | `.\.venv\Scripts\python.exe -m mypy tradingagents cli` | PASS: `Success: no issues found in 173 source files` |
-| Compile | `.\.venv\Scripts\python.exe -m compileall tradingagents cli tests` | PASS |
+| Mypy | `.\.venv\Scripts\python.exe -m mypy luna_workstation cli` | PASS: `Success: no issues found in 173 source files` |
+| Compile | `.\.venv\Scripts\python.exe -m compileall luna_workstation cli tests` | PASS |
 | Pytest | `.\.venv\Scripts\python.exe -m pytest` | PASS: `524 passed, 1 warning in 35.47s` |
 
 Notes:

@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.services.evaluation_service import EvaluationService
+from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
+from luna_workstation.services.evaluation_service import EvaluationService
 
 
 def _config(tmp_path):

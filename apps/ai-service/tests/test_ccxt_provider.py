@@ -5,7 +5,7 @@ from io import StringIO
 
 import pandas as pd
 
-from tradingagents.dataflows import ccxt_provider
+from luna_workstation.dataflows import ccxt_provider
 
 
 def _ms(day: str) -> int:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typer.testing import CliRunner
 
 from cli import diff_cmd
-from tradingagents.domain import (
+from luna_workstation.domain import (
     ResearchRun,
     ResearchRunStatus,
     ThesisDirection,

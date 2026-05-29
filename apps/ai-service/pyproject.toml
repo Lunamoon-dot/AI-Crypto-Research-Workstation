@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tradingagents"
+name = "luna_workstation"
 version = "0.3.0"
 description = "LunaCrypto: AI crypto research workstation and trade-thesis copilot"
 readme = "README.md"
@@ -53,7 +53,7 @@ dev = [
 lunacrypto = "cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["luna_workstation*", "cli*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
@@ -88,21 +88,21 @@ exclude = [
 # do not satisfy mypy's view of upstream stubs.
 [[tool.mypy.overrides]]
 module = [
-    "tradingagents.llm_clients.anthropic_client",
-    "tradingagents.llm_clients.google_client",
-    "tradingagents.llm_clients.openai_client",
-    "tradingagents.llm_clients.azure_client",
+    "luna_workstation.llm_clients.anthropic_client",
+    "luna_workstation.llm_clients.google_client",
+    "luna_workstation.llm_clients.openai_client",
+    "luna_workstation.llm_clients.azure_client",
 ]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
-    "tradingagents.types",
-    "tradingagents.engine.*",
-    "tradingagents.storage.serialization",
-    "tradingagents.storage.sqlite",
-    "tradingagents.dataflows.protocols",
-    "tradingagents.graph.protocols",
+    "luna_workstation.types",
+    "luna_workstation.engine.*",
+    "luna_workstation.storage.serialization",
+    "luna_workstation.storage.sqlite",
+    "luna_workstation.dataflows.protocols",
+    "luna_workstation.graph.protocols",
 ]
 check_untyped_defs = true
 
@@ -110,5 +110,5 @@ check_untyped_defs = true
 ignore = ["E402"]  # module-import-not-at-top-of-file: lazy imports are by design
 
 [tool.ruff.lint.per-file-ignores]
-"tradingagents/graph/setup.py" = ["F403", "F405"]  # star imports from agents package
-"tradingagents/graph/research_agents_graph.py" = ["F403"]  # star imports from agents package
+"luna_workstation/graph/setup.py" = ["F403", "F405"]  # star imports from agents package
+"luna_workstation/graph/research_agents_graph.py" = ["F403"]  # star imports from agents package

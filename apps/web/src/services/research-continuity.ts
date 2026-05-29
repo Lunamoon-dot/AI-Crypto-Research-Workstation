@@ -12,6 +12,7 @@ import type {
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityStateEnvelopeResponse,
+  ResearchContinuityThinReport,
   RunResearchContinuityRepairRequest,
 } from '@/types';
 
@@ -74,5 +75,6 @@ export type {
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityStateEnvelopeResponse,
+  ResearchContinuityThinReport,
   RunResearchContinuityRepairRequest,
 };

@@ -12,15 +12,15 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.domain import (
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.domain import (
     OutcomeResult,
     OutcomeReview,
     TradeThesis,
     UserDecision,
     UserDecisionAction,
 )
-from tradingagents.services import ThesisService
+from luna_workstation.services import ThesisService
 
 from cli.json_emit import (
     ensure_single_output_mode,

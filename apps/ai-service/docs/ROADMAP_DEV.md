@@ -2,7 +2,7 @@
 
 Technical implementation phases (1–9), refactor priorities, and engineering timelines for contributors.
 
-**Audience:** engineers maintaining `tradingagents/`, CLI, and tests.
+**Audience:** engineers maintaining `luna_workstation/`, CLI, and tests.
 
 **See also:** [Production roadmap](ROADMAP_PRODUCTION.md) · [Project hub](../ROADMAP.md)
 · [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
@@ -51,7 +51,7 @@ Criteria below push the product from **good** toward **best-in-class**. They ext
 ### Developer experience & ecosystem
 
 - Machine-readable outputs (`--json`, `--plain`) on core **read** commands once UX stabilizes (Phase 7).
-- Integration boundaries documented (REST/MCP/webhooks) without embedding UI concerns in `tradingagents/` domain.
+- Integration boundaries documented (REST/MCP/webhooks) without embedding UI concerns in `luna_workstation/` domain.
 
 ---
 
@@ -61,7 +61,7 @@ Estimated time: 1-2 weeks.
 
 ## Goal
 
-Finish the identity shift from trading bot to research workstation.
+Finish the identity shift to a research workstation.
 
 ## Problems In The Current Codebase
 
@@ -94,7 +94,7 @@ Rename and isolate domain concepts:
 Create a domain package:
 
 ```text
-tradingagents/domain/
+luna_workstation/domain/
   research_run.py
   signal.py
   thesis.py
@@ -244,7 +244,7 @@ Start with SQLite for the local workstation.
 Add:
 
 ```text
-tradingagents/storage/
+luna_workstation/storage/
   sqlite.py
   migrations/
   repositories/
@@ -356,7 +356,7 @@ The user must be able to answer:
 Create:
 
 ```text
-tradingagents/signals/
+luna_workstation/signals/
   base.py
   registry.py
   technical/
@@ -487,7 +487,7 @@ uncertain
 Create:
 
 ```text
-tradingagents/agents/aggregation/
+luna_workstation/agents/aggregation/
   consensus.py
   contradictions.py
   confidence.py
@@ -1030,7 +1030,7 @@ It should not feel like a marketing landing page or generic analytics dashboard.
 - Every screen shows IDs needed for likely next commands.
 - Freshness/source timestamps are visible when showing snapshots, signals, or scenario evaluation from persisted data.
 - Contradictions and missing data are visually obvious.
-- CLI copy does not imply autonomous trading or trade execution.
+- CLI copy stays focused on research, review, and journal artifacts.
 - Historical evaluation is labeled as thesis evaluation, not broker backtesting.
 
 ---
@@ -1246,7 +1246,7 @@ Highest ROI.
 
 Do first:
 
-- create `tradingagents/domain/`;
+- create `luna_workstation/domain/`;
 - introduce `ResearchRun`, `Signal`, `TradeThesis`, `UserDecision`, `OutcomeReview`;
 - rename remaining bot-oriented language;
 - keep execution outside the research core.
@@ -1464,7 +1464,7 @@ dependency audit
 The correct direction is:
 
 ```text
-Crypto-first research workstation, not autonomous trading automation.
+Crypto-first research workstation for thesis discipline.
 ```
 
 The highest-value product identity is:

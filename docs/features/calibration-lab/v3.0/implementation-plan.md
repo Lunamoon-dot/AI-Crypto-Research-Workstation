@@ -148,7 +148,6 @@ coverage gaps
 
 ## Hard Non-Goals
 
-- Autonomous trading.
 - Broker PnL.
 - Trade execution.
 - Hidden automatic promotion.
@@ -198,7 +197,7 @@ historical trends exist
 quality warnings exist
 optional cached stance parsing exists
 exports exist
-copy avoids PnL/autonomous trading claims
+copy stays focused on thesis-quality claims
 tests cover read/write/permission/edge cases
 ```
 

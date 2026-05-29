@@ -1,6 +1,6 @@
 # Journal Migration, Backup, And Restore Evidence
 Date: 2026-05-11T19:47:33.726430+00:00
-Source DB: C:\Users\dell\.tradingagents\cache\research_journal.sqlite
+Source DB: C:\Users\dell\.luna_workstation\cache\research_journal.sqlite
 Runtime DB copies are outside the repo: C:\Users\dell\TradingAgents-release-evidence-runtime\0.3.0-2026-05-12\journal-clean
 Source exists: True
 Source SHA256 before: 2F5A1FBC6B69388945DE1F97BFA9BFA1A0E2C399FA5F0AC9DCE351522FAFF98E

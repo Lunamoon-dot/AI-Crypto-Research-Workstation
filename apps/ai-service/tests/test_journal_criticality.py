@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.exceptions import StorageError
-from tradingagents.graph.journal_bridge import JournalBridge
-from tradingagents.graph.journal_coordinator import JournalCoordinator
-from tradingagents.signals.base import SignalResult, SignalScore
+from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
+from luna_workstation.exceptions import StorageError
+from luna_workstation.graph.journal_bridge import JournalBridge
+from luna_workstation.graph.journal_coordinator import JournalCoordinator
+from luna_workstation.signals.base import SignalResult, SignalScore
 
 
 class FailingJournalService:

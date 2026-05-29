@@ -20,8 +20,8 @@ This project should remain positioned as a local-first AI crypto research workst
 | `python -m ruff check .` | PASS |
 | `python -m ruff format --check .` | PASS after formatting repo |
 | `python -m pytest -q` | PASS: 503 passed, 1 skipped, 42 subtests passed |
-| `python -m mypy tradingagents cli` | PASS |
-| `python -m compileall tradingagents cli tests` | PASS |
+| `python -m mypy luna_workstation cli` | PASS |
+| `python -m compileall luna_workstation cli tests` | PASS |
 | `python -m pip check` | PASS: no broken requirements; local Python reports stale invalid-distribution warnings outside the project |
 
 The skipped test is `tests/test_property_based_hardening.py` because `hypothesis` is not installed in the current local interpreter. It is declared in the `dev` extra, so a clean dev install should remove this skip.
@@ -34,7 +34,7 @@ The skipped test is `tests/test_property_based_hardening.py` because `hypothesis
   - `Old_reviews_No_need_to_read/TECHNICAL_REVIEW_PHASE1_9.md`
   - `TECHNICAL_REVIEW_STAFF.md`
   - `docs/changes/SESSION_WORK_SUMMARY.md`
-  - `tradingagents/llm_clients/TODO.md`
+  - `luna_workstation/llm_clients/TODO.md`
 - Removed tracked temporary root scripts:
   - `_check_imports.py`
   - `_tmp_inspect.py`

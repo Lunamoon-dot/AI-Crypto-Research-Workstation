@@ -1,9 +1,8 @@
 # LunaCrypto Workflow
 
-This project is a crypto research workstation. It is not an autonomous trading
-bot, live order router, broker system, or execution loop. The product produces
-research artifacts for manual review: signals, debates, setup proposals,
-theses, scenarios, journal events, and outcome reviews.
+This project is a crypto research workstation. The product produces research
+artifacts for manual review: signals, debates, setup proposals, theses,
+scenarios, journal events, and outcome reviews.
 
 ## Data Flow
 
@@ -116,7 +115,7 @@ Perp research should focus on:
 - Stop distance, leverage cap, and margin risk.
 - Carry cost and squeeze risk.
 - Explicit `missing_data` if funding, OI, liquidation, or heatmap context is absent.
-- No automated order placement.
+- Manual review of leverage and margin assumptions.
 
 ## Thesis Lifecycle
 

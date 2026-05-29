@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from tradingagents.domain import (
+from luna_workstation.domain import (
     MarketSnapshot,
     ResearchRun,
     Signal,
@@ -10,8 +10,8 @@ from tradingagents.domain import (
     ThesisDirection,
     TradeThesis,
 )
-from tradingagents.services import JournalService, ThesisPulseMemoService
-from tradingagents.services.monitoring_service import LLMPulseMemoGenerator
+from luna_workstation.services import JournalService, ThesisPulseMemoService
+from luna_workstation.services.monitoring_service import LLMPulseMemoGenerator
 
 
 def test_valid_long_thesis_monitor_plan(tmp_path):
@@ -343,8 +343,8 @@ def test_llm_pulse_memo_skips_structured_tools_for_deepseek_reasoner(monkeypatch
         bind_calls.append((args, kwargs))
         raise AssertionError("deepseek-reasoner should skip structured binding")
 
-    import tradingagents.agents.utils.structured as structured_utils
-    import tradingagents.llm_clients as llm_clients
+    import luna_workstation.agents.utils.structured as structured_utils
+    import luna_workstation.llm_clients as llm_clients
 
     monkeypatch.setattr(
         llm_clients, "create_llm_client", lambda *args, **kwargs: _Client()
@@ -371,8 +371,8 @@ def test_llm_pulse_memo_retries_plain_json_when_structured_call_fails(monkeypatc
         def invoke(self, _prompt):
             raise RuntimeError("deepseek-reasoner does not support this tool_choice")
 
-    import tradingagents.agents.utils.structured as structured_utils
-    import tradingagents.llm_clients as llm_clients
+    import luna_workstation.agents.utils.structured as structured_utils
+    import luna_workstation.llm_clients as llm_clients
 
     monkeypatch.setattr(
         llm_clients, "create_llm_client", lambda *args, **kwargs: _Client()

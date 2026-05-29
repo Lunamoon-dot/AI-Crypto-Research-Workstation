@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tradingagents.agents.managers.research_manager import create_research_manager
-from tradingagents.agents.schemas import (
+from luna_workstation.agents.managers.research_manager import create_research_manager
+from luna_workstation.agents.schemas import (
     MarketType,
     PortfolioRating,
     ResearchPlan,
@@ -24,7 +24,7 @@ from tradingagents.agents.schemas import (
     render_setup_proposal,
     render_trader_proposal,
 )
-from tradingagents.agents.planners.setup_planner import (
+from luna_workstation.agents.planners.setup_planner import (
     create_setup_planner,
     create_trader,
 )

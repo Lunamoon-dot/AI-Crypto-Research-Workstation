@@ -427,8 +427,7 @@ Batch panel output:
 Copy rules:
 
 - Use "evaluate", "batch", "matured", "calibration", and "thesis quality".
-- Avoid "guaranteed", "profit", "auto trade", "buy now", "sell now",
-  broker PnL, Sharpe, and alpha language.
+- Keep copy focused on evidence, matured outcomes, calibration, and thesis quality.
 
 ## Validation Loop
 

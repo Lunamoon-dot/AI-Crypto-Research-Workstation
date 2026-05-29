@@ -104,10 +104,10 @@ lunacrypto config setup
 
 LunaCrypto dùng chuỗi ưu tiên cấu hình từ thấp đến cao:
 
-1. Code defaults trong `tradingagents/default_config.py`
+1. Code defaults trong `luna_workstation/default_config.py`
 2. `config/default.toml`
 3. `config/local.toml`, dùng cho override cá nhân và gitignored
-4. Profile trong `~/.tradingagents/profiles/<name>.yaml`
+4. Profile trong `~/.luna_workstation/profiles/<name>.yaml`
 5. Biến môi trường prefix `TRADINGAGENTS_`
 6. CLI hoặc programmatic overrides
 
@@ -689,7 +689,7 @@ Kết quả dự kiến:
 
 ```text
 LunaCrypto Setup Summary
-Journal path: ~/.tradingagents/cache/research_journal.sqlite
+Journal path: ~/.luna_workstation/cache/research_journal.sqlite
 Journal enabled: yes
 Disabled data vendors: none
 
@@ -786,14 +786,14 @@ Kết quả dự kiến:
 
 ```text
 Profile saved: scalping
-Location: ~/.tradingagents/profiles/scalping.yaml
+Location: ~/.luna_workstation/profiles/scalping.yaml
 
 Saved Configuration Profiles
 Profile Name    File
-scalping        ~/.tradingagents/profiles/scalping.yaml
+scalping        ~/.luna_workstation/profiles/scalping.yaml
 ```
 
-Side effect: `save` và `delete` ghi/xóa file profile trong `~/.tradingagents/profiles/`.
+Side effect: `save` và `delete` ghi/xóa file profile trong `~/.luna_workstation/profiles/`.
 
 ### 20.2 Research run và dry-run
 
@@ -903,7 +903,7 @@ Kết quả dự kiến:
 
 ```text
 Research Workspace
-Journal DB: ~/.tradingagents/cache/research_journal.sqlite
+Journal DB: ~/.luna_workstation/cache/research_journal.sqlite
 Watchlist: default | Items: 4 | Theses: 3 | Recent alerts: 2
 
 Recent Research Runs
@@ -932,8 +932,8 @@ lunacrypto journal migrate
 Kết quả dự kiến:
 
 ```text
-~/.tradingagents/cache/research_journal.sqlite
-Journal migrated: ~/.tradingagents/cache/research_journal.sqlite
+~/.luna_workstation/cache/research_journal.sqlite
+Journal migrated: ~/.luna_workstation/cache/research_journal.sqlite
 ```
 
 Side effect: `path` read-only. `migrate` apply migration idempotent vào SQLite.

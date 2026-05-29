@@ -20,7 +20,7 @@ second-reviewer sign-off remains incomplete.
 | Complete second-reviewer sign-off before release tag. | `GO_LIVE_READINESS.md` keeps second reviewer unchecked. No reviewer approval artifact exists. | Blocked |
 | Do not treat local pass as release-ready. | `GO_LIVE_READINESS.md` says `not production-ready as of 2026-05-12`. | Done |
 | Rename `order.submitted` / `order_submitted` to research/planning terminology. | Observability event is now `plan_recorded` / `plan.recorded`; grep found no `order.submitted`, `order_submitted`, `submitted_order`, `broker_response`, or `execution_result` in checked core/readiness paths. | Done |
-| Create a thin `ResearchService`. | `tradingagents/services/research_service.py` defines `ResearchService` and `ResearchRunResult`; exported from `tradingagents/services/__init__.py`. | Done |
+| Create a thin `ResearchService`. | `luna_workstation/services/research_service.py` defines `ResearchService` and `ResearchRunResult`; exported from `luna_workstation/services/__init__.py`. | Done |
 | Route `cli/main.py` and `cli/orchestrator.py` through `ResearchService`. | `cli/main.py` injects `ResearchService`; `cli/orchestrator.py` calls `service.run()`. | Done |
 | Config reliability and provider health work remains covered. | Config loader, provider health snapshot, dry-run provider probe, and provider fallback tests pass locally. | Done |
 | Observability timeline is wired end-to-end. | `log_event()` persists timeline events; `budget_summary`, `budget_exceeded`, and `plan_recorded` are mapped and tested. | Done |
@@ -32,8 +32,8 @@ second-reviewer sign-off remains incomplete.
 ```text
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m mypy tradingagents cli
-.\.venv\Scripts\python.exe -m compileall tradingagents cli tests
+.\.venv\Scripts\python.exe -m mypy luna_workstation cli
+.\.venv\Scripts\python.exe -m compileall luna_workstation cli tests
 .\.venv\Scripts\python.exe -m pytest
 git diff --check
 ```

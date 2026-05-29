@@ -84,6 +84,37 @@ export interface ContinuitySectionResponse {
   empty_state: string;
 }
 
+export type ResearchContinuityThinSectionId =
+  | 'quality'
+  | 'current_view'
+  | 'material_changes'
+  | 'active_risks'
+  | 'watchpoints'
+  | 'resolved_or_weakened'
+  | 'evidence_health';
+
+export interface ResearchContinuityThinSection {
+  id: ResearchContinuityThinSectionId;
+  title: string;
+  items: string[];
+}
+
+export interface ResearchContinuityThinReport {
+  version: 'research_continuity_thin.v1';
+  generated_at: string | null;
+  debug_available: boolean;
+  debug_requires_role: 'editor';
+  quality: {
+    status: string;
+    score: number | null;
+    observed_evidence_coverage: number | null;
+    evidence_coverage: number | null;
+    provenance_status: string | null;
+    warnings: string[];
+  };
+  sections: ResearchContinuityThinSection[];
+}
+
 export interface ResearchSnapshotResponse {
   id: string | null;
   workspace_id: string;
@@ -115,6 +146,7 @@ export interface ResearchContinuityEntryResponse {
   source_run_ids: string[];
   writer_metadata: JsonRecord;
   payload: JsonRecord;
+  thin_report?: ResearchContinuityThinReport | null;
 }
 
 export interface ResearchContinuityStateResponse {

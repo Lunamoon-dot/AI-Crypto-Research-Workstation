@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-from tradingagents.storage.schema import SCHEMA_SQL
+from luna_workstation.storage.schema import SCHEMA_SQL
 
 revision = "0001_baseline"
 down_revision = None

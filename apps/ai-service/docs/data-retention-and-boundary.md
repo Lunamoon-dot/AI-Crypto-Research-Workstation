@@ -8,8 +8,8 @@ LunaCrypto is currently a local research workstation. There is no hosted tier in
 
 Stored locally by default:
 
-- SQLite research journal: `~/.tradingagents/cache/research_journal.sqlite`
-- SQLite checkpoint DBs under `~/.tradingagents/cache/checkpoints/`
+- SQLite research journal: `~/.luna_workstation/cache/research_journal.sqlite`
+- SQLite checkpoint DBs under `~/.luna_workstation/cache/checkpoints/`
 - Generated reports under the configured reports directory
 - Local config files and ignored `.env` secrets
 
@@ -32,7 +32,7 @@ To delete local research data:
 2. Back up the journal if needed.
 3. Delete the journal DB and sidecars:
    ```bash
-   rm ~/.tradingagents/cache/research_journal.sqlite*
+   rm ~/.luna_workstation/cache/research_journal.sqlite*
    ```
 4. Delete generated reports if requested:
    ```bash
@@ -40,7 +40,7 @@ To delete local research data:
    ```
 5. Delete checkpoints if requested:
    ```bash
-   rm -rf ~/.tradingagents/cache/checkpoints/
+   rm -rf ~/.luna_workstation/cache/checkpoints/
    ```
 
 On Windows PowerShell, use `Remove-Item -LiteralPath <path> -Force` for files and add `-Recurse` for directories after verifying the resolved path.

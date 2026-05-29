@@ -1,5 +1,5 @@
-from tradingagents.agents.analysts.onchain_analyst import _ONCHAIN_SYSTEM_CONTENT
-from tradingagents.agents.analysts.social_media_analyst import _SOCIAL_SYSTEM_CONTENT
+from luna_workstation.agents.analysts.onchain_analyst import _ONCHAIN_SYSTEM_CONTENT
+from luna_workstation.agents.analysts.social_media_analyst import _SOCIAL_SYSTEM_CONTENT
 
 
 def test_social_prompt_keeps_fear_greed_macro_only_and_samples_weak():

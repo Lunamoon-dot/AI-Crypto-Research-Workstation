@@ -16,11 +16,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.dataflows.historical_contract import (
+from luna_workstation.dataflows.historical_contract import (
     PROVIDER_DECLARATIONS,
     ProviderHistoricalDeclaration,
 )
-from tradingagents.graph.historical_replay import HistoricalReplay
+from luna_workstation.graph.historical_replay import HistoricalReplay
 
 from cli.json_emit import print_json_stdout
 

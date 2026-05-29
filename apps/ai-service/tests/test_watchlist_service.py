@@ -1,7 +1,7 @@
 from typer.testing import CliRunner
 
 from cli import watch_cmd
-from tradingagents.domain import (
+from luna_workstation.domain import (
     AlertType,
     MarketSnapshot,
     ResearchRun,
@@ -12,7 +12,7 @@ from tradingagents.domain import (
     WatchlistItem,
     WatchlistItemType,
 )
-from tradingagents.services import JournalService, WatchlistService
+from luna_workstation.services import JournalService, WatchlistService
 
 
 def _config(tmp_path):

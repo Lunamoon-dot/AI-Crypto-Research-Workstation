@@ -35,6 +35,7 @@ import type {
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityStateResponse,
+  ResearchContinuityThinReport,
 } from '@/types';
 
 const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
@@ -47,6 +48,10 @@ const ENABLE_RESEARCH_CONTINUITY_REPAIR = booleanViteEnv(
   'VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR',
   false,
 );
+
+type DisplayReportSection =
+  | ResearchContinuityEntryResponse['sections'][number]
+  | ResearchContinuityThinReport['sections'][number];
 
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -632,7 +637,10 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
   if (!entry) {
     return <EmptyState label="No latest continuity report." />;
   }
-  const sections = entry.sections.filter((section) => section.title.toLowerCase() !== 'summary');
+  const isThinReport = Boolean(entry.thin_report?.sections.length);
+  const sections: DisplayReportSection[] = isThinReport
+    ? (entry.thin_report?.sections ?? [])
+    : entry.sections.filter((section) => section.title.toLowerCase() !== 'summary');
   return (
     <div className="continuity-report">
       <div className="continuity-report-toolbar">
@@ -653,13 +661,13 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
       </div>
       <div className="continuity-report-sections">
         {sections.map((section) => {
-          const preview = reportSectionPreview(section);
+          const preview = reportSectionPreview(section, isThinReport);
           return (
-            <section className="continuity-report-section" key={section.title}>
+            <section className="continuity-report-section" key={reportSectionKey(section)}>
               <h4>{section.title}</h4>
               <ul>
                 {preview.items.map((item, index) => (
-                  <li key={`${section.title}-${index}`}>{item}</li>
+                  <li key={`${reportSectionKey(section)}-${index}`}>{item}</li>
                 ))}
                 {preview.hiddenCount > 0 ? (
                   <li className="continuity-report-more">
@@ -671,6 +679,12 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
           );
         })}
       </div>
+      {entry.thin_report?.debug_available ? (
+        <details className="continuity-debug-details">
+          <summary className="button">Debug trace</summary>
+          <JsonView value={entry} />
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -770,18 +784,28 @@ function evidenceQualityLabel(value: string): string {
   return value.replaceAll('_', ' ');
 }
 
-function reportSectionPreview(section: ResearchContinuityEntryResponse['sections'][number]): {
+function reportSectionPreview(
+  section: DisplayReportSection,
+  isThinReport: boolean,
+): {
   hiddenCount: number;
   items: string[];
 } {
   const items =
     section.items.length > 0
       ? section.items
-      : [section.empty_state ? section.empty_state : 'No changes reported.'];
+      : ['empty_state' in section && section.empty_state
+        ? section.empty_state
+        : 'No changes reported.'];
+  const visibleCount = isThinReport ? items.length : 2;
   return {
-    hiddenCount: Math.max(0, items.length - 2),
-    items: items.slice(0, 2),
+    hiddenCount: Math.max(0, items.length - visibleCount),
+    items: items.slice(0, visibleCount),
   };
+}
+
+function reportSectionKey(section: DisplayReportSection): string {
+  return 'id' in section ? section.id : section.title;
 }
 
 function repairCaseLabel(value: ResearchContinuityRepairCaseType): string {

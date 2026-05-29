@@ -4,7 +4,7 @@ from typing import List, Tuple
 from rich.console import Console
 
 from cli.models import AnalystType
-from tradingagents.llm_clients.model_catalog import get_model_options
+from luna_workstation.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
@@ -260,7 +260,7 @@ def select_deep_thinking_agent(provider) -> str:
 
 def select_llm_provider() -> tuple[str, str | None]:
     """Select the LLM provider and its API endpoint."""
-    from tradingagents.config.providers import PROVIDER_REGISTRY
+    from luna_workstation.config.providers import PROVIDER_REGISTRY
 
     # Build choices from the single source of truth
     provider_entries = [

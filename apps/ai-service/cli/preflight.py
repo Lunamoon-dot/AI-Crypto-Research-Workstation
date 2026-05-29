@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from tradingagents.config.providers import PROVIDER_REGISTRY
+from luna_workstation.config.providers import PROVIDER_REGISTRY
 
 
 def check_api_keys(

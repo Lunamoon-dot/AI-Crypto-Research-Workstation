@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-from tradingagents.storage.migrations import ensure_column
+from luna_workstation.storage.migrations import ensure_column
 
 revision = "0005_workspace_tenancy"
 down_revision = "0004_run_degradation"

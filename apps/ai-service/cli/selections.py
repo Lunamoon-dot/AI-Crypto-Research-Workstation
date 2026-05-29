@@ -327,7 +327,7 @@ def build_run_config(selections: dict, checkpoint: bool) -> dict:
 
     Uses the unified ConfigLoader for deep-copy safety and validation.
     """
-    from tradingagents.config.loader import ConfigLoader
+    from luna_workstation.config.loader import ConfigLoader
 
     loader = ConfigLoader()
     return loader.build_runtime_config(selections, checkpoint=checkpoint)

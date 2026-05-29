@@ -1,7 +1,7 @@
 """Tests for signals/composite.py — CompositeScorer weighted multi-factor scoring."""
 
-from tradingagents.signals.base import FactorSignal, SignalResult, SignalScore
-from tradingagents.signals.composite import (
+from luna_workstation.signals.base import FactorSignal, SignalResult, SignalScore
+from luna_workstation.signals.composite import (
     DEFAULT_WEIGHTS,
     SIGNAL_WEIGHT_VERSION,
     CompositeScorer,

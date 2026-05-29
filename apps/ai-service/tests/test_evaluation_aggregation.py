@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tradingagents.domain import (
+from luna_workstation.domain import (
     AgentCalibrationReport,
     AgentOpinion,
     AgentStance,
@@ -26,7 +26,7 @@ from tradingagents.domain import (
     ThesisEvaluation,
     TradeThesis,
 )
-from tradingagents.services.evaluation_service import EvaluationService
+from luna_workstation.services.evaluation_service import EvaluationService
 
 
 def _make_evaluation(

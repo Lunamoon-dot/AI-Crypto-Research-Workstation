@@ -1,4 +1,4 @@
-﻿# Clean Clone Quality Gate Summary
+# Clean Clone Quality Gate Summary
 
 Date: 2026-05-12
 
@@ -14,7 +14,7 @@ Note: the verification clone includes the test-only Hypothesis health-check patc
 | `python -m pip check` | PASS | `clean-clone-pip-check.log` |
 | `python -m ruff check .` | PASS | `clean-clone-ruff-check.log` |
 | `python -m ruff format --check .` | PASS | `clean-clone-ruff-format-check-rerun.log` |
-| `python -m mypy tradingagents cli` | PASS | `clean-clone-mypy.log` |
-| `python -m compileall tradingagents cli tests` | PASS | `clean-clone-compileall.log` |
+| `python -m mypy luna_workstation cli` | PASS | `clean-clone-mypy.log` |
+| `python -m compileall luna_workstation cli tests` | PASS | `clean-clone-compileall.log` |
 | `python -m pytest tests/test_property_based_hardening.py -v` | PASS, 4 passed | `clean-clone-property-tests-rerun.log` |
 | `python -m pytest -v` | PASS, 507 passed, 42 subtests passed | `clean-clone-pytest.log` |

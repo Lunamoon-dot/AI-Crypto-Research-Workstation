@@ -3,13 +3,13 @@ from datetime import date, datetime, timezone
 from typer.testing import CliRunner
 
 from cli import brief_cmd
-from tradingagents.domain import (
+from luna_workstation.domain import (
     MarketSnapshot,
     ResearchRun,
     ThesisDirection,
     TradeThesis,
 )
-from tradingagents.services import BriefService, JournalService, WatchlistService
+from luna_workstation.services import BriefService, JournalService, WatchlistService
 
 
 def _config(tmp_path):

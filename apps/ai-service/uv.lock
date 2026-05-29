@@ -3345,7 +3345,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tradingagents"
+name = "luna_workstation"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [

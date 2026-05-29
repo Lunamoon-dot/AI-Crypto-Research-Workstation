@@ -80,11 +80,11 @@ Agent execution rules:
 Files and areas to inspect first:
 
 ```text
-apps/ai-service/tradingagents/domain/
-apps/ai-service/tradingagents/storage/
-apps/ai-service/tradingagents/services/
-apps/ai-service/tradingagents/engine/
-apps/ai-service/tradingagents/cli/
+apps/ai-service/luna_workstation/domain/
+apps/ai-service/luna_workstation/storage/
+apps/ai-service/luna_workstation/services/
+apps/ai-service/luna_workstation/engine/
+apps/ai-service/luna_workstation/cli/
 
 apps/api/src/database/
 apps/api/src/theses/
@@ -239,7 +239,7 @@ changed without disturbing the core.
 
 ## 2. Product Direction
 
-The product remains a research workstation, not a trading bot.
+The product remains a research workstation centered on thesis monitoring.
 
 Current priority:
 

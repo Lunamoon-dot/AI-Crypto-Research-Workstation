@@ -10,9 +10,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.domain import ResearchRun, Signal, SignalSnapshot
-from tradingagents.services import SignalService
+from luna_workstation.default_config import DEFAULT_CONFIG
+from luna_workstation.domain import ResearchRun, Signal, SignalSnapshot
+from luna_workstation.services import SignalService
 
 from cli.json_emit import (
     ensure_single_output_mode,

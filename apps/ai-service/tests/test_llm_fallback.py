@@ -2,8 +2,8 @@
 
 from unittest.mock import patch
 
-from tradingagents.config.loader import ConfigLoader
-from tradingagents.default_config import DEFAULT_CONFIG
+from luna_workstation.config.loader import ConfigLoader
+from luna_workstation.default_config import DEFAULT_CONFIG
 
 
 class _FakeLLMClient:
@@ -19,7 +19,7 @@ class TestCircuitBreakerMechanics:
     """Unit tests for circuit breaker state logic."""
 
     def test_circuit_closed_by_default(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         orch = LLMOrchestrator(
             {
@@ -33,7 +33,7 @@ class TestCircuitBreakerMechanics:
         assert not orch.is_circuit_open("deepseek")
 
     def test_circuit_opens_after_threshold_failures(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         orch = LLMOrchestrator(
             {
@@ -50,7 +50,7 @@ class TestCircuitBreakerMechanics:
         assert orch.is_circuit_open("deepseek")
 
     def test_circuit_resets_on_success(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         orch = LLMOrchestrator(
             {
@@ -69,7 +69,7 @@ class TestCircuitBreakerMechanics:
 
     def test_circuit_half_open_after_cooldown(self):
         import time
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         orch = LLMOrchestrator(
             {
@@ -92,7 +92,7 @@ class TestCircuitBreakerMechanics:
 
     def test_circuit_stays_open_within_cooldown(self):
         import time
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         now = time.monotonic()
         orch = LLMOrchestrator(
@@ -111,7 +111,7 @@ class TestCircuitBreakerMechanics:
         assert orch.is_circuit_open("deepseek")
 
     def test_no_tracking_when_fallback_disabled(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         orch = LLMOrchestrator(
             {
@@ -130,39 +130,39 @@ class TestRetryableErrorDetection:
     """Tests for error classification (retryable vs non-retryable)."""
 
     def test_connection_error_is_retryable(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert LLMOrchestrator.is_retryable_error(ConnectionError("Connection refused"))
 
     def test_timeout_is_retryable(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert LLMOrchestrator.is_retryable_error(TimeoutError("timed out"))
 
     def test_http_500_is_retryable(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert LLMOrchestrator.is_retryable_error(
             Exception("HTTP 503 Service Unavailable")
         )
 
     def test_http_401_is_not_retryable(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert not LLMOrchestrator.is_retryable_error(
             Exception("HTTP 401 Unauthorized - invalid API key")
         )
 
     def test_rate_limit_is_retryable(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert LLMOrchestrator.is_retryable_error(
             Exception("429 Too Many Requests - rate limit")
         )
 
     def test_parser_contract_error_is_not_retryable(self):
-        from tradingagents.exceptions import LLMOutputError
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.exceptions import LLMOutputError
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         assert not LLMOrchestrator.is_retryable_error(
             LLMOutputError("structured output contract mismatch")
@@ -180,10 +180,10 @@ class TestConfigLoaderFallbackDefaults:
         assert primary not in fallback.get("fallback_providers", [])
 
     def test_loaded_defaults_do_not_override_openrouter_to_deepseek(self):
-        from tradingagents.llm_clients.model_catalog import (
+        from luna_workstation.llm_clients.model_catalog import (
             get_default_fallback_model_map,
         )
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         config = ConfigLoader().load(fail_fast=False)
         orch = LLMOrchestrator(config)
@@ -194,10 +194,10 @@ class TestConfigLoaderFallbackDefaults:
         assert "deepseek" not in orch._fallback_model_map["openrouter"]["quick"]
 
     def test_default_fallback_model_map_uses_target_provider_models(self):
-        from tradingagents.llm_clients.model_catalog import (
+        from luna_workstation.llm_clients.model_catalog import (
             get_default_fallback_model_map,
         )
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         created: list[tuple[str, str]] = []
 
@@ -218,7 +218,7 @@ class TestConfigLoaderFallbackDefaults:
         orch = LLMOrchestrator(config)
 
         with patch(
-            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            "luna_workstation.llm_clients.orchestrator.create_llm_client_with_keys",
             side_effect=_fake_create,
         ):
             orch.ensure_fallback_llms()
@@ -230,7 +230,7 @@ class TestConfigLoaderFallbackDefaults:
         assert all("deepseek" not in model for _, model in created)
 
     def test_fallback_model_map_config_override_wins(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         created: list[tuple[str, str]] = []
 
@@ -253,7 +253,7 @@ class TestConfigLoaderFallbackDefaults:
         orch = LLMOrchestrator(config)
 
         with patch(
-            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            "luna_workstation.llm_clients.orchestrator.create_llm_client_with_keys",
             side_effect=_fake_create,
         ):
             orch.ensure_fallback_llms()
@@ -261,7 +261,7 @@ class TestConfigLoaderFallbackDefaults:
         assert created == [("openai", "gpt-4o"), ("openai", "gpt-4o-mini")]
 
     def test_fallback_llms_receive_callbacks(self):
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         callbacks = [object()]
         seen_callbacks = []
@@ -282,7 +282,7 @@ class TestConfigLoaderFallbackDefaults:
         orch = LLMOrchestrator(config, callbacks=callbacks)
 
         with patch(
-            "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys",
+            "luna_workstation.llm_clients.orchestrator.create_llm_client_with_keys",
             side_effect=_fake_create,
         ):
             orch.ensure_fallback_llms()
@@ -292,7 +292,7 @@ class TestConfigLoaderFallbackDefaults:
     def test_missing_fallback_model_map_skips_provider_with_warning(self, caplog):
         import logging
 
-        from tradingagents.llm_clients.orchestrator import LLMOrchestrator
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
 
         config = {
             "llm_provider": "deepseek",
@@ -307,7 +307,7 @@ class TestConfigLoaderFallbackDefaults:
 
         with caplog.at_level(logging.WARNING):
             with patch(
-                "tradingagents.llm_clients.orchestrator.create_llm_client_with_keys"
+                "luna_workstation.llm_clients.orchestrator.create_llm_client_with_keys"
             ) as mock_create:
                 orch.ensure_fallback_llms()
 
@@ -318,7 +318,7 @@ class TestConfigLoaderFallbackDefaults:
 
 class TestValidationNewSections:
     def test_llm_fallback_validation(self):
-        from tradingagents.config.schema import validate_and_normalize_config
+        from luna_workstation.config.schema import validate_and_normalize_config
 
         cfg = {
             **DEFAULT_CONFIG,
@@ -336,7 +336,7 @@ class TestValidationNewSections:
 
     def test_unknown_fallback_provider_warns_in_warn_mode(self, caplog):
         import logging
-        from tradingagents.config.schema import validate_and_normalize_config
+        from luna_workstation.config.schema import validate_and_normalize_config
 
         cfg = {
             **DEFAULT_CONFIG,
@@ -355,7 +355,7 @@ class TestValidationNewSections:
 
     def test_redundant_primary_in_fallback_warns(self, caplog):
         import logging
-        from tradingagents.config.schema import validate_and_normalize_config
+        from luna_workstation.config.schema import validate_and_normalize_config
 
         cfg = {
             **DEFAULT_CONFIG,
@@ -373,7 +373,7 @@ class TestValidationNewSections:
         assert "redundant" in caplog.text.lower()
 
     def test_fallback_model_map_validation_normalizes_provider_key(self):
-        from tradingagents.config.schema import validate_and_normalize_config
+        from luna_workstation.config.schema import validate_and_normalize_config
 
         cfg = {
             **DEFAULT_CONFIG,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from tradingagents.signals.divergence_signals import compute_rsi_divergence
-from tradingagents.signals.base import SignalScore
+from luna_workstation.signals.divergence_signals import compute_rsi_divergence
+from luna_workstation.signals.base import SignalScore
 
 
 def test_rsi_divergence_uses_positional_last_value_with_datetime_index():

@@ -12,14 +12,14 @@ from unittest.mock import patch
 
 import pytest
 
-from tradingagents.dataflows.config import config_context
-from tradingagents.dataflows.historical_contract import DataWindow, TimestampSemantics
-from tradingagents.dataflows.interface import VENDOR_METHODS, route_to_vendor
-from tradingagents.dataflows.replay_audit import (
+from luna_workstation.dataflows.config import config_context
+from luna_workstation.dataflows.historical_contract import DataWindow, TimestampSemantics
+from luna_workstation.dataflows.interface import VENDOR_METHODS, route_to_vendor
+from luna_workstation.dataflows.replay_audit import (
     replay_audit_context,
     replay_timestamp_issues,
 )
-from tradingagents.exceptions import PolicyViolationError
+from luna_workstation.exceptions import PolicyViolationError
 
 
 @pytest.mark.unit
@@ -50,7 +50,7 @@ class TestRouteToVendorReplaySmoke:
         cfg = self._replay_config()
 
         with patch(
-            "tradingagents.dataflows.interface.route_to_vendor_historical"
+            "luna_workstation.dataflows.interface.route_to_vendor_historical"
         ) as mock_hist:
             mock_hist.return_value = "mock_ohlcv_data"
             with config_context(cfg):
@@ -72,10 +72,10 @@ class TestRouteToVendorReplaySmoke:
         cfg["_replay"]["enabled"] = False
 
         with patch(
-            "tradingagents.dataflows.interface.route_to_vendor_historical"
+            "luna_workstation.dataflows.interface.route_to_vendor_historical"
         ) as mock_hist:
             with patch(
-                "tradingagents.dataflows.interface._invoke_with_resilience"
+                "luna_workstation.dataflows.interface._invoke_with_resilience"
             ) as mock_invoke:
                 mock_invoke.return_value = "normal_data"
                 with config_context(cfg):
@@ -88,7 +88,7 @@ class TestRouteToVendorReplaySmoke:
         """The DataWindow used in replay always has forward_window_days=0."""
         # This is verified by inspecting the config — HistoricalReplay.run()
         # hard-codes forward_window_days=0.
-        from tradingagents.graph.historical_replay import HistoricalReplay
+        from luna_workstation.graph.historical_replay import HistoricalReplay
 
         cfg = {
             "_replay": {
@@ -103,7 +103,7 @@ class TestRouteToVendorReplaySmoke:
 
     def test_latest_only_endpoint_warns_under_as_of(self):
         """When replay requires AS_OF but endpoint is LATEST, validation raises issues."""
-        from tradingagents.dataflows.historical_contract import (
+        from luna_workstation.dataflows.historical_contract import (
             validate_historical_request,
         )
 
@@ -122,7 +122,7 @@ class TestRouteToVendorReplaySmoke:
 
     def test_hybrid_endpoint_passes_under_as_of(self):
         """HYBRID endpoints pass AS_OF validation (caller must verify per-endpoint)."""
-        from tradingagents.dataflows.historical_contract import (
+        from luna_workstation.dataflows.historical_contract import (
             validate_historical_request,
         )
 
@@ -223,10 +223,10 @@ class TestRouteToVendorReplaySmoke:
         cfg = {"data_vendors": {}}
 
         with patch(
-            "tradingagents.dataflows.interface.route_to_vendor_historical"
+            "luna_workstation.dataflows.interface.route_to_vendor_historical"
         ) as mock_hist:
             with patch(
-                "tradingagents.dataflows.interface._invoke_with_resilience"
+                "luna_workstation.dataflows.interface._invoke_with_resilience"
             ) as mock_invoke:
                 mock_invoke.return_value = "normal"
                 with config_context(cfg):

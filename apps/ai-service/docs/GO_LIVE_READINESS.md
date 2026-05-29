@@ -25,8 +25,8 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 | Pytest | PASS: `507 passed, 42 subtests passed`; see [pytest log](release-evidence/0.3.0-2026-05-12/clean-clone-pytest.log) |
 | Current workspace rerun | PASS with `.\.venv\Scripts\python.exe`: ruff lint, ruff format, mypy, compile, and `524 passed`; see [workspace gates](release-evidence/0.3.0-2026-05-12/workspace-local-gates-2026-05-12.md) |
 | Property tests | PASS: `4 passed` with `hypothesis` installed; see [property log](release-evidence/0.3.0-2026-05-12/clean-clone-property-tests-rerun.log) |
-| Mypy | PASS: `python -m mypy tradingagents cli`; see [mypy log](release-evidence/0.3.0-2026-05-12/clean-clone-mypy.log) |
-| Compile | PASS: `python -m compileall tradingagents cli tests`; see [compile log](release-evidence/0.3.0-2026-05-12/clean-clone-compileall.log) |
+| Mypy | PASS: `python -m mypy luna_workstation cli`; see [mypy log](release-evidence/0.3.0-2026-05-12/clean-clone-mypy.log) |
+| Compile | PASS: `python -m compileall luna_workstation cli tests`; see [compile log](release-evidence/0.3.0-2026-05-12/clean-clone-compileall.log) |
 | Dependency check | PASS: `python -m pip check`; see [pip check log](release-evidence/0.3.0-2026-05-12/clean-clone-pip-check.log) |
 | CI matrix | PASS: GitHub Actions run `25699827162` passed lint, mypy, and Python 3.10/3.11/3.12 matrix jobs for PR #1; see [CI evidence](release-evidence/0.3.0-2026-05-12/ci-matrix-status.md) |
 | Dependency audit | PASS: `pip-audit`; see [audit log](release-evidence/0.3.0-2026-05-12/dependency-audit-pip-audit.log) |
@@ -62,7 +62,7 @@ Completion audit: [completion-audit-2026-05-12.md](release-evidence/0.3.0-2026-0
 
 ### Product Boundaries
 
-- [x] README states the project is not an autonomous trading bot.
+- [x] README states the product boundary around research artifacts and user-reviewed decisions.
 - [x] Core repo has no exchange order placement path.
 - [x] Historical evaluation is described as thesis-quality evaluation, not broker-accurate backtesting.
 - [x] Retention/deletion guidance for journal DB and generated reports is documented.

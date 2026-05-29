@@ -1,8 +1,8 @@
 import json
 import sqlite3
 
-from tradingagents.storage.migrations import SCHEMA_VERSION, migrate_path
-from tradingagents.storage.sqlite import SQLiteStore, restore_sqlite_backup
+from luna_workstation.storage.migrations import SCHEMA_VERSION, migrate_path
+from luna_workstation.storage.sqlite import SQLiteStore, restore_sqlite_backup
 
 
 def test_sqlite_migration_backup_restore_smoke(tmp_path):

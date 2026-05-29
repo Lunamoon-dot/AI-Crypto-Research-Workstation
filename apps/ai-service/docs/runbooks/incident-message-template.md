@@ -41,4 +41,4 @@ Contact:
 - Never include API keys, bearer tokens, journal payloads, or private report text.
 - Use absolute dates and times with timezone.
 - Separate confirmed facts from investigation hypotheses.
-- For research-output issues, remind users that LunaCrypto is research assistance, not autonomous trading execution.
+- For research-output issues, describe LunaCrypto as research assistance with user-reviewed decisions.

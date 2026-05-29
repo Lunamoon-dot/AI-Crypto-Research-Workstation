@@ -19,7 +19,7 @@ from cli import (
     signals_cmd,
     watch_cmd,
 )
-from tradingagents.domain import (
+from luna_workstation.domain import (
     DataFreshness,
     ResearchRun,
     ResearchRunStatus,
@@ -28,7 +28,7 @@ from tradingagents.domain import (
     SignalProvenance,
     TradeThesis,
 )
-from tradingagents.services import JournalService, ResearchRunResult, WatchlistService
+from luna_workstation.services import JournalService, ResearchRunResult, WatchlistService
 
 
 def test_public_console_script_is_lunacrypto_only():
@@ -37,7 +37,7 @@ def test_public_console_script_is_lunacrypto_only():
 
     scripts = metadata["project"]["scripts"]
     assert scripts["lunacrypto"] == "cli.main:app"
-    assert "tradingagents" not in scripts
+    assert "luna_workstation" not in scripts
 
 
 class _FakePropagator:
@@ -829,5 +829,5 @@ def test_research_completion_panel_prioritizes_readable_summary():
     assert "Invalidation: Close below $90" in output
     assert "Record IDs: run=run_abc, thesis=thesis_abc, signals=signal_abc" in output
     assert "lunacrypto research evaluate matured" in output
-    assert "tradingagents evaluate matured" not in output
+    assert "luna_workstation evaluate matured" not in output
     assert "Market Snapshot:" not in output

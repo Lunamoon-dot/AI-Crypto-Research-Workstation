@@ -2,10 +2,10 @@
 
 import pytest
 
-from tradingagents.config import secrets as secrets_module
-from tradingagents.config.loader import ConfigLoader
-from tradingagents.config.secrets import SecretsManager
-from tradingagents.exceptions import LLMCredentialError
+from luna_workstation.config import secrets as secrets_module
+from luna_workstation.config.loader import ConfigLoader
+from luna_workstation.config.secrets import SecretsManager
+from luna_workstation.exceptions import LLMCredentialError
 
 
 class TestSecretsManagerResolve:
@@ -18,7 +18,7 @@ class TestSecretsManagerResolve:
         secrets = SecretsManager()
         assert secrets.resolve("deepseek") == "sk-from-env"
 
-    def test_resolve_tradingagents_prefixed_env_var(self, monkeypatch):
+    def test_resolve_luna_workstation_prefixed_env_var(self, monkeypatch):
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         monkeypatch.setenv("TRADINGAGENTS_DEEPSEEK_API_KEY", "sk-prefixed")
         secrets = SecretsManager()

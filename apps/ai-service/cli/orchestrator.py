@@ -34,8 +34,8 @@ from cli.tui import (
     create_layout,
     update_display,
 )
-from tradingagents.exceptions import ConfigurationValidationError, LLMCredentialError
-from tradingagents.observability import install_secret_redaction_filter
+from luna_workstation.exceptions import ConfigurationValidationError, LLMCredentialError
+from luna_workstation.observability import install_secret_redaction_filter
 from cli.preflight import check_api_keys
 
 console = Console()
@@ -51,7 +51,7 @@ def _make_research_service_factory(research_service_class=None, graph_class=None
         research_service_class = None
 
     if research_service_class is None:
-        from tradingagents.services import ResearchService as research_service_class
+        from luna_workstation.services import ResearchService as research_service_class
 
     if graph_class is None:
         return research_service_class
@@ -126,7 +126,7 @@ class AnalysisOrchestrator:
         install_secret_redaction_filter()
 
         if plain:
-            from tradingagents.observability.logging import (
+            from luna_workstation.observability.logging import (
                 configure_plain_observability_logging,
             )
 
@@ -524,8 +524,8 @@ class AnalysisOrchestrator:
         # -- Data provider health probe ------------------------------------
         console.print("\n[bold]Data provider health check:[/bold]")
         try:
-            from tradingagents.dataflows.config import config_context
-            from tradingagents.dataflows.interface import check_provider_health
+            from luna_workstation.dataflows.config import config_context
+            from luna_workstation.dataflows.interface import check_provider_health
 
             health_timeout = max(
                 10.0,

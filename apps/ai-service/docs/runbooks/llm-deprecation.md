@@ -92,7 +92,7 @@ Check current provider model lists:
 ```bash
 # For DeepSeek
 python -c "
-from tradingagents.llm_clients.model_catalog import KNOWN_MODELS
+from luna_workstation.llm_clients.model_catalog import KNOWN_MODELS
 for k, v in KNOWN_MODELS.get('deepseek', {}).items():
     print(k, v)
 "

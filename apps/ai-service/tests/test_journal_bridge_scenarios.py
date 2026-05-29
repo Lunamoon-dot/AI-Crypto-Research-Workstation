@@ -1,6 +1,6 @@
-from tradingagents.agents.schemas import ScenarioItem, ScenarioPlan
-from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.graph.journal_bridge import (
+from luna_workstation.agents.schemas import ScenarioItem, ScenarioPlan
+from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
+from luna_workstation.graph.journal_bridge import (
     JournalBridge,
     _parse_scenario_plan,
     scenarios_from_structured_plan,

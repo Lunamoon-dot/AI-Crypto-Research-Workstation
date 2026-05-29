@@ -7,16 +7,16 @@ from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 
-from tradingagents.observability.budget import (
+from luna_workstation.observability.budget import (
     BudgetCallbackHandler,
     BudgetTracker,
     StageBudget,
     merge_budget_config,
     _DEFAULT_BUDGETS,
 )
-import tradingagents.graph.setup as graph_setup_module
-from tradingagents.graph.research_agents_graph import ResearchAgentsGraph
-from tradingagents.graph.setup import GraphSetup
+import luna_workstation.graph.setup as graph_setup_module
+from luna_workstation.graph.research_agents_graph import ResearchAgentsGraph
+from luna_workstation.graph.setup import GraphSetup
 
 
 class TestStageBudget:

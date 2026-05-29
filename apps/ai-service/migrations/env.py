@@ -13,8 +13,8 @@ def _db_url() -> str:
     raw = config.get_main_option("sqlalchemy.url")
     if raw:
         return raw
-    from tradingagents.default_config import DEFAULT_CONFIG
-    from tradingagents.services.journal_service import resolve_journal_db_path
+    from luna_workstation.default_config import DEFAULT_CONFIG
+    from luna_workstation.services.journal_service import resolve_journal_db_path
 
     path = Path(resolve_journal_db_path(DEFAULT_CONFIG)).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)

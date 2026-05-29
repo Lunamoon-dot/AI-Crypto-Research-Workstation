@@ -43,7 +43,7 @@ flowchart TD
   Jobs["JobsService<br/>BullMQ / memory / inline"]
   PyClient["PythonEngineClient"]
   AI["Python AI service<br/>apps/ai-service"]
-  SQLite["SQLite journal<br/>~/.tradingagents"]
+  SQLite["SQLite journal<br/>~/.luna_workstation"]
   Repo["Journal repository<br/>Prisma or pg"]
   DB["Postgres<br/>product journal"]
   Redis["Redis<br/>optional queue"]

@@ -1,6 +1,6 @@
-from tradingagents.agents.utils import sentiment_tools
-from tradingagents.agents.utils.sentiment_tools import get_fear_greed_index
-from tradingagents.dataflows.sentiment_provider import aggregate_news_sentiment
+from luna_workstation.agents.utils import sentiment_tools
+from luna_workstation.agents.utils.sentiment_tools import get_fear_greed_index
+from luna_workstation.dataflows.sentiment_provider import aggregate_news_sentiment
 
 
 def test_news_sentiment_low_headline_count_is_weak_warning_only():

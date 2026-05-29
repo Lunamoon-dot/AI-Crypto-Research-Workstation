@@ -9,8 +9,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from tradingagents.domain import MarketBrief
-from tradingagents.services import BriefService
+from luna_workstation.domain import MarketBrief
+from luna_workstation.services import BriefService
 
 console = Console()
 app = typer.Typer(help="Create and inspect persisted daily market briefs.")

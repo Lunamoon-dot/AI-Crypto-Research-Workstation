@@ -45,7 +45,7 @@ So the corrected verdict is: strong local alpha/beta research engine with materi
 
 ## Inferred Product Purpose
 
-The code is trying to become a local-first AI crypto research workstation, not a trading bot. The durable workflow is:
+The code is trying to become a local-first AI crypto research workstation for thesis discipline. The durable workflow is:
 
 ```text
 market context
@@ -176,11 +176,11 @@ Better approach: keep those fake-boundary tests and add provider-native timeout 
 
 Evidence:
 
-- `tradingagents/dataflows/config.py` stores config in `_config_ctx`, a `ContextVar`.
+- `luna_workstation/dataflows/config.py` stores config in `_config_ctx`, a `ContextVar`.
 - `get_config()` raises if no context is bound.
-- `tradingagents/dataflows/interface.py` uses `_invoke_with_resilience()`.
+- `luna_workstation/dataflows/interface.py` uses `_invoke_with_resilience()`.
 - `_invoke_with_resilience()` captures `contextvars.copy_context()` before submitting the vendor function.
-- `tradingagents/dataflows/ccxt_provider.py` calls `_get_configured_exchange()`, which calls `get_config()` inside provider code.
+- `luna_workstation/dataflows/ccxt_provider.py` calls `_get_configured_exchange()`, which calls `get_config()` inside provider code.
 - `tests/test_dataflow_resilience.py` covers a vendor function that calls `get_config()` inside the resilience wrapper.
 
 Current state: the short fix is in place, so the caller's context is available inside provider worker functions.
@@ -263,7 +263,7 @@ Better approach: require the setup-planner/portfolio-manager stage to emit a Pyd
 
 ### 7. Error handling hides degraded artifacts
 
-There are 98 broad `except Exception` occurrences in `apps/ai-service/tradingagents`. Some are defensive and acceptable, but the pattern is overused around provider routing, signal computation, persistence bridges, and LLM fallback.
+There are 98 broad `except Exception` occurrences in `apps/ai-service/luna_workstation`. Some are defensive and acceptable, but the pattern is overused around provider routing, signal computation, persistence bridges, and LLM fallback.
 
 Why problematic: optional degradation is good; silent or under-signaled degradation is not. A run can look complete while missing important signals, journal rows, provider health records, or structured fields.
 
@@ -778,7 +778,7 @@ Impact: high. It turns a developer repo into something users can install with co
 
 ## Commercial / Open-Source Potential
 
-Commercial potential is real for a local crypto research workstation. The best wedge is not "AI trading bot"; it is:
+Commercial potential is real for a local crypto research workstation. The best wedge is:
 
 ```text
 local crypto research cockpit
@@ -794,7 +794,6 @@ That can be useful to discretionary crypto traders and semi-pro users. The open-
 What not to sell yet:
 
 - broker-accurate backtesting
-- autonomous trading
 - hosted SaaS reliability
 - team collaboration
 - regulated investment advice

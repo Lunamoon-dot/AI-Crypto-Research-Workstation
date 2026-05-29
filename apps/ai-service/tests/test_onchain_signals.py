@@ -1,5 +1,5 @@
-from tradingagents.dataflows import onchain_provider
-from tradingagents.signals.onchain_signals import (
+from luna_workstation.dataflows import onchain_provider
+from luna_workstation.signals.onchain_signals import (
     compute_onchain_signal,
     _parse_exchange_metrics,
 )

@@ -22,8 +22,8 @@ Repo hiện đã có nền móng ban đầu khá đúng:
 
 - `apps/api/src/jobs/jobs.service.ts` đã hỗ trợ BullMQ khi có `REDIS_URL`, đồng thời có memory và inline fallback cho local/dev.
 - `apps/api/src/jobs/python-engine.client.ts` đã gọi Python engine thông qua JSON request file.
-- `apps/ai-service/tradingagents/engine/schemas.py` đã định nghĩa `EngineRunRequest` và `EngineRunResult`.
-- `apps/ai-service/tradingagents/engine/runner.py` đã persist engine run với `workspace_id`.
+- `apps/ai-service/luna_workstation/engine/schemas.py` đã định nghĩa `EngineRunRequest` và `EngineRunResult`.
+- `apps/ai-service/luna_workstation/engine/runner.py` đã persist engine run với `workspace_id`.
 - `packages/database/prisma/schema.prisma` đã có nhiều bảng gắn với `workspaceId`.
 - API tests đã có test workspace scoping và engine request contract.
 

@@ -3,17 +3,17 @@ from typing import Any
 from typer.testing import CliRunner
 
 from cli import main as cli_main
-from tradingagents.engine import (
+from luna_workstation.engine import (
     EngineEvaluateRequest,
     EngineEvaluateResult,
     EngineRunRequest,
     EngineRunResult,
     EngineRunner,
 )
-from tradingagents.engine.runner import run_evaluate_request
-from tradingagents.domain import ResearchRun, ThesisDirection, TradeThesis
-from tradingagents.services.evaluation_service import EvaluationService
-from tradingagents.services import JournalService
+from luna_workstation.engine.runner import run_evaluate_request
+from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
+from luna_workstation.services.evaluation_service import EvaluationService
+from luna_workstation.services import JournalService
 
 
 def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
@@ -150,7 +150,7 @@ def test_engine_evaluate_binds_dataflow_config_context(tmp_path, monkeypatch):
     )
 
     def fake_route_to_vendor(name, symbol, start_date, end_date):
-        from tradingagents.dataflows.config import get_config
+        from luna_workstation.dataflows.config import get_config
 
         bound = get_config()
         assert name == "get_crypto_ohlcv"
@@ -166,11 +166,11 @@ def test_engine_evaluate_binds_dataflow_config_context(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "tradingagents.engine.runner.DEFAULT_CONFIG",
+        "luna_workstation.engine.runner.DEFAULT_CONFIG",
         config,
     )
     monkeypatch.setattr(
-        "tradingagents.services.evaluation_service.route_to_vendor",
+        "luna_workstation.services.evaluation_service.route_to_vendor",
         fake_route_to_vendor,
     )
 
@@ -193,7 +193,7 @@ def test_engine_cli_evaluate_emits_machine_json(tmp_path, monkeypatch):
     request_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
-        "tradingagents.engine.run_evaluate_request_file",
+        "luna_workstation.engine.run_evaluate_request_file",
         lambda _path: EngineEvaluateResult(
             workspace_id="workspace_1",
             thesis_id="thesis_1",
@@ -219,7 +219,7 @@ def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):
     request_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
-        "tradingagents.engine.run_engine_request_file",
+        "luna_workstation.engine.run_engine_request_file",
         lambda _path: EngineRunResult(
             run_id="run_degraded",
             workspace_id="workspace_1",
