@@ -18,7 +18,10 @@ import type {
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityEntriesResponse,
+  ResearchContinuityEntryDebugResponse,
+  ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
   RunResearchContinuityRepairRequest,
   SignalCountResponse,
@@ -337,7 +340,7 @@ export function createApiClient(request: ApiTransport) {
         {},
       ),
     getResearchRunContinuity: (id: string) =>
-      request<ResearchContinuityEntryResponse | null>(
+      request<ResearchContinuityEntrySummaryResponse | null>(
         `/research-runs/${encodeURIComponent(id)}/continuity`,
         {},
       ),
@@ -383,8 +386,13 @@ export function createApiClient(request: ApiTransport) {
         { method: 'POST', body },
       ),
     getResearchContinuityEntry: (id: string) =>
-      request<ResearchContinuityEntryResponse>(
+      request<ResearchContinuityEntryDetailResponse>(
         `/research-continuity/entries/${encodeURIComponent(id)}`,
+        {},
+      ),
+    getResearchContinuityEntryDebug: (id: string) =>
+      request<ResearchContinuityEntryDebugResponse>(
+        `/research-continuity/entries/${encodeURIComponent(id)}/debug`,
         {},
       ),
     getJournalRunWorkspace: (id: string) =>

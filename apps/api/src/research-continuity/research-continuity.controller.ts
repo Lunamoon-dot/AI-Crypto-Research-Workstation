@@ -40,6 +40,15 @@ export class ResearchContinuityController {
     return this.continuity.getEntry(id, userId, workspaceId);
   }
 
+  @Get('entries/:id/debug')
+  getEntryDebug(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.getEntryDebug(id, userId, workspaceId);
+  }
+
   @Get('repair/preview')
   previewRepair(
     @Query('symbol') symbol?: string,

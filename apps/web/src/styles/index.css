@@ -1429,6 +1429,53 @@ a {
   padding-left: 10px;
 }
 
+.research-continuity-detail-grid {
+  align-items: start;
+}
+
+.research-continuity-quality-grid.detail {
+  grid-template-columns: 1fr;
+}
+
+.continuity-material-events,
+.continuity-debug-access {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.continuity-material-event {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.72);
+  padding-bottom: 10px;
+}
+
+.continuity-material-event:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.continuity-material-event p,
+.continuity-debug-access p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.continuity-debug-access {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+}
+
+.continuity-debug-details {
+  min-width: 0;
+}
+
+.continuity-debug-details > summary.button {
+  width: fit-content;
+}
+
 .list-row {
   display: grid;
   gap: 8px;

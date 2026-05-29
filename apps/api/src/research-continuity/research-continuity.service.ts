@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -13,12 +14,14 @@ import {
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { normalizeCryptoSymbol } from '../common/market-symbols';
+import { redactForDebug } from '../common/redaction';
 import { ContinuityDeltaEngine } from './continuity-delta.engine';
 import {
   buildLegacyThinReport,
   ContinuityReportRenderer,
   RESEARCH_CONTINUITY_THIN_REPORT_VERSION,
 } from './continuity-report.renderer';
+import { isResearchContinuityDebugEnabled } from './research-continuity.config';
 import { ContinuityStateProjector } from './continuity-state.projector';
 import {
   ResearchSnapshotBuilder,
@@ -27,16 +30,24 @@ import {
 import {
   GenerateResearchContinuityDto,
   GenerateResearchContinuityResponse,
+  RESEARCH_CONTINUITY_DEBUG_PERMISSION,
   RESEARCH_CONTINUITY_REPAIR_CASE_TYPES,
   RESEARCH_CONTINUITY_REPAIR_VERSION,
   ResearchContinuityEntriesResponse,
+  ResearchContinuityEntryDebugResponse,
+  ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
+  ResearchContinuityEvidenceDigestResponse,
+  ResearchContinuityMaterialEventDigestResponse,
+  ResearchContinuityQualityExplanationResponse,
   ResearchContinuityRepairCandidateResponse,
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewFilters,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunResultResponse,
+  ResearchContinuityStateTransitionDigestResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
@@ -77,18 +88,19 @@ export class ResearchContinuityService {
     runId: string,
     userId?: string,
     workspaceHeader?: string,
-  ): Promise<ResearchContinuityEntryResponse | null> {
+  ): Promise<ResearchContinuityEntrySummaryResponse | null> {
     const workspaceId = await this.resolveWorkspaceAccess(
       userId,
       workspaceHeader,
       'viewer',
     );
+    const canViewDebug = await this.canViewDebug(userId, workspaceId);
     await this.getRunOrThrow(runId, workspaceId);
     const entry = await this.journal.getLatestResearchContinuityEntryForRun(
       runId,
       workspaceId,
     );
-    return entry ? toEntryResponse(entry) : null;
+    return entry ? toEntrySummaryResponse(entry, canViewDebug) : null;
   }
 
   async generateForRun(
@@ -120,17 +132,43 @@ export class ResearchContinuityService {
     id: string,
     userId?: string,
     workspaceHeader?: string,
-  ): Promise<ResearchContinuityEntryResponse> {
+  ): Promise<ResearchContinuityEntryDetailResponse> {
     const workspaceId = await this.resolveWorkspaceAccess(
       userId,
       workspaceHeader,
       'viewer',
     );
+    const canViewDebug = await this.canViewDebug(userId, workspaceId);
     const entry = await this.journal.getResearchContinuityEntry(id, workspaceId);
     if (!entry) {
       throw new NotFoundException(`Research continuity entry ${id} not found`);
     }
-    return toEntryResponse(entry);
+    return toEntryDetailResponse(entry, canViewDebug);
+  }
+
+  async getEntryDebug(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityEntryDebugResponse> {
+    if (!isResearchContinuityDebugEnabled()) {
+      throwDebugDisabled();
+    }
+    let workspaceId: string;
+    try {
+      workspaceId = await this.resolveWorkspaceAccess(
+        userId,
+        workspaceHeader,
+        'editor',
+      );
+    } catch (error) {
+      throwDebugPermissionRequired(error);
+    }
+    const entry = await this.journal.getResearchContinuityEntry(id, workspaceId);
+    if (!entry) {
+      throw new NotFoundException(`Research continuity entry ${id} not found`);
+    }
+    return toEntryDebugResponse(entry, this.auth.resolveUser(userId));
   }
 
   async getSymbolState(
@@ -143,6 +181,7 @@ export class ResearchContinuityService {
       workspaceHeader,
       'viewer',
     );
+    const canViewDebug = await this.canViewDebug(userId, workspaceId);
     const normalizedSymbol = normalizeContinuitySymbol(symbol);
     const state = await this.journal.getResearchContinuityState(
       normalizedSymbol,
@@ -155,7 +194,7 @@ export class ResearchContinuityService {
     return {
       symbol: normalizedSymbol,
       state: state ? toStateResponse(state) : null,
-      latest_entry: latestEntry ? toEntryResponse(latestEntry) : null,
+      latest_entry: latestEntry ? toEntrySummaryResponse(latestEntry, canViewDebug) : null,
     };
   }
 
@@ -170,6 +209,7 @@ export class ResearchContinuityService {
       workspaceHeader,
       'viewer',
     );
+    const canViewDebug = await this.canViewDebug(userId, workspaceId);
     const normalizedSymbol = normalizeContinuitySymbol(symbol);
     const entries = await this.journal.listResearchContinuityEntriesBySymbol(
       normalizedSymbol,
@@ -178,7 +218,7 @@ export class ResearchContinuityService {
     );
     return {
       symbol: normalizedSymbol,
-      entries: entries.map(toEntryResponse),
+      entries: entries.map((entry) => toEntrySummaryResponse(entry, canViewDebug)),
     };
   }
 
@@ -822,7 +862,7 @@ export class ResearchContinuityService {
         workspaceId,
       );
       if (existing) {
-        return { created: false, entry: toEntryResponse(existing) };
+        return { created: false, entry: toLegacyEntryResponse(existing) };
       }
     }
 
@@ -841,7 +881,7 @@ export class ResearchContinuityService {
         previousEntryId,
         reason: 'run_not_completed',
       });
-      return { created: true, entry: toEntryResponse(entry) };
+      return { created: true, entry: toLegacyEntryResponse(entry) };
     }
 
     const artifacts = await this.loadArtifacts(run, workspaceId);
@@ -855,7 +895,7 @@ export class ResearchContinuityService {
         reason: build.skippedReason ?? 'insufficient_structured_data',
         quality: build.quality,
       });
-      return { created: true, entry: toEntryResponse(entry) };
+      return { created: true, entry: toLegacyEntryResponse(entry) };
     }
 
     const snapshot = await this.journal.saveResearchSnapshot(
@@ -914,7 +954,7 @@ export class ResearchContinuityService {
     if (nextState) {
       await this.journal.saveResearchContinuityState(nextState, workspaceId);
     }
-    return { created: true, entry: toEntryResponse(entry) };
+    return { created: true, entry: toLegacyEntryResponse(entry) };
   }
 
   private async createSkippedEntry(input: {
@@ -1040,6 +1080,25 @@ export class ResearchContinuityService {
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     await this.workspaces.assertAccess(user, workspaceId, requiredRole);
     return workspaceId;
+  }
+
+  private async canViewDebug(
+    userId: string | undefined,
+    workspaceId: string,
+  ): Promise<boolean> {
+    if (!isResearchContinuityDebugEnabled()) {
+      return false;
+    }
+    try {
+      await this.workspaces.assertAccess(
+        this.auth.resolveUser(userId),
+        workspaceId,
+        'editor',
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -1268,7 +1327,7 @@ function qualityRank(value: string): number {
   return 0;
 }
 
-function toEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
+function toLegacyEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
   const sections = arrayRecords(entry.sections);
   const snapshotQuality = recordValue(entry.snapshot_quality);
   const payload = continuityEntryPayload(entry);
@@ -1303,6 +1362,298 @@ function toEntryResponse(entry: JsonRecord): ResearchContinuityEntryResponse {
   };
 }
 
+function toEntrySummaryResponse(
+  entry: JsonRecord,
+  canViewDebug: boolean,
+): ResearchContinuityEntrySummaryResponse {
+  const sections = arrayRecords(entry.sections);
+  const snapshotQuality = recordValue(entry.snapshot_quality);
+  const payload = continuityEntryPayload(entry);
+  const id = nullableString(entry.id);
+  return {
+    id,
+    workspace_id: stringValue(entry.workspace_id, 'local'),
+    symbol: stringValue(entry.symbol),
+    research_run_id: stringValue(entry.research_run_id),
+    entry_type: entryTypeValue(entry.entry_type),
+    status: entryStatusValue(entry.status),
+    generated_at: nullableString(entry.generated_at),
+    summary: stringValue(entry.summary),
+    thin_report:
+      thinReportFromPayload(payload) ??
+      buildLegacyThinReport({
+        generatedAt: nullableString(entry.generated_at),
+        sections,
+        snapshotQuality,
+      }),
+    debug: buildDebugAccess(id, canViewDebug),
+  };
+}
+
+function throwDebugDisabled(): never {
+  throw new ForbiddenException({
+    code: 'debug_access_disabled',
+    message: 'Research continuity debug access is disabled by policy.',
+  });
+}
+
+function throwDebugPermissionRequired(error: unknown): never {
+  if (!(error instanceof ForbiddenException)) {
+    throw error;
+  }
+  throw new ForbiddenException({
+    code: 'debug_permission_required',
+    message: 'Research continuity debug access requires view_debug_trace.',
+  });
+}
+
+function toEntryDetailResponse(
+  entry: JsonRecord,
+  canViewDebug: boolean,
+): ResearchContinuityEntryDetailResponse {
+  return {
+    ...toEntrySummaryResponse(entry, canViewDebug),
+    quality_explanation: buildQualityExplanation(entry),
+    evidence_digest: buildEvidenceDigest(entry),
+    material_events_digest: buildMaterialEventsDigest(entry),
+    state_transition: buildStateTransitionDigest(entry),
+  };
+}
+
+function toEntryDebugResponse(
+  entry: JsonRecord,
+  requestedByUserId: string,
+): ResearchContinuityEntryDebugResponse {
+  const legacy = toLegacyEntryResponse(entry);
+  const redacted = redactForDebug({
+    sections: legacy.sections,
+    events: legacy.events,
+    snapshot_quality: legacy.snapshot_quality,
+    source_run_ids: legacy.source_run_ids,
+    writer_metadata: legacy.writer_metadata,
+    payload: legacy.payload,
+  }) as ResearchContinuityEntryDebugResponse['entry'];
+  return {
+    id: legacy.id,
+    workspace_id: legacy.workspace_id,
+    symbol: legacy.symbol,
+    research_run_id: legacy.research_run_id,
+    generated_at: legacy.generated_at,
+    debug_view: 'redacted',
+    redacted: true,
+    requested_by_user_id: requestedByUserId,
+    returned_at: new Date().toISOString(),
+    entry: redacted,
+  };
+}
+
+function buildDebugAccess(
+  entryId: string | null,
+  canViewDebug: boolean,
+): ResearchContinuityEntrySummaryResponse['debug'] {
+  if (!entryId) {
+    return {
+      available: false,
+      reason: 'not_available',
+      requires_permission: RESEARCH_CONTINUITY_DEBUG_PERMISSION,
+      url: null,
+      redacted: true,
+    };
+  }
+  if (!isResearchContinuityDebugEnabled()) {
+    return {
+      available: false,
+      reason: 'disabled_by_policy',
+      requires_permission: RESEARCH_CONTINUITY_DEBUG_PERMISSION,
+      url: null,
+      redacted: true,
+    };
+  }
+  if (!canViewDebug) {
+    return {
+      available: false,
+      reason: 'permission_required',
+      requires_permission: RESEARCH_CONTINUITY_DEBUG_PERMISSION,
+      url: null,
+      redacted: true,
+    };
+  }
+  return {
+    available: true,
+    reason: 'available',
+    requires_permission: RESEARCH_CONTINUITY_DEBUG_PERMISSION,
+    url: `/research-continuity/entries/${encodeURIComponent(entryId)}/debug`,
+    redacted: true,
+  };
+}
+
+function buildQualityExplanation(
+  entry: JsonRecord,
+): ResearchContinuityQualityExplanationResponse {
+  const payload = continuityEntryPayload(entry);
+  const thinQuality = recordValue(thinReportFromPayload(payload)?.quality);
+  const snapshotQuality = recordValue(entry.snapshot_quality);
+  const quality =
+    Object.keys(snapshotQuality).length > 0 ? snapshotQuality : thinQuality;
+  return {
+    status: stringValue(quality.status, 'unknown'),
+    score: numberOrNull(quality.score),
+    observed_evidence_coverage: numberOrNull(
+      quality.observed_evidence_coverage,
+    ),
+    evidence_coverage: numberOrNull(quality.evidence_coverage),
+    provenance_status: nullableString(quality.provenance_status),
+    warnings: stringList(quality.warnings),
+    reasons: stringList(quality.reasons),
+  };
+}
+
+function buildEvidenceDigest(
+  entry: JsonRecord,
+): ResearchContinuityEvidenceDigestResponse {
+  const quality = buildQualityExplanation(entry);
+  const snapshotQuality = recordValue(entry.snapshot_quality);
+  const observedCount = numberOrNull(snapshotQuality.observed_evidence_count);
+  const reasoningCount = numberOrNull(
+    snapshotQuality.reasoning_only_item_count ??
+      snapshotQuality.reasoning_evidence_count,
+  );
+  const missingCount = numberOrNull(
+    snapshotQuality.missing_evidence_item_count ??
+      snapshotQuality.missing_evidence_count,
+  );
+  const noEvidenceCount = numberOrNull(snapshotQuality.no_evidence_item_count);
+  const staleCount = numberOrNull(
+    snapshotQuality.stale_evidence_item_count ?? snapshotQuality.stale_count,
+  );
+  const observedCoverage = quality.observed_evidence_coverage;
+  const missingCategories = stringList(
+    snapshotQuality.missing_evidence_categories ??
+      snapshotQuality.missing_categories,
+  );
+  const staleCategories = stringList(
+    snapshotQuality.stale_evidence_categories ?? snapshotQuality.stale_categories,
+  );
+  return {
+    observed_count: observedCount,
+    reasoning_count: reasoningCount,
+    missing_count: missingCount,
+    no_evidence_count: noEvidenceCount,
+    stale_count: staleCount,
+    observed_coverage: observedCoverage,
+    missing_categories: missingCategories,
+    stale_categories: staleCategories,
+    health_line: evidenceHealthLine({
+      observedCoverage,
+      missingCount,
+      noEvidenceCount,
+      staleCount,
+      status: quality.status,
+    }),
+  };
+}
+
+function buildMaterialEventsDigest(
+  entry: JsonRecord,
+): ResearchContinuityMaterialEventDigestResponse[] {
+  return arrayRecords(entry.events).slice(0, 10).map((event) => {
+    const type = stringValue(event.event_type ?? event.type, 'event');
+    return {
+      type,
+      label: type.replaceAll('_', ' '),
+      severity: eventSeverityValue(event.severity),
+      summary: materialEventSummary(event, type),
+      evidence_status: nullableString(
+        event.evidence_status ??
+          recordValue(event.source).evidence_quality ??
+          event.evidence_quality,
+      ),
+    };
+  });
+}
+
+function buildStateTransitionDigest(
+  entry: JsonRecord,
+): ResearchContinuityStateTransitionDigestResponse {
+  const transition = entryTypeValue(entry.entry_type);
+  const previousEntryId = nullableString(entry.previous_entry_id);
+  return {
+    previous_entry_id: previousEntryId,
+    current_snapshot_id: nullableString(entry.current_snapshot_id),
+    source_run_ids: stringList(entry.source_run_ids),
+    transition,
+    reason: stateTransitionReason(transition, entryStatusValue(entry.status), previousEntryId),
+  };
+}
+
+function evidenceHealthLine(input: {
+  observedCoverage: number | null;
+  missingCount: number | null;
+  noEvidenceCount: number | null;
+  staleCount: number | null;
+  status: string;
+}): string {
+  const parts = [`Quality ${input.status || 'unknown'}.`];
+  if (input.observedCoverage !== null) {
+    parts.push(
+      `Observed evidence covers ${Math.round(input.observedCoverage * 100)}%.`,
+    );
+  }
+  const gaps =
+    (input.missingCount ?? 0) +
+    (input.noEvidenceCount ?? 0) +
+    (input.staleCount ?? 0);
+  if (gaps > 0) {
+    parts.push(`${gaps} evidence gap${gaps === 1 ? '' : 's'} need review.`);
+  } else {
+    parts.push('No missing, stale, or absent evidence was reported.');
+  }
+  return parts.join(' ');
+}
+
+function materialEventSummary(event: JsonRecord, type: string): string {
+  return stringValue(
+    event.summary ??
+      event.reason ??
+      event.current_text ??
+      event.to ??
+      event.item_key,
+    `${type.replaceAll('_', ' ')} recorded.`,
+  );
+}
+
+function eventSeverityValue(
+  value: unknown,
+): ResearchContinuityMaterialEventDigestResponse['severity'] {
+  const severity = stringValue(value).toLowerCase();
+  if (['critical', 'high'].includes(severity)) {
+    return 'critical';
+  }
+  if (['warning', 'medium'].includes(severity)) {
+    return 'warning';
+  }
+  return 'info';
+}
+
+function stateTransitionReason(
+  transition: ResearchContinuityStateTransitionDigestResponse['transition'],
+  status: ResearchContinuityEntrySummaryResponse['status'],
+  previousEntryId: string | null,
+): string {
+  if (transition === 'baseline') {
+    return 'Baseline continuity entry created for this symbol.';
+  }
+  if (transition === 'skipped') {
+    return 'Continuity was skipped because required structured data was unavailable.';
+  }
+  if (transition === 'degraded' || status === 'degraded') {
+    return 'Continuity was generated with degraded source or evidence quality.';
+  }
+  return previousEntryId
+    ? `Delta continuity entry compares against ${previousEntryId}.`
+    : 'Delta continuity entry created without a previous entry reference.';
+}
+
 function toStateResponse(state: JsonRecord): ResearchContinuityStateResponse {
   return {
     id: nullableString(state.id),
@@ -1317,7 +1668,6 @@ function toStateResponse(state: JsonRecord): ResearchContinuityStateResponse {
     recent_invalidated_items: arrayRecords(state.recent_invalidated_items),
     data_quality: recordValue(state.data_quality),
     updated_at: nullableString(state.updated_at),
-    payload: recordValue(state.payload ?? state.payload_json),
   };
 }
 

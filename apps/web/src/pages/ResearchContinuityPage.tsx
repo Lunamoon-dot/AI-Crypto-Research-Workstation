@@ -20,7 +20,6 @@ import {
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
-import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { IdChip, StatusBadge } from '@/components/research/badges';
@@ -30,7 +29,7 @@ import { routes } from '@/lib/routes';
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import type {
   JsonRecord,
-  ResearchContinuityEntryResponse,
+  ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunResponse,
@@ -49,9 +48,7 @@ const ENABLE_RESEARCH_CONTINUITY_REPAIR = booleanViteEnv(
   false,
 );
 
-type DisplayReportSection =
-  | ResearchContinuityEntryResponse['sections'][number]
-  | ResearchContinuityThinReport['sections'][number];
+type DisplayReportSection = ResearchContinuityThinReport['sections'][number];
 
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -84,7 +81,7 @@ export function ResearchContinuityPage() {
   const state = stateQuery.data?.state ?? null;
   const entries = entriesQuery.data?.entries ?? [];
   const latestEntry = stateQuery.data?.latest_entry ?? entries[0] ?? null;
-  const quality = record(state?.data_quality ?? latestEntry?.snapshot_quality);
+  const quality = record(state?.data_quality ?? latestEntry?.thin_report?.quality);
 
   function refreshContinuityQueries() {
     void queryClient.invalidateQueries({
@@ -205,7 +202,7 @@ function CurrentView({
   latestEntry,
 }: {
   state: ResearchContinuityStateResponse | null;
-  latestEntry: ResearchContinuityEntryResponse | null;
+  latestEntry: ResearchContinuityEntrySummaryResponse | null;
 }) {
   if (!state) {
     return <EmptyState label="No continuity state for this symbol yet." />;
@@ -633,14 +630,11 @@ function TrackedItemArticle({
   );
 }
 
-function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null }) {
+function LatestReport({ entry }: { entry: ResearchContinuityEntrySummaryResponse | null }) {
   if (!entry) {
     return <EmptyState label="No latest continuity report." />;
   }
-  const isThinReport = Boolean(entry.thin_report?.sections.length);
-  const sections: DisplayReportSection[] = isThinReport
-    ? (entry.thin_report?.sections ?? [])
-    : entry.sections.filter((section) => section.title.toLowerCase() !== 'summary');
+  const sections = entry.thin_report?.sections ?? [];
   return (
     <div className="continuity-report">
       <div className="continuity-report-toolbar">
@@ -651,8 +645,13 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
         <div className="continuity-report-actions">
           <span className="small muted">{formatDateTime(entry.generated_at)}</span>
           <Link className="button" to={routes.researchRun(entry.research_run_id)}>
-            Open full run
+            Open source run
           </Link>
+          {entry.id ? (
+            <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+              Details
+            </Link>
+          ) : null}
         </div>
       </div>
       <div className="continuity-report-summary">
@@ -661,7 +660,7 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
       </div>
       <div className="continuity-report-sections">
         {sections.map((section) => {
-          const preview = reportSectionPreview(section, isThinReport);
+          const preview = reportSectionPreview(section);
           return (
             <section className="continuity-report-section" key={reportSectionKey(section)}>
               <h4>{section.title}</h4>
@@ -679,12 +678,6 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
           );
         })}
       </div>
-      {entry.thin_report?.debug_available ? (
-        <details className="continuity-debug-details">
-          <summary className="button">Debug trace</summary>
-          <JsonView value={entry} />
-        </details>
-      ) : null}
     </div>
   );
 }
@@ -692,7 +685,7 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntryResponse | null
 function ContinuityEntryRow({
   entry,
 }: {
-  entry: ResearchContinuityEntryResponse;
+  entry: ResearchContinuityEntrySummaryResponse;
 }) {
   return (
     <div className="list-row">
@@ -704,12 +697,13 @@ function ContinuityEntryRow({
       <p className="muted">{entry.summary}</p>
       <div className="top-strip-meta">
         <Link className="button" to={routes.researchRun(entry.research_run_id)}>
-          Open run
+          Open source run
         </Link>
-        <details>
-          <summary className="button">Details</summary>
-          <JsonView value={entry} />
-        </details>
+        {entry.id ? (
+          <Link className="button" to={`/research-continuity/entries/${entry.id}`}>
+            Details
+          </Link>
+        ) : null}
       </div>
     </div>
   );
@@ -786,26 +780,19 @@ function evidenceQualityLabel(value: string): string {
 
 function reportSectionPreview(
   section: DisplayReportSection,
-  isThinReport: boolean,
 ): {
   hiddenCount: number;
   items: string[];
 } {
-  const items =
-    section.items.length > 0
-      ? section.items
-      : ['empty_state' in section && section.empty_state
-        ? section.empty_state
-        : 'No changes reported.'];
-  const visibleCount = isThinReport ? items.length : 2;
+  const items = section.items.length > 0 ? section.items : ['No changes reported.'];
   return {
-    hiddenCount: Math.max(0, items.length - visibleCount),
-    items: items.slice(0, visibleCount),
+    hiddenCount: 0,
+    items,
   };
 }
 
 function reportSectionKey(section: DisplayReportSection): string {
-  return 'id' in section ? section.id : section.title;
+  return section.id;
 }
 
 function repairCaseLabel(value: ResearchContinuityRepairCaseType): string {
