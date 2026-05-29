@@ -114,7 +114,12 @@ export class ResearchContinuityService {
       workspaceHeader,
       'editor',
     );
-    return this.generateForRunInWorkspace(runId, workspaceId, Boolean(dto.force));
+    return this.generateForRunInWorkspace(
+      runId,
+      workspaceId,
+      Boolean(dto.force),
+      userId,
+    );
   }
 
   async generateForCompletedRun(
@@ -855,14 +860,19 @@ export class ResearchContinuityService {
     runId: string,
     workspaceId: string,
     force: boolean,
+    userId?: string,
   ): Promise<GenerateResearchContinuityResponse> {
+    const canViewDebug = await this.canViewDebug(userId, workspaceId);
     if (!force) {
       const existing = await this.journal.getLatestResearchContinuityEntryForRun(
         runId,
         workspaceId,
       );
       if (existing) {
-        return { created: false, entry: toLegacyEntryResponse(existing) };
+        return {
+          created: false,
+          entry: toEntryDetailResponse(existing, canViewDebug),
+        };
       }
     }
 
@@ -881,7 +891,7 @@ export class ResearchContinuityService {
         previousEntryId,
         reason: 'run_not_completed',
       });
-      return { created: true, entry: toLegacyEntryResponse(entry) };
+      return { created: true, entry: toEntryDetailResponse(entry, canViewDebug) };
     }
 
     const artifacts = await this.loadArtifacts(run, workspaceId);
@@ -895,7 +905,7 @@ export class ResearchContinuityService {
         reason: build.skippedReason ?? 'insufficient_structured_data',
         quality: build.quality,
       });
-      return { created: true, entry: toLegacyEntryResponse(entry) };
+      return { created: true, entry: toEntryDetailResponse(entry, canViewDebug) };
     }
 
     const snapshot = await this.journal.saveResearchSnapshot(
@@ -954,7 +964,7 @@ export class ResearchContinuityService {
     if (nextState) {
       await this.journal.saveResearchContinuityState(nextState, workspaceId);
     }
-    return { created: true, entry: toLegacyEntryResponse(entry) };
+    return { created: true, entry: toEntryDetailResponse(entry, canViewDebug) };
   }
 
   private async createSkippedEntry(input: {
@@ -1392,6 +1402,7 @@ function toEntrySummaryResponse(
 
 function throwDebugDisabled(): never {
   throw new ForbiddenException({
+    statusCode: 403,
     code: 'debug_access_disabled',
     message: 'Research continuity debug access is disabled by policy.',
   });
@@ -1402,6 +1413,7 @@ function throwDebugPermissionRequired(error: unknown): never {
     throw error;
   }
   throw new ForbiddenException({
+    statusCode: 403,
     code: 'debug_permission_required',
     message: 'Research continuity debug access requires view_debug_trace.',
   });

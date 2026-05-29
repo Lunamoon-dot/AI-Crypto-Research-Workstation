@@ -6910,6 +6910,14 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     'user_1',
     'workspace_a',
   );
+  const rawBaseline = await journal.getResearchContinuityEntry(
+    String(baseline.entry.id),
+    'workspace_a',
+  );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
   const runEntry = await researchContinuity.getRunContinuity(
     'run_btc_day_2',
     'viewer_1',
@@ -6928,10 +6936,12 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   );
 
   assert.equal(baseline.created, true);
+  assert.ok(rawBaseline);
+  assert.ok(rawDelta);
   assert.equal(baseline.entry.entry_type, 'baseline');
-  assert.equal(baseline.entry.snapshot_quality.evidence_coverage, 0);
+  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 0);
   assert.equal(delta.entry.entry_type, 'delta');
-  assert.equal(delta.entry.previous_entry_id, baseline.entry.id);
+  assert.equal(delta.entry.state_transition.previous_entry_id, baseline.entry.id);
   assert.equal(delta.entry.thin_report?.version, 'research_continuity_thin.v1');
   assert.equal(delta.entry.thin_report?.debug_available, true);
   assert.equal(delta.entry.thin_report?.debug_requires_role, 'editor');
@@ -6946,7 +6956,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     ),
   );
   assert.equal(
-    record(record(delta.entry.payload.report_views).thin).version,
+    record(record(continuityEntryPayload(rawDelta).report_views).thin).version,
     'research_continuity_thin.v1',
   );
   assert.equal(runEntry?.id, delta.entry.id);
@@ -6954,7 +6964,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.equal(state.state?.current_view.directional_bias, 'cautious_bullish');
   assert.equal(entries.entries.length, 2);
   assert.deepEqual(
-    delta.entry.sections.map((section: { title: string }) => section.title),
+    records(rawDelta.sections).map((section) => section.title),
     [
       'Summary',
       'Current View',
@@ -6968,7 +6978,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
     ],
   );
   assert.ok(
-    delta.entry.events.some(
+    records(rawDelta.events).some(
       (event) => event.event_type === 'view_changed',
     ),
   );
@@ -6997,10 +7007,13 @@ test('research continuity V1.5 default reads are compact and detail exposes dige
     'user_1',
     'workspace_a',
   );
-  assert.ok(generated.entry.events.length > 0);
-  assert.ok(generated.entry.payload);
-  assert.ok(generated.entry.writer_metadata);
-  assert.ok(generated.entry.snapshot_quality);
+  const generatedRecord = generated.entry as unknown as Record<string, unknown>;
+  assert.ok(generated.entry.quality_explanation);
+  assert.ok(generated.entry.evidence_digest);
+  assert.equal('events' in generatedRecord, false);
+  assert.equal('payload' in generatedRecord, false);
+  assert.equal('writer_metadata' in generatedRecord, false);
+  assert.equal('snapshot_quality' in generatedRecord, false);
 
   const list = await researchContinuity.listSymbolEntries(
     'BTC/USDT',
@@ -7073,6 +7086,9 @@ test('redactForDebug recursively redacts debug payloads', () => {
     list: [{ cookie: 'session=abc' }],
     large: 'x'.repeat(5001),
     largeList: Array.from({ length: 205 }, (_, index) => index),
+    largeObject: Object.fromEntries(
+      Array.from({ length: 205 }, (_, index) => [`key_${index}`, index]),
+    ),
   }) as JsonRecord;
 
   assert.equal(redacted.authorization, '[REDACTED]');
@@ -7081,7 +7097,13 @@ test('redactForDebug recursively redacts debug payloads', () => {
   assert.equal(record(redacted.nested).safe, 'keep');
   assert.equal(records(redacted.list)[0]?.cookie, '[REDACTED]');
   assert.equal(String(redacted.large).endsWith('[TRUNCATED]'), true);
-  assert.equal((redacted.largeList as unknown[]).length, 200);
+  assert.equal((redacted.largeList as unknown[]).length, 201);
+  assert.deepEqual((redacted.largeList as unknown[]).at(-1), {
+    __truncated__: true,
+    omitted_count: 5,
+  });
+  assert.equal(record(redacted.largeObject).__truncated__, true);
+  assert.equal(record(redacted.largeObject).__omitted_key_count__, 5);
 });
 
 test('research continuity V1.5 debug access is disabled by policy and gated by workspace role', async () => {
@@ -7479,17 +7501,22 @@ test('research continuity V1.2 attaches item evidence before global fallback and
     'run_btc_v12_evidence',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
   assert.ok(snapshot);
+  assert.ok(rawDelta);
   assert.equal(
     record(snapshot.payload).evidence_contract_version,
     'research_evidence.v1.2',
   );
   assert.equal(
-    delta.entry.writer_metadata.evidence_contract_version,
+    record(rawDelta.writer_metadata).evidence_contract_version,
     'research_evidence.v1.2',
   );
   assert.equal(
-    delta.entry.payload.evidence_contract_version,
+    continuityEntryPayload(rawDelta).evidence_contract_version,
     'research_evidence.v1.2',
   );
   const trackedItems = records(snapshot.tracked_items);
@@ -7533,10 +7560,13 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   assert.ok(numberValue(quality.reasoning_only_item_count) >= 1);
   assert.equal(quality.no_evidence_item_count, 0);
   assert.ok(
-    delta.entry.sections.some(
+    records(rawDelta.sections).some(
       (section) =>
         section.title === 'Source And Evidence Trace' &&
-        section.items.some((item: string) => item.includes('Observed evidence coverage')),
+        Array.isArray(section.items) &&
+        section.items.some((item) =>
+          String(item).includes('Observed evidence coverage'),
+        ),
     ),
   );
 });
@@ -7603,6 +7633,11 @@ test('research continuity V1.1 matches legacy item keys without fake churn', asy
     'run_btc_v11_legacy_match',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
+  assert.ok(rawDelta);
   const currentRisk = records(snapshot?.tracked_items).find(
     (item) => item.type === 'risk' && item.text === riskText,
   );
@@ -7610,7 +7645,9 @@ test('research continuity V1.1 matches legacy item keys without fake churn', asy
   assert.notEqual(currentRisk.item_key, legacyItemKey('risk', riskText));
   assert.equal(currentRisk.legacy_item_key, legacyItemKey('risk', riskText));
 
-  const eventTypes = delta.entry.events.map((event) => event.event_type);
+  const eventTypes = records(rawDelta.events).map((event) =>
+    String(event.event_type),
+  );
   assert.equal(eventTypes.includes('risk_added'), false);
   assert.equal(eventTypes.includes('risk_resolved'), false);
   assert.ok(
@@ -7659,8 +7696,13 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
     'viewer_1',
     'workspace_a',
   );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
+  assert.ok(rawDelta);
 
-  const riskUpdated = delta.entry.events.find(
+  const riskUpdated = records(rawDelta.events).find(
     (event) => event.event_type === 'risk_updated',
   );
   assert.ok(riskUpdated);
@@ -7670,11 +7712,13 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
   assert.equal(record(riskUpdated.source).source_artifact, 'thesis');
   assert.equal(record(riskUpdated.source).source_field, 'summary.risks[0]');
   assert.equal(
-    delta.entry.events.some((event) => event.event_type === 'risk_added'),
+    records(rawDelta.events).some((event) => event.event_type === 'risk_added'),
     false,
   );
   assert.equal(
-    delta.entry.events.some((event) => event.event_type === 'risk_resolved'),
+    records(rawDelta.events).some(
+      (event) => event.event_type === 'risk_resolved',
+    ),
     false,
   );
 
@@ -10107,6 +10151,6 @@ function hasForbiddenCode(code: string): (error: unknown) => boolean {
       response && typeof response === 'object'
         ? (response as Record<string, unknown>)
         : {};
-    return record.code === code;
+    return record.code === code && record.statusCode === 403;
   };
 }

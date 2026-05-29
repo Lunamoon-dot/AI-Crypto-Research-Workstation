@@ -20,7 +20,6 @@ import type {
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryDebugResponse,
   ResearchContinuityEntryDetailResponse,
-  ResearchContinuityEntryResponse,
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
   RunResearchContinuityRepairRequest,

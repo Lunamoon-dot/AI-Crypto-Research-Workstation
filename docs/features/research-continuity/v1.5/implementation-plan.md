@@ -485,9 +485,9 @@ do not expose detail digest fields.
 - [ ] **Step 3: Add DTO interfaces**
 
 Add interfaces from the API Contract section to
-`research-continuity.dto.ts`. Keep `ResearchContinuityEntryResponse` temporarily
-for generate/write compatibility if existing service code still uses it, but
-change public read method signatures to summary/detail/debug types.
+`research-continuity.dto.ts`. Keep `ResearchContinuityEntryResponse` only as an
+internal legacy/raw entry shape where stored-entry mapping needs it. Public read
+methods and the generate/write response should use summary/detail/debug types.
 
 - [ ] **Step 4: Add a debug affordance type**
 
@@ -724,10 +724,8 @@ listSymbolEntries entries[] -> ResearchContinuityEntrySummaryResponse[]
 getEntry -> ResearchContinuityEntryDetailResponse
 ```
 
-Keep `generateForRun` returning the entry shape needed by current callers in
-the same PR. If changing generation response is low-risk, use
-`ResearchContinuityEntryDetailResponse`; otherwise document that generation is
-write-path compatibility and not a default read surface.
+Make `generateForRun` return `ResearchContinuityEntryDetailResponse` so the
+write endpoint follows the same compact public boundary as detail reads.
 
 - [ ] **Step 8: Run API tests**
 
@@ -1264,6 +1262,7 @@ API:
 - [ ] Symbol state latest entry excludes raw fields.
 - [ ] Run continuity read excludes raw fields.
 - [ ] Entry detail excludes raw fields.
+- [ ] Generate/write response excludes raw fields.
 - [ ] Entry detail includes quality, evidence, material events, and state
       transition digests.
 - [ ] Debug disabled returns `403` with `debug_access_disabled`.
@@ -1272,7 +1271,8 @@ API:
 - [ ] Debug enabled plus editor returns redacted debug response.
 - [ ] Redaction covers nested `api_key`, `authorization`, `token`, `secret`,
       `password`, `cookie`, `credential`, and `private_key`.
-- [ ] Large strings/arrays are capped in debug output.
+- [ ] Large strings, arrays, and objects are capped in debug output and mark
+      omitted content.
 - [ ] Legacy entry fallback produces compact/detail response without DB
       mutation.
 

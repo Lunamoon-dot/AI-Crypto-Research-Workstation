@@ -3822,7 +3822,7 @@ export const openApiDocument = {
         required: ['created', 'entry'],
         properties: {
           created: { type: 'boolean' },
-          entry: { $ref: '#/components/schemas/ResearchContinuityEntryResponse' },
+          entry: { $ref: '#/components/schemas/ResearchContinuityEntryDetailResponse' },
         },
       },
       ResearchContinuityStateEnvelopeResponse: {

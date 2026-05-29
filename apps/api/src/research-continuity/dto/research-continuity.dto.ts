@@ -259,7 +259,7 @@ export interface ResearchContinuityStateResponse {
 
 export interface GenerateResearchContinuityResponse {
   created: boolean;
-  entry: ResearchContinuityEntryResponse;
+  entry: ResearchContinuityEntryDetailResponse;
 }
 
 export interface ResearchContinuityStateEnvelopeResponse {
