@@ -32,6 +32,15 @@ export const RESEARCH_CONTINUITY_REPAIR_CASE_TYPES = [
 export type ResearchContinuityRepairCaseType =
   (typeof RESEARCH_CONTINUITY_REPAIR_CASE_TYPES)[number];
 
+export const RESEARCH_CONTINUITY_SCHEDULED_REPAIR_MODES = [
+  'disabled',
+  'dry_run',
+  'enabled',
+] as const;
+
+export type ResearchContinuityScheduledRepairMode =
+  (typeof RESEARCH_CONTINUITY_SCHEDULED_REPAIR_MODES)[number];
+
 export type ResearchContinuityRepairPredictedAction =
   | 'create_repair_entry'
   | 'already_repaired'
@@ -85,6 +94,76 @@ export class RunResearchContinuityRepairDto {
   @IsOptional()
   @IsString()
   idempotency_key?: string;
+}
+
+export class UpdateResearchContinuitySettingsDto {
+  @IsOptional()
+  @IsIn(RESEARCH_CONTINUITY_SCHEDULED_REPAIR_MODES)
+  scheduled_repair_mode?: ResearchContinuityScheduledRepairMode;
+
+  @IsOptional()
+  @IsArray()
+  @IsIn(RESEARCH_CONTINUITY_REPAIR_CASE_TYPES, { each: true })
+  scheduled_repair_case_types?: ResearchContinuityRepairCaseType[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(168)
+  scheduled_repair_interval_hours?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  scheduled_repair_lookback_days?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  scheduled_repair_limit?: number;
+}
+
+export interface ResearchContinuityWorkspaceSettingsResponse {
+  workspace_id: string;
+  scheduled_repair_mode: ResearchContinuityScheduledRepairMode;
+  scheduled_repair_case_types: ResearchContinuityRepairCaseType[];
+  scheduled_repair_interval_hours: number;
+  scheduled_repair_lookback_days: number;
+  scheduled_repair_limit: number;
+  next_scheduled_repair_due_at: string | null;
+  last_scheduled_repair_at: string | null;
+  last_scheduled_repair_run_id: string | null;
+  updated_by_user_id: string | null;
+  updated_at: string | null;
+}
+
+export interface ResearchContinuitySchedulerStatusResponse {
+  workspace_id: string;
+  settings: ResearchContinuityWorkspaceSettingsResponse;
+  due: boolean;
+  disabled: boolean;
+  dry_run: boolean;
+  next_scheduled_repair_due_at: string | null;
+  last_scheduled_repair_at: string | null;
+  last_scheduled_repair_run_id: string | null;
+  last_scheduled_repair_status: string | null;
+}
+
+export interface ResearchContinuitySchedulerRunDueResponse {
+  workspace_id: string;
+  due: boolean;
+  skipped_reason:
+    | null
+    | 'scheduler_disabled'
+    | 'not_due'
+    | 'no_case_types'
+    | 'settings_unavailable';
+  dry_run: boolean;
+  audit_run_id: string | null;
+  repair_run: ResearchContinuityRepairRunResponse | null;
+  next_scheduled_repair_due_at: string | null;
 }
 
 export interface ContinuitySectionResponse {

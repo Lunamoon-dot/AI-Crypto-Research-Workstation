@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -47,7 +47,7 @@ import {
   type WorkflowVisualizationStage,
 } from '@/components/research/workflow-visualization';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { formatDateTime, formatNumber } from '@/lib/format';
+import { formatConfidence, formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import type {
   AgentOpinionResponse,
@@ -452,13 +452,13 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   }
 
   return (
-    <main className="page">
+    <main className="page research-workspace-page">
       <PageHeader
-        eyebrow="03 Research Workspace"
-        title={`${workspace.run.symbol} research run`}
-        description={`Run ${workspace.run.run_id ?? workspace.run.id ?? runId}`}
+        eyebrow="Luna Research"
+        title={`${workspace.run.symbol} dossier workspace`}
+        description={`${marketType.toUpperCase()} research run ${workspace.run.run_id ?? workspace.run.id ?? runId}. Review the memo, evidence health, continuity entry, and artifact provenance from one place.`}
         action={
-          <div className="page-header-action-stack">
+          <div className="page-header-action-stack research-workspace-header-actions">
             <HeaderStats
               stats={[
                 {
@@ -481,11 +481,11 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                   value: signal?.signal_count ?? 0,
                 },
                 {
-                  icon: <Brain aria-hidden size={14} />,
-                  label: 'Opinions',
-                  meta: workspace.debate.debate?.conflict_level ?? 'No debate',
-                  tone: 'degraded',
-                  value: workspace.debate.agent_opinions.length,
+                  icon: <FileText aria-hidden size={14} />,
+                  label: 'Continuity',
+                  meta: continuityQuery.data?.entry_type ?? (continuityPending ? 'writing ledger' : 'ledger entry'),
+                  tone: continuityQuery.data ? 'constructive' : continuityPending ? 'warning' : 'degraded',
+                  value: continuityQuery.data ? <StatusBadge value={continuityQuery.data.status} /> : continuityPending ? 'pending' : 'not written',
                 },
               ]}
             />
@@ -496,7 +496,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
               type="button"
             >
               <Download aria-hidden size={15} />
-              {exportingBundle ? 'Exporting' : 'Export evidence'}
+              {exportingBundle ? 'Exporting' : 'Export evidence bundle'}
             </button>
           </div>
         }
@@ -509,11 +509,17 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         </div>
       ) : null}
 
-      <BentoGrid>
+      <BentoGrid className="research-workspace-grid">
+        <WorkspaceDossierPanel
+          continuityEntry={continuityQuery.data ?? null}
+          marketType={marketType}
+          workspace={workspace}
+        />
+
         <Panel
-          className="span-12 emphasis"
-          title="Agent pipeline"
-          description="Signal fan-out and sequential agent chain"
+          className="span-12 emphasis research-pipeline-panel"
+          title="Research assembly line"
+          description="Analyst fan-out, debate, risk checks, and final synthesis for this dossier"
         >
           <WorkflowVisualization
             marketType={marketType}
@@ -536,7 +542,11 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           onRegenerate={() => continuityMutation.mutate()}
         />
 
-        <Panel className="span-4" title="Run metadata">
+        <Panel
+          className="span-4 research-provenance-panel"
+          title="Run provenance"
+          description="Identifiers and timestamps for auditability"
+        >
           <div className="stack small">
             <DataPair label="Market type" value={workspace.run.market_type} />
             <DataPair label="Started" value={formatDateTime(workspace.run.started_at)} />
@@ -554,42 +564,47 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           runTerminal={runTerminal}
         />
 
-        <Panel className="span-4" title="Data quality">
-          <div className="stack">
-            <div>
-              <strong>Degradation reasons</strong>
-              <p className="small muted">{workspace.run.degradation_reasons.join(', ') || 'None reported.'}</p>
-            </div>
-            <div>
-              <strong>Missing core data</strong>
-              <p className="small muted">{workspace.run.missing_core_data.join(', ') || 'None reported.'}</p>
-            </div>
-            <div>
-              <strong>Missing optional data</strong>
-              <p className="small muted">{workspace.run.missing_optional_data.join(', ') || 'None reported.'}</p>
-            </div>
+        <Panel
+          className="span-4 research-quality-panel"
+          title="Evidence health"
+          description="What is clean, missing, or degraded"
+        >
+          <div className="quality-reason-list">
+            <QualityReasonGroup
+              emptyLabel="No degradation reasons reported."
+              label="Degradation"
+              tone="warning"
+              values={workspace.run.degradation_reasons}
+            />
+            <QualityReasonGroup
+              emptyLabel="No core data gaps reported."
+              label="Core data"
+              tone="risk"
+              values={workspace.run.missing_core_data}
+            />
+            <QualityReasonGroup
+              emptyLabel="No optional data gaps reported."
+              label="Optional data"
+              tone="warning"
+              values={workspace.run.missing_optional_data}
+            />
           </div>
         </Panel>
 
-        <Panel className="span-4" title="Thesis result">
+        <Panel
+          className="span-5 research-memo-panel"
+          title="Research memo"
+          description="Manager output distilled into decision-readable evidence"
+        >
           {workspace.thesis ? (
-            <div className="stack">
-              <div className="row">
-                <strong>{workspace.thesis.symbol}</strong>
-                <RatingBadge value={workspace.thesis.summary.rating || 'Hold'} />
-                <DirectionBadge value={workspace.thesis.direction} />
-              </div>
-              <p className="muted">{workspace.thesis.summary.action_summary || workspace.thesis.thesis_text}</p>
-              {marketTypeSpecificThesisNote(workspace.thesis.summary, marketType) ? (
-                <p className="small muted">
-                  {marketTypeSpecificThesisNote(workspace.thesis.summary, marketType)}
-                </p>
-              ) : null}
-              <div className="thesis-result-meta small">
-                <span className="thesis-result-invalidation">
-                  Invalidation: {workspace.thesis.invalidation_level || 'n/a'}
-                </span>
-                <div className="thesis-result-badges">
+            <div className="research-memo-layout">
+              <div className="research-memo-heading">
+                <div>
+                  <span className="small muted">{workspace.thesis.symbol}</span>
+                  <strong>{workspace.thesis.summary.rating || 'Hold'}</strong>
+                </div>
+                <div className="research-memo-badges">
+                  <DirectionBadge value={workspace.thesis.direction} />
                   <ConfidenceBadge value={workspace.thesis.confidence} />
                   <DataQualityBadge
                     label={workspace.thesis.summary.data_quality_label}
@@ -597,24 +612,57 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                   />
                 </div>
               </div>
-              <div className="top-strip-meta">
-                <Link className="button primary" to={routes.thesis(workspace.thesis.id ?? '')}>
-                  Open thesis
-                </Link>
+              <p className="research-memo-copy">
+                {workspace.thesis.summary.action_summary || workspace.thesis.thesis_text}
+              </p>
+              {marketTypeSpecificThesisNote(workspace.thesis.summary, marketType) ? (
+                <p className="small muted">
+                  {marketTypeSpecificThesisNote(workspace.thesis.summary, marketType)}
+                </p>
+              ) : null}
+              <div className="research-memo-facts">
+                <DataPair label="Entry" value={workspace.thesis.entry_zone || 'n/a'} />
+                <DataPair label="Invalidation" value={workspace.thesis.invalidation_level || 'n/a'} />
+                <DataPair label="Targets" value={workspace.thesis.target_zones.join(' / ') || 'n/a'} />
               </div>
+              <div className="research-memo-section-grid">
+                <MemoBulletList
+                  emptyLabel="No key reasons persisted."
+                  items={workspace.thesis.summary.key_reasons}
+                  title="Key reasons"
+                />
+                <MemoBulletList
+                  emptyLabel="No risks persisted."
+                  items={workspace.thesis.summary.risks}
+                  title="Risks"
+                />
+              </div>
+              {workspace.thesis.id ? (
+                <div className="top-strip-meta">
+                  <Link className="button primary" to={routes.thesis(workspace.thesis.id)}>
+                    Open research memo
+                  </Link>
+                </div>
+              ) : null}
             </div>
           ) : (
-            <EmptyState label="No thesis generated yet." />
+            <EmptyState label="The research manager has not generated a memo yet." />
           )}
         </Panel>
 
-        <Panel className="span-6" title="Market snapshot" description="Price and source provenance">
+        <Panel className="span-7 research-snapshot-panel" title="Market snapshot" description="Price and source provenance">
           {market ? (
-            <div className="stack small">
-              <DataPair label="Current price" value={<strong>{formatNumber(market.current_price)}</strong>} />
-              <DataPair label="Source" value={market.source || 'n/a'} />
-              <DataPair label="Source time" value={formatDateTime(market.source_timestamp)} />
-              <DataPair label="Captured" value={formatDateTime(market.captured_at)} />
+            <div className="snapshot-card small">
+              <div className="snapshot-card-primary">
+                <span className="small muted">Current price</span>
+                <strong>{formatNumber(market.current_price)}</strong>
+                <p>{market.source || 'No source reported'}</p>
+              </div>
+              <div className="snapshot-metric-grid">
+                <DataPair label="Source time" value={formatDateTime(market.source_timestamp)} />
+                <DataPair label="Captured" value={formatDateTime(market.captured_at)} />
+                <DataPair label="Snapshot" value={<IdChip value={market.id} />} />
+              </div>
               <JsonView value={market.payload} />
             </div>
           ) : (
@@ -622,14 +670,20 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           )}
         </Panel>
 
-        <Panel className="span-6" title="Signal snapshot" description="Aggregated deterministic evidence">
+        <Panel className="span-5 research-snapshot-panel" title="Signal snapshot" description="Aggregated deterministic evidence">
           {signal ? (
-            <div className="stack small">
-              <DataPair label="Total" value={<strong>{signal.signal_count ?? 0}</strong>} />
-              <DataPair label="Bullish" value={signal.bullish_count ?? 0} />
-              <DataPair label="Bearish" value={signal.bearish_count ?? 0} />
-              <DataPair label="Neutral" value={signal.neutral_count ?? 0} />
-              <DataPair label="Stale" value={signal.stale_count ?? 0} />
+            <div className="snapshot-card small">
+              <div className="signal-count-strip">
+                <SignalCount label="Bullish" tone="constructive" value={signal.bullish_count ?? 0} />
+                <SignalCount label="Bearish" tone="risk" value={signal.bearish_count ?? 0} />
+                <SignalCount label="Neutral" tone="primary" value={signal.neutral_count ?? 0} />
+                <SignalCount label="Stale" tone="warning" value={signal.stale_count ?? 0} />
+              </div>
+              <div className="snapshot-metric-grid">
+                <DataPair label="Total" value={<strong>{signal.signal_count ?? 0}</strong>} />
+                <DataPair label="Captured" value={formatDateTime(signal.captured_at)} />
+                <DataPair label="Snapshot" value={<IdChip value={signal.id} />} />
+              </div>
               <JsonView value={signal.payload} />
             </div>
           ) : (
@@ -637,7 +691,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           )}
         </Panel>
 
-        <Panel className="span-7" title="Timeline and event logs">
+        <Panel className="span-12 research-trace-panel" title="Execution trace" description="Chronological run events and raw payloads">
           {workspace.events.length === 0 ? <EmptyState label="No run events yet." /> : null}
           <div className="timeline-list">
             {workspace.events.map((event) => (
@@ -653,7 +707,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           </div>
         </Panel>
 
-        <Panel className="span-5" title="Agent debate" description="Consensus and disagreement">
+        <Panel className="span-12 research-debate-panel" title="Analyst debate" description="Consensus, disagreement, confidence, and raw evidence payloads">
           {workspace.debate.debate ? (
             <div className="stack">
               <div className="row">
@@ -684,6 +738,255 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   );
 }
 
+
+type ResearchTone = 'default' | 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
+
+function WorkspaceDossierPanel({
+  continuityEntry,
+  marketType,
+  workspace,
+}: {
+  continuityEntry: ResearchContinuityEntrySummaryResponse | null;
+  marketType: MarketTypeKey;
+  workspace: JournalRunWorkspaceResponse;
+}) {
+  const market = workspace.snapshots.market_snapshot;
+  const signal = workspace.snapshots.signal_snapshot;
+  const thesis = workspace.thesis;
+  const debate = workspace.debate.debate;
+  const continuityQuality = continuityEntry?.thin_report?.quality;
+  const memoCopy =
+    thesis?.summary.action_summary ||
+    thesis?.thesis_text ||
+    'The research memo is still pending. The workspace will keep the pipeline, artifacts, and continuity state visible as they arrive.';
+
+  return (
+    <Panel
+      className="span-12 workspace-briefing-panel"
+      title="Dossier readout"
+      description="Fast answer first, with provenance and raw evidence kept below"
+    >
+      <div className="workspace-briefing">
+        <section className="workspace-briefing-primary">
+          <div className="workspace-briefing-kicker">
+            <span className="badge primary">{marketType.toUpperCase()}</span>
+            <StatusBadge value={workspace.run.status} />
+            {thesis ? (
+              <RatingBadge value={thesis.summary.rating || 'Hold'} />
+            ) : (
+              <span className="badge warning">memo pending</span>
+            )}
+          </div>
+          <h3>
+            {thesis
+              ? `${thesis.symbol} ${thesis.direction || 'direction pending'}`
+              : `${workspace.run.symbol} memo pending`}
+          </h3>
+          <p>{memoCopy}</p>
+          {thesis?.summary.is_degraded ? (
+            <div className="callout warning workspace-briefing-warning">
+              <ShieldAlert aria-hidden size={15} />
+              <div>
+                <strong>Degraded evidence</strong>
+                <p>
+                  {thesis.summary.degradation_reasons.join(', ') ||
+                    'The memo was generated with partial evidence.'}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <div className="workspace-briefing-actions">
+            {thesis?.id ? (
+              <Link className="button primary" to={routes.thesis(thesis.id)}>
+                Open research memo
+              </Link>
+            ) : null}
+            {continuityEntry ? (
+              <Link
+                className="button"
+                to={routes.researchContinuity(continuityEntry.symbol)}
+              >
+                Open continuity ledger
+              </Link>
+            ) : null}
+          </div>
+        </section>
+
+        <div className="workspace-briefing-rail" aria-label="Dossier facts">
+          <DossierFact
+            icon={<Database aria-hidden size={15} />}
+            label="Market"
+            meta={market?.source || 'No market snapshot'}
+            tone="primary"
+            value={formatNumber(market?.current_price)}
+          />
+          <DossierFact
+            icon={<BarChart3 aria-hidden size={15} />}
+            label="Signals"
+            meta={`${signal?.bullish_count ?? 0} bullish / ${signal?.bearish_count ?? 0} bearish`}
+            tone="constructive"
+            value={signal?.signal_count ?? 0}
+          />
+          <DossierFact
+            icon={<Brain aria-hidden size={15} />}
+            label="Debate"
+            meta={debate?.conflict_level ?? `${workspace.debate.agent_opinions.length} opinions`}
+            tone={debate ? 'warning' : 'degraded'}
+            value={debate?.consensus_stance ?? 'pending'}
+          />
+          <DossierFact
+            icon={<FileText aria-hidden size={15} />}
+            label="Continuity"
+            meta={
+              continuityQuality
+                ? `Quality ${continuityQuality.status} / coverage ${formatConfidence(
+                    continuityQuality.observed_evidence_coverage,
+                  )}`
+                : 'Ledger entry pending'
+            }
+            tone={continuityEntry ? 'constructive' : 'degraded'}
+            value={continuityEntry?.status ?? 'not written'}
+          />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function DossierFact({
+  icon,
+  label,
+  meta,
+  tone = 'default',
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  meta?: ReactNode;
+  tone?: ResearchTone;
+  value: ReactNode;
+}) {
+  return (
+    <div className="dossier-fact">
+      <div className="dossier-fact-label">
+        <span>{label}</span>
+        <span className={`tone-${tone}`}>{icon}</span>
+      </div>
+      <strong className={`tone-${tone}`}>{value}</strong>
+      {meta ? <p>{meta}</p> : null}
+    </div>
+  );
+}
+
+function QualityReasonGroup({
+  emptyLabel,
+  label,
+  tone,
+  values,
+}: {
+  emptyLabel: string;
+  label: string;
+  tone: Exclude<ResearchTone, 'default' | 'degraded'>;
+  values: string[];
+}) {
+  const clean = values.length === 0;
+  return (
+    <section className={`quality-reason-group${clean ? ' clean' : ''}`}>
+      <div className="quality-reason-header">
+        <strong>{label}</strong>
+        <span className={`badge ${clean ? 'constructive' : tone}`}>
+          {clean ? 'clear' : `${values.length} item${values.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+      {clean ? (
+        <p className="small muted">{emptyLabel}</p>
+      ) : (
+        <div className="quality-chip-list">
+          {values.map((value) => (
+            <span className={`pill ${tone}`} key={value}>
+              {value}
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MemoBulletList({
+  emptyLabel,
+  items,
+  title,
+}: {
+  emptyLabel: string;
+  items: string[];
+  title: string;
+}) {
+  const visibleItems = items.filter(Boolean).slice(0, 4);
+  return (
+    <section className="research-memo-section">
+      <span>{title}</span>
+      {visibleItems.length ? (
+        <ul>
+          {visibleItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>{emptyLabel}</p>
+      )}
+    </section>
+  );
+}
+
+function SignalCount({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: Exclude<ResearchTone, 'default' | 'degraded'>;
+  value: number;
+}) {
+  return (
+    <div className="signal-count">
+      <span>{label}</span>
+      <strong className={`tone-${tone}`}>{value}</strong>
+    </div>
+  );
+}
+
+function ContinuityQualityRow({
+  entry,
+}: {
+  entry: ResearchContinuityEntrySummaryResponse;
+}) {
+  const quality = entry.thin_report?.quality;
+  if (!quality) {
+    return null;
+  }
+  return (
+    <div className="daily-delta-quality-row">
+      <div>
+        <span>Quality</span>
+        <strong>{quality.status}</strong>
+      </div>
+      <div>
+        <span>Score</span>
+        <strong>{formatConfidence(quality.score)}</strong>
+      </div>
+      <div>
+        <span>Observed coverage</span>
+        <strong>{formatConfidence(quality.observed_evidence_coverage)}</strong>
+      </div>
+      <div>
+        <span>Provenance</span>
+        <strong>{quality.provenance_status ?? 'n/a'}</strong>
+      </div>
+    </div>
+  );
+}
+
 function DailyDeltaPanel({
   entry,
   error,
@@ -704,14 +1007,14 @@ function DailyDeltaPanel({
   return (
     <Panel
       className="span-12 daily-delta-panel"
-      title="Daily Delta"
-      description="Research Continuity entry for this run"
+      title="Continuity ledger entry"
+      description="Memory written from this research run for the next dossier"
     >
-      {isLoading ? <LoadingState label="Loading Daily Delta..." /> : null}
+      {isLoading ? <LoadingState label="Writing continuity ledger entry..." /> : null}
       {isError ? <ErrorState error={error} /> : null}
       {!isLoading && !isError && !entry ? (
         <div className="stack">
-          <EmptyState label="No Daily Delta has been generated for this run." />
+          <EmptyState label="No continuity entry has been written for this run." />
           <button
             className="button"
             disabled={isRegenerating}
@@ -719,7 +1022,7 @@ function DailyDeltaPanel({
             type="button"
           >
             <RefreshCw aria-hidden size={15} />
-            {isRegenerating ? 'Regenerating' : 'Generate Daily Delta'}
+            {isRegenerating ? 'Regenerating' : 'Write continuity entry'}
           </button>
         </div>
       ) : null}
@@ -756,9 +1059,11 @@ function DailyDeltaPanel({
           </div>
 
           <div className="daily-delta-summary">
-            <strong>Summary</strong>
+            <strong>Ledger summary</strong>
             <p>{entry.summary}</p>
           </div>
+
+          <ContinuityQualityRow entry={entry} />
 
           {detailSections.length > 0 ? (
             <div className="daily-delta-section-grid">
@@ -820,9 +1125,9 @@ function FullReportArtifactPanel({
 
   return (
     <Panel
-      className="span-4"
-      title="Full report"
-      description="Markdown and full-state artifacts"
+      className="span-4 research-artifact-panel"
+      title="Evidence bundle"
+      description="Persisted Markdown report and full-state JSON"
     >
       <div className="stack">
         <div className="row">

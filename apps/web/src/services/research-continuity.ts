@@ -17,9 +17,13 @@ import type {
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunsResponse,
   ResearchContinuityRepairRunSummaryResponse,
+  ResearchContinuitySchedulerRunDueResponse,
+  ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
+  ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
+  UpdateResearchContinuitySettingsRequest,
 } from '@/types';
 
 export function getResearchRunContinuity(
@@ -64,6 +68,27 @@ export function getResearchContinuityEntryDebug(
   auth: WorkspaceRequestContext,
 ) {
   return generatedClient(auth).getResearchContinuityEntryDebug(id);
+}
+
+export function getResearchContinuitySettings(auth: WorkspaceRequestContext) {
+  return generatedClient(auth).getResearchContinuitySettings();
+}
+
+export function updateResearchContinuitySettings(
+  request: UpdateResearchContinuitySettingsRequest,
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).updateResearchContinuitySettings(request);
+}
+
+export function getResearchContinuityScheduler(auth: WorkspaceRequestContext) {
+  return generatedClient(auth).getResearchContinuityScheduler();
+}
+
+export function runDueResearchContinuityScheduler(
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).runDueResearchContinuityScheduler();
 }
 
 export function previewResearchContinuityRepair(
@@ -114,7 +139,11 @@ export type {
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunsResponse,
   ResearchContinuityRepairRunSummaryResponse,
+  ResearchContinuitySchedulerRunDueResponse,
+  ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
+  ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
+  UpdateResearchContinuitySettingsRequest,
 };

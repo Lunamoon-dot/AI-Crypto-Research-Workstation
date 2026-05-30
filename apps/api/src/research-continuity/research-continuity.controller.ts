@@ -1,6 +1,18 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
-import { RunResearchContinuityRepairDto } from './dto/research-continuity.dto';
+import {
+  RunResearchContinuityRepairDto,
+  UpdateResearchContinuitySettingsDto,
+} from './dto/research-continuity.dto';
 import type {
   ResearchContinuityDebugAuditDecision,
   ResearchContinuityDebugAuditReason,
@@ -11,6 +23,39 @@ import { ResearchContinuityService } from './research-continuity.service';
 @Controller('research-continuity')
 export class ResearchContinuityController {
   constructor(private readonly continuity: ResearchContinuityService) {}
+
+  @Get('settings')
+  getSettings(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.getWorkspaceSettings(userId, workspaceId);
+  }
+
+  @Patch('settings')
+  patchSettings(
+    @Body() dto: UpdateResearchContinuitySettingsDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.updateWorkspaceSettings(dto, userId, workspaceId);
+  }
+
+  @Get('scheduler')
+  getScheduler(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.getSchedulerStatus(userId, workspaceId);
+  }
+
+  @Post('scheduler/run-due')
+  runDueScheduler(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.runDueScheduledRepair(userId, workspaceId);
+  }
 
   @Get('symbols/:symbol/state')
   getSymbolState(

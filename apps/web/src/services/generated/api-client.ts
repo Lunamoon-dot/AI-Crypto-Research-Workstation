@@ -19,17 +19,21 @@ import type {
   ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunsResponse,
+  ResearchContinuitySchedulerRunDueResponse,
+  ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityEntriesResponse,
   ResearchContinuityEntryDebugResponse,
   ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
+  ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
   SignalCountResponse,
   SignalDetailResponse,
   SignalResponse,
   ThesisDecisionResponse,
   ThesisReviewResponse,
+  UpdateResearchContinuitySettingsRequest,
   UpdateWatchlistRequest,
   WatchlistCheckResponse,
   WatchlistItemResponse,
@@ -365,6 +369,28 @@ export function createApiClient(request: ApiTransport) {
       request<ResearchContinuityEntriesResponse>(
         `/research-continuity/symbols/${encodeURIComponent(symbol)}/entries`,
         { query: { limit: params.limit ?? 20 } },
+      ),
+    getResearchContinuitySettings: () =>
+      request<ResearchContinuityWorkspaceSettingsResponse>(
+        '/research-continuity/settings',
+        {},
+      ),
+    updateResearchContinuitySettings: (
+      body: UpdateResearchContinuitySettingsRequest,
+    ) =>
+      request<ResearchContinuityWorkspaceSettingsResponse>(
+        '/research-continuity/settings',
+        { method: 'PATCH', body },
+      ),
+    getResearchContinuityScheduler: () =>
+      request<ResearchContinuitySchedulerStatusResponse>(
+        '/research-continuity/scheduler',
+        {},
+      ),
+    runDueResearchContinuityScheduler: () =>
+      request<ResearchContinuitySchedulerRunDueResponse>(
+        '/research-continuity/scheduler/run-due',
+        { method: 'POST' },
       ),
     previewResearchContinuityRepair: (
       params: ResearchContinuityRepairPreviewRequest = {},

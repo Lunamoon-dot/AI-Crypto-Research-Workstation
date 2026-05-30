@@ -12,6 +12,12 @@ import type {
   ResearchContinuityAuditRepository,
 } from '../research-continuity/research-continuity-audit.types';
 import {
+  RESEARCH_CONTINUITY_SETTINGS_REPOSITORY,
+} from '../research-continuity/research-continuity-settings.repository';
+import type {
+  ResearchContinuitySettingsRepository,
+} from '../research-continuity/research-continuity-settings.types';
+import {
   DataFreshnessResponse,
   LlmCallResponse,
   LlmHealthSummaryResponse,
@@ -30,6 +36,8 @@ export class OperationsService {
     private readonly journal: JournalRepository,
     @Inject(RESEARCH_CONTINUITY_AUDIT_REPOSITORY)
     private readonly continuityAudit: ResearchContinuityAuditRepository,
+    @Inject(RESEARCH_CONTINUITY_SETTINGS_REPOSITORY)
+    private readonly continuitySettings: ResearchContinuitySettingsRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
@@ -291,6 +299,7 @@ export class OperationsService {
     workspaceId: string,
   ): Promise<OperationsHealthResponse['continuity']> {
     const lookbackDays = 30;
+    const scheduler = await this.continuitySchedulerHealthForWorkspace(workspaceId);
     try {
       const health = await this.continuityAudit.getContinuityOperationsHealth(
         workspaceId,
@@ -308,12 +317,54 @@ export class OperationsService {
         repair_failures_24h: numberValue(health.repair_failures_24h, 0),
         debug_access_24h: numberValue(health.debug_access_24h, 0),
         debug_denied_24h: numberValue(health.debug_denied_24h, 0),
+        scheduled_repair_mode: scheduler.scheduled_repair_mode,
+        scheduled_repair_due: scheduler.scheduled_repair_due,
+        next_scheduled_repair_due_at:
+          scheduler.next_scheduled_repair_due_at,
+        last_scheduled_repair_run_id:
+          scheduler.last_scheduled_repair_run_id,
       };
     } catch (error) {
       if (!isRepositoryUnavailable(error)) {
         throw error;
       }
-      return defaultContinuityHealth(workspaceId, lookbackDays);
+      return {
+        ...defaultContinuityHealth(workspaceId, lookbackDays),
+        ...scheduler,
+      };
+    }
+  }
+
+  private async continuitySchedulerHealthForWorkspace(
+    workspaceId: string,
+  ): Promise<Pick<
+    OperationsHealthResponse['continuity'],
+    | 'scheduled_repair_mode'
+    | 'scheduled_repair_due'
+    | 'next_scheduled_repair_due_at'
+    | 'last_scheduled_repair_run_id'
+  >> {
+    try {
+      const settings =
+        await this.continuitySettings.getWorkspaceSettings(workspaceId);
+      if (!settings) {
+        return defaultContinuitySchedulerHealth();
+      }
+      const mode = scheduledRepairModeValue(settings.scheduled_repair_mode);
+      const nextDue = nullableString(settings.next_scheduled_repair_due_at);
+      return {
+        scheduled_repair_mode: mode,
+        scheduled_repair_due: mode !== 'disabled' && isDue(nextDue),
+        next_scheduled_repair_due_at: nextDue,
+        last_scheduled_repair_run_id: nullableString(
+          settings.last_scheduled_repair_run_id,
+        ),
+      };
+    } catch (error) {
+      if (!isRepositoryUnavailable(error)) {
+        throw error;
+      }
+      return defaultContinuitySchedulerHealth();
     }
   }
 
@@ -471,7 +522,38 @@ function defaultContinuityHealth(
     repair_failures_24h: 0,
     debug_access_24h: 0,
     debug_denied_24h: 0,
+    ...defaultContinuitySchedulerHealth(),
   };
+}
+
+function defaultContinuitySchedulerHealth(): Pick<
+  OperationsHealthResponse['continuity'],
+  | 'scheduled_repair_mode'
+  | 'scheduled_repair_due'
+  | 'next_scheduled_repair_due_at'
+  | 'last_scheduled_repair_run_id'
+> {
+  return {
+    scheduled_repair_mode: 'disabled',
+    scheduled_repair_due: false,
+    next_scheduled_repair_due_at: null,
+    last_scheduled_repair_run_id: null,
+  };
+}
+
+function scheduledRepairModeValue(
+  value: unknown,
+): OperationsHealthResponse['continuity']['scheduled_repair_mode'] {
+  const mode = String(value ?? 'disabled');
+  return mode === 'dry_run' || mode === 'enabled' ? mode : 'disabled';
+}
+
+function isDue(value: string | null): boolean {
+  if (!value) {
+    return true;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && parsed <= Date.now();
 }
 
 function recordValue(value: unknown): JsonRecord {

@@ -247,6 +247,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_research_continuity_repair_runs_idempotenc
 ON research_continuity_repair_runs(workspace_id, idempotency_key)
 WHERE idempotency_key IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS research_continuity_workspace_settings (
+    workspace_id TEXT PRIMARY KEY,
+    scheduled_repair_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (
+        scheduled_repair_mode IN ('disabled', 'dry_run', 'enabled')
+    ),
+    scheduled_repair_case_types_json JSONB NOT NULL DEFAULT '["missing_continuity","legacy_evidence"]'::jsonb,
+    scheduled_repair_interval_hours INTEGER NOT NULL DEFAULT 24 CHECK (
+        scheduled_repair_interval_hours BETWEEN 1 AND 168
+    ),
+    scheduled_repair_lookback_days INTEGER NOT NULL DEFAULT 30 CHECK (
+        scheduled_repair_lookback_days BETWEEN 1 AND 365
+    ),
+    scheduled_repair_limit INTEGER NOT NULL DEFAULT 25 CHECK (
+        scheduled_repair_limit BETWEEN 1 AND 100
+    ),
+    next_scheduled_repair_due_at TIMESTAMPTZ,
+    last_scheduled_repair_at TIMESTAMPTZ,
+    last_scheduled_repair_run_id TEXT,
+    updated_by_user_id TEXT,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_workspace_settings_due
+ON research_continuity_workspace_settings(scheduled_repair_mode, next_scheduled_repair_due_at);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_workspace_settings_updated
+ON research_continuity_workspace_settings(updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS research_continuity_states (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

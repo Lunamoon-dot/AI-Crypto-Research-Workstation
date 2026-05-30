@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -33,6 +35,7 @@ import {
   RESEARCH_CONTINUITY_DEBUG_PERMISSION,
   RESEARCH_CONTINUITY_REPAIR_CASE_TYPES,
   RESEARCH_CONTINUITY_REPAIR_VERSION,
+  RESEARCH_CONTINUITY_SCHEDULED_REPAIR_MODES,
   ResearchContinuityEntriesResponse,
   ResearchContinuityDebugAccessAuditResponse,
   ResearchContinuityEntryDebugResponse,
@@ -50,13 +53,18 @@ import {
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunResultResponse,
   ResearchContinuityRepairRunSummaryResponse,
+  ResearchContinuityScheduledRepairMode,
+  ResearchContinuitySchedulerRunDueResponse,
+  ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityStateTransitionDigestResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
   ResearchContinuityThinSectionId,
+  ResearchContinuityWorkspaceSettingsResponse,
   ResearchSnapshotResponse,
   RunResearchContinuityRepairDto,
+  UpdateResearchContinuitySettingsDto,
 } from './dto/research-continuity.dto';
 import {
   RESEARCH_CONTINUITY_AUDIT_REPOSITORY,
@@ -69,6 +77,12 @@ import type {
   ResearchContinuityRepairRunFilters,
   ResearchContinuityRepairRunStatus,
 } from './research-continuity-audit.types';
+import {
+  RESEARCH_CONTINUITY_SETTINGS_REPOSITORY,
+} from './research-continuity-settings.repository';
+import type {
+  ResearchContinuitySettingsRepository,
+} from './research-continuity-settings.types';
 
 interface NormalizedRepairFilters {
   symbol?: string;
@@ -84,6 +98,11 @@ interface RepairCandidate extends ResearchContinuityRepairCandidateResponse {
   sourceEntryId: string | null;
 }
 
+const DEFAULT_SCHEDULED_REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
+  'missing_continuity',
+  'legacy_evidence',
+];
+
 @Injectable()
 export class ResearchContinuityService {
   private readonly snapshotBuilder = new ResearchSnapshotBuilder();
@@ -96,6 +115,8 @@ export class ResearchContinuityService {
     private readonly journal: JournalRepository,
     @Inject(RESEARCH_CONTINUITY_AUDIT_REPOSITORY)
     private readonly audit: ResearchContinuityAuditRepository,
+    @Inject(RESEARCH_CONTINUITY_SETTINGS_REPOSITORY)
+    private readonly settings: ResearchContinuitySettingsRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
@@ -309,6 +330,173 @@ export class ResearchContinuityService {
     };
   }
 
+  async getWorkspaceSettings(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityWorkspaceSettingsResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const settings = await this.settings.getWorkspaceSettings(workspaceId);
+    return toWorkspaceSettingsResponse(settings, workspaceId);
+  }
+
+  async updateWorkspaceSettings(
+    dto: UpdateResearchContinuitySettingsDto,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityWorkspaceSettingsResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const updatedByUserId = this.auth.resolveUser(userId);
+    const current = toWorkspaceSettingsResponse(
+      await this.settings.getWorkspaceSettings(workspaceId),
+      workspaceId,
+    );
+    const nextMode = scheduledRepairModeValue(
+      dto.scheduled_repair_mode ?? current.scheduled_repair_mode,
+    );
+    const nextCaseTypes = normalizeScheduledRepairCaseTypes(
+      dto.scheduled_repair_case_types ?? current.scheduled_repair_case_types,
+      nextMode,
+    );
+    const now = new Date().toISOString();
+    const wasDisabled = current.scheduled_repair_mode === 'disabled';
+    const becomesActive = nextMode === 'dry_run' || nextMode === 'enabled';
+    const nextDue =
+      becomesActive && wasDisabled && !current.next_scheduled_repair_due_at
+        ? now
+        : current.next_scheduled_repair_due_at;
+    const saved = await this.settings.upsertWorkspaceSettings({
+      workspace_id: workspaceId,
+      scheduled_repair_mode: nextMode,
+      scheduled_repair_case_types: nextCaseTypes,
+      scheduled_repair_interval_hours: normalizeIntegerRange(
+        dto.scheduled_repair_interval_hours ??
+          current.scheduled_repair_interval_hours,
+        1,
+        168,
+        'scheduled_repair_interval_hours',
+      ),
+      scheduled_repair_lookback_days: normalizeIntegerRange(
+        dto.scheduled_repair_lookback_days ??
+          current.scheduled_repair_lookback_days,
+        1,
+        365,
+        'scheduled_repair_lookback_days',
+      ),
+      scheduled_repair_limit: normalizeIntegerRange(
+        dto.scheduled_repair_limit ?? current.scheduled_repair_limit,
+        1,
+        100,
+        'scheduled_repair_limit',
+      ),
+      next_scheduled_repair_due_at: nextDue,
+      updated_by_user_id: updatedByUserId,
+      updated_at: now,
+    });
+    return toWorkspaceSettingsResponse(saved, workspaceId);
+  }
+
+  async getSchedulerStatus(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuitySchedulerStatusResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    const settings = toWorkspaceSettingsResponse(
+      await this.settings.getWorkspaceSettings(workspaceId),
+      workspaceId,
+    );
+    return this.schedulerStatusFromSettings(settings, workspaceId);
+  }
+
+  async runDueScheduledRepair(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuitySchedulerRunDueResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'admin',
+    );
+    let settingsRow: JsonRecord | null;
+    try {
+      settingsRow = await this.settings.getWorkspaceSettings(workspaceId);
+    } catch (error) {
+      if (!isRepositoryUnavailable(error)) {
+        throw error;
+      }
+      return schedulerSkippedResponse(
+        workspaceId,
+        defaultWorkspaceSettings(workspaceId),
+        'settings_unavailable',
+      );
+    }
+    const settings = toWorkspaceSettingsResponse(settingsRow, workspaceId);
+    if (!settingsRow || settings.scheduled_repair_mode === 'disabled') {
+      return schedulerSkippedResponse(
+        workspaceId,
+        settings,
+        'scheduler_disabled',
+      );
+    }
+    const now = new Date();
+    if (!isSchedulerDue(settings, now)) {
+      return schedulerSkippedResponse(workspaceId, settings, 'not_due');
+    }
+    const caseTypes = runnableScheduledRepairCaseTypes(settings);
+    if (caseTypes.length === 0) {
+      return schedulerSkippedResponse(workspaceId, settings, 'no_case_types');
+    }
+    const nowIso = now.toISOString();
+    const dueBasis = settings.next_scheduled_repair_due_at ?? nowIso;
+    const repairRun = await this.runRepair(
+      {
+        from: addHours(now, -settings.scheduled_repair_lookback_days * 24).toISOString(),
+        to: nowIso,
+        case_types: caseTypes,
+        limit: settings.scheduled_repair_limit,
+        dry_run: settings.scheduled_repair_mode === 'dry_run',
+        idempotency_key: `research-continuity-scheduler:${workspaceId}:${dueBasis}`,
+      },
+      userId,
+      workspaceId,
+    );
+    await this.ensureScheduledRepairRunCompleted(
+      repairRun.audit_run_id,
+      workspaceId,
+    );
+    const marked = await this.settings.markScheduledRepairRun({
+      workspace_id: workspaceId,
+      last_scheduled_repair_at: nowIso,
+      last_scheduled_repair_run_id: repairRun.audit_run_id,
+      next_scheduled_repair_due_at: addHours(
+        now,
+        settings.scheduled_repair_interval_hours,
+      ).toISOString(),
+    });
+    const savedSettings = toWorkspaceSettingsResponse(marked, workspaceId);
+    return {
+      workspace_id: workspaceId,
+      due: true,
+      skipped_reason: null,
+      dry_run: repairRun.dry_run,
+      audit_run_id: repairRun.audit_run_id,
+      repair_run: repairRun,
+      next_scheduled_repair_due_at:
+        savedSettings.next_scheduled_repair_due_at,
+    };
+  }
+
   async previewRepair(
     filters: ResearchContinuityRepairPreviewFilters,
     userId?: string,
@@ -449,6 +637,43 @@ export class ResearchContinuityService {
       throw new NotFoundException(`Research continuity repair run ${id} not found`);
     }
     return toRepairRunDetailResponse(run);
+  }
+
+  private async schedulerStatusFromSettings(
+    settings: ResearchContinuityWorkspaceSettingsResponse,
+    workspaceId: string,
+  ): Promise<ResearchContinuitySchedulerStatusResponse> {
+    const lastRun = settings.last_scheduled_repair_run_id
+      ? await this.audit.getRepairRun(
+          settings.last_scheduled_repair_run_id,
+          workspaceId,
+        )
+      : null;
+    return {
+      workspace_id: workspaceId,
+      settings,
+      due: isSchedulerDue(settings, new Date()),
+      disabled: settings.scheduled_repair_mode === 'disabled',
+      dry_run: settings.scheduled_repair_mode === 'dry_run',
+      next_scheduled_repair_due_at: settings.next_scheduled_repair_due_at,
+      last_scheduled_repair_at: settings.last_scheduled_repair_at,
+      last_scheduled_repair_run_id: settings.last_scheduled_repair_run_id,
+      last_scheduled_repair_status: nullableString(lastRun?.status),
+    };
+  }
+
+  private async ensureScheduledRepairRunCompleted(
+    auditRunId: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const auditRun = await this.audit.getRepairRun(auditRunId, workspaceId);
+    const status = stringValue(auditRun?.status);
+    if (status === 'completed' || status === 'completed_with_failures') {
+      return;
+    }
+    throw new ConflictException(
+      `Scheduled repair run ${auditRunId} is ${status || 'unavailable'} and cannot advance scheduler due time`,
+    );
   }
 
   private async discoverRepairCandidates(
@@ -1371,6 +1596,193 @@ function normalizeRepairRunFilters(
     dry_run:
       typeof filters.dry_run === 'boolean' ? filters.dry_run : undefined,
   };
+}
+
+function defaultWorkspaceSettings(
+  workspaceId: string,
+): ResearchContinuityWorkspaceSettingsResponse {
+  return {
+    workspace_id: workspaceId,
+    scheduled_repair_mode: 'disabled',
+    scheduled_repair_case_types: [...DEFAULT_SCHEDULED_REPAIR_CASE_TYPES],
+    scheduled_repair_interval_hours: 24,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 25,
+    next_scheduled_repair_due_at: null,
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: null,
+    updated_by_user_id: null,
+    updated_at: null,
+  };
+}
+
+function toWorkspaceSettingsResponse(
+  row: JsonRecord | null,
+  workspaceId: string,
+): ResearchContinuityWorkspaceSettingsResponse {
+  if (!row) {
+    return defaultWorkspaceSettings(workspaceId);
+  }
+  const fallback = defaultWorkspaceSettings(workspaceId);
+  return {
+    workspace_id: stringValue(row.workspace_id, workspaceId),
+    scheduled_repair_mode: scheduledRepairModeValue(
+      row.scheduled_repair_mode,
+    ),
+    scheduled_repair_case_types: scheduledRepairCaseTypesFromValue(
+      row.scheduled_repair_case_types ?? row.scheduled_repair_case_types_json,
+    ),
+    scheduled_repair_interval_hours: numberValue(
+      row.scheduled_repair_interval_hours,
+      fallback.scheduled_repair_interval_hours,
+    ),
+    scheduled_repair_lookback_days: numberValue(
+      row.scheduled_repair_lookback_days,
+      fallback.scheduled_repair_lookback_days,
+    ),
+    scheduled_repair_limit: numberValue(
+      row.scheduled_repair_limit,
+      fallback.scheduled_repair_limit,
+    ),
+    next_scheduled_repair_due_at: nullableString(
+      row.next_scheduled_repair_due_at,
+    ),
+    last_scheduled_repair_at: nullableString(row.last_scheduled_repair_at),
+    last_scheduled_repair_run_id: nullableString(
+      row.last_scheduled_repair_run_id,
+    ),
+    updated_by_user_id: nullableString(row.updated_by_user_id),
+    updated_at: nullableString(row.updated_at),
+  };
+}
+
+function scheduledRepairModeValue(
+  value: unknown,
+): ResearchContinuityScheduledRepairMode {
+  const normalized = stringValue(value, 'disabled');
+  return RESEARCH_CONTINUITY_SCHEDULED_REPAIR_MODES.includes(
+    normalized as ResearchContinuityScheduledRepairMode,
+  )
+    ? (normalized as ResearchContinuityScheduledRepairMode)
+    : 'disabled';
+}
+
+function scheduledRepairCaseTypesFromValue(
+  value: unknown,
+): ResearchContinuityRepairCaseType[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const allowed = new Set(RESEARCH_CONTINUITY_REPAIR_CASE_TYPES);
+  const caseTypes: ResearchContinuityRepairCaseType[] = [];
+  for (const item of value) {
+    const normalized = stringValue(item);
+    if (
+      allowed.has(normalized as ResearchContinuityRepairCaseType) &&
+      !caseTypes.includes(normalized as ResearchContinuityRepairCaseType)
+    ) {
+      caseTypes.push(normalized as ResearchContinuityRepairCaseType);
+    }
+  }
+  return caseTypes;
+}
+
+function normalizeScheduledRepairCaseTypes(
+  value: unknown,
+  mode: ResearchContinuityScheduledRepairMode,
+): ResearchContinuityRepairCaseType[] {
+  const caseTypes = scheduledRepairCaseTypesFromValue(value);
+  if (caseTypes.length === 0) {
+    throw new BadRequestException(
+      'scheduled_repair_case_types must include at least one case type',
+    );
+  }
+  if (mode === 'enabled' && caseTypes.includes('skipped_or_degraded')) {
+    throw new BadRequestException(
+      'enabled scheduled repair cannot include skipped_or_degraded',
+    );
+  }
+  return caseTypes;
+}
+
+function runnableScheduledRepairCaseTypes(
+  settings: ResearchContinuityWorkspaceSettingsResponse,
+): ResearchContinuityRepairCaseType[] {
+  if (settings.scheduled_repair_mode === 'enabled') {
+    return settings.scheduled_repair_case_types.filter(
+      (caseType) => caseType !== 'skipped_or_degraded',
+    );
+  }
+  return settings.scheduled_repair_case_types;
+}
+
+function normalizeIntegerRange(
+  value: unknown,
+  min: number,
+  max: number,
+  field: string,
+): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new BadRequestException(`${field} must be a number`);
+  }
+  const integer = Math.trunc(numeric);
+  if (integer < min || integer > max) {
+    throw new BadRequestException(`${field} must be between ${min} and ${max}`);
+  }
+  return integer;
+}
+
+function isSchedulerDue(
+  settings: ResearchContinuityWorkspaceSettingsResponse,
+  now: Date,
+): boolean {
+  if (settings.scheduled_repair_mode === 'disabled') {
+    return false;
+  }
+  const nextDue = nullableString(settings.next_scheduled_repair_due_at);
+  if (!nextDue) {
+    return true;
+  }
+  const parsed = Date.parse(nextDue);
+  return Number.isFinite(parsed) && parsed <= now.getTime();
+}
+
+function schedulerSkippedResponse(
+  workspaceId: string,
+  settings: ResearchContinuityWorkspaceSettingsResponse,
+  skippedReason: NonNullable<
+    ResearchContinuitySchedulerRunDueResponse['skipped_reason']
+  >,
+): ResearchContinuitySchedulerRunDueResponse {
+  return {
+    workspace_id: workspaceId,
+    due:
+      skippedReason === 'no_case_types'
+        ? true
+        : isSchedulerDue(settings, new Date()),
+    skipped_reason: skippedReason,
+    dry_run: settings.scheduled_repair_mode === 'dry_run',
+    audit_run_id: null,
+    repair_run: null,
+    next_scheduled_repair_due_at: settings.next_scheduled_repair_due_at,
+  };
+}
+
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+function isRepositoryUnavailable(error: unknown): boolean {
+  if (error instanceof ServiceUnavailableException) {
+    return true;
+  }
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 503) {
+    return true;
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  return ['42P01', '42703'].includes(String(code));
 }
 
 function summarizeRepairResults(
