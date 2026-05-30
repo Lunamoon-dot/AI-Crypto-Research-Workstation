@@ -44,8 +44,6 @@ export const queryKeys = {
     ['calibration-evaluation-reruns', queryIdentity(), id] as const,
   calibrationEvaluationVersionPolicy: (id: string) =>
     ['calibration-evaluation-version-policy', queryIdentity(), id] as const,
-  comparison: (filters: Record<string, unknown>) =>
-    scopedFilters('comparison', filters),
   researchRunWorkspace: (id: string) =>
     ['research-run-workspace', queryIdentity(), id] as const,
   researchRunContinuity: (id: string) =>
@@ -54,6 +52,8 @@ export const queryKeys = {
     ['research-continuity-state', queryIdentity(), symbol] as const,
   researchContinuityEntries: (filters: Record<string, unknown>) =>
     scopedFilters('research-continuity-entries', filters),
+  researchContinuityTimeline: (filters: Record<string, unknown>) =>
+    scopedFilters('research-continuity-timeline', filters),
   researchContinuityEntry: (id: string) =>
     ['research-continuity-entry', queryIdentity(), id] as const,
   researchContinuityEntryDebug: (id: string) =>

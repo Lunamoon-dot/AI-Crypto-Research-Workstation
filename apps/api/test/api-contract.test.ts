@@ -53,7 +53,6 @@ import { AlertsService } from '../src/alerts/alerts.service';
 import { CalibrationService } from '../src/calibration/calibration.service';
 import { CreateEvaluationRerunDto } from '../src/calibration/dto/evaluation-rerun.dto';
 import { PerformanceService } from '../src/performance/performance.service';
-import { ComparisonsService } from '../src/comparisons/comparisons.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
@@ -2061,6 +2060,17 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
     'ResearchContinuityEntryDebugResponse' in openApiDocument.components.schemas,
   );
   assert.ok(
+    'ResearchContinuityTimelineResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityTimelineEventResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityLifecycleItemResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
     'ResearchContinuityDebugAccessAuditResponse' in
       openApiDocument.components.schemas,
   );
@@ -2107,6 +2117,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-runs/{id}/continuity', ['get', 'post']],
     ['/research-continuity/symbols/{symbol}/state', ['get']],
     ['/research-continuity/symbols/{symbol}/entries', ['get']],
+    ['/research-continuity/symbols/{symbol}/timeline', ['get']],
     ['/research-continuity/settings', ['get', 'patch']],
     ['/research-continuity/scheduler', ['get']],
     ['/research-continuity/scheduler/run-due', ['post']],
@@ -2154,8 +2165,6 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/performance/analytics', ['get']],
     ['/performance/trend', ['get']],
     ['/performance/health', ['get']],
-    ['/comparisons/theses', ['get']],
-    ['/comparisons/runs', ['get']],
     ['/scenarios/monitor', ['get']],
     ['/operations/health', ['get']],
     ['/operations/provider-health', ['get']],
@@ -7072,6 +7081,210 @@ test('research continuity V1.9 handles baseline degraded skipped repair and lega
   );
 });
 
+test('research continuity V2.0 timeline endpoint scopes and filters lifecycle windows', async () => {
+  const { journal, researchContinuityController } = buildHarness();
+
+  function seedRun(id: string, completedAt: string, workspaceId = 'workspace_a') {
+    journal.researchRuns.set(key(id, workspaceId), {
+      id,
+      workspace_id: workspaceId,
+      symbol: 'BTC/USDT',
+      status: 'completed',
+      started_at: completedAt,
+      completed_at: completedAt,
+    });
+  }
+
+  function seedEntry(
+    id: string,
+    runId: string,
+    generatedAt: string,
+    events: JsonRecord[],
+    workspaceId = 'workspace_a',
+  ) {
+    journal.continuityEntries.set(key(id, workspaceId), {
+      id,
+      workspace_id: workspaceId,
+      symbol: 'BTC/USDT',
+      research_run_id: runId,
+      current_snapshot_id: `snapshot_${id}`,
+      previous_entry_id: null,
+      entry_type: 'delta',
+      status: 'completed',
+      generated_at: generatedAt,
+      summary: `${id} summary`,
+      sections: [],
+      events,
+      snapshot_quality: { status: 'clean', score: 1 },
+      source_run_ids: [runId],
+      writer_metadata: {},
+      payload: { schema_version: 'research_continuity_entry.v1.1' },
+    });
+  }
+
+  seedRun('run_timeline_old', '2026-05-30T01:10:00.000Z');
+  seedRun('run_timeline_resolved', '2026-05-30T02:10:00.000Z');
+  seedRun('run_timeline_new', '2026-05-30T03:10:00.000Z');
+  seedRun('run_timeline_other_workspace', '2026-05-30T04:10:00.000Z', 'workspace_b');
+  seedEntry('entry_timeline_old', 'run_timeline_old', '2026-05-30T01:00:00.000Z', [
+    {
+      event_type: 'risk_added',
+      item_key: 'risk_timeline',
+      to: {
+        type: 'risk',
+        item_key: 'risk_timeline',
+        text: 'Funding risk is elevated.',
+        source_artifact: 'thesis',
+      },
+      source: {
+        status: 'observed_backed',
+        source_artifact: 'thesis',
+        source_id: 'risk_old',
+        source_field: 'risks',
+      },
+    },
+  ]);
+  seedEntry(
+    'entry_timeline_resolved',
+    'run_timeline_resolved',
+    '2026-05-30T02:00:00.000Z',
+    [
+      {
+        event_type: 'risk_resolved',
+        item_key: null,
+        from: {
+          type: 'risk',
+          legacy_item_key: 'risk_timeline',
+          text: 'Funding normalized.',
+        },
+        reason: 'Funding normalized.',
+      },
+    ],
+  );
+  seedEntry('entry_timeline_new', 'run_timeline_new', '2026-05-30T03:00:00.000Z', [
+    {
+      event_type: 'risk_added',
+      item_key: 'risk_timeline',
+      to: {
+        type: 'risk',
+        item_key: 'risk_timeline',
+        text: 'Funding risk returned.',
+        source_artifact: 'risk_register',
+      },
+      reason: 'Funding risk returned.',
+    },
+    {
+      event_type: 'claim_reinforced',
+      item_key: 'claim_context',
+      to: {
+        type: 'claim',
+        item_key: 'claim_context',
+        text: 'Spot demand remains supportive.',
+      },
+      reason: 'Spot demand remains supportive.',
+    },
+  ]);
+  seedEntry(
+    'entry_timeline_other_workspace',
+    'run_timeline_other_workspace',
+    '2026-05-30T04:00:00.000Z',
+    [
+      {
+        event_type: 'risk_added',
+        item_key: 'risk_other_workspace',
+        to: {
+          type: 'risk',
+          item_key: 'risk_other_workspace',
+          text: 'Other workspace risk.',
+        },
+      },
+    ],
+    'workspace_b',
+  );
+
+  const timeline = await researchContinuityController.getSymbolTimeline(
+    'btcusdt',
+    '10',
+    undefined,
+    undefined,
+    undefined,
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(timeline.symbol, 'BTC/USDT');
+  assert.equal(timeline.workspace_id, 'workspace_a');
+  assert.equal(timeline.entry_count, 3);
+  assert.equal(timeline.window.truncated, false);
+  assert.equal(
+    timeline.timeline_events.some(
+      (event) => event.stable_item_key === 'risk_other_workspace',
+    ),
+    false,
+  );
+  assert.equal(
+    timeline.timeline_events.some((event) => event.status === 'context'),
+    false,
+  );
+  assert.equal(timeline.timeline_events[0]?.observed_at, '2026-05-30T03:10:00.000Z');
+  const risk = timeline.lifecycle_items.find(
+    (item) => item.stable_item_key === 'risk_timeline',
+  );
+  assert.ok(risk);
+  assert.equal(risk.status, 'active');
+  assert.equal(risk.first_seen_run_id, 'run_timeline_old');
+  assert.equal(risk.last_seen_run_id, 'run_timeline_new');
+  assert.equal(risk.occurrence_count, 2);
+
+  const activeRisks = await researchContinuityController.getSymbolTimeline(
+    'BTC/USDT',
+    '10',
+    'risk',
+    'active',
+    'false',
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.ok(activeRisks.timeline_events.length > 0);
+  assert.ok(
+    activeRisks.timeline_events.every(
+      (event) => event.item_type === 'risk' && event.status === 'active',
+    ),
+  );
+
+  const withContext = await researchContinuityController.getSymbolTimeline(
+    'BTC/USDT',
+    '10',
+    undefined,
+    undefined,
+    'true',
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.ok(
+    withContext.timeline_events.some(
+      (event) => event.event_type === 'claim_reinforced',
+    ),
+  );
+  assert.ok(
+    withContext.lifecycle_items.some(
+      (item) => item.stable_item_key === 'claim_context',
+    ),
+  );
+
+  const windowed = await researchContinuityController.getSymbolTimeline(
+    'BTC/USDT',
+    '1',
+    undefined,
+    undefined,
+    undefined,
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.equal(windowed.entry_count, 1);
+  assert.equal(windowed.window.truncated, true);
+  assert.equal(windowed.window.coverage, 'windowed');
+});
+
 test('redactForDebug recursively redacts debug payloads', () => {
   const redacted = redactForDebug({
     authorization: 'Bearer abc',
@@ -9714,73 +9927,6 @@ test('performance analytics, trend, and health use reviewed thesis outcomes', as
   assert.equal(health.overall_status, 'insufficient_data');
 });
 
-test('run and thesis comparisons expose material diffs for web UX', async () => {
-  const { journal, comparisons } = buildHarness();
-  journal.theses.set(key('thesis_left', 'workspace_a'), {
-    id: 'thesis_left',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-    setup_type: 'breakout',
-    confidence: 0.7,
-    thesis_text: 'Long setup',
-    invalidation_level: '65000',
-    supporting_signal_ids: ['sig_a', 'sig_shared'],
-    evidence: { trend: 'up' },
-  });
-  journal.theses.set(key('thesis_right', 'workspace_a'), {
-    id: 'thesis_right',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'short',
-    setup_type: 'breakdown',
-    confidence: 0.44,
-    thesis_text: 'Short setup',
-    invalidation_level: '70000',
-    supporting_signal_ids: ['sig_b', 'sig_shared'],
-    evidence: { trend: 'down' },
-  });
-  journal.researchRuns.set(key('run_left', 'workspace_a'), {
-    id: 'run_left',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    status: 'completed',
-    started_at: '2026-05-12T00:00:00.000Z',
-    thesis_id: 'thesis_left',
-    signal_snapshot_id: 'snap_a',
-    signal_ids: ['sig_a'],
-  });
-  journal.researchRuns.set(key('run_right', 'workspace_a'), {
-    id: 'run_right',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    status: 'completed_degraded',
-    started_at: '2026-05-13T00:00:00.000Z',
-    thesis_id: 'thesis_right',
-    signal_snapshot_id: 'snap_b',
-    signal_ids: ['sig_b'],
-  });
-
-  const thesisDiff = await comparisons.theses(
-    'thesis_left',
-    'thesis_right',
-    'user_1',
-    'workspace_a',
-  );
-  const runDiff = await comparisons.runs(
-    'run_left',
-    'run_right',
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(thesisDiff.direction_flip, true);
-  assert.equal(thesisDiff.change_severity, 'major');
-  assert.ok(thesisDiff.changed_fields.includes('supporting_signal_ids'));
-  assert.equal(runDiff.thesis_diff?.direction_flip, true);
-  assert.ok(runDiff.changed_fields.includes('thesis'));
-});
-
 test('scenario monitor combines scenarios with price and alert context', async () => {
   const { journal, scenarios } = buildHarness();
   journal.theses.set(key('thesis_scenario', 'workspace_a'), {
@@ -10357,7 +10503,6 @@ function buildHarness() {
       thesisEngine,
     ),
     performance: new PerformanceService(journal, auth, workspaces),
-    comparisons: new ComparisonsService(journal, auth, workspaces),
     scenarios: new ScenariosService(journal, auth, workspaces),
     operations: new OperationsService(journal, audit, settings, auth, workspaces),
     workbench: new WorkbenchService(journal, auth, workspaces),

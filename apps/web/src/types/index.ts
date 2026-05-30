@@ -737,30 +737,6 @@ export interface PerformanceHealthResponse {
   recommendation: string;
 }
 
-export interface DiffFieldResponse {
-  a?: unknown;
-  b?: unknown;
-  common?: string[];
-  only_a?: string[];
-  only_b?: string[];
-  changed: boolean;
-  [key: string]: unknown;
-}
-
-export interface ComparisonResponse {
-  kind: 'thesis_diff' | 'run_diff';
-  id_a: string;
-  id_b: string;
-  cross_symbol?: boolean;
-  direction_flip: boolean;
-  changed_fields: string[];
-  changed_count: number;
-  change_severity: string;
-  severity_reasons: string[];
-  fields: Record<string, DiffFieldResponse>;
-  thesis_diff?: ComparisonResponse | null;
-}
-
 export interface ScenarioMonitorItemResponse {
   status: string;
   status_reason: string;
@@ -1366,6 +1342,87 @@ export interface ResearchContinuityStateEnvelopeResponse {
 export interface ResearchContinuityEntriesResponse {
   symbol: string;
   entries: ResearchContinuityEntrySummaryResponse[];
+}
+
+export type ResearchContinuityLifecycleItemType =
+  | 'claim'
+  | 'risk'
+  | 'watchpoint'
+  | 'level'
+  | 'invalidation'
+  | 'view'
+  | 'quality'
+  | 'unknown';
+
+export type ResearchContinuityLifecycleStatus =
+  | 'active'
+  | 'updated'
+  | 'resolved'
+  | 'weakened'
+  | 'invalidated'
+  | 'context'
+  | 'quality';
+
+export interface ResearchContinuityTimelineWindowResponse {
+  entry_limit: number;
+  truncated: boolean;
+  coverage: 'complete' | 'windowed';
+}
+
+export interface ResearchContinuityTimelineEventResponse {
+  id: string;
+  entry_id: string;
+  research_run_id: string | null;
+  observed_at: string | null;
+  recorded_at: string | null;
+  event_type: string;
+  stable_item_key: string | null;
+  item_type: ResearchContinuityLifecycleItemType;
+  status: ResearchContinuityLifecycleStatus;
+  title: string;
+  before: string | null;
+  after: string | null;
+  severity: 'info' | 'warning' | 'critical';
+  diff_quality: 'complete' | 'partial' | 'unavailable';
+  entry_type: string;
+  entry_status: string;
+  is_repair: boolean;
+  repair_case_type: string | null;
+  source_entry_id: string | null;
+  source_run_id: string | null;
+  evidence_status: string | null;
+  source_artifact: string | null;
+  source_id: string | null;
+  source_field: string | null;
+}
+
+export interface ResearchContinuityLifecycleItemResponse {
+  stable_item_key: string;
+  item_type: ResearchContinuityLifecycleItemType;
+  status: ResearchContinuityLifecycleStatus;
+  title: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  first_seen_run_id: string | null;
+  last_seen_run_id: string | null;
+  occurrence_count: number;
+  entry_count: number;
+  latest_entry_id: string | null;
+  latest_event_type: string | null;
+  source_artifacts: string[];
+  timeline_event_ids: string[];
+}
+
+export interface ResearchContinuityTimelineResponse {
+  symbol: string;
+  workspace_id: string;
+  generated_at: string;
+  window: ResearchContinuityTimelineWindowResponse;
+  entry_count: number;
+  event_count: number;
+  lifecycle_items: ResearchContinuityLifecycleItemResponse[];
+  timeline_events: ResearchContinuityTimelineEventResponse[];
+  warnings: string[];
 }
 
 export type ResearchContinuityRepairCaseType =

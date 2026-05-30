@@ -27,6 +27,9 @@ import {
   buildDiffReport,
   buildDiffSummary,
 } from './continuity-diff-report.presenter';
+import {
+  buildContinuityTimeline,
+} from './continuity-timeline.presenter';
 import { isResearchContinuityDebugEnabled } from './research-continuity.config';
 import { ContinuityStateProjector } from './continuity-state.projector';
 import {
@@ -47,6 +50,8 @@ import {
   ResearchContinuityEntryResponse,
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityEvidenceDigestResponse,
+  ResearchContinuityLifecycleItemType,
+  ResearchContinuityLifecycleStatus,
   ResearchContinuityMaterialEventDigestResponse,
   ResearchContinuityQualityExplanationResponse,
   ResearchContinuityRepairCandidateResponse,
@@ -65,6 +70,7 @@ import {
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
   ResearchContinuityThinSectionId,
+  ResearchContinuityTimelineResponse,
   ResearchContinuityWorkspaceSettingsResponse,
   ResearchSnapshotResponse,
   RunResearchContinuityRepairDto,
@@ -94,6 +100,13 @@ interface NormalizedRepairFilters {
   to?: string;
   caseTypes: ResearchContinuityRepairCaseType[];
   limit: number;
+}
+
+interface ResearchContinuityTimelineFilters {
+  include_context?: boolean;
+  item_type?: ResearchContinuityLifecycleItemType;
+  limit?: number;
+  status?: ResearchContinuityLifecycleStatus;
 }
 
 interface RepairCandidate extends ResearchContinuityRepairCandidateResponse {
@@ -337,6 +350,63 @@ export class ResearchContinuityService {
       symbol: normalizedSymbol,
       entries: entries.map((entry) => toEntrySummaryResponse(entry, canViewDebug)),
     };
+  }
+
+  async getSymbolTimeline(
+    symbol: string,
+    filters: ResearchContinuityTimelineFilters = {},
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchContinuityTimelineResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'viewer',
+    );
+    const normalizedSymbol = normalizeContinuitySymbol(symbol);
+    const limit = normalizeTimelineLimit(filters.limit);
+    const fetchedEntries = await this.journal.listResearchContinuityEntriesBySymbol(
+      normalizedSymbol,
+      limit + 1,
+      workspaceId,
+    );
+    const entries = fetchedEntries.slice(0, limit);
+    const runIds = new Set<string>();
+    for (const entry of entries) {
+      const runId = nullableString(entry.research_run_id);
+      if (runId) {
+        runIds.add(runId);
+      }
+      const repairSourceRunId = nullableString(
+        recordValue(continuityEntryPayload(entry).repair).source_run_id,
+      );
+      if (repairSourceRunId) {
+        runIds.add(repairSourceRunId);
+      }
+    }
+    const runs = new Map<string, JsonRecord>();
+    await Promise.all(
+      [...runIds].map(async (runId) => {
+        const run = await this.journal.getResearchRun(runId, workspaceId);
+        if (run) {
+          runs.set(runId, run);
+        }
+      }),
+    );
+
+    return buildContinuityTimeline({
+      entries,
+      entryLimit: limit,
+      fetchedEntryCount: fetchedEntries.length,
+      filters: {
+        itemType: normalizeTimelineItemType(filters.item_type),
+        status: normalizeTimelineStatus(filters.status),
+      },
+      includeContext: Boolean(filters.include_context),
+      runs,
+      symbol: normalizedSymbol,
+      workspaceId,
+    });
   }
 
   async getWorkspaceSettings(
@@ -2565,6 +2635,60 @@ function normalizeLimit(value: number | undefined): number {
     return 20;
   }
   return Math.min(Math.max(Math.trunc(value), 1), 100);
+}
+
+function normalizeTimelineLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 50;
+  }
+  return Math.min(Math.max(Math.trunc(value), 1), 200);
+}
+
+function normalizeTimelineItemType(
+  value: unknown,
+): ResearchContinuityLifecycleItemType | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  const normalized = String(value);
+  if (
+    [
+      'claim',
+      'risk',
+      'watchpoint',
+      'level',
+      'invalidation',
+      'view',
+      'quality',
+      'unknown',
+    ].includes(normalized)
+  ) {
+    return normalized as ResearchContinuityLifecycleItemType;
+  }
+  throw new BadRequestException('item_type must be a valid lifecycle item type');
+}
+
+function normalizeTimelineStatus(
+  value: unknown,
+): ResearchContinuityLifecycleStatus | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  const normalized = String(value);
+  if (
+    [
+      'active',
+      'updated',
+      'resolved',
+      'weakened',
+      'invalidated',
+      'context',
+      'quality',
+    ].includes(normalized)
+  ) {
+    return normalized as ResearchContinuityLifecycleStatus;
+  }
+  throw new BadRequestException('status must be a valid lifecycle status');
 }
 
 function debugAuditDecisionValue(

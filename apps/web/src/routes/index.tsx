@@ -5,7 +5,6 @@ import { CalibrationLabPage } from '@/pages/CalibrationLabPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OperationsPage } from '@/pages/OperationsPage';
 import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
-import { RunComparisonPage } from '@/pages/RunComparisonPage';
 import { ScenarioMonitorPage } from '@/pages/ScenarioMonitorPage';
 import { ResearchContinuityEntryDetailPage } from '@/pages/ResearchContinuityEntryDetailPage';
 import { ResearchContinuityPage } from '@/pages/ResearchContinuityPage';
@@ -34,7 +33,6 @@ export const router = createBrowserRouter([
       },
       { path: 'performance', element: <PerformanceAnalyticsPage /> },
       { path: 'calibration', element: <CalibrationLabPage /> },
-      { path: 'compare', element: <RunComparisonPage /> },
       { path: 'research/runs/:id', element: <ResearchRunWorkspacePage /> },
       { path: 'journal/runs/:id', element: <ResearchRunWorkspacePage journal /> },
       { path: 'theses', element: <ThesisLibraryPage /> },

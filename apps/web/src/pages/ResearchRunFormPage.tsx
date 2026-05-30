@@ -4,9 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Brain,
-  CalendarDays,
   CheckCircle2,
-  Coins,
   Gauge,
   Play,
   Radar,
@@ -14,8 +12,6 @@ import {
 } from "lucide-react";
 import { createResearchRun } from "@/services/research-runs";
 import { BentoGrid } from "@/components/research/bento";
-import { HeaderStats } from "@/components/research/header-stats";
-import { PageHeader } from "@/components/research/page-header";
 import { Panel } from "@/components/research/panel";
 import { errorMessage } from "@/services/client";
 import { todayIsoDate } from "@/lib/format";
@@ -185,42 +181,6 @@ export function ResearchRunFormPage() {
 
   return (
     <main className="page research-launch-page">
-      <PageHeader
-        eyebrow="02 Research Launcher"
-        title="Build a research dossier"
-        description="Choose the asset, market lens, analyst desk, and runtime profile before creating research artifacts. This flow stays inside the research boundary and never places live orders."
-        action={
-          <HeaderStats
-            stats={[
-              {
-                icon: <Coins aria-hidden size={14} />,
-                label: "Target",
-                tone: normalizedSymbol ? "primary" : "risk",
-                value: normalizedSymbol || "n/a",
-              },
-              {
-                icon: <Radar aria-hidden size={14} />,
-                label: "Market",
-                tone: marketType === "perp" ? "warning" : "constructive",
-                value: marketType,
-              },
-              {
-                icon: <CalendarDays aria-hidden size={14} />,
-                label: "Date",
-                tone: "warning",
-                value: analysisDate,
-              },
-              {
-                icon: <Brain aria-hidden size={14} />,
-                label: "Analysts",
-                meta: selectedProfile.label,
-                value: analysts.length,
-              },
-            ]}
-          />
-        }
-      />
-
       <form className="research-launch-form" onSubmit={submit}>
         <BentoGrid className="research-launch-grid">
           <Panel

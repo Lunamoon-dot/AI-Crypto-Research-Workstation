@@ -21,6 +21,7 @@ import type {
   ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
+  ResearchContinuityTimelineResponse,
   ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
   UpdateResearchContinuitySettingsRequest,
@@ -54,6 +55,19 @@ export function listResearchContinuityEntries(
   auth: WorkspaceRequestContext,
 ) {
   return generatedClient(auth).listResearchContinuityEntries(symbol, params);
+}
+
+export function getResearchContinuityTimeline(
+  symbol: string,
+  params: {
+    include_context?: boolean;
+    item_type?: string;
+    limit?: number;
+    status?: string;
+  },
+  auth: WorkspaceRequestContext,
+) {
+  return generatedClient(auth).getResearchContinuityTimeline(symbol, params);
 }
 
 export function getResearchContinuityEntry(
@@ -143,6 +157,7 @@ export type {
   ResearchContinuitySchedulerStatusResponse,
   ResearchContinuityStateEnvelopeResponse,
   ResearchContinuityThinReport,
+  ResearchContinuityTimelineResponse,
   ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
   UpdateResearchContinuitySettingsRequest,
