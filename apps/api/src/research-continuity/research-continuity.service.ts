@@ -23,6 +23,10 @@ import {
   ContinuityReportRenderer,
   RESEARCH_CONTINUITY_THIN_REPORT_VERSION,
 } from './continuity-report.renderer';
+import {
+  buildDiffReport,
+  buildDiffSummary,
+} from './continuity-diff-report.presenter';
 import { isResearchContinuityDebugEnabled } from './research-continuity.config';
 import { ContinuityStateProjector } from './continuity-state.projector';
 import {
@@ -2229,6 +2233,7 @@ function toEntrySummaryResponse(
         sections,
         snapshotQuality,
       }),
+    diff_summary: buildDiffSummary(entry),
     debug: buildDebugAccess(id, canViewDebug),
   };
 }
@@ -2258,6 +2263,7 @@ function toEntryDetailResponse(
 ): ResearchContinuityEntryDetailResponse {
   return {
     ...toEntrySummaryResponse(entry, canViewDebug),
+    diff_report: buildDiffReport(entry),
     quality_explanation: buildQualityExplanation(entry),
     evidence_digest: buildEvidenceDigest(entry),
     material_events_digest: buildMaterialEventsDigest(entry),
