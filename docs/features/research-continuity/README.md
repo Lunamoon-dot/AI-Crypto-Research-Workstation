@@ -1,6 +1,6 @@
 # Research Continuity
 
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 Status: implemented feature overview
 
 ## Purpose
@@ -103,7 +103,7 @@ is required.
 | V1.4 | implemented | [v1.4/implementation-plan.md](v1.4/implementation-plan.md) |
 | V1.5 | implemented | [v1.5/implementation-plan.md](v1.5/implementation-plan.md) |
 | V1.6 | implemented | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
-| V1.7 | goal-ready | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
+| V1.7 | implemented | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
 
 ## Later Versions
 

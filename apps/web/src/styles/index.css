@@ -5761,3 +5761,111 @@ button.thesis-pulse-row.active {
   }
 }
 
+/* Research continuity scheduler controls */
+.research-continuity-maintenance,
+.scheduler-controls-panel,
+.scheduler-settings-form,
+.repair-run-detail {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.scheduler-controls-panel,
+.repair-run-detail {
+  border: 1px solid rgba(63, 63, 70, 0.72);
+  border-radius: 8px;
+  background: rgba(9, 9, 11, 0.28);
+  padding: 16px;
+}
+
+.scheduler-controls-header,
+.scheduler-action-row,
+.scheduler-run-result {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.scheduler-controls-header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.scheduler-controls-header strong {
+  color: var(--foreground);
+  font-size: 22px;
+  font-weight: 820;
+}
+
+.scheduler-status-grid,
+.scheduler-number-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.scheduler-number-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.scheduler-number-grid label,
+.scheduler-settings-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scheduler-number-grid span,
+.scheduler-case-list small {
+  color: var(--muted-2);
+  font-size: 11px;
+}
+
+.scheduler-mode-control,
+.scheduler-case-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scheduler-case-list .checkbox-row {
+  flex: 1 1 220px;
+  align-items: start;
+  border: 1px solid rgba(63, 63, 70, 0.72);
+  border-radius: 8px;
+  background: rgba(24, 24, 27, 0.46);
+  padding: 10px;
+}
+
+.scheduler-case-list .checkbox-row span,
+.scheduler-case-list .checkbox-row small {
+  overflow-wrap: anywhere;
+}
+
+.scheduler-case-list .checkbox-row small {
+  grid-column: 2;
+}
+
+.repair-run-detail {
+  margin-top: 12px;
+}
+
+@media (max-width: 920px) {
+  .scheduler-status-grid,
+  .scheduler-number-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scheduler-mode-control > .button,
+  .scheduler-action-row > .button {
+    width: 100%;
+  }
+}
+

@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -7,21 +7,29 @@ import {
   Layers,
   Play,
   RefreshCw,
+  Save,
   Search,
+  Settings2,
   ShieldCheck,
   Wrench,
 } from 'lucide-react';
 import {
+  getResearchContinuityRepairRun,
+  getResearchContinuityScheduler,
+  getResearchContinuitySettings,
   getResearchContinuityState,
   listResearchContinuityEntries,
   listResearchContinuityRepairRuns,
   previewResearchContinuityRepair,
+  runDueResearchContinuityScheduler,
   runResearchContinuityRepair,
+  updateResearchContinuitySettings,
 } from '@/services/research-continuity';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
 import { HeaderStats } from '@/components/research/header-stats';
+import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { IdChip, StatusBadge } from '@/components/research/badges';
@@ -34,10 +42,15 @@ import type {
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewResponse,
+  ResearchContinuityRepairRunDetailResponse,
   ResearchContinuityRepairRunResponse,
   ResearchContinuityRepairRunSummaryResponse,
+  ResearchContinuityScheduledRepairMode,
+  ResearchContinuitySchedulerRunDueResponse,
+  ResearchContinuityWorkspaceSettingsResponse,
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
+  UpdateResearchContinuitySettingsRequest,
 } from '@/types';
 
 const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
@@ -97,6 +110,15 @@ export function ResearchContinuityPage() {
     });
     void queryClient.invalidateQueries({
       queryKey: queryKeys.researchContinuityRepairRuns({ limit: 5 }),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuitySettings(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuityScheduler(),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.operationsHealth({ limit: 50 }),
     });
   }
 
@@ -202,15 +224,11 @@ export function ResearchContinuityPage() {
           title="Ledger repair"
           description="Manual continuity ledger control"
         >
-          {ENABLE_RESEARCH_CONTINUITY_REPAIR ? (
-            <RepairBackfillPanel
-              auth={auth}
-              onExecuted={refreshContinuityQueries}
-              symbol={symbol}
-            />
-          ) : (
-            <RecentRepairRunsPanel auth={auth} />
-          )}
+          <ResearchContinuityMaintenancePanel
+            auth={auth}
+            onExecuted={refreshContinuityQueries}
+            symbol={symbol}
+          />
         </Panel>
 
         <Panel className="span-12" title="Continuity entries">
@@ -394,6 +412,257 @@ function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null 
   );
 }
 
+function ResearchContinuityMaintenancePanel({
+  auth,
+  onExecuted,
+  symbol,
+}: {
+  auth: WorkspaceRequestContext;
+  onExecuted: () => void;
+  symbol: string;
+}) {
+  return (
+    <div className="research-continuity-maintenance">
+      <SchedulerControlsPanel auth={auth} onExecuted={onExecuted} />
+      {ENABLE_RESEARCH_CONTINUITY_REPAIR ? (
+        <RepairBackfillPanel
+          auth={auth}
+          onExecuted={onExecuted}
+          symbol={symbol}
+        />
+      ) : (
+        <RecentRepairRunsPanel auth={auth} />
+      )}
+    </div>
+  );
+}
+
+function SchedulerControlsPanel({
+  auth,
+  onExecuted,
+}: {
+  auth: WorkspaceRequestContext;
+  onExecuted: () => void;
+}) {
+  const [mode, setMode] =
+    useState<ResearchContinuityScheduledRepairMode>('disabled');
+  const [caseTypes, setCaseTypes] =
+    useState<ResearchContinuityRepairCaseType[]>([
+      'missing_continuity',
+      'legacy_evidence',
+    ]);
+  const [intervalHours, setIntervalHours] = useState(24);
+  const [lookbackDays, setLookbackDays] = useState(30);
+  const [limit, setLimit] = useState(25);
+  const settingsQuery = useQuery({
+    queryKey: queryKeys.researchContinuitySettings(),
+    queryFn: () => getResearchContinuitySettings(auth),
+    retry: false,
+  });
+  const schedulerQuery = useQuery({
+    queryKey: queryKeys.researchContinuityScheduler(),
+    queryFn: () => getResearchContinuityScheduler(auth),
+    retry: false,
+  });
+  const saveMutation = useMutation<
+    ResearchContinuityWorkspaceSettingsResponse,
+    Error,
+    UpdateResearchContinuitySettingsRequest
+  >({
+    mutationFn: (request) => updateResearchContinuitySettings(request, auth),
+    onSuccess: () => {
+      onExecuted();
+    },
+  });
+  const runDueMutation = useMutation<ResearchContinuitySchedulerRunDueResponse>({
+    mutationFn: () => runDueResearchContinuityScheduler(auth),
+    onSuccess: () => {
+      onExecuted();
+    },
+  });
+  const settings = settingsQuery.data;
+  const scheduler = schedulerQuery.data;
+  const activeMode = settings?.scheduled_repair_mode ?? mode;
+  const due = scheduler?.due ?? false;
+  const disabledSkippedCase = mode === 'enabled';
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+    setMode(settings.scheduled_repair_mode);
+    setCaseTypes(settings.scheduled_repair_case_types);
+    setIntervalHours(settings.scheduled_repair_interval_hours);
+    setLookbackDays(settings.scheduled_repair_lookback_days);
+    setLimit(settings.scheduled_repair_limit);
+  }, [settings]);
+
+  function changeMode(nextMode: ResearchContinuityScheduledRepairMode) {
+    setMode(nextMode);
+    if (nextMode === 'enabled') {
+      setCaseTypes((current) =>
+        current.filter((caseType) => caseType !== 'skipped_or_degraded'),
+      );
+    }
+  }
+
+  function toggleCaseType(caseType: ResearchContinuityRepairCaseType) {
+    if (caseType === 'skipped_or_degraded' && mode === 'enabled') {
+      return;
+    }
+    setCaseTypes((current) =>
+      current.includes(caseType)
+        ? current.filter((item) => item !== caseType)
+        : [...current, caseType],
+    );
+  }
+
+  function submitSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    saveMutation.mutate({
+      scheduled_repair_mode: mode,
+      scheduled_repair_case_types: caseTypes,
+      scheduled_repair_interval_hours: intervalHours,
+      scheduled_repair_lookback_days: lookbackDays,
+      scheduled_repair_limit: limit,
+    });
+  }
+
+  return (
+    <section className="scheduler-controls-panel">
+      <div className="scheduler-controls-header">
+        <div>
+          <span className="small muted">Scheduled repair</span>
+          <strong>{schedulerModeLabel(activeMode)}</strong>
+        </div>
+        <span className={due ? 'badge warning' : 'badge constructive'}>
+          {due ? 'due' : 'not due'}
+        </span>
+      </div>
+      {settingsQuery.isLoading || schedulerQuery.isLoading ? (
+        <LoadingState label="Loading scheduler controls..." />
+      ) : null}
+      {settingsQuery.isError ? <ErrorState error={settingsQuery.error} /> : null}
+      {schedulerQuery.isError ? <ErrorState error={schedulerQuery.error} /> : null}
+
+      <div className="scheduler-status-grid">
+        <DataPair label="Workspace" value={settings?.workspace_id ?? auth.workspaceId} />
+        <DataPair label="Next due" value={formatDateTime(scheduler?.next_scheduled_repair_due_at)} />
+        <DataPair label="Last scheduled" value={formatDateTime(scheduler?.last_scheduled_repair_at)} />
+        <DataPair label="Last run" value={<IdChip value={scheduler?.last_scheduled_repair_run_id} />} />
+        <DataPair label="Last status" value={scheduler?.last_scheduled_repair_status ?? 'none'} />
+      </div>
+
+      <form className="scheduler-settings-form" onSubmit={submitSettings}>
+        <div className="scheduler-mode-control" role="group">
+          {(['disabled', 'dry_run', 'enabled'] as const).map((item) => (
+            <button
+              className={mode === item ? 'button primary' : 'button'}
+              key={item}
+              onClick={() => changeMode(item)}
+              type="button"
+            >
+              {schedulerModeLabel(item)}
+            </button>
+          ))}
+        </div>
+        <div className="scheduler-case-list" role="group">
+          {REPAIR_CASE_TYPES.map((caseType) => (
+            <label className="checkbox-row" key={caseType}>
+              <input
+                checked={caseTypes.includes(caseType)}
+                disabled={caseType === 'skipped_or_degraded' && disabledSkippedCase}
+                onChange={() => toggleCaseType(caseType)}
+                type="checkbox"
+              />
+              <span>{repairCaseLabel(caseType)}</span>
+              <small>{caseTypeDescription(caseType)}</small>
+            </label>
+          ))}
+        </div>
+        {mode === 'enabled' ? (
+          <p className="small muted">
+            Enabled runs exclude skipped or degraded repair because that path is limited to dry-run review.
+          </p>
+        ) : null}
+        <div className="scheduler-number-grid">
+          <label>
+            <span>Interval hours</span>
+            <input
+              className="input"
+              max={168}
+              min={1}
+              onChange={(event) => setIntervalHours(clampRange(event.target.value, 1, 168, 24))}
+              type="number"
+              value={intervalHours}
+            />
+          </label>
+          <label>
+            <span>Lookback days</span>
+            <input
+              className="input"
+              max={365}
+              min={1}
+              onChange={(event) => setLookbackDays(clampRange(event.target.value, 1, 365, 30))}
+              type="number"
+              value={lookbackDays}
+            />
+          </label>
+          <label>
+            <span>Limit</span>
+            <input
+              className="input"
+              max={100}
+              min={1}
+              onChange={(event) => setLimit(clampRange(event.target.value, 1, 100, 25))}
+              type="number"
+              value={limit}
+            />
+          </label>
+        </div>
+        <div className="scheduler-action-row">
+          <button
+            className="button"
+            disabled={saveMutation.isPending || caseTypes.length === 0}
+            type="submit"
+          >
+            <Save aria-hidden size={15} />
+            {saveMutation.isPending ? 'Saving' : 'Save settings'}
+          </button>
+          <button
+            className="button primary"
+            disabled={runDueMutation.isPending || !due}
+            onClick={() => runDueMutation.mutate()}
+            type="button"
+          >
+            <Settings2 aria-hidden size={15} />
+            {runDueMutation.isPending ? 'Running' : 'Run due repair'}
+          </button>
+        </div>
+      </form>
+      {saveMutation.isError ? <ErrorState error={saveMutation.error} /> : null}
+      {runDueMutation.isError ? <ErrorState error={runDueMutation.error} /> : null}
+      {runDueMutation.data ? <SchedulerRunDueResult result={runDueMutation.data} /> : null}
+    </section>
+  );
+}
+
+function SchedulerRunDueResult({
+  result,
+}: {
+  result: ResearchContinuitySchedulerRunDueResponse;
+}) {
+  return (
+    <div className="scheduler-run-result">
+      <span className={result.skipped_reason ? 'badge warning' : 'badge constructive'}>
+        {result.skipped_reason ?? 'repair run recorded'}
+      </span>
+      <DataPair label="Audit run" value={<IdChip value={result.audit_run_id} />} />
+      <DataPair label="Next due" value={formatDateTime(result.next_scheduled_repair_due_at)} />
+    </div>
+  );
+}
+
 function RepairBackfillPanel({
   auth,
   onExecuted,
@@ -544,18 +813,39 @@ function RecentRepairRunsPanel({
 }: {
   auth: WorkspaceRequestContext;
 }) {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const repairRunsQuery = useQuery({
     queryKey: queryKeys.researchContinuityRepairRuns({ limit: 5 }),
     queryFn: () => listResearchContinuityRepairRuns({ limit: 5 }, auth),
     retry: false,
   });
+  const detailQuery = useQuery({
+    queryKey: selectedRunId
+      ? queryKeys.researchContinuityRepairRun(selectedRunId)
+      : queryKeys.researchContinuityRepairRun('none'),
+    queryFn: () => getResearchContinuityRepairRun(String(selectedRunId), auth),
+    enabled: Boolean(selectedRunId),
+    retry: false,
+  });
   return (
-    <RecentRepairRuns
-      error={repairRunsQuery.error}
-      isError={repairRunsQuery.isError}
-      isLoading={repairRunsQuery.isLoading}
-      runs={repairRunsQuery.data?.runs ?? []}
-    />
+    <>
+      <RecentRepairRuns
+        error={repairRunsQuery.error}
+        isError={repairRunsQuery.isError}
+        isLoading={repairRunsQuery.isLoading}
+        onSelectRun={setSelectedRunId}
+        runs={repairRunsQuery.data?.runs ?? []}
+        selectedRunId={selectedRunId}
+      />
+      {selectedRunId ? (
+        <RepairRunDetail
+          detail={detailQuery.data ?? null}
+          error={detailQuery.error}
+          isError={detailQuery.isError}
+          isLoading={detailQuery.isLoading}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -668,12 +958,16 @@ function RecentRepairRuns({
   error,
   isError,
   isLoading,
+  onSelectRun,
   runs,
+  selectedRunId,
 }: {
   error: Error | null;
   isError: boolean;
   isLoading: boolean;
+  onSelectRun: (id: string) => void;
   runs: ResearchContinuityRepairRunSummaryResponse[];
+  selectedRunId: string | null;
 }) {
   return (
     <div className="research-continuity-repair-history">
@@ -706,10 +1000,100 @@ function RecentRepairRuns({
               <DataPair label="Repaired" value={run.repaired_count} />
               <DataPair label="Failed" value={run.failed_count} />
             </div>
+            <button
+              className={selectedRunId === run.id ? 'button primary' : 'button'}
+              onClick={() => onSelectRun(run.id)}
+              type="button"
+            >
+              Inspect run
+            </button>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function RepairRunDetail({
+  detail,
+  error,
+  isError,
+  isLoading,
+}: {
+  detail: ResearchContinuityRepairRunDetailResponse | null;
+  error: Error | null;
+  isError: boolean;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return <LoadingState label="Loading repair run detail..." />;
+  }
+  if (isError) {
+    return <ErrorState error={error} />;
+  }
+  if (!detail) {
+    return null;
+  }
+  return (
+    <section className="repair-run-detail">
+      <div className="row">
+        <strong>Repair run detail</strong>
+        <span className={detail.dry_run ? 'badge primary' : 'badge constructive'}>
+          {detail.dry_run ? 'dry run' : 'executed'}
+        </span>
+        <StatusBadge value={detail.status} />
+      </div>
+      <div className="grid two">
+        <DataPair label="Audit run" value={<IdChip value={detail.id} />} />
+        <DataPair label="Requested" value={formatDateTime(detail.requested_at)} />
+        <DataPair label="Completed" value={formatDateTime(detail.completed_at)} />
+        <DataPair label="Error" value={detail.error_message ?? 'none'} />
+      </div>
+      <div className="grid two">
+        <DataPair
+          label="Created entries"
+          value={
+            detail.created_entry_ids.length
+              ? detail.created_entry_ids.map((id) => <IdChip key={id} value={id} />)
+              : 'none'
+          }
+        />
+        <DataPair label="Filters" value={<JsonView value={detail.filters} />} />
+      </div>
+      {detail.results.length === 0 ? <EmptyState label="No candidate results." /> : null}
+      {detail.results.length > 0 ? (
+        <div className="table-scroll">
+          <table className="table research-continuity-repair-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Case</th>
+                <th>Action</th>
+                <th>Entry</th>
+                <th>State</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.results.map((result) => (
+                <tr key={`${result.candidate_id}-${result.action}`}>
+                  <td>
+                    <IdChip value={result.run_id} />
+                  </td>
+                  <td>{repairCaseLabel(result.case_type)}</td>
+                  <td>{repairActionLabel(result.action)}</td>
+                  <td>
+                    <IdChip value={result.new_entry_id} />
+                  </td>
+                  <td>{result.state_updated ? 'updated' : 'unchanged'}</td>
+                  <td>{result.error ?? result.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -917,6 +1301,30 @@ function repairCaseLabel(value: ResearchContinuityRepairCaseType): string {
   }
 }
 
+function caseTypeDescription(value: ResearchContinuityRepairCaseType): string {
+  switch (value) {
+    case 'missing_continuity':
+      return 'Backfill completed runs without a ledger entry.';
+    case 'skipped_or_degraded':
+      return 'Review entries that may improve with current artifacts.';
+    case 'legacy_evidence':
+      return 'Refresh older entries missing evidence metadata.';
+    default:
+      return value;
+  }
+}
+
+function schedulerModeLabel(value: ResearchContinuityScheduledRepairMode): string {
+  switch (value) {
+    case 'dry_run':
+      return 'Dry run';
+    case 'enabled':
+      return 'Enabled';
+    default:
+      return 'Disabled';
+  }
+}
+
 function repairActionLabel(value: string): string {
   return value.replaceAll('_', ' ');
 }
@@ -927,6 +1335,14 @@ function clampLimit(value: string): number {
     return 25;
   }
   return Math.min(Math.max(Math.trunc(parsed), 1), 100);
+}
+
+function clampRange(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), min), max);
 }
 
 function formatCoverage(value: unknown): string {

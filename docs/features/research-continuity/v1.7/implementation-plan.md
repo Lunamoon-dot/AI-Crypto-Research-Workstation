@@ -11,7 +11,23 @@
 ---
 
 Last updated: 2026-05-30
-Status: goal-ready
+Status: implemented
+
+## Completion Notes
+
+- Added workspace-scoped Research Continuity scheduled repair settings with
+  Postgres persistence, Prisma metadata, admin-only settings/status/run-due
+  APIs, and deterministic scheduler idempotency keys.
+- Extended operations health and the web service/contracts so scheduler mode,
+  due state, next due time, and last scheduled repair run are visible.
+- Updated the Research Continuity maintenance UI with scheduler controls,
+  manual due-run execution, and repair run detail inspection.
+- Verification completed: `pnpm --filter @lunaperception/api test`,
+  `pnpm --filter @lunaperception/api lint`,
+  `pnpm --filter @lunaperception/web lint`,
+  `pnpm --filter @lunaperception/web typecheck`, and
+  `pnpm --filter @lunaperception/web build`. The web build retained the
+  existing large chunk warning.
 
 ## One Outcome
 

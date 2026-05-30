@@ -1048,6 +1048,10 @@ export interface OperationsContinuityHealthResponse {
   repair_failures_24h: number;
   debug_access_24h: number;
   debug_denied_24h: number;
+  scheduled_repair_mode: 'disabled' | 'dry_run' | 'enabled';
+  scheduled_repair_due: boolean;
+  next_scheduled_repair_due_at: string | null;
+  last_scheduled_repair_run_id: string | null;
 }
 
 export interface OperationsHealthResponse {

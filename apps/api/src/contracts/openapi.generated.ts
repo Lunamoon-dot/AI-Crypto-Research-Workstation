@@ -252,6 +252,45 @@ export const openApiDocument = {
         ),
       },
     },
+    '/research-continuity/settings': {
+      get: {
+        operationId: 'getResearchContinuitySettings',
+        tags: ['research-continuity'],
+        responses: jsonResponse(
+          'Workspace continuity repair scheduler settings.',
+          'ResearchContinuityWorkspaceSettingsResponse',
+        ),
+      },
+      patch: {
+        operationId: 'updateResearchContinuitySettings',
+        tags: ['research-continuity'],
+        requestBody: jsonRequest('UpdateResearchContinuitySettingsRequest'),
+        responses: jsonResponse(
+          'Updated workspace continuity repair scheduler settings.',
+          'ResearchContinuityWorkspaceSettingsResponse',
+        ),
+      },
+    },
+    '/research-continuity/scheduler': {
+      get: {
+        operationId: 'getResearchContinuityScheduler',
+        tags: ['research-continuity'],
+        responses: jsonResponse(
+          'Workspace continuity repair scheduler status.',
+          'ResearchContinuitySchedulerStatusResponse',
+        ),
+      },
+    },
+    '/research-continuity/scheduler/run-due': {
+      post: {
+        operationId: 'runDueResearchContinuityScheduler',
+        tags: ['research-continuity'],
+        responses: jsonResponse(
+          'Manual due scheduled repair execution result.',
+          'ResearchContinuitySchedulerRunDueResponse',
+        ),
+      },
+    },
     '/research-continuity/repair/preview': {
       get: {
         operationId: 'previewResearchContinuityRepair',
@@ -3394,6 +3433,10 @@ export const openApiDocument = {
           'repair_failures_24h',
           'debug_access_24h',
           'debug_denied_24h',
+          'scheduled_repair_mode',
+          'scheduled_repair_due',
+          'next_scheduled_repair_due_at',
+          'last_scheduled_repair_run_id',
         ],
         properties: {
           workspace_id: { type: 'string' },
@@ -3407,6 +3450,16 @@ export const openApiDocument = {
           repair_failures_24h: { type: 'integer' },
           debug_access_24h: { type: 'integer' },
           debug_denied_24h: { type: 'integer' },
+          scheduled_repair_mode: {
+            type: 'string',
+            enum: ['disabled', 'dry_run', 'enabled'],
+          },
+          scheduled_repair_due: { type: 'boolean' },
+          next_scheduled_repair_due_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+          },
+          last_scheduled_repair_run_id: { type: ['string', 'null'] },
         },
       },
       OperationsHealthResponse: {
@@ -3944,6 +3997,160 @@ export const openApiDocument = {
           entries: {
             type: 'array',
             items: { $ref: '#/components/schemas/ResearchContinuityEntrySummaryResponse' },
+          },
+        },
+      },
+      UpdateResearchContinuitySettingsRequest: {
+        type: 'object',
+        properties: {
+          scheduled_repair_mode: {
+            type: 'string',
+            enum: ['disabled', 'dry_run', 'enabled'],
+          },
+          scheduled_repair_case_types: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: [
+                'missing_continuity',
+                'skipped_or_degraded',
+                'legacy_evidence',
+              ],
+            },
+          },
+          scheduled_repair_interval_hours: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 168,
+          },
+          scheduled_repair_lookback_days: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 365,
+          },
+          scheduled_repair_limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 100,
+          },
+        },
+      },
+      ResearchContinuityWorkspaceSettingsResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'scheduled_repair_mode',
+          'scheduled_repair_case_types',
+          'scheduled_repair_interval_hours',
+          'scheduled_repair_lookback_days',
+          'scheduled_repair_limit',
+          'next_scheduled_repair_due_at',
+          'last_scheduled_repair_at',
+          'last_scheduled_repair_run_id',
+          'updated_by_user_id',
+          'updated_at',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          scheduled_repair_mode: {
+            type: 'string',
+            enum: ['disabled', 'dry_run', 'enabled'],
+          },
+          scheduled_repair_case_types: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: [
+                'missing_continuity',
+                'skipped_or_degraded',
+                'legacy_evidence',
+              ],
+            },
+          },
+          scheduled_repair_interval_hours: { type: 'integer' },
+          scheduled_repair_lookback_days: { type: 'integer' },
+          scheduled_repair_limit: { type: 'integer' },
+          next_scheduled_repair_due_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+          },
+          last_scheduled_repair_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+          },
+          last_scheduled_repair_run_id: { type: ['string', 'null'] },
+          updated_by_user_id: { type: ['string', 'null'] },
+          updated_at: { type: ['string', 'null'], format: 'date-time' },
+        },
+      },
+      ResearchContinuitySchedulerStatusResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'settings',
+          'due',
+          'disabled',
+          'dry_run',
+          'next_scheduled_repair_due_at',
+          'last_scheduled_repair_at',
+          'last_scheduled_repair_run_id',
+          'last_scheduled_repair_status',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          settings: {
+            $ref: '#/components/schemas/ResearchContinuityWorkspaceSettingsResponse',
+          },
+          due: { type: 'boolean' },
+          disabled: { type: 'boolean' },
+          dry_run: { type: 'boolean' },
+          next_scheduled_repair_due_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+          },
+          last_scheduled_repair_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
+          },
+          last_scheduled_repair_run_id: { type: ['string', 'null'] },
+          last_scheduled_repair_status: { type: ['string', 'null'] },
+        },
+      },
+      ResearchContinuitySchedulerRunDueResponse: {
+        type: 'object',
+        required: [
+          'workspace_id',
+          'due',
+          'skipped_reason',
+          'dry_run',
+          'audit_run_id',
+          'repair_run',
+          'next_scheduled_repair_due_at',
+        ],
+        properties: {
+          workspace_id: { type: 'string' },
+          due: { type: 'boolean' },
+          skipped_reason: {
+            type: ['string', 'null'],
+            enum: [
+              'scheduler_disabled',
+              'not_due',
+              'no_case_types',
+              'settings_unavailable',
+              null,
+            ],
+          },
+          dry_run: { type: 'boolean' },
+          audit_run_id: { type: ['string', 'null'] },
+          repair_run: {
+            anyOf: [
+              { $ref: '#/components/schemas/ResearchContinuityRepairRunResponse' },
+              { type: 'null' },
+            ],
+          },
+          next_scheduled_repair_due_at: {
+            type: ['string', 'null'],
+            format: 'date-time',
           },
         },
       },

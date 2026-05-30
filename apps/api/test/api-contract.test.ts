@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
@@ -74,6 +75,10 @@ import type {
   ResearchContinuityRepairRunFilters,
   ResearchContinuityRepairRunFinalizeInput,
 } from '../src/research-continuity/research-continuity-audit.types';
+import type {
+  ResearchContinuityMarkScheduledRepairRunInput,
+  ResearchContinuityWorkspaceSettingsUpsertInput,
+} from '../src/research-continuity/research-continuity-settings.types';
 import {
   openApiDocument,
 } from '../src/contracts/openapi.generated';
@@ -1746,6 +1751,54 @@ class FakeResearchContinuityAuditRepository
   }
 }
 
+class FakeResearchContinuitySettingsRepository {
+  readonly settings = new Map<string, JsonRecord>();
+  failRead = false;
+
+  async getWorkspaceSettings(workspaceId: string): Promise<JsonRecord | null> {
+    if (this.failRead) {
+      throw new ServiceUnavailableException('continuity settings unavailable');
+    }
+    return this.settings.get(workspaceId) ?? null;
+  }
+
+  async upsertWorkspaceSettings(
+    input: ResearchContinuityWorkspaceSettingsUpsertInput,
+  ): Promise<JsonRecord> {
+    const workspaceId = String(input.workspace_id);
+    const existing = this.settings.get(workspaceId) ?? {};
+    const saved = {
+      ...existing,
+      ...input,
+      updated_at:
+        input.updated_at ??
+        existing.updated_at ??
+        '2026-05-12T00:00:00.000Z',
+    } as JsonRecord;
+    this.settings.set(workspaceId, saved);
+    return saved;
+  }
+
+  async markScheduledRepairRun(
+    input: ResearchContinuityMarkScheduledRepairRunInput,
+  ): Promise<JsonRecord> {
+    const workspaceId = String(input.workspace_id);
+    const existing = this.settings.get(workspaceId);
+    if (!existing) {
+      throw new ServiceUnavailableException('continuity settings missing');
+    }
+    const saved = {
+      ...existing,
+      last_scheduled_repair_at:
+        input.last_scheduled_repair_at ?? '2026-05-12T00:05:00.000Z',
+      last_scheduled_repair_run_id: input.last_scheduled_repair_run_id,
+      next_scheduled_repair_due_at: input.next_scheduled_repair_due_at,
+    } as JsonRecord;
+    this.settings.set(workspaceId, saved);
+    return saved;
+  }
+}
+
 test('POST /research-runs rejects x-workspace-id mismatches', async () => {
   const { researchRuns } = buildHarness();
 
@@ -2264,6 +2317,18 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
       openApiDocument.components.schemas,
   );
   assert.ok(
+    'ResearchContinuityWorkspaceSettingsResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuitySchedulerStatusResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuitySchedulerRunDueResponse' in
+      openApiDocument.components.schemas,
+  );
+  assert.ok(
     'OperationsContinuityHealthResponse' in openApiDocument.components.schemas,
   );
   assert.ok(
@@ -2286,6 +2351,9 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/research-runs/{id}/continuity', ['get', 'post']],
     ['/research-continuity/symbols/{symbol}/state', ['get']],
     ['/research-continuity/symbols/{symbol}/entries', ['get']],
+    ['/research-continuity/settings', ['get', 'patch']],
+    ['/research-continuity/scheduler', ['get']],
+    ['/research-continuity/scheduler/run-due', ['post']],
     ['/research-continuity/entries/{id}', ['get']],
     ['/research-continuity/entries/{id}/debug', ['get']],
     ['/research-continuity/debug-audits', ['get']],
@@ -5712,7 +5780,7 @@ test('monitoring retention dry-run preserves protected baseline tables', async (
 });
 
 test('operations health exposes monitoring queue, worker, retention, and memo health', async () => {
-  const { audit, journal, operations } = buildHarness();
+  const { audit, journal, operations, settings } = buildHarness();
   journal.monitoringHealth = {
     monitoring_queue: {
       queued: 3,
@@ -5759,6 +5827,19 @@ test('operations health exposes monitoring queue, worker, retention, and memo he
     debug_access_24h: 4,
     debug_denied_24h: 2,
   };
+  settings.settings.set('workspace_a', {
+    workspace_id: 'workspace_a',
+    scheduled_repair_mode: 'dry_run',
+    scheduled_repair_case_types: ['missing_continuity'],
+    scheduled_repair_interval_hours: 24,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 25,
+    next_scheduled_repair_due_at: '2026-05-12T00:00:00.000Z',
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: 'repair_run_ops',
+    updated_by_user_id: 'user_1',
+    updated_at: '2026-05-12T00:00:00.000Z',
+  });
 
   const health = await operations.health(20, 'user_1', 'workspace_a');
 
@@ -5773,6 +5854,13 @@ test('operations health exposes monitoring queue, worker, retention, and memo he
   assert.equal(health.continuity.missing_entries_recent, 3);
   assert.equal(health.continuity.last_repair_status, 'completed_with_failures');
   assert.equal(health.continuity.debug_denied_24h, 2);
+  assert.equal(health.continuity.scheduled_repair_mode, 'dry_run');
+  assert.equal(health.continuity.scheduled_repair_due, true);
+  assert.equal(
+    health.continuity.next_scheduled_repair_due_at,
+    '2026-05-12T00:00:00.000Z',
+  );
+  assert.equal(health.continuity.last_scheduled_repair_run_id, 'repair_run_ops');
   assert.deepEqual(audit.lastHealthRequest, {
     workspaceId: 'workspace_a',
     lookbackDays: 30,
@@ -5783,8 +5871,16 @@ test('operations health exposes monitoring queue, worker, retention, and memo he
   assert.equal(degraded.continuity.audit_available, false);
   assert.equal(degraded.continuity.debug_access_24h, 0);
   assert.equal(degraded.continuity.last_repair_run_at, null);
+  assert.equal(degraded.continuity.scheduled_repair_mode, 'dry_run');
+  assert.equal(degraded.continuity.scheduled_repair_due, true);
 
   audit.failHealth = false;
+  settings.failRead = true;
+  const settingsUnavailable = await operations.health(20, 'user_1', 'workspace_a');
+  assert.equal(settingsUnavailable.continuity.scheduled_repair_mode, 'disabled');
+  assert.equal(settingsUnavailable.continuity.scheduled_repair_due, false);
+  settings.failRead = false;
+
   audit.healthError = Object.assign(
     new Error('relation "research_continuity_repair_runs" does not exist'),
     { code: '42P01' },
@@ -5943,6 +6039,21 @@ test('postgres research continuity audit schema declares debug and repair histor
   }
 });
 
+test('postgres research continuity workspace settings schema declares scheduler controls', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  for (const fragment of [
+    'CREATE TABLE IF NOT EXISTS research_continuity_workspace_settings',
+    "scheduled_repair_mode TEXT NOT NULL DEFAULT 'disabled'",
+    'scheduled_repair_case_types_json JSONB NOT NULL',
+    'idx_research_continuity_workspace_settings_due',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
 test('postgres research continuity audit repository uses idempotent repair insert and missing-run health metric', () => {
   const source = readFileSync(
     join(
@@ -5964,6 +6075,26 @@ test('postgres research continuity audit repository uses idempotent repair inser
     assert.ok(source.includes(fragment), `missing repository fragment: ${fragment}`);
   }
   assert.equal(source.includes('getRepairRunByIdempotencyKey('), false);
+});
+
+test('research continuity settings repository upserts workspace settings and due metadata', () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      'src',
+      'research-continuity',
+      'research-continuity-settings.repository.ts',
+    ),
+    'utf8',
+  );
+  for (const fragment of [
+    'research_continuity_workspace_settings',
+    'ON CONFLICT (workspace_id)',
+    'next_scheduled_repair_due_at',
+    'last_scheduled_repair_run_id',
+  ]) {
+    assert.ok(source.includes(fragment), `missing settings repository fragment: ${fragment}`);
+  }
 });
 
 test('postgres calibration rerun schema declares append-only audit table', () => {
@@ -8896,6 +9027,347 @@ test('research continuity repair requires admin access', async () => {
   }
 });
 
+test('research continuity V1.7 settings default to disabled without persisting a row', async () => {
+  const { researchContinuityController, settings } = buildHarness();
+  const settingsApi = researchContinuityController as unknown as {
+    getSettings(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+
+  const response = await settingsApi.getSettings('user_1', 'workspace_a');
+
+  assert.equal(response.workspace_id, 'workspace_a');
+  assert.equal(response.scheduled_repair_mode, 'disabled');
+  assert.deepEqual(response.scheduled_repair_case_types, [
+    'missing_continuity',
+    'legacy_evidence',
+  ]);
+  assert.equal(response.next_scheduled_repair_due_at, null);
+  assert.equal(settings.settings.has('workspace_a'), false);
+});
+
+test('research continuity V1.7 settings are admin-only and validate enabled case types', async () => {
+  const { researchContinuityController } = buildHarness();
+  const settingsApi = researchContinuityController as unknown as {
+    patchSettings(
+      body: JsonRecord,
+      userId?: string,
+      workspaceId?: string,
+    ): Promise<JsonRecord>;
+  };
+
+  await assert.rejects(
+    () =>
+      settingsApi.patchSettings(
+        { scheduled_repair_mode: 'dry_run' },
+        'editor_1',
+        'workspace_a',
+      ),
+    isException(ForbiddenException),
+  );
+  await assert.rejects(
+    () =>
+      settingsApi.patchSettings(
+        {
+          scheduled_repair_mode: 'enabled',
+          scheduled_repair_case_types: ['missing_continuity', 'skipped_or_degraded'],
+        },
+        'user_1',
+        'workspace_a',
+      ),
+    isException(BadRequestException),
+  );
+});
+
+test('research continuity V1.7 settings store dry-run scheduler controls', async () => {
+  const { researchContinuityController } = buildHarness();
+  const settingsApi = researchContinuityController as unknown as {
+    patchSettings(
+      body: JsonRecord,
+      userId?: string,
+      workspaceId?: string,
+    ): Promise<JsonRecord>;
+  };
+
+  const response = await settingsApi.patchSettings(
+    {
+      scheduled_repair_mode: 'dry_run',
+      scheduled_repair_case_types: [
+        'missing_continuity',
+        'skipped_or_degraded',
+        'legacy_evidence',
+        'missing_continuity',
+      ],
+      scheduled_repair_interval_hours: 12,
+      scheduled_repair_lookback_days: 14,
+      scheduled_repair_limit: 7,
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.scheduled_repair_mode, 'dry_run');
+  assert.deepEqual(response.scheduled_repair_case_types, [
+    'missing_continuity',
+    'skipped_or_degraded',
+    'legacy_evidence',
+  ]);
+  assert.equal(response.scheduled_repair_interval_hours, 12);
+  assert.equal(response.scheduled_repair_lookback_days, 14);
+  assert.equal(response.scheduled_repair_limit, 7);
+  assert.equal(response.updated_by_user_id, 'user_1');
+  assert.ok(response.next_scheduled_repair_due_at);
+});
+
+test('research continuity V1.7 scheduler reports disabled state and skips disabled runs', async () => {
+  const { audit, researchContinuityController } = buildHarness();
+  const schedulerApi = researchContinuityController as unknown as {
+    getScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+    runDueScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+
+  const status = await schedulerApi.getScheduler('user_1', 'workspace_a');
+  assert.equal(status.workspace_id, 'workspace_a');
+  assert.equal(status.due, false);
+  assert.equal(status.disabled, true);
+  assert.equal(record(status.settings).scheduled_repair_mode, 'disabled');
+
+  const runDue = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+  assert.equal(runDue.due, false);
+  assert.equal(runDue.skipped_reason, 'scheduler_disabled');
+  assert.equal(runDue.repair_run, null);
+  assert.equal(audit.repairRuns.size, 0);
+});
+
+test('research continuity V1.7 scheduler dry-run creates idempotent repair history', async () => {
+  const { audit, journal, researchContinuityController, settings } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_scheduler_due',
+    thesisId: 'thesis_scheduler_due',
+    debateId: 'debate_scheduler_due',
+    marketSnapshotId: 'market_scheduler_due',
+    signalSnapshotId: 'signal_scheduler_due',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+  });
+  const schedulerApi = researchContinuityController as unknown as {
+    patchSettings(
+      body: JsonRecord,
+      userId?: string,
+      workspaceId?: string,
+    ): Promise<JsonRecord>;
+    getScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+    runDueScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+  await schedulerApi.patchSettings(
+    {
+      scheduled_repair_mode: 'dry_run',
+      scheduled_repair_case_types: ['missing_continuity'],
+      scheduled_repair_interval_hours: 6,
+      scheduled_repair_lookback_days: 30,
+      scheduled_repair_limit: 5,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const dueStatus = await schedulerApi.getScheduler('user_1', 'workspace_a');
+  const originalDueAt = String(dueStatus.next_scheduled_repair_due_at);
+  assert.equal(dueStatus.due, true);
+
+  const first = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+  assert.equal(first.due, true);
+  assert.equal(first.dry_run, true);
+  assert.equal(first.skipped_reason, null);
+  assert.match(String(first.audit_run_id), /^repair_run_/);
+  assert.equal(record(first.repair_run).audit_run_id, first.audit_run_id);
+  assert.equal(record(first.repair_run).dry_run, true);
+  assert.equal(audit.repairRuns.size, 1);
+  assert.equal(
+    settings.settings.get('workspace_a')?.last_scheduled_repair_run_id,
+    first.audit_run_id,
+  );
+  assert.notEqual(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    originalDueAt,
+  );
+
+  settings.settings.set('workspace_a', {
+    ...(settings.settings.get('workspace_a') ?? {}),
+    next_scheduled_repair_due_at: originalDueAt,
+  });
+  const repeated = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+  assert.equal(repeated.audit_run_id, first.audit_run_id);
+  assert.equal(audit.repairRuns.size, 1);
+});
+
+test('research continuity V1.7 scheduler enabled mode creates real repair history', async () => {
+  const { audit, journal, researchContinuityController } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_scheduler_enabled',
+    thesisId: 'thesis_scheduler_enabled',
+    debateId: 'debate_scheduler_enabled',
+    marketSnapshotId: 'market_scheduler_enabled',
+    signalSnapshotId: 'signal_scheduler_enabled',
+    stance: 'bullish',
+    thesisDirection: 'long',
+  });
+  const schedulerApi = researchContinuityController as unknown as {
+    patchSettings(
+      body: JsonRecord,
+      userId?: string,
+      workspaceId?: string,
+    ): Promise<JsonRecord>;
+    runDueScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+  await schedulerApi.patchSettings(
+    {
+      scheduled_repair_mode: 'enabled',
+      scheduled_repair_case_types: ['missing_continuity'],
+      scheduled_repair_interval_hours: 6,
+      scheduled_repair_lookback_days: 30,
+      scheduled_repair_limit: 5,
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  const result = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+
+  assert.equal(result.skipped_reason, null);
+  assert.equal(result.dry_run, false);
+  assert.equal(record(result.repair_run).dry_run, false);
+  assert.equal(record(result.repair_run).repaired_count, 1);
+  assert.equal(audit.repairRuns.size, 1);
+  assert.equal(
+    [...journal.continuityEntries.values()].filter(
+      (entry) => entry.research_run_id === 'run_scheduler_enabled',
+    ).length,
+    1,
+  );
+});
+
+test('research continuity V1.7 scheduler skips not-due runs and preserves due time on failure', async () => {
+  const { audit, researchContinuityController, settings } = buildHarness();
+  const schedulerApi = researchContinuityController as unknown as {
+    patchSettings(
+      body: JsonRecord,
+      userId?: string,
+      workspaceId?: string,
+    ): Promise<JsonRecord>;
+    runDueScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+  await schedulerApi.patchSettings(
+    {
+      scheduled_repair_mode: 'dry_run',
+      scheduled_repair_case_types: ['missing_continuity'],
+      scheduled_repair_interval_hours: 6,
+      scheduled_repair_lookback_days: 30,
+      scheduled_repair_limit: 5,
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const futureDueAt = '2999-01-01T00:00:00.000Z';
+  settings.settings.set('workspace_a', {
+    ...(settings.settings.get('workspace_a') ?? {}),
+    next_scheduled_repair_due_at: futureDueAt,
+  });
+
+  const notDue = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+  assert.equal(notDue.skipped_reason, 'not_due');
+  assert.equal(audit.repairRuns.size, 0);
+  assert.equal(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    futureDueAt,
+  );
+
+  const dueAt = '2000-01-01T00:00:00.000Z';
+  settings.settings.set('workspace_a', {
+    ...(settings.settings.get('workspace_a') ?? {}),
+    next_scheduled_repair_due_at: dueAt,
+  });
+  audit.failRepairRunCreate = true;
+  await assert.rejects(
+    () => schedulerApi.runDueScheduler('user_1', 'workspace_a'),
+    isException(ServiceUnavailableException),
+  );
+  assert.equal(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    dueAt,
+  );
+});
+
+test('research continuity V1.7 scheduler does not advance due time for existing failed or started repair runs', async () => {
+  for (const status of ['failed', 'started'] as const) {
+    const { audit, researchContinuityController, settings } = buildHarness();
+    const schedulerApi = researchContinuityController as unknown as {
+      patchSettings(
+        body: JsonRecord,
+        userId?: string,
+        workspaceId?: string,
+      ): Promise<JsonRecord>;
+      runDueScheduler(
+        userId?: string,
+        workspaceId?: string,
+      ): Promise<JsonRecord>;
+    };
+    await schedulerApi.patchSettings(
+      {
+        scheduled_repair_mode: 'dry_run',
+        scheduled_repair_case_types: ['missing_continuity'],
+        scheduled_repair_interval_hours: 6,
+        scheduled_repair_lookback_days: 30,
+        scheduled_repair_limit: 5,
+      },
+      'user_1',
+      'workspace_a',
+    );
+    const dueAt = `2000-01-01T00:00:0${status === 'failed' ? '1' : '2'}.000Z`;
+    const idempotencyKey = `research-continuity-scheduler:workspace_a:${dueAt}`;
+    settings.settings.set('workspace_a', {
+      ...(settings.settings.get('workspace_a') ?? {}),
+      next_scheduled_repair_due_at: dueAt,
+      last_scheduled_repair_run_id: null,
+    });
+    const existing = await audit.createRepairRun({
+      workspace_id: 'workspace_a',
+      requested_by_user_id: 'user_1',
+      requested_at: dueAt,
+      dry_run: true,
+      idempotency_key: idempotencyKey,
+      filters: {
+        case_types: ['missing_continuity'],
+        limit: 5,
+      },
+    });
+    if (status === 'failed') {
+      await audit.finalizeRepairRun(String(existing.id), 'workspace_a', {
+        status: 'failed',
+        requested_count: 0,
+        repaired_count: 0,
+        skipped_count: 0,
+        failed_count: 0,
+        created_entry_ids: [],
+        results: [],
+        error_message: 'previous scheduler attempt failed',
+      });
+    }
+
+    await assert.rejects(
+      () => schedulerApi.runDueScheduler('user_1', 'workspace_a'),
+      isException(ConflictException),
+    );
+    assert.equal(
+      settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+      dueAt,
+    );
+    assert.equal(
+      settings.settings.get('workspace_a')?.last_scheduled_repair_run_id,
+      null,
+    );
+    assert.equal(audit.repairRuns.size, 1);
+  }
+});
+
 test('research continuity repair execution is append-only and idempotent', async () => {
   const { journal, researchContinuity } = buildHarness();
   seedContinuityRun(journal, {
@@ -10015,6 +10487,7 @@ async function waitForJobStatus(
 function buildHarness() {
   const journal = new FakeJournalRepository();
   const audit = new FakeResearchContinuityAuditRepository();
+  const settings = new FakeResearchContinuitySettingsRepository();
   const auth = new AuthService();
   const workspaces = new WorkspacesService();
   workspaces.setMembershipsForTest([
@@ -10287,6 +10760,7 @@ function buildHarness() {
   const researchContinuity = new ResearchContinuityService(
     journal,
     audit,
+    settings,
     auth,
     workspaces,
   );
@@ -10295,6 +10769,7 @@ function buildHarness() {
   return {
     audit,
     journal,
+    settings,
     workspaces,
     evaluationEngineCalls,
     jobs,
@@ -10332,7 +10807,7 @@ function buildHarness() {
     performance: new PerformanceService(journal, auth, workspaces),
     comparisons: new ComparisonsService(journal, auth, workspaces),
     scenarios: new ScenariosService(journal, auth, workspaces),
-    operations: new OperationsService(journal, audit, auth, workspaces),
+    operations: new OperationsService(journal, audit, settings, auth, workspaces),
     workbench: new WorkbenchService(journal, auth, workspaces),
   };
 }

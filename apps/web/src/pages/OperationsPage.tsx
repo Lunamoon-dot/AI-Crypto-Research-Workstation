@@ -197,6 +197,26 @@ export function OperationsPage() {
                 </span>
               }
             />
+            <DataPair
+              label="Repair mode"
+              value={continuity?.scheduled_repair_mode.replaceAll('_', ' ') ?? 'disabled'}
+            />
+            <DataPair
+              label="Scheduler due"
+              value={
+                <span className={continuity?.scheduled_repair_due ? 'badge warning' : 'badge constructive'}>
+                  {continuity?.scheduled_repair_due ? 'due' : 'not due'}
+                </span>
+              }
+            />
+            <DataPair
+              label="Next scheduled"
+              value={formatDateTime(continuity?.next_scheduled_repair_due_at)}
+            />
+            <DataPair
+              label="Last scheduled run"
+              value={continuity?.last_scheduled_repair_run_id ?? 'none'}
+            />
             <DataPair label="Missing recent" value={continuity?.missing_entries_recent ?? 0} />
             <DataPair label="Degraded recent" value={continuity?.degraded_entries_recent ?? 0} />
             <DataPair label="Stale symbols" value={continuity?.stale_symbols ?? 0} />
