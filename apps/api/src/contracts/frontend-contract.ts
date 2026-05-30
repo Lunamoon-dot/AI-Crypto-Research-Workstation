@@ -721,30 +721,6 @@ export interface PerformanceHealthResponse {
   recommendation: string;
 }
 
-export interface DiffFieldResponse {
-  a?: unknown;
-  b?: unknown;
-  common?: string[];
-  only_a?: string[];
-  only_b?: string[];
-  changed: boolean;
-  [key: string]: unknown;
-}
-
-export interface ComparisonResponse {
-  kind: 'thesis_diff' | 'run_diff';
-  id_a: string;
-  id_b: string;
-  cross_symbol?: boolean;
-  direction_flip: boolean;
-  changed_fields: string[];
-  changed_count: number;
-  change_severity: string;
-  severity_reasons: string[];
-  fields: Record<string, DiffFieldResponse>;
-  thesis_diff?: ComparisonResponse | null;
-}
-
 export interface ScenarioMonitorItemResponse {
   status: string;
   status_reason: string;

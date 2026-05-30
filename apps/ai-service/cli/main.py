@@ -59,7 +59,6 @@ from cli.journal_cmd import (
 from cli.signals_cmd import register_signals, signals_app
 from cli.evaluate_cmd import evaluate_app
 from cli.replay_cmd import replay_app
-from cli.diff_cmd import diff_app, register_diff
 
 register_watch(app)
 register_dashboard(app)
@@ -67,7 +66,6 @@ register_config(app)
 register_journal(app)
 register_signals(app)
 register_brief(app)
-register_diff(app)
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +368,6 @@ research_app.add_typer(evaluate_app, name="evaluate")
 research_app.add_typer(replay_app, name="replay")
 app.add_typer(research_app, name="research")
 app.add_typer(replay_app, name="replay")
-research_app.add_typer(diff_app, name="diff")
 
 
 engine_app = typer.Typer(help="Worker-ready Python research engine contract.")

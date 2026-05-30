@@ -14,6 +14,10 @@ import {
   UpdateResearchContinuitySettingsDto,
 } from './dto/research-continuity.dto';
 import type {
+  ResearchContinuityLifecycleItemType,
+  ResearchContinuityLifecycleStatus,
+} from './dto/research-continuity.dto';
+import type {
   ResearchContinuityDebugAuditDecision,
   ResearchContinuityDebugAuditReason,
   ResearchContinuityRepairRunStatus,
@@ -76,6 +80,29 @@ export class ResearchContinuityController {
     return this.continuity.listSymbolEntries(
       symbol,
       { limit: parseListLimit(limit, { defaultLimit: 20, maxLimit: 100 }) },
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Get('symbols/:symbol/timeline')
+  getSymbolTimeline(
+    @Param('symbol') symbol: string,
+    @Query('limit') limit?: string,
+    @Query('item_type') itemType?: ResearchContinuityLifecycleItemType,
+    @Query('status') status?: ResearchContinuityLifecycleStatus,
+    @Query('include_context') includeContext?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.continuity.getSymbolTimeline(
+      symbol,
+      {
+        include_context: parseOptionalBoolean(includeContext) ?? false,
+        item_type: itemType,
+        limit: parseListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
+        status,
+      },
       userId,
       workspaceId,
     );

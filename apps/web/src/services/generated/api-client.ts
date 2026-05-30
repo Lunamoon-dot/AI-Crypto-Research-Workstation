@@ -26,6 +26,7 @@ import type {
   ResearchContinuityEntryDetailResponse,
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityStateEnvelopeResponse,
+  ResearchContinuityTimelineResponse,
   ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
   SignalCountResponse,
@@ -369,6 +370,26 @@ export function createApiClient(request: ApiTransport) {
       request<ResearchContinuityEntriesResponse>(
         `/research-continuity/symbols/${encodeURIComponent(symbol)}/entries`,
         { query: { limit: params.limit ?? 20 } },
+      ),
+    getResearchContinuityTimeline: (
+      symbol: string,
+      params: {
+        include_context?: boolean;
+        item_type?: string;
+        limit?: number;
+        status?: string;
+      } = {},
+    ) =>
+      request<ResearchContinuityTimelineResponse>(
+        `/research-continuity/symbols/${encodeURIComponent(symbol)}/timeline`,
+        {
+          query: {
+            include_context: params.include_context,
+            item_type: params.item_type,
+            limit: params.limit ?? 50,
+            status: params.status,
+          },
+        },
       ),
     getResearchContinuitySettings: () =>
       request<ResearchContinuityWorkspaceSettingsResponse>(

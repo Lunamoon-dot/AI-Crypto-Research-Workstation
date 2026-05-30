@@ -447,6 +447,87 @@ export interface ResearchContinuityEntriesResponse {
   entries: ResearchContinuityEntrySummaryResponse[];
 }
 
+export type ResearchContinuityLifecycleItemType =
+  | 'claim'
+  | 'risk'
+  | 'watchpoint'
+  | 'level'
+  | 'invalidation'
+  | 'view'
+  | 'quality'
+  | 'unknown';
+
+export type ResearchContinuityLifecycleStatus =
+  | 'active'
+  | 'updated'
+  | 'resolved'
+  | 'weakened'
+  | 'invalidated'
+  | 'context'
+  | 'quality';
+
+export interface ResearchContinuityTimelineWindowResponse {
+  entry_limit: number;
+  truncated: boolean;
+  coverage: 'complete' | 'windowed';
+}
+
+export interface ResearchContinuityTimelineEventResponse {
+  id: string;
+  entry_id: string;
+  research_run_id: string | null;
+  observed_at: string | null;
+  recorded_at: string | null;
+  event_type: string;
+  stable_item_key: string | null;
+  item_type: ResearchContinuityLifecycleItemType;
+  status: ResearchContinuityLifecycleStatus;
+  title: string;
+  before: string | null;
+  after: string | null;
+  severity: ResearchContinuityDiffSeverity;
+  diff_quality: ResearchContinuityDiffQuality;
+  entry_type: string;
+  entry_status: string;
+  is_repair: boolean;
+  repair_case_type: string | null;
+  source_entry_id: string | null;
+  source_run_id: string | null;
+  evidence_status: string | null;
+  source_artifact: string | null;
+  source_id: string | null;
+  source_field: string | null;
+}
+
+export interface ResearchContinuityLifecycleItemResponse {
+  stable_item_key: string;
+  item_type: ResearchContinuityLifecycleItemType;
+  status: ResearchContinuityLifecycleStatus;
+  title: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  first_seen_run_id: string | null;
+  last_seen_run_id: string | null;
+  occurrence_count: number;
+  entry_count: number;
+  latest_entry_id: string | null;
+  latest_event_type: string | null;
+  source_artifacts: string[];
+  timeline_event_ids: string[];
+}
+
+export interface ResearchContinuityTimelineResponse {
+  symbol: string;
+  workspace_id: string;
+  generated_at: string;
+  window: ResearchContinuityTimelineWindowResponse;
+  entry_count: number;
+  event_count: number;
+  lifecycle_items: ResearchContinuityLifecycleItemResponse[];
+  timeline_events: ResearchContinuityTimelineEventResponse[];
+  warnings: string[];
+}
+
 export interface ResearchContinuityRepairCandidateResponse {
   candidate_id: string;
   run_id: string;

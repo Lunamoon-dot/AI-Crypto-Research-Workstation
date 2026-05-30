@@ -105,7 +105,8 @@ is required.
 | V1.6 | implemented | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
 | V1.7 | implemented | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
 | V1.8 | implemented | [v1.8/implementation-plan.md](v1.8/implementation-plan.md) |
-| V1.9 | planned | [v1.9/implementation-plan.md](v1.9/implementation-plan.md) |
+| V1.9 | implemented | [v1.9/implementation-plan.md](v1.9/implementation-plan.md) |
+| V2.0 | implemented | [v2.0/implementation-plan.md](v2.0/implementation-plan.md) |
 
 ## Scheduled Repair Worker
 
@@ -142,7 +143,7 @@ worst-case sequential repair time.
 
 Likely follow-ups:
 
+- V2.1: graph projection endpoint over the V2.0 timeline/lifecycle substrate.
+- V2.2: interactive graph UI.
 - V2.x or later: workspace debug settings, audit retention policy, richer
-  operations, or broader continuity report exploration after V1.9 lands.
-- V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
-  views.
+  operations, provenance explorer, and multi-symbol views.

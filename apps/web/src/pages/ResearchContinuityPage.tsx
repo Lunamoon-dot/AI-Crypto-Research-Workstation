@@ -1,9 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
+  Filter,
   FileText,
+  GitBranch,
   Layers,
   Play,
   RefreshCw,
@@ -18,6 +20,7 @@ import {
   getResearchContinuityScheduler,
   getResearchContinuitySettings,
   getResearchContinuityState,
+  getResearchContinuityTimeline,
   listResearchContinuityEntries,
   listResearchContinuityRepairRuns,
   previewResearchContinuityRepair,
@@ -36,9 +39,25 @@ import { IdChip, StatusBadge } from '@/components/research/badges';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import {
+  filterLifecycleTimelineEvents,
+  lifecycleStatusFilterOptions,
+  lifecycleStatusCounts,
+  selectedLifecycleTimelineEvents,
+  windowedLifecycleLabel,
+} from './research-continuity-lifecycle';
+import {
+  RESEARCH_CONTINUITY_TABS,
+  normalizeResearchContinuityTab,
+  setResearchContinuityTabParam,
+  type ResearchContinuityTab,
+} from './research-continuity-tabs';
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import type {
   JsonRecord,
+  ResearchContinuityLifecycleItemResponse,
+  ResearchContinuityLifecycleItemType,
+  ResearchContinuityLifecycleStatus,
   ResearchContinuityEntrySummaryResponse,
   ResearchContinuityRepairCaseType,
   ResearchContinuityRepairPreviewResponse,
@@ -50,10 +69,15 @@ import type {
   ResearchContinuityWorkspaceSettingsResponse,
   ResearchContinuityStateResponse,
   ResearchContinuityThinReport,
+  ResearchContinuityTimelineEventResponse,
+  ResearchContinuityTimelineResponse,
   UpdateResearchContinuitySettingsRequest,
 } from '@/types';
 
 const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
+const LIFECYCLE_ITEM_TYPE_OPTIONS: Array<
+  ResearchContinuityLifecycleItemType | 'all'
+> = ['all', 'claim', 'risk', 'watchpoint', 'level', 'invalidation'];
 const REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
   'missing_continuity',
   'skipped_or_degraded',
@@ -69,7 +93,16 @@ type DisplayReportSection = ResearchContinuityThinReport['sections'][number];
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSymbol = searchParams.get('symbol') ?? 'BTC/USDT';
+  const activeTab = normalizeResearchContinuityTab(searchParams.get('tab'));
   const [symbolInput, setSymbolInput] = useState(selectedSymbol);
+  const [lifecycleItemType, setLifecycleItemType] =
+    useState<ResearchContinuityLifecycleItemType | 'all'>('all');
+  const [lifecycleStatus, setLifecycleStatus] =
+    useState<ResearchContinuityLifecycleStatus | 'all'>('all');
+  const [includeLifecycleContext, setIncludeLifecycleContext] = useState(false);
+  const [selectedLifecycleItemKey, setSelectedLifecycleItemKey] = useState<
+    string | null
+  >(null);
   const symbol = useMemo(() => selectedSymbol.trim() || 'BTC/USDT', [selectedSymbol]);
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
@@ -85,13 +118,38 @@ export function ResearchContinuityPage() {
     enabled: Boolean(symbol),
     retry: false,
   });
+  const timelineQuery = useQuery({
+    queryKey: queryKeys.researchContinuityTimeline({
+      include_context: includeLifecycleContext,
+      limit: 50,
+      symbol,
+    }),
+    queryFn: () =>
+      getResearchContinuityTimeline(
+        symbol,
+        { include_context: includeLifecycleContext, limit: 50 },
+        auth,
+      ),
+    enabled: Boolean(symbol) && activeTab === 'lifecycle',
+    retry: false,
+  });
+
+  useEffect(() => {
+    setSelectedLifecycleItemKey(null);
+  }, [symbol, lifecycleItemType, lifecycleStatus, includeLifecycleContext]);
 
   function applySymbol(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextSymbol = symbolInput.trim();
     if (nextSymbol) {
-      setSearchParams({ symbol: nextSymbol });
+      const nextParams = setResearchContinuityTabParam(searchParams, activeTab);
+      nextParams.set('symbol', nextSymbol);
+      setSearchParams(nextParams);
     }
+  }
+
+  function selectTab(tab: ResearchContinuityTab) {
+    setSearchParams(setResearchContinuityTabParam(searchParams, tab));
   }
 
   const state = stateQuery.data?.state ?? null;
@@ -107,6 +165,13 @@ export function ResearchContinuityPage() {
     });
     void queryClient.invalidateQueries({
       queryKey: queryKeys.researchContinuityEntries({ symbol, limit: 10 }),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.researchContinuityTimeline({
+        include_context: includeLifecycleContext,
+        limit: 50,
+        symbol,
+      }),
     });
     void queryClient.invalidateQueries({
       queryKey: queryKeys.researchContinuityRepairRuns({ limit: 5 }),
@@ -184,65 +249,105 @@ export function ResearchContinuityPage() {
 
       {stateQuery.isError ? <ErrorState error={stateQuery.error} /> : null}
       {entriesQuery.isError ? <ErrorState error={entriesQuery.error} /> : null}
+      {activeTab === 'lifecycle' && timelineQuery.isError ? (
+        <ErrorState error={timelineQuery.error} />
+      ) : null}
 
-      <BentoGrid className="research-continuity-grid">
-        <Panel
-          className="span-4 emphasis research-continuity-panel"
-          title="Continuity snapshot"
-          description="State carried into the next research run"
-        >
-          {stateQuery.isLoading ? <LoadingState label="Loading continuity state..." /> : null}
-          {!stateQuery.isLoading ? <CurrentView state={state} latestEntry={latestEntry} /> : null}
-        </Panel>
+      <ResearchContinuityTabs
+        activeItemCount={activeItemCount}
+        activeTab={activeTab}
+        entriesCount={entries.length}
+        evidenceStatus={qualityStatus}
+        onSelect={selectTab}
+      />
 
-        <Panel
-          className="span-8 research-continuity-panel"
-          title="Latest research delta"
-          description="Newest transition from the research ledger"
-        >
-          <LatestReport entry={latestEntry} />
-        </Panel>
+      {activeTab === 'general' ? (
+        <BentoGrid className="research-continuity-grid">
+          <Panel
+            className="span-4 emphasis research-continuity-panel"
+            title="Continuity snapshot"
+            description="State carried into the next research run"
+          >
+            {stateQuery.isLoading ? <LoadingState label="Loading continuity state..." /> : null}
+            {!stateQuery.isLoading ? <CurrentView state={state} latestEntry={latestEntry} /> : null}
+          </Panel>
 
-        <Panel
-          className="span-12 research-continuity-panel"
-          title="Evidence health"
-          description="Snapshot quality and source coverage"
-        >
-          <TrustQuality quality={quality} />
-        </Panel>
+          <Panel
+            className="span-8 research-continuity-panel"
+            title="Latest research delta"
+            description="Newest transition from the research ledger"
+          >
+            <LatestReport entry={latestEntry} />
+          </Panel>
 
-        <Panel
-          className="span-12 research-continuity-panel"
-          title="Active research memory"
-          description="Claims, risks, monitored signals, invalidations, and levels"
-        >
-          <ActiveItems state={state} />
-        </Panel>
+          <Panel
+            className="span-12 research-continuity-panel"
+            title="Active research memory"
+            description="Claims, risks, monitored signals, invalidations, and levels"
+          >
+            <ActiveItems state={state} />
+          </Panel>
 
-        <Panel
-          className="span-12 research-continuity-panel"
-          title="Ledger repair"
-          description="Manual continuity ledger control"
-        >
-          <ResearchContinuityMaintenancePanel
-            auth={auth}
-            onExecuted={refreshContinuityQueries}
-            symbol={symbol}
-          />
-        </Panel>
+          <Panel
+            className="span-12 research-continuity-panel"
+            title="Evidence health"
+            description="Snapshot quality and source coverage"
+          >
+            <TrustQuality quality={quality} />
+          </Panel>
 
-        <Panel className="span-12" title="Continuity entries">
-          {entriesQuery.isLoading ? <LoadingState label="Loading continuity entries..." /> : null}
-          {!entriesQuery.isLoading && entries.length === 0 ? (
-            <EmptyState label="No continuity entries found." />
-          ) : null}
-          <div className="stack">
-            {entries.map((entry) => (
-              <ContinuityEntryRow entry={entry} key={entry.id ?? entry.research_run_id} />
-            ))}
-          </div>
-        </Panel>
-      </BentoGrid>
+          <Panel className="span-12" title="Continuity entries">
+            {entriesQuery.isLoading ? <LoadingState label="Loading continuity entries..." /> : null}
+            {!entriesQuery.isLoading && entries.length === 0 ? (
+              <EmptyState label="No continuity entries found." />
+            ) : null}
+            <div className="stack">
+              {entries.map((entry) => (
+                <ContinuityEntryRow entry={entry} key={entry.id ?? entry.research_run_id} />
+              ))}
+            </div>
+          </Panel>
+        </BentoGrid>
+      ) : null}
+
+      {activeTab === 'lifecycle' ? (
+        <BentoGrid className="research-continuity-grid">
+          <Panel
+            className="span-12 research-continuity-panel"
+            title="Item Lifecycle"
+            description="Timeline rollups for claims, risks, watchpoints, levels, and invalidations"
+          >
+            <ItemLifecycleSection
+              includeContext={includeLifecycleContext}
+              isLoading={timelineQuery.isLoading}
+              itemType={lifecycleItemType}
+              onIncludeContextChange={setIncludeLifecycleContext}
+              onItemTypeChange={setLifecycleItemType}
+              onSelectedItemChange={setSelectedLifecycleItemKey}
+              onStatusChange={setLifecycleStatus}
+              selectedItemKey={selectedLifecycleItemKey}
+              status={lifecycleStatus}
+              timeline={timelineQuery.data ?? null}
+            />
+          </Panel>
+        </BentoGrid>
+      ) : null}
+
+      {activeTab === 'repair' ? (
+        <BentoGrid className="research-continuity-grid">
+          <Panel
+            className="span-12 research-continuity-panel"
+            title="Ledger repair"
+            description="Manual continuity ledger control"
+          >
+            <ResearchContinuityMaintenancePanel
+              auth={auth}
+              onExecuted={refreshContinuityQueries}
+              symbol={symbol}
+            />
+          </Panel>
+        </BentoGrid>
+      ) : null}
     </main>
   );
 }
@@ -253,6 +358,416 @@ function booleanViteEnv(key: string, fallback: boolean): boolean {
     return fallback;
   }
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function ResearchContinuityTabs({
+  activeItemCount,
+  activeTab,
+  entriesCount,
+  evidenceStatus,
+  onSelect,
+}: {
+  activeItemCount: number;
+  activeTab: ResearchContinuityTab;
+  entriesCount: number;
+  evidenceStatus: string;
+  onSelect: (tab: ResearchContinuityTab) => void;
+}) {
+  return (
+    <nav className="research-continuity-tabs" aria-label="Research continuity sections">
+      <div className="research-continuity-tab-list" role="tablist">
+        {RESEARCH_CONTINUITY_TABS.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <button
+              aria-selected={isActive}
+              className={isActive ? 'research-continuity-tab active' : 'research-continuity-tab'}
+              key={tab.id}
+              onClick={() => onSelect(tab.id)}
+              role="tab"
+              type="button"
+            >
+              <span className="research-continuity-tab-icon">
+                {researchContinuityTabIcon(tab.id)}
+              </span>
+              <span className="research-continuity-tab-copy">
+                <strong>{tab.label}</strong>
+                <span>
+                  {researchContinuityTabMeta({
+                    activeItemCount,
+                    entriesCount,
+                    evidenceStatus,
+                    tab: tab.id,
+                  })}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function researchContinuityTabIcon(tab: ResearchContinuityTab): ReactNode {
+  switch (tab) {
+    case 'lifecycle':
+      return <GitBranch aria-hidden size={16} />;
+    case 'repair':
+      return <Wrench aria-hidden size={16} />;
+    default:
+      return <FileText aria-hidden size={16} />;
+  }
+}
+
+function researchContinuityTabMeta({
+  activeItemCount,
+  entriesCount,
+  evidenceStatus,
+  tab,
+}: {
+  activeItemCount: number;
+  entriesCount: number;
+  evidenceStatus: string;
+  tab: ResearchContinuityTab;
+}): string {
+  switch (tab) {
+    case 'lifecycle':
+      return 'Tracked item history and state changes';
+    case 'repair':
+      return 'Scheduler controls and repair runs';
+    default:
+      return `${activeItemCount} memory / ${entriesCount} entries / ${evidenceStatus} evidence`;
+  }
+}
+
+function ItemLifecycleSection({
+  includeContext,
+  isLoading,
+  itemType,
+  onIncludeContextChange,
+  onItemTypeChange,
+  onSelectedItemChange,
+  onStatusChange,
+  selectedItemKey,
+  status,
+  timeline,
+}: {
+  includeContext: boolean;
+  isLoading: boolean;
+  itemType: ResearchContinuityLifecycleItemType | 'all';
+  onIncludeContextChange: (value: boolean) => void;
+  onItemTypeChange: (value: ResearchContinuityLifecycleItemType | 'all') => void;
+  onSelectedItemChange: (value: string | null) => void;
+  onStatusChange: (value: ResearchContinuityLifecycleStatus | 'all') => void;
+  selectedItemKey: string | null;
+  status: ResearchContinuityLifecycleStatus | 'all';
+  timeline: ResearchContinuityTimelineResponse | null;
+}) {
+  if (isLoading) {
+    return <LoadingState label="Loading item lifecycle..." />;
+  }
+  if (!timeline || timeline.lifecycle_items.length === 0) {
+    return <EmptyState label="No lifecycle items found in the loaded window." />;
+  }
+  const counts = lifecycleStatusCounts(timeline);
+  const windowLabel = windowedLifecycleLabel(timeline);
+  const filteredItems = timeline.lifecycle_items.filter(
+    (item) =>
+      (itemType === 'all' || item.item_type === itemType) &&
+      (status === 'all' || item.status === status),
+  );
+  const selectedItem =
+    filteredItems.find((item) => item.stable_item_key === selectedItemKey) ??
+    filteredItems[0] ??
+    null;
+  const selectedEvents = selectedLifecycleTimelineEvents(
+    timeline,
+    selectedItem?.stable_item_key ?? null,
+  );
+  const visibleSelectedEvents = filterLifecycleTimelineEvents(selectedEvents, {
+    itemType,
+    status,
+  });
+
+  return (
+    <div className="research-continuity-lifecycle">
+      <div className="lifecycle-toolbar">
+        <label className="lifecycle-filter-field">
+          <span>Item type</span>
+          <select
+            className="input lifecycle-select"
+            onChange={(event) =>
+              onItemTypeChange(
+                event.target.value as ResearchContinuityLifecycleItemType | 'all',
+              )
+            }
+            value={itemType}
+          >
+            {LIFECYCLE_ITEM_TYPE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {lifecycleOptionLabel(option)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="lifecycle-filter-field lifecycle-status-field">
+          <span>Status</span>
+          <div className="lifecycle-status-buttons" role="group" aria-label="Status">
+            {lifecycleStatusFilterOptions().map((option) => {
+              const isActive = option.value === status;
+              return (
+                <button
+                  aria-pressed={isActive}
+                  className={
+                    isActive
+                      ? 'lifecycle-status-button active'
+                      : 'lifecycle-status-button'
+                  }
+                  key={option.value}
+                  onClick={() => onStatusChange(option.value)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="lifecycle-filter-summary" aria-label="Lifecycle filters">
+          <Filter aria-hidden size={14} />
+          <span>{filteredItems.length} items shown</span>
+        </div>
+        <label className="checkbox-row lifecycle-context-toggle">
+          <input
+            checked={includeContext}
+            onChange={(event) => onIncludeContextChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Context</span>
+        </label>
+      </div>
+
+      <div className="lifecycle-counts">
+        {Object.entries(counts).map(([key, value]) => (
+          <span className={lifecycleBadgeClass(key)} key={key}>
+            {lifecycleStatusLabel(key)} {value}
+          </span>
+        ))}
+        <span className="badge mono">{timeline.event_count} events</span>
+        <span className="badge mono">{timeline.entry_count} entries</span>
+      </div>
+
+      {windowLabel ? <div className="lifecycle-window-warning">{windowLabel}</div> : null}
+      {timeline.warnings.length > 0 ? (
+        <div className="lifecycle-warning-list">
+          <span className="badge warning">{lifecycleWarningSummary(timeline)}</span>
+        </div>
+      ) : null}
+
+      <div className="lifecycle-layout">
+        <div className="lifecycle-item-list">
+          <div className="lifecycle-list-header">
+            <strong>Items</strong>
+            <span className="small muted">{filteredItems.length} shown</span>
+          </div>
+          {filteredItems.length === 0 ? (
+            <EmptyState label="No lifecycle items match these filters." />
+          ) : null}
+          {filteredItems.map((item) => (
+            <LifecycleItemButton
+              item={item}
+              isSelected={item.stable_item_key === selectedItem?.stable_item_key}
+              key={item.stable_item_key}
+              onSelect={() => onSelectedItemChange(item.stable_item_key)}
+            />
+          ))}
+        </div>
+
+        <div className="lifecycle-event-history">
+          <div className="row">
+            <div className="row start">
+              <GitBranch aria-hidden size={15} />
+              <span className="small muted">Selected lifecycle item</span>
+            </div>
+            {selectedItem ? <StatusBadge value={selectedItem.status} /> : null}
+          </div>
+          {selectedItem ? (
+            <div className="lifecycle-detail-header">
+              <strong>{selectedItem.title}</strong>
+              <div className="lifecycle-selected-meta">
+                <LifecycleMetric
+                  label="First seen"
+                  value={formatDateTime(selectedItem.first_seen_at)}
+                />
+                <LifecycleMetric
+                  label="Last seen"
+                  value={formatDateTime(selectedItem.last_seen_at)}
+                />
+                <LifecycleMetric
+                  label="Occurrences"
+                  value={selectedItem.occurrence_count}
+                />
+                <LifecycleMetric
+                  label="Latest entry"
+                  value={<IdChip value={selectedItem.latest_entry_id} />}
+                />
+              </div>
+            </div>
+          ) : null}
+          {!selectedItem ? <EmptyState label="Select an item to inspect its events." /> : null}
+          {selectedItem && visibleSelectedEvents.length === 0 ? (
+            <EmptyState label="No selected item events match these filters." />
+          ) : null}
+          {visibleSelectedEvents.map((event) => (
+            <LifecycleEventRow event={event} key={event.id} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LifecycleItemButton({
+  item,
+  isSelected,
+  onSelect,
+}: {
+  item: ResearchContinuityLifecycleItemResponse;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      className={isSelected ? 'lifecycle-item-row selected' : 'lifecycle-item-row'}
+      onClick={onSelect}
+      type="button"
+    >
+      <div className="row">
+        <span className={lifecycleBadgeClass(item.status)}>
+          {lifecycleStatusLabel(item.status)}
+        </span>
+        <span className="lifecycle-item-type">{lifecycleOptionLabel(item.item_type)}</span>
+        <span className="small muted">{formatDateTime(item.last_seen_at)}</span>
+      </div>
+      <strong>{item.title}</strong>
+      <div className="lifecycle-item-meta">
+        <span>{item.occurrence_count} seen</span>
+        <span>{item.entry_count} entries</span>
+        <span>{item.source_artifacts.slice(0, 2).join(' / ') || 'No source'}</span>
+      </div>
+    </button>
+  );
+}
+
+function LifecycleMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="lifecycle-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function LifecycleEventRow({
+  event,
+}: {
+  event: ResearchContinuityTimelineEventResponse;
+}) {
+  const before = nonDuplicateTimelineText(event.before, event.title);
+  const after = nonDuplicateTimelineText(event.after, event.title);
+  return (
+    <article className="lifecycle-event-row">
+      <div className="lifecycle-event-date">
+        <span>{formatDateTime(event.observed_at ?? event.recorded_at)}</span>
+        <span className="badge">{event.event_type.replaceAll('_', ' ')}</span>
+      </div>
+      <div className="lifecycle-event-body">
+        <div className="row start">
+          <span className={lifecycleBadgeClass(event.status)}>
+            {lifecycleStatusLabel(event.status)}
+          </span>
+          <span className={eventSeverityBadgeClass(event.severity)}>
+            {event.severity}
+          </span>
+          <span className={diffQualityBadgeClass(event.diff_quality)}>
+            {event.diff_quality}
+          </span>
+          {event.is_repair ? <span className="badge primary">repair</span> : null}
+          {event.evidence_status ? (
+            <span className="badge">{event.evidence_status.replaceAll('_', ' ')}</span>
+          ) : null}
+        </div>
+        <p className="lifecycle-event-title">{event.title}</p>
+        {before || after ? (
+          <div className="lifecycle-event-diff">
+            {before ? (
+              <div className="lifecycle-diff-line">
+                <span>Before</span>
+                <strong>{before}</strong>
+              </div>
+            ) : null}
+            {after ? (
+              <div className="lifecycle-diff-line">
+                <span>After</span>
+                <strong>{after}</strong>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="lifecycle-event-source">
+          <Link to={routes.researchContinuityEntry(event.entry_id)}>Entry</Link>
+          {event.research_run_id ? (
+            <Link to={routes.researchRun(event.research_run_id)}>Run</Link>
+          ) : null}
+          {event.source_run_id ? (
+            <Link to={routes.researchRun(event.source_run_id)}>Source run</Link>
+          ) : null}
+          {event.source_entry_id ? (
+            <Link to={routes.researchContinuityEntry(event.source_entry_id)}>
+              Source entry
+            </Link>
+          ) : null}
+          <span>
+            {[event.source_artifact, event.source_id, event.source_field]
+              .filter(Boolean)
+              .join(' / ') || 'No source line'}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function nonDuplicateTimelineText(value: string | null, title: string): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.trim() === title.trim() ? null : value;
+}
+
+function lifecycleWarningSummary(
+  timeline: Pick<ResearchContinuityTimelineResponse, 'warnings'>,
+): string {
+  const partialCount = timeline.warnings.filter((warning) =>
+    warning.includes('partial diff quality'),
+  ).length;
+  const unavailableCount = timeline.warnings.filter((warning) =>
+    warning.includes('unavailable diff quality'),
+  ).length;
+  const labels = [
+    partialCount > 0 ? `${partialCount} partial` : null,
+    unavailableCount > 0 ? `${unavailableCount} unavailable` : null,
+  ].filter(Boolean);
+  return labels.length > 0
+    ? `Diff quality warnings: ${labels.join(', ')}`
+    : timeline.warnings[0] ?? 'Timeline warnings available';
 }
 
 function CurrentView({
@@ -1276,6 +1791,44 @@ function diffSummaryBadgeClass(badge: string): string {
     return 'badge primary';
   }
   return 'badge';
+}
+
+function lifecycleOptionLabel(value: string): string {
+  return value === 'all' ? 'All' : typeLabel(value);
+}
+
+function lifecycleStatusLabel(value: string): string {
+  return value.replaceAll('_', ' ');
+}
+
+function lifecycleBadgeClass(value: string): string {
+  if (value === 'active' || value === 'resolved') {
+    return 'badge constructive';
+  }
+  if (value === 'updated') {
+    return 'badge primary';
+  }
+  if (value === 'weakened' || value === 'invalidated') {
+    return 'badge warning';
+  }
+  return 'badge';
+}
+
+function eventSeverityBadgeClass(value: string): string {
+  if (value === 'critical' || value === 'warning') {
+    return 'badge warning';
+  }
+  return 'badge';
+}
+
+function diffQualityBadgeClass(value: string): string {
+  if (value === 'complete') {
+    return 'badge constructive';
+  }
+  if (value === 'partial') {
+    return 'badge warning';
+  }
+  return 'badge warning';
 }
 
 function TraceBadge({ value }: { value: string }) {

@@ -1,12 +1,9 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { FormEvent, type ReactNode, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  CheckCircle2,
   Download,
-  FileText,
   GitBranch,
-  ShieldAlert,
   Target,
 } from 'lucide-react';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
@@ -26,14 +23,16 @@ import {
   IdChip,
   RatingBadge,
 } from '@/components/research/badges';
-import { BentoGrid } from '@/components/research/bento';
-import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
-import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import {
+  THESIS_DETAIL_TABS,
+  normalizeThesisDetailTab,
+  setThesisDetailTabParam,
+  type ThesisDetailTab,
+} from './thesis-detail-tabs';
 import type {
   JsonRecord,
   ScenarioResponse,
@@ -41,6 +40,8 @@ import type {
 
 export function ThesisDetailPage() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = normalizeThesisDetailTab(searchParams.get('tab'));
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
   const thesisId = id ?? '';
@@ -51,6 +52,7 @@ export function ThesisDetailPage() {
   const scenariosQuery = useQuery({
     queryKey: queryKeys.thesisScenarios(thesisId),
     queryFn: () => getThesisScenarios(thesisId, auth),
+    enabled: activeTab === 'scenario',
   });
 
   const [decisionAction, setDecisionAction] = useState('watched');
@@ -145,6 +147,10 @@ export function ThesisDetailPage() {
     reviewMutation.mutate();
   }
 
+  function selectTab(tab: ThesisDetailTab) {
+    setSearchParams(setThesisDetailTabParam(searchParams, tab));
+  }
+
   async function exportEvidenceBundle() {
     const currentThesis = thesis;
     if (!currentThesis?.research_run_id) {
@@ -168,312 +174,336 @@ export function ThesisDetailPage() {
 
   return (
     <main className="page thesis-detail-page">
-      <PageHeader
-        eyebrow="04 Thesis Detail"
-        title={`${thesis.symbol} thesis`}
-        description={`Created ${formatDateTime(thesis.created_at)}. Review the evidence, contradiction set, scenarios, and journal actions.`}
-        action={
-          <div className="page-header-action-stack">
-            <HeaderStats
-              stats={[
-                {
-                  icon: <FileText aria-hidden size={14} />,
-                  label: 'Rating',
-                  tone: 'primary',
-                  value: <RatingBadge value={thesis.summary.rating || 'Hold'} />,
-                },
-                {
-                  icon: <CheckCircle2 aria-hidden size={14} />,
-                  label: 'Confidence',
-                  tone: 'constructive',
-                  value: <ConfidenceBadge value={thesis.confidence} />,
-                },
-                {
-                  icon: <Target aria-hidden size={14} />,
-                  label: 'Targets',
-                  meta: 'Target zones',
-                  value: thesis.target_zones.length,
-                },
-                {
-                  icon: <ShieldAlert aria-hidden size={14} />,
-                  label: 'Data gaps',
-                  meta: 'Stale or missing',
-                  tone: thesis.stale_or_missing_data.length > 0 ? 'warning' : 'constructive',
-                  value: thesis.stale_or_missing_data.length,
-                },
-              ]}
-            />
-            <DirectionBadge value={thesis.direction} />
-          </div>
-        }
-      />
+      <div className="thesis-detail-tabs" role="tablist" aria-label="Thesis detail sections">
+        {THESIS_DETAIL_TABS.map((tab) => {
+          const selected = activeTab === tab.id;
+          return (
+            <button
+              aria-controls={`thesis-detail-panel-${tab.id}`}
+              aria-selected={selected}
+              className={`thesis-detail-tab${selected ? ' active' : ''}`}
+              id={`thesis-detail-tab-${tab.id}`}
+              key={tab.id}
+              onClick={() => selectTab(tab.id)}
+              role="tab"
+              type="button"
+            >
+              <span>{tab.label}</span>
+              <small>{tab.description}</small>
+            </button>
+          );
+        })}
+      </div>
 
-      <BentoGrid>
-        <Panel
-          className="span-5 thesis-brief-panel"
-          title="Thesis brief"
-          description="Decision, risk boundary, and source context"
-        >
-          <div className="thesis-brief">
-            <section className="thesis-brief-summary">
-              <span>Action summary</span>
-              <p>{actionSummary}</p>
-            </section>
+      <section
+        aria-labelledby={`thesis-detail-tab-${activeTab}`}
+        className="thesis-detail-tab-panel"
+        id={`thesis-detail-panel-${activeTab}`}
+        role="tabpanel"
+      >
+        {activeTab === 'brief' ? (
+          <div className="thesis-detail-tab-stack">
+            <Panel
+              className="thesis-brief-panel"
+              title="Thesis brief"
+              description="Decision, risk boundary, and source context"
+            >
+              <div className="thesis-brief">
+                <div className="thesis-brief-kpis" aria-label="Thesis status summary">
+                  <ThesisBriefKpi label="Rating">
+                    <RatingBadge value={thesis.summary.rating || 'Hold'} />
+                  </ThesisBriefKpi>
+                  <ThesisBriefKpi label="Direction">
+                    <DirectionBadge value={thesis.direction} />
+                  </ThesisBriefKpi>
+                  <ThesisBriefKpi label="Confidence" tone="constructive">
+                    <ConfidenceBadge value={thesis.confidence} />
+                  </ThesisBriefKpi>
+                  <ThesisBriefKpi label="Target zones">
+                    <strong>{thesis.target_zones.length}</strong>
+                  </ThesisBriefKpi>
+                  <ThesisBriefKpi
+                    label="Data gaps"
+                    tone={thesis.stale_or_missing_data.length > 0 ? 'warning' : 'constructive'}
+                  >
+                    <strong>{thesis.stale_or_missing_data.length}</strong>
+                  </ThesisBriefKpi>
+                </div>
 
-            <div className="thesis-fact-grid">
-              <ThesisFact label="Setup">{thesis.setup_type || 'n/a'}</ThesisFact>
-              <ThesisFact label="Entry">{entry}</ThesisFact>
-              <ThesisFact label="Data quality">
-                <DataQualityBadge
-                  label={thesis.summary.data_quality_label}
-                  value={thesis.summary.data_quality}
-                />
-              </ThesisFact>
-              <ThesisFact label="Quant confidence">
-                <ConfidenceBadge value={thesis.quant_confidence} />
-              </ThesisFact>
-              <ThesisFact label="Confidence basis" wide>
-                {thesis.confidence_source || 'n/a'}
-              </ThesisFact>
-              {stabilityGuard.applied === true ? (
-                <ThesisFact label="Stability guard" wide>
-                  <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
-                </ThesisFact>
-              ) : null}
-            </div>
+                <section className="thesis-brief-summary">
+                  <span>Action summary</span>
+                  <p>{actionSummary}</p>
+                </section>
 
-            <section className="thesis-boundary">
-              <span>Invalidation</span>
-              <p>{invalidation}</p>
-            </section>
+                <div className="thesis-fact-grid">
+                  <ThesisFact label="Setup">{thesis.setup_type || 'n/a'}</ThesisFact>
+                  <ThesisFact label="Entry">{entry}</ThesisFact>
+                  <ThesisFact label="Data quality">
+                    <DataQualityBadge
+                      label={thesis.summary.data_quality_label}
+                      value={thesis.summary.data_quality}
+                    />
+                  </ThesisFact>
+                  <ThesisFact label="Quant confidence">
+                    <ConfidenceBadge value={thesis.quant_confidence} />
+                  </ThesisFact>
+                  <ThesisFact label="Confidence basis" wide>
+                    {thesis.confidence_source || 'n/a'}
+                  </ThesisFact>
+                  {stabilityGuard.applied === true ? (
+                    <ThesisFact label="Stability guard" wide>
+                      <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
+                    </ThesisFact>
+                  ) : null}
+                </div>
 
-            <div className="top-strip-meta thesis-brief-actions">
-              {thesis.research_run_id ? (
-                <span className="thesis-run-inline">
-                  <span>Run</span>
-                  <IdChip value={thesis.research_run_id} />
-                </span>
-              ) : null}
-              {thesis.research_run_id ? (
-                <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
-                  Open run
-                </Link>
-              ) : null}
-              {thesis.research_run_id ? (
-                <button
-                  className="button"
-                  disabled={exportingBundle}
-                  onClick={exportEvidenceBundle}
-                  type="button"
-                >
-                  <Download aria-hidden size={15} />
-                  {exportingBundle ? 'Exporting' : 'Export evidence'}
-                </button>
-              ) : null}
-              {thesis.id ? (
-                <Link
-                  className="button primary"
-                  to={`${routes.watchlists}?track_thesis=${encodeURIComponent(thesis.id)}`}
-                >
-                  Track this thesis
-                </Link>
-              ) : null}
-              {thesis.id ? (
-                <Link className="button" to={routes.calibrationThesis(thesis.id)}>
-                  <Target aria-hidden size={15} />
-                  Evaluate thesis
-                </Link>
-              ) : null}
-            </div>
-            {exportError ? <span className="badge risk">{exportError}</span> : null}
-          </div>
-        </Panel>
+                <section className="thesis-boundary">
+                  <span>Invalidation</span>
+                  <p>{invalidation}</p>
+                </section>
 
-        <Panel
-          className="span-7"
-          title="Evidence and contradictions"
-          description="Readable thesis drivers first, source IDs second."
-        >
-          <EvidenceAndContradictions
-            contradictingSignalIds={thesis.contradicting_signal_ids}
-            keyReasons={thesis.summary.key_reasons}
-            risks={thesis.summary.risks}
-            supportingSignalIds={thesis.supporting_signal_ids}
-          />
-          {stabilityGuard.applied === true ? (
-            <div className="stack small">
-              <strong>Stability guard audit</strong>
-              <JsonView value={stabilityGuard} />
-            </div>
-          ) : null}
-        </Panel>
+                <div className="top-strip-meta thesis-brief-actions">
+                  {thesis.research_run_id ? (
+                    <span className="thesis-run-inline">
+                      <span>Run</span>
+                      <IdChip value={thesis.research_run_id} />
+                    </span>
+                  ) : null}
+                  {thesis.research_run_id ? (
+                    <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
+                      Open run
+                    </Link>
+                  ) : null}
+                  {thesis.research_run_id ? (
+                    <button
+                      className="button"
+                      disabled={exportingBundle}
+                      onClick={exportEvidenceBundle}
+                      type="button"
+                    >
+                      <Download aria-hidden size={15} />
+                      {exportingBundle ? 'Exporting' : 'Export evidence'}
+                    </button>
+                  ) : null}
+                  {thesis.id ? (
+                    <Link
+                      className="button primary"
+                      to={`${routes.watchlists}?track_thesis=${encodeURIComponent(thesis.id)}`}
+                    >
+                      Track this thesis
+                    </Link>
+                  ) : null}
+                  {thesis.id ? (
+                    <Link className="button" to={routes.calibrationThesis(thesis.id)}>
+                      <Target aria-hidden size={15} />
+                      Evaluate thesis
+                    </Link>
+                  ) : null}
+                </div>
+                {exportError ? <span className="badge risk">{exportError}</span> : null}
+              </div>
+            </Panel>
 
-        <Panel className="span-4" title="Scenario radar" description="Conditional outcomes">
-          {scenariosQuery.isLoading ? <LoadingState /> : null}
-          {scenariosQuery.isError ? <ErrorState error={scenariosQuery.error} /> : null}
-          {scenariosQuery.data?.length === 0 ? (
-            <EmptyState label="No scenarios for this thesis." />
-          ) : null}
-          <div className="scenario-radar-list">
-            {scenariosQuery.data?.map((scenario, index) => (
-              <ScenarioRadarCard
-                index={index}
-                key={scenario.id ?? scenario.condition}
-                scenario={scenario}
-              />
-            ))}
-          </div>
-        </Panel>
-
-        <Panel className="span-8" title="Manual decision journal and AI source rail">
-          <div className="grid two">
-            <form className="stack" onSubmit={submitDecision}>
-              <strong>Record decision</strong>
-              <label className="label">
-                Action
-                <select
-                  className="select"
-                  value={decisionAction}
-                  onChange={(event) => setDecisionAction(event.target.value)}
-                >
-                  <option value="watched">watched</option>
-                  <option value="accepted">accepted</option>
-                  <option value="rejected">rejected</option>
-                  <option value="ignored">ignored</option>
-                  <option value="needs_more_research">needs_more_research</option>
-                </select>
-              </label>
-              <label className="label">
-                Notes
-                <textarea
-                  className="textarea"
-                  value={decisionNotes}
-                  onChange={(event) => setDecisionNotes(event.target.value)}
-                />
-              </label>
+            <Panel title="Monitor next" description="Follow-up IDs, target zones, and missing data">
               <div className="grid three">
-                <label className="label">
-                  Entry
-                  <input
-                    className="input"
-                    onChange={(event) => setDecisionEntry(event.target.value)}
-                    placeholder={thesis.entry_zone || '100000-101500'}
-                    value={decisionEntry}
-                  />
-                </label>
-                <label className="label">
-                  SL
-                  <input
-                    className="input"
-                    onChange={(event) => setDecisionStopLoss(event.target.value)}
-                    placeholder={thesis.invalidation_level || '95000'}
-                    value={decisionStopLoss}
-                  />
-                </label>
-                <label className="label">
-                  TP
-                  <input
-                    className="input"
-                    onChange={(event) => setDecisionTakeProfit(event.target.value)}
-                    placeholder={thesis.target_zones[0] || '110000'}
-                    value={decisionTakeProfit}
-                  />
-                </label>
+                <EvidenceBlock title="Target zones" tone="constructive" values={thesis.target_zones} />
+                <EvidenceBlock title="Monitor next" tone="primary" values={thesis.monitor_next} />
+                <EvidenceBlock title="Stale or missing data" tone="warning" values={thesis.stale_or_missing_data} />
               </div>
-              <label className="label">
-                Position intent
-                <select
-                  className="select"
-                  onChange={(event) => setPositionIntent(event.target.value)}
-                  value={positionIntent}
-                >
-                  <option value="watch_only">watch_only</option>
-                  <option value="spot_accumulation">spot_accumulation</option>
-                  <option value="long_perp">long_perp</option>
-                  <option value="short_perp">short_perp</option>
-                  <option value="hedge_or_reduce">hedge_or_reduce</option>
-                  <option value="no_trade">no_trade</option>
-                </select>
-              </label>
-              {decisionMutation.isError ? <span className="badge risk">{errorMessage(decisionMutation.error)}</span> : null}
-              {decisionMutation.isSuccess ? <span className="badge constructive">decision recorded</span> : null}
-              <button className="button primary" disabled={decisionMutation.isPending} type="submit">
-                Record decision
-              </button>
-            </form>
+              <div style={{ marginTop: 14 }} className="badge">
+                <GitBranch aria-hidden size={14} />
+                {thesis.summary.market_type || thesis.summary.direction || 'research thesis'}
+              </div>
+            </Panel>
+          </div>
+        ) : null}
 
-            <form className="stack" onSubmit={submitReview}>
-              <strong>Outcome review</strong>
-              <label className="label">
-                Result
-                <select
-                  className="select"
-                  value={reviewResult}
-                  onChange={(event) => setReviewResult(event.target.value)}
-                >
-                  <option value="worked">worked</option>
-                  <option value="failed">failed</option>
-                  <option value="mixed">mixed</option>
-                  <option value="invalidated">invalidated</option>
-                  <option value="expired">expired</option>
-                  <option value="unknown">unknown</option>
-                </select>
-              </label>
-              <label className="label">
-                Lessons
-                <textarea
-                  className="textarea"
-                  value={reviewNotes}
-                  onChange={(event) => setReviewNotes(event.target.value)}
+        {activeTab === 'evidence' ? (
+          <Panel
+            title="Evidence and contradictions"
+            description="Readable thesis drivers first, source IDs second."
+          >
+            <EvidenceAndContradictions
+              contradictingSignalIds={thesis.contradicting_signal_ids}
+              keyReasons={thesis.summary.key_reasons}
+              risks={thesis.summary.risks}
+              supportingSignalIds={thesis.supporting_signal_ids}
+            />
+            {stabilityGuard.applied === true ? (
+              <div className="stack small">
+                <strong>Stability guard audit</strong>
+                <JsonView value={stabilityGuard} />
+              </div>
+            ) : null}
+          </Panel>
+        ) : null}
+
+        {activeTab === 'scenario' ? (
+          <Panel title="Scenario radar" description="Conditional outcomes">
+            {scenariosQuery.isLoading ? <LoadingState /> : null}
+            {scenariosQuery.isError ? <ErrorState error={scenariosQuery.error} /> : null}
+            {scenariosQuery.data?.length === 0 ? (
+              <EmptyState label="No scenarios for this thesis." />
+            ) : null}
+            <div className="scenario-radar-list">
+              {scenariosQuery.data?.map((scenario, index) => (
+                <ScenarioRadarCard
+                  index={index}
+                  key={scenario.id ?? scenario.condition}
+                  scenario={scenario}
                 />
-              </label>
-              <div className="grid two">
-                <label className="label">
-                  MFE
-                  <input
-                    className="input"
-                    inputMode="decimal"
-                    onChange={(event) => setReviewMfe(event.target.value)}
-                    placeholder="0.12"
-                    type="number"
-                    step="0.0001"
-                    value={reviewMfe}
-                  />
-                </label>
-                <label className="label">
-                  MAE
-                  <input
-                    className="input"
-                    inputMode="decimal"
-                    onChange={(event) => setReviewMae(event.target.value)}
-                    placeholder="-0.05"
-                    type="number"
-                    step="0.0001"
-                    value={reviewMae}
-                  />
-                </label>
-              </div>
-              {reviewMutation.isError ? <span className="badge risk">{errorMessage(reviewMutation.error)}</span> : null}
-              {reviewMutation.isSuccess ? <span className="badge constructive">review recorded</span> : null}
-              <button className="button" disabled={reviewMutation.isPending} type="submit">
-                Record review
-              </button>
-            </form>
-          </div>
-        </Panel>
+              ))}
+            </div>
+          </Panel>
+        ) : null}
 
-        <Panel className="span-12" title="Monitor next" description="Follow-up IDs, target zones, and missing data">
-          <div className="grid three">
-            <EvidenceBlock title="Target zones" tone="constructive" values={thesis.target_zones} />
-            <EvidenceBlock title="Monitor next" tone="primary" values={thesis.monitor_next} />
-            <EvidenceBlock title="Stale or missing data" tone="warning" values={thesis.stale_or_missing_data} />
-          </div>
-          <div style={{ marginTop: 14 }} className="badge">
-            <GitBranch aria-hidden size={14} />
-            {thesis.summary.market_type || thesis.summary.direction || 'research thesis'}
-          </div>
-        </Panel>
-      </BentoGrid>
+        {activeTab === 'journal' ? (
+          <Panel title="Manual decision journal and AI source rail">
+            <div className="grid two">
+              <form className="stack" onSubmit={submitDecision}>
+                <strong>Record decision</strong>
+                <label className="label">
+                  Action
+                  <select
+                    className="select"
+                    value={decisionAction}
+                    onChange={(event) => setDecisionAction(event.target.value)}
+                  >
+                    <option value="watched">watched</option>
+                    <option value="accepted">accepted</option>
+                    <option value="rejected">rejected</option>
+                    <option value="ignored">ignored</option>
+                    <option value="needs_more_research">needs_more_research</option>
+                  </select>
+                </label>
+                <label className="label">
+                  Notes
+                  <textarea
+                    className="textarea"
+                    value={decisionNotes}
+                    onChange={(event) => setDecisionNotes(event.target.value)}
+                  />
+                </label>
+                <div className="grid three">
+                  <label className="label">
+                    Entry
+                    <input
+                      className="input"
+                      onChange={(event) => setDecisionEntry(event.target.value)}
+                      placeholder={thesis.entry_zone || '100000-101500'}
+                      value={decisionEntry}
+                    />
+                  </label>
+                  <label className="label">
+                    SL
+                    <input
+                      className="input"
+                      onChange={(event) => setDecisionStopLoss(event.target.value)}
+                      placeholder={thesis.invalidation_level || '95000'}
+                      value={decisionStopLoss}
+                    />
+                  </label>
+                  <label className="label">
+                    TP
+                    <input
+                      className="input"
+                      onChange={(event) => setDecisionTakeProfit(event.target.value)}
+                      placeholder={thesis.target_zones[0] || '110000'}
+                      value={decisionTakeProfit}
+                    />
+                  </label>
+                </div>
+                <label className="label">
+                  Position intent
+                  <select
+                    className="select"
+                    onChange={(event) => setPositionIntent(event.target.value)}
+                    value={positionIntent}
+                  >
+                    <option value="watch_only">watch_only</option>
+                    <option value="spot_accumulation">spot_accumulation</option>
+                    <option value="long_perp">long_perp</option>
+                    <option value="short_perp">short_perp</option>
+                    <option value="hedge_or_reduce">hedge_or_reduce</option>
+                    <option value="no_trade">no_trade</option>
+                  </select>
+                </label>
+                {decisionMutation.isError ? (
+                  <span className="badge risk">{errorMessage(decisionMutation.error)}</span>
+                ) : null}
+                {decisionMutation.isSuccess ? (
+                  <span className="badge constructive">decision recorded</span>
+                ) : null}
+                <button className="button primary" disabled={decisionMutation.isPending} type="submit">
+                  Record decision
+                </button>
+              </form>
+
+              <form className="stack" onSubmit={submitReview}>
+                <strong>Outcome review</strong>
+                <label className="label">
+                  Result
+                  <select
+                    className="select"
+                    value={reviewResult}
+                    onChange={(event) => setReviewResult(event.target.value)}
+                  >
+                    <option value="worked">worked</option>
+                    <option value="failed">failed</option>
+                    <option value="mixed">mixed</option>
+                    <option value="invalidated">invalidated</option>
+                    <option value="expired">expired</option>
+                    <option value="unknown">unknown</option>
+                  </select>
+                </label>
+                <label className="label">
+                  Lessons
+                  <textarea
+                    className="textarea"
+                    value={reviewNotes}
+                    onChange={(event) => setReviewNotes(event.target.value)}
+                  />
+                </label>
+                <div className="grid two">
+                  <label className="label">
+                    MFE
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      onChange={(event) => setReviewMfe(event.target.value)}
+                      placeholder="0.12"
+                      type="number"
+                      step="0.0001"
+                      value={reviewMfe}
+                    />
+                  </label>
+                  <label className="label">
+                    MAE
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      onChange={(event) => setReviewMae(event.target.value)}
+                      placeholder="-0.05"
+                      type="number"
+                      step="0.0001"
+                      value={reviewMae}
+                    />
+                  </label>
+                </div>
+                {reviewMutation.isError ? (
+                  <span className="badge risk">{errorMessage(reviewMutation.error)}</span>
+                ) : null}
+                {reviewMutation.isSuccess ? (
+                  <span className="badge constructive">review recorded</span>
+                ) : null}
+                <button className="button" disabled={reviewMutation.isPending} type="submit">
+                  Record review
+                </button>
+              </form>
+            </div>
+          </Panel>
+        ) : null}
+      </section>
     </main>
   );
 }
@@ -694,6 +724,23 @@ function ThesisFact({
     <div className={`thesis-fact${wide ? ' wide' : ''}`}>
       <span>{label}</span>
       <div className="thesis-fact-value">{children}</div>
+    </div>
+  );
+}
+
+function ThesisBriefKpi({
+  children,
+  label,
+  tone = 'default',
+}: {
+  children: ReactNode;
+  label: string;
+  tone?: 'default' | 'constructive' | 'warning';
+}) {
+  return (
+    <div className={`thesis-brief-kpi thesis-brief-kpi-${tone}`}>
+      <span>{label}</span>
+      <div className="thesis-brief-kpi-value">{children}</div>
     </div>
   );
 }
