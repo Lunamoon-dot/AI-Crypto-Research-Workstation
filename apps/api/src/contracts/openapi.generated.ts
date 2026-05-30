@@ -3198,6 +3198,150 @@ export const openApiDocument = {
           redacted: { type: 'boolean', enum: [true] },
         },
       },
+      ResearchContinuityDiffSummaryResponse: {
+        type: 'object',
+        required: [
+          'added_count',
+          'updated_count',
+          'removed_resolved_count',
+          'weakened_count',
+          'quality_count',
+          'has_material_changes',
+          'has_comparison',
+          'diff_quality',
+          'is_repair',
+          'badges',
+          'warnings',
+        ],
+        properties: {
+          added_count: { type: 'number' },
+          updated_count: { type: 'number' },
+          removed_resolved_count: { type: 'number' },
+          weakened_count: { type: 'number' },
+          quality_count: { type: 'number' },
+          has_material_changes: { type: 'boolean' },
+          has_comparison: { type: 'boolean' },
+          diff_quality: {
+            type: 'string',
+            enum: ['complete', 'partial', 'unavailable'],
+          },
+          is_repair: { type: 'boolean' },
+          badges: { type: 'array', items: { type: 'string' } },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      ResearchContinuityChangedItemEvidenceResponse: {
+        type: 'object',
+        required: ['status', 'source_artifact', 'source_id', 'source_field'],
+        properties: {
+          status: { type: ['string', 'null'] },
+          source_artifact: { type: ['string', 'null'] },
+          source_id: { type: ['string', 'null'] },
+          source_field: { type: ['string', 'null'] },
+        },
+      },
+      ResearchContinuityChangedItemResponse: {
+        type: 'object',
+        required: [
+          'id',
+          'group',
+          'event_type',
+          'item_type',
+          'title',
+          'before',
+          'after',
+          'severity',
+          'evidence',
+        ],
+        properties: {
+          id: { type: 'string' },
+          group: {
+            type: 'string',
+            enum: [
+              'added',
+              'updated',
+              'removed_resolved',
+              'weakened',
+              'context',
+              'quality',
+            ],
+          },
+          event_type: { type: 'string' },
+          item_type: {
+            type: 'string',
+            enum: [
+              'claim',
+              'risk',
+              'watchpoint',
+              'level',
+              'invalidation',
+              'view',
+              'quality',
+              'unknown',
+            ],
+          },
+          title: { type: 'string' },
+          before: { type: ['string', 'null'] },
+          after: { type: ['string', 'null'] },
+          severity: {
+            type: 'string',
+            enum: ['info', 'warning', 'critical'],
+          },
+          evidence: {
+            $ref: '#/components/schemas/ResearchContinuityChangedItemEvidenceResponse',
+          },
+        },
+      },
+      ResearchContinuityChangeGroupResponse: {
+        type: 'object',
+        required: ['group', 'title', 'count', 'items'],
+        properties: {
+          group: {
+            type: 'string',
+            enum: [
+              'added',
+              'updated',
+              'removed_resolved',
+              'weakened',
+              'context',
+              'quality',
+            ],
+          },
+          title: { type: 'string' },
+          count: { type: 'number' },
+          items: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityChangedItemResponse',
+            },
+          },
+        },
+      },
+      ResearchContinuityDiffReportResponse: {
+        type: 'object',
+        required: ['version', 'summary', 'change_groups', 'changed_items'],
+        properties: {
+          version: {
+            type: 'string',
+            enum: ['research_continuity_diff.v1'],
+          },
+          summary: {
+            $ref: '#/components/schemas/ResearchContinuityDiffSummaryResponse',
+          },
+          change_groups: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityChangeGroupResponse',
+            },
+          },
+          changed_items: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/ResearchContinuityChangedItemResponse',
+            },
+          },
+        },
+      },
       ResearchContinuityEntrySummaryResponse: {
         type: 'object',
         required: [
@@ -3210,6 +3354,7 @@ export const openApiDocument = {
           'generated_at',
           'summary',
           'thin_report',
+          'diff_summary',
           'debug',
         ],
         properties: {
@@ -3232,6 +3377,9 @@ export const openApiDocument = {
               { $ref: '#/components/schemas/ResearchContinuityThinReport' },
               { type: 'null' },
             ],
+          },
+          diff_summary: {
+            $ref: '#/components/schemas/ResearchContinuityDiffSummaryResponse',
           },
           debug: {
             $ref: '#/components/schemas/ResearchContinuityDebugAccessResponse',
@@ -3321,12 +3469,16 @@ export const openApiDocument = {
           {
             type: 'object',
             required: [
+              'diff_report',
               'quality_explanation',
               'evidence_digest',
               'material_events_digest',
               'state_transition',
             ],
             properties: {
+              diff_report: {
+                $ref: '#/components/schemas/ResearchContinuityDiffReportResponse',
+              },
               quality_explanation: {
                 $ref: '#/components/schemas/ResearchContinuityQualityExplanationResponse',
               },

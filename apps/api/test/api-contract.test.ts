@@ -2033,8 +2033,23 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
   const continuityProperties =
     openApiDocument.components.schemas.ResearchContinuityEntryResponse.properties;
   assert.ok('thin_report' in continuityProperties);
+  const continuitySummaryProperties =
+    openApiDocument.components.schemas.ResearchContinuityEntrySummaryResponse.properties;
+  assert.ok('diff_summary' in continuitySummaryProperties);
+  const continuityDetailProperties =
+    openApiDocument.components.schemas.ResearchContinuityEntryDetailResponse.allOf[1].properties;
+  assert.ok('diff_report' in continuityDetailProperties);
   assert.ok(
     'ResearchContinuityThinReport' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityDiffSummaryResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityDiffReportResponse' in openApiDocument.components.schemas,
+  );
+  assert.ok(
+    'ResearchContinuityChangedItemResponse' in openApiDocument.components.schemas,
   );
   assert.ok(
     'ResearchContinuityEntrySummaryResponse' in openApiDocument.components.schemas,
@@ -6700,6 +6715,361 @@ test('research continuity V1.5 default reads are compact and detail exposes dige
   assert.equal('payload' in detailRecord, false);
   assert.equal('writer_metadata' in detailRecord, false);
   assert.equal('snapshot_quality' in detailRecord, false);
+});
+
+test('research continuity V1.9 exposes grouped diff summaries and reports from events', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  journal.continuityEntries.set(key('continuity_diff_v19', 'workspace_a'), {
+    id: 'continuity_diff_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_v19',
+    current_snapshot_id: 'snapshot_diff_v19',
+    previous_entry_id: 'continuity_previous_v19',
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-05-30T01:00:00.000Z',
+    summary: 'Daily Research Delta recorded material changes.',
+    sections: [],
+    events: [
+      {
+        event_type: 'claim_added',
+        severity: 'low',
+        item_key: 'claim_added_1',
+        reason: 'ETF demand improved.',
+        to: { type: 'claim', text: 'ETF demand improved.' },
+        source: {
+          status: 'observed_backed',
+          source_artifact: 'thesis',
+          source_id: 'claim_added_1',
+          source_field: 'supporting_reasons',
+        },
+      },
+      {
+        event_type: 'risk_updated',
+        severity: 'medium',
+        item_key: 'risk_updated_1',
+        previous_text: 'Funding is elevated.',
+        current_text: 'Funding is extreme.',
+        from: { type: 'risk', text: 'Funding is elevated.' },
+        to: { type: 'risk', text: 'Funding is extreme.' },
+        source: {
+          source_artifact: 'risk_register',
+          source_id: 'risk_updated_1',
+          source_field: 'text',
+        },
+      },
+      {
+        event_type: 'risk_resolved',
+        severity: 'medium',
+        item_key: 'risk_resolved_1',
+        reason: 'Exchange outage risk resolved.',
+        from: { type: 'risk', text: 'Exchange outage risk.' },
+        to: null,
+      },
+      {
+        event_type: 'claim_weakened',
+        severity: 'low',
+        item_key: 'claim_weakened_1',
+        reason: 'Spot bid was less reliable.',
+        from: { type: 'claim', text: 'Spot bid is strong.', evidence_quality: 'none' },
+        to: null,
+      },
+      {
+        event_type: 'data_quality_changed',
+        severity: 'low',
+        item_key: null,
+        reason: 'Snapshot data quality changed.',
+        from: { status: 'clean' },
+        to: { status: 'degraded', warnings: ['missing market snapshot'] },
+      },
+      {
+        event_type: 'risk_reinforced',
+        severity: 'low',
+        item_key: 'risk_context_1',
+        reason: 'Funding remains the main risk.',
+        to: { type: 'risk', text: 'Funding remains the main risk.' },
+      },
+      {
+        event_type: 'mystery_event',
+        severity: 'critical',
+        reason: 'Unknown events should not crash or leak into the report.',
+      },
+    ],
+    snapshot_quality: {
+      status: 'clean',
+      score: 1,
+      observed_evidence_coverage: 1,
+      evidence_coverage: 1,
+    },
+    source_run_ids: ['run_diff_v19'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+
+  const detail = await researchContinuity.getEntry(
+    'continuity_diff_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+  const list = await researchContinuity.listSymbolEntries(
+    'BTC/USDT',
+    { limit: 10 },
+    'viewer_1',
+    'workspace_a',
+  );
+
+  const detailRecord = detail as unknown as Record<string, unknown>;
+  const summary = record(detailRecord.diff_summary);
+  assert.equal(summary.added_count, 1);
+  assert.equal(summary.updated_count, 1);
+  assert.equal(summary.removed_resolved_count, 1);
+  assert.equal(summary.weakened_count, 1);
+  assert.equal(summary.quality_count, 1);
+  assert.equal(summary.has_material_changes, true);
+  assert.equal(summary.has_comparison, true);
+  assert.equal(summary.diff_quality, 'complete');
+  assert.deepEqual(summary.warnings, []);
+  assert.ok((summary.badges as string[]).includes('+1 added'));
+  assert.ok((summary.badges as string[]).includes('1 updated'));
+  assert.ok((summary.badges as string[]).includes('1 resolved'));
+  assert.ok((summary.badges as string[]).includes('1 weakened'));
+
+  const report = record(detailRecord.diff_report);
+  assert.equal(report.version, 'research_continuity_diff.v1');
+  assert.equal(record(report.summary).added_count, 1);
+  const changedItems = records(report.changed_items);
+  assert.equal(changedItems.length, 6);
+  assert.equal(
+    changedItems.some((item) => item.event_type === 'mystery_event'),
+    false,
+  );
+  assert.deepEqual(
+    records(report.change_groups).map((group) => group.group),
+    ['added', 'updated', 'removed_resolved', 'weakened', 'quality', 'context'],
+  );
+
+  const added = changedItems.find((item) => item.event_type === 'claim_added');
+  assert.equal(added?.group, 'added');
+  assert.equal(added?.item_type, 'claim');
+  assert.equal(added?.title, 'ETF demand improved.');
+  assert.equal(added?.before, null);
+  assert.equal(added?.after, 'ETF demand improved.');
+  assert.equal(record(added?.evidence).status, 'observed_backed');
+  assert.equal(record(added?.evidence).source_artifact, 'thesis');
+
+  const updated = changedItems.find((item) => item.event_type === 'risk_updated');
+  assert.equal(updated?.group, 'updated');
+  assert.equal(updated?.severity, 'warning');
+  assert.equal(updated?.before, 'Funding is elevated.');
+  assert.equal(updated?.after, 'Funding is extreme.');
+
+  const weakened = changedItems.find(
+    (item) => item.event_type === 'claim_weakened',
+  );
+  assert.equal(weakened?.group, 'weakened');
+  assert.equal(weakened?.severity, 'warning');
+
+  const quality = changedItems.find(
+    (item) => item.event_type === 'data_quality_changed',
+  );
+  assert.equal(quality?.group, 'quality');
+  assert.equal(quality?.severity, 'warning');
+
+  const listEntry = list.entries[0] as unknown as Record<string, unknown>;
+  assert.equal(record(listEntry.diff_summary).updated_count, 1);
+  assert.equal('diff_report' in listEntry, false);
+});
+
+test('research continuity V1.9 handles baseline degraded skipped repair and legacy diff states', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  journal.continuityEntries.set(key('continuity_diff_baseline_v19', 'workspace_a'), {
+    id: 'continuity_diff_baseline_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_baseline_v19',
+    current_snapshot_id: 'snapshot_diff_baseline_v19',
+    previous_entry_id: null,
+    entry_type: 'baseline',
+    status: 'completed',
+    generated_at: '2026-05-30T01:00:00.000Z',
+    summary: 'Baseline continuity state initialized.',
+    sections: [],
+    events: [
+      {
+        event_type: 'claim_added',
+        item_key: 'baseline_claim_1',
+        reason: 'Initial claim tracked.',
+        to: { type: 'claim', text: 'Initial claim tracked.' },
+      },
+    ],
+    snapshot_quality: { status: 'clean', score: 1 },
+    source_run_ids: ['run_diff_baseline_v19'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+  journal.continuityEntries.set(key('continuity_diff_degraded_v19', 'workspace_a'), {
+    id: 'continuity_diff_degraded_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_degraded_v19',
+    current_snapshot_id: 'snapshot_diff_degraded_v19',
+    previous_entry_id: 'continuity_diff_baseline_v19',
+    entry_type: 'degraded',
+    status: 'degraded',
+    generated_at: '2026-05-30T02:00:00.000Z',
+    summary: 'Continuity entry saved with degraded snapshot quality.',
+    sections: [],
+    events: [],
+    snapshot_quality: {
+      status: 'degraded',
+      warnings: ['partial artifacts'],
+      reasons: ['missing market snapshot'],
+    },
+    source_run_ids: ['run_diff_degraded_v19'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+  journal.continuityEntries.set(key('continuity_diff_skipped_v19', 'workspace_a'), {
+    id: 'continuity_diff_skipped_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_skipped_v19',
+    current_snapshot_id: null,
+    previous_entry_id: 'continuity_diff_degraded_v19',
+    entry_type: 'skipped',
+    status: 'skipped',
+    generated_at: '2026-05-30T03:00:00.000Z',
+    summary: 'Continuity skipped: insufficient_structured_data.',
+    sections: [],
+    events: [],
+    snapshot_quality: { status: 'skipped', warnings: ['missing thesis'] },
+    source_run_ids: ['run_diff_skipped_v19'],
+    writer_metadata: {},
+    payload: {
+      schema_version: 'research_continuity_entry.v1.1',
+      skip_reason: 'insufficient_structured_data',
+    },
+  });
+  journal.continuityEntries.set(key('continuity_diff_repair_v19', 'workspace_a'), {
+    id: 'continuity_diff_repair_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_repair_v19',
+    current_snapshot_id: null,
+    previous_entry_id: 'continuity_diff_skipped_v19',
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-05-30T04:00:00.000Z',
+    summary: 'Repair entry created.',
+    sections: [],
+    events: [],
+    snapshot_quality: { status: 'clean' },
+    source_run_ids: ['run_diff_repair_v19'],
+    writer_metadata: {},
+    payload: {
+      schema_version: 'research_continuity_entry.v1.1',
+      repair: {
+        is_repair: true,
+        case_type: 'missing_continuity',
+        source_run_id: 'run_diff_skipped_v19',
+        source_entry_id: 'continuity_diff_skipped_v19',
+        reason: 'Backfilled missing continuity entry.',
+      },
+    },
+  });
+  journal.continuityEntries.set(key('continuity_diff_legacy_v19', 'workspace_a'), {
+    id: 'continuity_diff_legacy_v19',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    research_run_id: 'run_diff_legacy_v19',
+    current_snapshot_id: null,
+    previous_entry_id: 'continuity_diff_repair_v19',
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-05-30T05:00:00.000Z',
+    summary: 'Legacy continuity entry.',
+    sections: [
+      {
+        title: 'Material Changes',
+        items: ['Risk updated: Funding stress increased.'],
+        empty_state: 'No material changes detected.',
+      },
+    ],
+    events: [],
+    snapshot_quality: { status: 'clean' },
+    source_run_ids: ['run_diff_legacy_v19'],
+    writer_metadata: {},
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+
+  const baseline = await researchContinuity.getEntry(
+    'continuity_diff_baseline_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+  const degraded = await researchContinuity.getEntry(
+    'continuity_diff_degraded_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+  const skipped = await researchContinuity.getEntry(
+    'continuity_diff_skipped_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+  const repair = await researchContinuity.getEntry(
+    'continuity_diff_repair_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+  const legacy = await researchContinuity.getEntry(
+    'continuity_diff_legacy_v19',
+    'viewer_1',
+    'workspace_a',
+  );
+
+  assert.equal(record((baseline as unknown as Record<string, unknown>).diff_summary).has_comparison, false);
+  assert.equal(record((baseline as unknown as Record<string, unknown>).diff_summary).added_count, 1);
+
+  const degradedSummary = record((degraded as unknown as Record<string, unknown>).diff_summary);
+  assert.equal(degradedSummary.diff_quality, 'partial');
+  assert.ok(
+    (degradedSummary.warnings as string[]).some((warning) =>
+      warning.toLowerCase().includes('complete diff'),
+    ),
+  );
+
+  const skippedRecord = skipped as unknown as Record<string, unknown>;
+  const skippedSummary = record(skippedRecord.diff_summary);
+  assert.equal(skippedSummary.diff_quality, 'unavailable');
+  assert.equal(skippedSummary.has_material_changes, false);
+  assert.equal(records(record(skippedRecord.diff_report).changed_items).length, 0);
+  assert.ok(
+    (skippedSummary.warnings as string[]).some((warning) =>
+      warning.includes('insufficient_structured_data'),
+    ),
+  );
+
+  const repairRecord = repair as unknown as Record<string, unknown>;
+  const repairSummary = record(repairRecord.diff_summary);
+  assert.equal(repairSummary.is_repair, true);
+  assert.ok((repairSummary.badges as string[]).includes('repair'));
+  assert.ok(
+    records(record(repairRecord.diff_report).change_groups).some(
+      (group) => group.group === 'context',
+    ),
+  );
+
+  const legacyRecord = legacy as unknown as Record<string, unknown>;
+  const legacySummary = record(legacyRecord.diff_summary);
+  assert.equal(legacySummary.diff_quality, 'partial');
+  assert.equal(legacySummary.updated_count, 1);
+  assert.equal((legacySummary.badges as string[]).includes('degraded'), false);
+  assert.equal(
+    records(record(legacyRecord.diff_report).changed_items)[0]?.after,
+    'Risk updated: Funding stress increased.',
+  );
 });
 
 test('redactForDebug recursively redacts debug payloads', () => {

@@ -1171,6 +1171,7 @@ function LatestReport({ entry }: { entry: ResearchContinuityEntrySummaryResponse
         <div className="continuity-report-status">
           <span className="badge primary">{entry.entry_type}</span>
           <StatusBadge value={entry.status} />
+          <DiffSummaryBadges summary={entry.diff_summary} />
         </div>
         <div className="continuity-report-actions">
           <span className="small muted">{formatDateTime(entry.generated_at)}</span>
@@ -1222,6 +1223,7 @@ function ContinuityEntryRow({
       <div className="row">
         <span className="badge primary">{entry.entry_type}</span>
         <StatusBadge value={entry.status} />
+        <DiffSummaryBadges summary={entry.diff_summary} />
         <span className="small muted">{formatDateTime(entry.generated_at)}</span>
       </div>
       <p className="muted">{entry.summary}</p>
@@ -1237,6 +1239,43 @@ function ContinuityEntryRow({
       </div>
     </div>
   );
+}
+
+function DiffSummaryBadges({
+  summary,
+}: {
+  summary: ResearchContinuityEntrySummaryResponse['diff_summary'];
+}) {
+  return (
+    <>
+      {summary.badges.map((badge) => (
+        <span className={diffSummaryBadgeClass(badge)} key={badge}>
+          {badge}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function diffSummaryBadgeClass(badge: string): string {
+  if (
+    badge === 'degraded' ||
+    badge === 'skipped' ||
+    badge.includes('weakened')
+  ) {
+    return 'badge warning';
+  }
+  if (
+    badge.includes('added') ||
+    badge.includes('resolved') ||
+    badge === 'repair'
+  ) {
+    return 'badge constructive';
+  }
+  if (badge.includes('updated')) {
+    return 'badge primary';
+  }
+  return 'badge';
 }
 
 function TraceBadge({ value }: { value: string }) {

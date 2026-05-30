@@ -1161,6 +1161,81 @@ export interface ResearchContinuityDebugAccessResponse {
   redacted: true;
 }
 
+export type ResearchContinuityDiffGroup =
+  | 'added'
+  | 'updated'
+  | 'removed_resolved'
+  | 'weakened'
+  | 'context'
+  | 'quality';
+
+export type ResearchContinuityDiffQuality =
+  | 'complete'
+  | 'partial'
+  | 'unavailable';
+
+export type ResearchContinuityDiffSeverity =
+  | 'info'
+  | 'warning'
+  | 'critical';
+
+export type ResearchContinuityDiffItemType =
+  | 'claim'
+  | 'risk'
+  | 'watchpoint'
+  | 'level'
+  | 'invalidation'
+  | 'view'
+  | 'quality'
+  | 'unknown';
+
+export interface ResearchContinuityDiffSummaryResponse {
+  added_count: number;
+  updated_count: number;
+  removed_resolved_count: number;
+  weakened_count: number;
+  quality_count: number;
+  has_material_changes: boolean;
+  has_comparison: boolean;
+  diff_quality: ResearchContinuityDiffQuality;
+  is_repair: boolean;
+  badges: string[];
+  warnings: string[];
+}
+
+export interface ResearchContinuityChangedItemEvidenceResponse {
+  status: string | null;
+  source_artifact: string | null;
+  source_id: string | null;
+  source_field: string | null;
+}
+
+export interface ResearchContinuityChangedItemResponse {
+  id: string;
+  group: ResearchContinuityDiffGroup;
+  event_type: string;
+  item_type: ResearchContinuityDiffItemType;
+  title: string;
+  before: string | null;
+  after: string | null;
+  severity: ResearchContinuityDiffSeverity;
+  evidence: ResearchContinuityChangedItemEvidenceResponse;
+}
+
+export interface ResearchContinuityChangeGroupResponse {
+  group: ResearchContinuityDiffGroup;
+  title: string;
+  count: number;
+  items: ResearchContinuityChangedItemResponse[];
+}
+
+export interface ResearchContinuityDiffReportResponse {
+  version: 'research_continuity_diff.v1';
+  summary: ResearchContinuityDiffSummaryResponse;
+  change_groups: ResearchContinuityChangeGroupResponse[];
+  changed_items: ResearchContinuityChangedItemResponse[];
+}
+
 export interface ResearchContinuityEntrySummaryResponse {
   id: string | null;
   workspace_id: string;
@@ -1171,6 +1246,7 @@ export interface ResearchContinuityEntrySummaryResponse {
   generated_at: string | null;
   summary: string;
   thin_report: ResearchContinuityThinReport | null;
+  diff_summary: ResearchContinuityDiffSummaryResponse;
   debug: ResearchContinuityDebugAccessResponse;
 }
 
@@ -1214,6 +1290,7 @@ export interface ResearchContinuityStateTransitionDigestResponse {
 
 export interface ResearchContinuityEntryDetailResponse
   extends ResearchContinuityEntrySummaryResponse {
+  diff_report: ResearchContinuityDiffReportResponse;
   quality_explanation: ResearchContinuityQualityExplanationResponse;
   evidence_digest: ResearchContinuityEvidenceDigestResponse;
   material_events_digest: ResearchContinuityMaterialEventDigestResponse[];

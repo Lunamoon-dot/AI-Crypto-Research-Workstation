@@ -16,6 +16,12 @@ import { IdChip, StatusBadge } from '@/components/research/badges';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import type {
+  ResearchContinuityChangedItemEvidenceResponse,
+  ResearchContinuityChangedItemResponse,
+  ResearchContinuityChangeGroupResponse,
+  ResearchContinuityDiffSummaryResponse,
+} from '@/types';
 
 export function ResearchContinuityEntryDetailPage() {
   const { id = '' } = useParams();
@@ -81,6 +87,13 @@ export function ResearchContinuityEntryDetailPage() {
                 <DataPair label="Workspace" value={detail.workspace_id} />
               </div>
             </div>
+          </Panel>
+
+          <Panel className="span-12 research-continuity-panel" title="Material Changes">
+            <DiffReport
+              groups={detail.diff_report.change_groups}
+              summary={detail.diff_summary}
+            />
           </Panel>
 
           <Panel className="span-8 research-continuity-panel" title="Readable Digest">
@@ -233,6 +246,107 @@ export function ResearchContinuityEntryDetailPage() {
   );
 }
 
+function DiffReport({
+  groups,
+  summary,
+}: {
+  groups: ResearchContinuityChangeGroupResponse[];
+  summary: ResearchContinuityDiffSummaryResponse;
+}) {
+  return (
+    <div className="continuity-diff-report">
+      <div className="continuity-diff-toolbar">
+        <div className="continuity-report-status">
+          <DiffSummaryBadges summary={summary} />
+        </div>
+        <span className={diffQualityBadgeClass(summary.diff_quality)}>
+          {summary.diff_quality}
+        </span>
+      </div>
+      {summary.warnings.length > 0 ? (
+        <div className="continuity-diff-warning">
+          <ListBlock emptyLabel="No diff warnings." items={summary.warnings} />
+        </div>
+      ) : null}
+      {groups.length === 0 ? <EmptyState label="No diff rows available." /> : null}
+      <div className="continuity-diff-groups">
+        {groups.map((group) => (
+          <DiffGroup group={group} key={group.group} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiffSummaryBadges({
+  summary,
+}: {
+  summary: ResearchContinuityDiffSummaryResponse;
+}) {
+  return (
+    <>
+      {summary.badges.map((badge) => (
+        <span className={diffSummaryBadgeClass(badge)} key={badge}>
+          {badge}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function DiffGroup({ group }: { group: ResearchContinuityChangeGroupResponse }) {
+  return (
+    <section className="continuity-diff-group">
+      <div className="continuity-diff-group-header">
+        <div className="row start">
+          <h4>{group.title}</h4>
+          <span className="badge">{group.count}</span>
+        </div>
+      </div>
+      <div className="continuity-diff-items">
+        {group.items.map((item) => (
+          <DiffItem item={item} key={item.id} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DiffItem({ item }: { item: ResearchContinuityChangedItemResponse }) {
+  return (
+    <article className="continuity-diff-item">
+      <div className="continuity-diff-item-header">
+        <div className="row start">
+          <span className="badge">{diffGroupLabel(item.group)}</span>
+          <span className="badge">{item.item_type}</span>
+        </div>
+        <span className={severityBadgeClass(item.severity)}>{item.severity}</span>
+      </div>
+      <strong>{item.title}</strong>
+      <div className="continuity-diff-values">
+        <DiffValue label="Before" value={item.before} />
+        <DiffValue label="After" value={item.after} />
+      </div>
+      <p className="small muted">{evidenceLine(item.evidence)}</p>
+    </article>
+  );
+}
+
+function DiffValue({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  return (
+    <div className="continuity-diff-value">
+      <span className="small muted">{label}</span>
+      <p>{value ?? 'n/a'}</p>
+    </div>
+  );
+}
+
 function ListBlock({
   emptyLabel,
   items,
@@ -262,4 +376,55 @@ function countLabel(value: number | null): string {
 
 function formatCoverage(value: number | null): string {
   return value === null ? 'n/a' : `${Math.round(value * 100)}%`;
+}
+
+function diffSummaryBadgeClass(badge: string): string {
+  if (
+    badge === 'degraded' ||
+    badge === 'skipped' ||
+    badge.includes('weakened')
+  ) {
+    return 'badge warning';
+  }
+  if (
+    badge.includes('added') ||
+    badge.includes('resolved') ||
+    badge === 'repair'
+  ) {
+    return 'badge constructive';
+  }
+  if (badge.includes('updated')) {
+    return 'badge primary';
+  }
+  return 'badge';
+}
+
+function diffQualityBadgeClass(quality: string): string {
+  return quality === 'complete' ? 'badge constructive' : 'badge warning';
+}
+
+function severityBadgeClass(severity: string): string {
+  if (severity === 'critical') {
+    return 'badge warning';
+  }
+  if (severity === 'warning') {
+    return 'badge warning';
+  }
+  return 'badge';
+}
+
+function diffGroupLabel(group: string): string {
+  return group.replaceAll('_', ' ');
+}
+
+function evidenceLine(
+  evidence: ResearchContinuityChangedItemEvidenceResponse,
+): string {
+  const parts = [
+    evidence.status,
+    evidence.source_artifact,
+    evidence.source_id,
+    evidence.source_field,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' / ') : 'Evidence source unavailable.';
 }
