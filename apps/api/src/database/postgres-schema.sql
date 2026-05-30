@@ -265,12 +265,36 @@ CREATE TABLE IF NOT EXISTS research_continuity_workspace_settings (
     next_scheduled_repair_due_at TIMESTAMPTZ,
     last_scheduled_repair_at TIMESTAMPTZ,
     last_scheduled_repair_run_id TEXT,
+    scheduler_lease_owner TEXT,
+    scheduler_lease_expires_at TIMESTAMPTZ,
+    last_scheduler_attempt_at TIMESTAMPTZ,
+    last_scheduler_success_at TIMESTAMPTZ,
+    last_scheduler_error TEXT,
+    consecutive_scheduler_failures INTEGER NOT NULL DEFAULT 0,
+    next_scheduler_retry_at TIMESTAMPTZ,
     updated_by_user_id TEXT,
     updated_at TIMESTAMPTZ NOT NULL
 );
 
+ALTER TABLE research_continuity_workspace_settings
+ADD COLUMN IF NOT EXISTS scheduler_lease_owner TEXT,
+ADD COLUMN IF NOT EXISTS scheduler_lease_expires_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_scheduler_attempt_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_scheduler_success_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_scheduler_error TEXT,
+ADD COLUMN IF NOT EXISTS consecutive_scheduler_failures INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS next_scheduler_retry_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_research_continuity_workspace_settings_due
 ON research_continuity_workspace_settings(scheduled_repair_mode, next_scheduled_repair_due_at);
+
+CREATE INDEX IF NOT EXISTS idx_research_continuity_workspace_settings_worker_due
+ON research_continuity_workspace_settings(
+    scheduled_repair_mode,
+    next_scheduler_retry_at,
+    next_scheduled_repair_due_at,
+    scheduler_lease_expires_at
+);
 
 CREATE INDEX IF NOT EXISTS idx_research_continuity_workspace_settings_updated
 ON research_continuity_workspace_settings(updated_at DESC);

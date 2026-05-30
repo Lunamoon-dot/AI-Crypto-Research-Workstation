@@ -104,14 +104,43 @@ is required.
 | V1.5 | implemented | [v1.5/implementation-plan.md](v1.5/implementation-plan.md) |
 | V1.6 | implemented | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
 | V1.7 | implemented | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
-| V1.8 | goal-ready | [v1.8/implementation-plan.md](v1.8/implementation-plan.md) |
+| V1.8 | implemented | [v1.8/implementation-plan.md](v1.8/implementation-plan.md) |
+
+## Scheduled Repair Worker
+
+V1.8 adds an optional background worker for due scheduled repair settings. The
+API web process does not start this worker; run it as a separate process after
+building the API:
+
+```bash
+pnpm --filter @lunaperception/api build
+pnpm worker:continuity-scheduler
+```
+
+The worker is disabled unless `RESEARCH_CONTINUITY_SCHEDULER_ENABLED=true`.
+Runtime configuration:
+
+```text
+RESEARCH_CONTINUITY_SCHEDULER_ENABLED=false
+RESEARCH_CONTINUITY_SCHEDULER_INTERVAL_MS=60000
+RESEARCH_CONTINUITY_SCHEDULER_BATCH_SIZE=1
+RESEARCH_CONTINUITY_SCHEDULER_LEASE_SECONDS=300
+RESEARCH_CONTINUITY_SCHEDULER_ACTOR=system:research-continuity-scheduler
+RESEARCH_CONTINUITY_SCHEDULER_HEALTH_FILE=/tmp/lunacrypto-continuity-scheduler-health
+```
+
+Each worker claims due workspace settings with a Postgres lease, runs the
+existing scheduled repair path as the configured system actor, and records
+attempt, success, error, failure count, and retry metadata on the workspace
+settings row. Operations health and the Research Continuity maintenance panel
+show the current worker state for the active workspace.
+Keep the default batch size at `1` unless the lease duration is sized for the
+worst-case sequential repair time.
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.8: durable scheduled repair worker integration with DB lease, retry
-  backoff, and operations health.
 - V1.9+: workspace debug settings, audit retention policy, richer operations,
   or dedicated report view columns after V1.8 proves background repair safety.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol

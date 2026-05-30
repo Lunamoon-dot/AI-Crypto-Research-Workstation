@@ -243,10 +243,18 @@ model ResearchContinuityWorkspaceSettings {
   nextScheduledRepairDueAt      DateTime? @map("next_scheduled_repair_due_at") @db.Timestamptz(6)
   lastScheduledRepairAt         DateTime? @map("last_scheduled_repair_at") @db.Timestamptz(6)
   lastScheduledRepairRunId      String?   @map("last_scheduled_repair_run_id")
+  schedulerLeaseOwner           String?   @map("scheduler_lease_owner")
+  schedulerLeaseExpiresAt       DateTime? @map("scheduler_lease_expires_at") @db.Timestamptz(6)
+  lastSchedulerAttemptAt        DateTime? @map("last_scheduler_attempt_at") @db.Timestamptz(6)
+  lastSchedulerSuccessAt        DateTime? @map("last_scheduler_success_at") @db.Timestamptz(6)
+  lastSchedulerError            String?   @map("last_scheduler_error")
+  consecutiveSchedulerFailures  Int       @default(0) @map("consecutive_scheduler_failures")
+  nextSchedulerRetryAt          DateTime? @map("next_scheduler_retry_at") @db.Timestamptz(6)
   updatedByUserId               String?   @map("updated_by_user_id")
   updatedAt                     DateTime  @map("updated_at") @db.Timestamptz(6)
 
   @@index([scheduledRepairMode, nextScheduledRepairDueAt], map: "idx_research_continuity_workspace_settings_due")
+  @@index([scheduledRepairMode, nextSchedulerRetryAt, nextScheduledRepairDueAt, schedulerLeaseExpiresAt], map: "idx_research_continuity_workspace_settings_worker_due")
   @@index([updatedAt(sort: Desc)], map: "idx_research_continuity_workspace_settings_updated")
   @@map("research_continuity_workspace_settings")
 }

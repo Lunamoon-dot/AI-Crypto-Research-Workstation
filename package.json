@@ -9,6 +9,7 @@
     "build": "turbo run build",
     "build:api": "pnpm --filter @lunaperception/database db:generate && tsc -p apps/api/tsconfig.app.json",
     "worker:api": "pnpm --filter @lunaperception/api start:worker",
+    "worker:continuity-scheduler": "pnpm --filter @lunaperception/api start:continuity-scheduler",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

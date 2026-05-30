@@ -11,7 +11,7 @@
 ---
 
 Last updated: 2026-05-30
-Status: goal-ready
+Status: implemented
 
 ## One Outcome
 
@@ -28,7 +28,10 @@ continuity scheduler worker starts
   -> reports worker health in operations
 ```
 
-This is a hardening and operationalization version. It is not a new research feature.
+This is a hardening and operationalization version. It is not a new research
+feature, report feature, or diff-view feature. Treat V1.8 as a controlled
+refactor around V1.7 scheduled repair execution plus the minimum operational
+metadata required to run that path safely in a separate process.
 
 ## Why Failures Can Happen
 
@@ -77,13 +80,39 @@ It should not advance `next_scheduled_repair_due_at` on failure.
 
 - V1.8 remains part of Research Continuity.
 - Scope is locked to automated scheduled repair worker hardening.
+- V1.8 is an operational hardening/refactor release. Do not change snapshot
+  extraction, delta/diff semantics, repair candidate semantics, report
+  rendering, or the user-facing research workflow unless a change is required
+  to make the worker safe.
 - The worker is a separate process in the API package.
 - Production does not require Docker. Docker Compose can wire the process for local or self-host smoke, but the runtime requirement is a separate process, not a container.
 - The API web server must not start the scheduler with in-process `setInterval`.
 - The worker uses polling plus Postgres lease/claim.
+- The worker handles claimed workspace rows sequentially inside each batch. Do
+  not use `Promise.all` or configurable concurrency in V1.8.
 - The worker uses a system actor, not a browser user, for scheduled repair audit attribution.
 - The existing manual `POST /research-continuity/scheduler/run-due` remains available.
 - The existing V1.7 settings UI remains the operator control surface.
+- The default worker batch size is `1` because claimed rows are processed
+  sequentially under a fixed lease. Only increase batch size together with a
+  lease duration sized for the worst-case sequential repair time.
+- Manual run-due must not bypass an active worker lease. If a worker lease is still
+  valid, the manual endpoint returns `skipped_reason: 'worker_lease_active'`.
+  Do not add a force-run or force-unlock option in V1.8.
+- For worker runs, `markSchedulerSuccess()` is the only writer that advances
+  `next_scheduled_repair_due_at`, and it must be guarded by
+  `scheduler_lease_owner = worker_id`. The internal repair method may compute
+  the next due time for the worker, but it must not persist that advancement
+  when `source: 'worker'`.
+- `next_scheduled_repair_due_at = null` means due now for active modes
+  (`dry_run` or `enabled`) and never due for `disabled`.
+- A completed idempotent repair replay after a worker crash is scheduler
+  success. `completed` and `completed_with_failures` both advance scheduler
+  due time through `markSchedulerSuccess()`.
+- `completed_with_failures` is repair-domain partial failure, not scheduler
+  automation failure. It must not set `last_scheduler_error` or increment
+  `consecutive_scheduler_failures`; operators can inspect the linked repair run
+  status for candidate-level failures.
 - Failure retry uses exponential backoff with a cap:
   - 1st failure: retry after 5 minutes.
   - 2nd failure: retry after 15 minutes.
@@ -119,6 +148,9 @@ Do not implement:
 - Research run creation from the continuity scheduler.
 - BullMQ queueing for continuity repair unless required by the existing code path. Polling plus DB lease is enough for V1.8.
 - External cron-only HTTP automation as the primary design.
+- Manual force-run, force-unlock, or lease override controls.
+- Continuity diff/report UX improvements. Those belong in a later report-view
+  version, not this worker hardening release.
 - Calibration, PnL, thesis correctness, or performance scoring changes.
 
 ## Current Code Context
@@ -211,6 +243,12 @@ export interface ResearchContinuitySchedulerFailureInput {
   next_scheduler_retry_at: string;
   consecutive_scheduler_failures: number;
 }
+
+export interface ResearchContinuitySchedulerLeaseClearInput {
+  workspace_id: string;
+  worker_id: string;
+  cleared_at: string;
+}
 ```
 
 Add methods:
@@ -226,6 +264,10 @@ markSchedulerSuccess(
 
 markSchedulerFailure(
   input: ResearchContinuitySchedulerFailureInput,
+): Promise<JsonRecord>;
+
+clearSchedulerLease(
+  input: ResearchContinuitySchedulerLeaseClearInput,
 ): Promise<JsonRecord>;
 ```
 
@@ -257,6 +299,18 @@ RETURNING jsonb_build_object(...)
 ```
 
 The repository should keep using parameterized SQL and `jsonb_build_object`, matching the current Postgres repository style.
+
+`markSchedulerSuccess`, `markSchedulerFailure`, and `clearSchedulerLease` must
+all be lease-guarded:
+
+```sql
+WHERE workspace_id = $1
+  AND scheduler_lease_owner = $2
+```
+
+If the row is missing or the lease owner does not match, return or throw a
+controlled conflict. Do not let a stale worker clear another worker's lease or
+advance another worker's due row.
 
 ## Service Boundary
 
@@ -306,6 +360,27 @@ RESEARCH_CONTINUITY_SCHEDULER_ACTOR=system:research-continuity-scheduler
 
 Default to the same string when env is missing.
 
+Manual behavior must stay V1.7-compatible except for the active lease guard:
+
+```text
+admin auth still required
+disabled/not_due/no_case_types behavior is unchanged
+idempotency key shape is unchanged
+manual success still persists next due through the existing scheduler settings path
+manual active worker lease returns skipped_reason = worker_lease_active
+```
+
+Worker behavior differs at one point only:
+
+```text
+source = worker creates or reuses the repair run with the same idempotency key
+source = worker computes the next due time but does not persist it
+worker code calls markSchedulerSuccess(worker_id, next_due) after completed repair history is confirmed
+```
+
+This prevents double-advance bugs while keeping the manual endpoint compatible
+with V1.7.
+
 ## Worker Runtime
 
 Create:
@@ -319,7 +394,7 @@ Runtime config:
 ```text
 RESEARCH_CONTINUITY_SCHEDULER_ENABLED=false
 RESEARCH_CONTINUITY_SCHEDULER_INTERVAL_MS=60000
-RESEARCH_CONTINUITY_SCHEDULER_BATCH_SIZE=5
+RESEARCH_CONTINUITY_SCHEDULER_BATCH_SIZE=1
 RESEARCH_CONTINUITY_SCHEDULER_LEASE_SECONDS=300
 RESEARCH_CONTINUITY_SCHEDULER_ACTOR=system:research-continuity-scheduler
 RESEARCH_CONTINUITY_SCHEDULER_HEALTH_FILE=/tmp/lunacrypto-continuity-scheduler-health
@@ -335,12 +410,14 @@ create stable worker id
 write health file at startup and after each tick
 poll every configured interval
 claim due workspace settings
-for each claimed workspace:
+for each claimed workspace, sequentially:
   call runDueScheduledRepairForWorkspace
-  if success and repair run completed:
-    mark scheduler success and clear failure/backoff
+  if success and repair run is completed or completed_with_failures:
+    mark scheduler success and clear failure/backoff using the matching worker lease
   if skipped not_due/scheduler_disabled/no_case_types:
-    clear lease without changing due unless disabled
+    clear the matching worker lease without changing due unless disabled semantics already apply
+  if skipped worker_lease_active:
+    treat as a controlled no-op and do not clear another worker's lease
   if failure:
     compute backoff and mark scheduler failure
 handle SIGINT/SIGTERM and close pools
@@ -379,7 +456,19 @@ last_scheduler_error = null
 consecutive_scheduler_failures = 0
 next_scheduler_retry_at = null
 scheduler lease is cleared
-next_scheduled_repair_due_at advances through existing scheduled repair logic
+next_scheduled_repair_due_at advances through lease-guarded markSchedulerSuccess for worker runs
+```
+
+Crash replay rule:
+
+```text
+worker creates or finds an idempotent repair run
+process crashes before scheduler success metadata is written
+lease expires
+next worker claims the same due row
+same idempotency key returns the existing repair run
+completed or completed_with_failures repair run is treated as scheduler success
+started or failed repair run is treated as scheduler failure and must not advance due time
 ```
 
 ## Operations Health
@@ -388,8 +477,8 @@ Extend continuity health with:
 
 ```ts
 scheduled_repair_worker_enabled: boolean;
-scheduled_repair_due_workspaces: number;
-scheduled_repair_leased_workspaces: number;
+scheduled_repair_lease_owner: string | null;
+scheduled_repair_lease_expires_at: string | null;
 scheduled_repair_last_attempt_at: string | null;
 scheduled_repair_last_success_at: string | null;
 scheduled_repair_last_error: string | null;
@@ -397,7 +486,11 @@ scheduled_repair_consecutive_failures: number;
 scheduled_repair_next_retry_at: string | null;
 ```
 
-For the current workspace, show the workspace-level fields. If repository support is unavailable, return safe defaults with `scheduled_repair_worker_enabled` based on env.
+For V1.8, Operations health remains current-workspace scoped. Do not add
+cross-workspace due counts in the API health endpoint; the worker claim query is
+the authority for cross-workspace due selection. If repository support is
+unavailable, return safe defaults with `scheduled_repair_worker_enabled` based
+on env.
 
 ## UI Scope
 
@@ -431,7 +524,7 @@ Do not create a new page.
 - Modify: `apps/api/src/contracts/openapi.generated.ts`
 - Test: `apps/api/test/api-contract.test.ts`
 
-- [ ] **Step 1: Add failing schema assertions**
+- [x] **Step 1: Add failing schema assertions**
 
 Add an API contract test asserting the Postgres schema contains:
 
@@ -454,11 +547,11 @@ pnpm --filter @lunaperception/api test
 
 Expected: FAIL because the columns are missing.
 
-- [ ] **Step 2: Add Postgres columns and index**
+- [x] **Step 2: Add Postgres columns and index**
 
 Update `apps/api/src/database/postgres-schema.sql` with the SQL from the Data Model section.
 
-- [ ] **Step 3: Add Prisma metadata**
+- [x] **Step 3: Add Prisma metadata**
 
 Extend `ResearchContinuityWorkspaceSettings` in `packages/database/prisma/schema.prisma` with mapped fields:
 
@@ -474,11 +567,30 @@ nextSchedulerRetryAt          DateTime? @map("next_scheduler_retry_at") @db.Time
 
 Add the matching index metadata.
 
-- [ ] **Step 4: Extend DTO and frontend contract types**
+- [x] **Step 4: Extend DTO and frontend contract types**
 
 Add the fields from Operations Health and workspace settings responses where needed. Keep existing fields backward-compatible.
 
-- [ ] **Step 5: Verify**
+Also extend `ResearchContinuitySchedulerRunDueResponse['skipped_reason']` with:
+
+```ts
+| 'worker_lease_active'
+```
+
+Expose lease metadata in workspace settings responses only where the UI and
+service need it:
+
+```ts
+scheduler_lease_owner: string | null;
+scheduler_lease_expires_at: string | null;
+last_scheduler_attempt_at: string | null;
+last_scheduler_success_at: string | null;
+last_scheduler_error: string | null;
+consecutive_scheduler_failures: number;
+next_scheduler_retry_at: string | null;
+```
+
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -496,7 +608,7 @@ Expected: PASS.
 - Modify: `apps/api/src/research-continuity/research-continuity-settings.repository.ts`
 - Test: `apps/api/test/api-contract.test.ts`
 
-- [ ] **Step 1: Add failing repository source test**
+- [x] **Step 1: Add failing repository source test**
 
 Assert the repository source contains:
 
@@ -506,6 +618,7 @@ FOR UPDATE SKIP LOCKED
 scheduler_lease_owner
 markSchedulerSuccess
 markSchedulerFailure
+clearSchedulerLease
 next_scheduler_retry_at
 ```
 
@@ -517,21 +630,41 @@ pnpm --filter @lunaperception/api test
 
 Expected: FAIL before implementation.
 
-- [ ] **Step 2: Add types**
+- [x] **Step 2: Add types**
 
-Add the repository input interfaces from the Settings Repository Contract section.
+Add the repository input interfaces from the Settings Repository Contract
+section, including `ResearchContinuitySchedulerLeaseClearInput`.
 
-- [ ] **Step 3: Implement claim**
+- [x] **Step 3: Implement claim**
 
 Add `claimDueWorkspaceSettings` using a single atomic `WITH due AS (...) UPDATE ... RETURNING` query. Use `settingsPayloadSql()` so returned rows normalize through the existing `parsePayload`.
 
-- [ ] **Step 4: Implement success and failure markers**
+The claim must treat active rows with `next_scheduled_repair_due_at = null` as
+due now:
 
-`markSchedulerSuccess` clears lease, clears error/backoff, resets failure count, and stores last scheduled run metadata.
+```sql
+AND COALESCE(next_scheduled_repair_due_at, $2::timestamptz) <= $2::timestamptz
+```
 
-`markSchedulerFailure` clears lease, stores attempt failure details, increments or sets failure count, and stores `next_scheduler_retry_at`.
+Do not claim disabled rows.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 4: Implement success and failure markers**
+
+`markSchedulerSuccess` clears lease, clears error/backoff, resets failure count,
+stores last scheduled run metadata, and advances
+`next_scheduled_repair_due_at`. Its update must include both `workspace_id` and
+`worker_id` in the `WHERE` clause.
+
+`markSchedulerFailure` clears lease, stores attempt failure details, increments
+or sets failure count, and stores `next_scheduler_retry_at`. Its update must
+include both `workspace_id` and `worker_id` in the `WHERE` clause.
+
+`clearSchedulerLease` clears only `scheduler_lease_owner` and
+`scheduler_lease_expires_at` for controlled skips. It must not change
+`next_scheduled_repair_due_at`, failure counters, or success timestamps, and it
+must include both `workspace_id` and `worker_id` in the `WHERE` clause.
+
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -548,15 +681,18 @@ Expected: PASS.
 - Modify: `apps/api/src/research-continuity/research-continuity.service.ts`
 - Test: `apps/api/test/api-contract.test.ts`
 
-- [ ] **Step 1: Add failing service behavior tests**
+- [x] **Step 1: Add failing service behavior tests**
 
 Add tests for:
 
 ```text
 manual run-due still requires admin access
+manual run-due returns worker_lease_active while an unexpired worker lease exists
 internal workspace run does not call workspace header auth
 internal workspace run uses system actor in repair audit requested_by_user_id
-completed internal run advances due time
+completed manual internal run advances due time
+completed worker internal run returns a proposed next due but does not persist due advancement
+completed_with_failures worker replay is treated as scheduler success by the worker layer
 failed internal run does not advance due time
 ```
 
@@ -568,7 +704,7 @@ pnpm --filter @lunaperception/api test
 
 Expected: FAIL because the internal method is missing.
 
-- [ ] **Step 2: Add internal method**
+- [x] **Step 2: Add internal method**
 
 Add:
 
@@ -582,11 +718,26 @@ async runDueScheduledRepairForWorkspace(
 
 Move the current due logic into this method.
 
-- [ ] **Step 3: Keep public endpoint behavior**
+Behavior split:
+
+```text
+source manual:
+  reject active unexpired worker lease with skipped_reason worker_lease_active
+  preserve V1.7 due execution and persisted due advancement
+
+source worker:
+  do not reject the worker-owned active lease
+  create or reuse the repair run with the existing idempotency key shape
+  compute next due from now + scheduled_repair_interval_hours
+  return next_scheduled_repair_due_at as the proposed next due
+  do not persist next due or clear the lease
+```
+
+- [x] **Step 3: Keep public endpoint behavior**
 
 Make `runDueScheduledRepair(userId, workspaceHeader)` resolve admin access and call the internal method with `source: 'manual'`.
 
-- [ ] **Step 4: Preserve idempotency**
+- [x] **Step 4: Preserve idempotency**
 
 Keep the existing idempotency key shape:
 
@@ -596,7 +747,11 @@ research-continuity-scheduler:<workspace_id>:<due_basis>
 
 Do not include worker id in the idempotency key.
 
-- [ ] **Step 5: Verify**
+If `source: 'worker'` replays an existing idempotent repair run with status
+`completed` or `completed_with_failures`, return it as a successful repair
+attempt so the worker can call `markSchedulerSuccess`.
+
+- [x] **Step 5: Verify**
 
 Run:
 
@@ -616,7 +771,7 @@ Expected: PASS.
 - Optionally modify: `docker-compose.yml`
 - Test: `apps/api/test/api-contract.test.ts`
 
-- [ ] **Step 1: Add source-shape test**
+- [x] **Step 1: Add source-shape test**
 
 Assert worker source contains:
 
@@ -626,6 +781,7 @@ RESEARCH_CONTINUITY_SCHEDULER_INTERVAL_MS
 claimDueWorkspaceSettings
 markSchedulerSuccess
 markSchedulerFailure
+clearSchedulerLease
 runDueScheduledRepairForWorkspace
 SIGTERM
 ```
@@ -638,7 +794,7 @@ pnpm --filter @lunaperception/api test
 
 Expected: FAIL because the worker file is missing.
 
-- [ ] **Step 2: Create worker entry point**
+- [x] **Step 2: Create worker entry point**
 
 Follow the lightweight construction style from `apps/api/src/jobs/research-worker.ts`. Instantiate:
 
@@ -651,21 +807,30 @@ WorkspacesService
 ResearchContinuityService
 ```
 
-- [ ] **Step 3: Implement tick loop**
+- [x] **Step 3: Implement tick loop**
 
 One tick should:
 
 ```text
 claim due workspace rows
 run each claimed workspace sequentially
-mark success or failure
+mark success, failure, or controlled lease clear
 write health file
 avoid overlapping ticks
 ```
 
 Use sequential execution in V1.8. Do not add concurrency until a real workload requires it.
 
-- [ ] **Step 4: Add package scripts**
+Worker success rule:
+
+```text
+repair run status completed or completed_with_failures
+  -> markSchedulerSuccess with the same worker_id that claimed the row
+repair run status started or failed
+  -> markSchedulerFailure and keep next_scheduled_repair_due_at unchanged
+```
+
+- [x] **Step 4: Add package scripts**
 
 In `apps/api/package.json`:
 
@@ -679,11 +844,11 @@ In root `package.json`:
 "worker:continuity-scheduler": "pnpm --filter @lunaperception/api start:continuity-scheduler"
 ```
 
-- [ ] **Step 5: Optionally add Docker Compose service**
+- [x] **Step 5: Optionally add Docker Compose service**
 
 Add a `continuity-scheduler` service only as a local/self-host convenience. Keep the plan explicit that production can run this as any separate process.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run:
 
@@ -706,15 +871,17 @@ Expected: PASS.
 - Modify: `apps/web/src/pages/ResearchContinuityPage.tsx`
 - Test: `apps/api/test/api-contract.test.ts`
 
-- [ ] **Step 1: Add failing operations health test**
+- [x] **Step 1: Add failing operations health test**
 
 Assert `/operations/health` continuity response includes worker fields and safe defaults when repository support is unavailable.
 
-- [ ] **Step 2: Add service mapping**
+- [x] **Step 2: Add service mapping**
 
 Read the current workspace settings row and map:
 
 ```text
+scheduler_lease_owner
+scheduler_lease_expires_at
 last_scheduler_attempt_at
 last_scheduler_success_at
 last_scheduler_error
@@ -722,13 +889,29 @@ consecutive_scheduler_failures
 next_scheduler_retry_at
 ```
 
-Add aggregate counts only if the repository can provide them cheaply. For V1.8, current-workspace worker health is required; cross-workspace due count is optional unless the repository claim query already exposes it.
+Map `scheduled_repair_worker_enabled` from
+`RESEARCH_CONTINUITY_SCHEDULER_ENABLED`. Safe defaults when settings are
+unavailable:
 
-- [ ] **Step 3: Update web panels**
+```text
+scheduled_repair_lease_owner = null
+scheduled_repair_lease_expires_at = null
+scheduled_repair_last_attempt_at = null
+scheduled_repair_last_success_at = null
+scheduled_repair_last_error = null
+scheduled_repair_consecutive_failures = 0
+scheduled_repair_next_retry_at = null
+```
+
+Do not add cross-workspace aggregate counts in V1.8. Current-workspace worker
+health is required; cross-workspace scheduler state belongs in a later
+operations dashboard if needed.
+
+- [x] **Step 3: Update web panels**
 
 Add compact fields to the Research Continuity scheduler controls and Operations Continuity Health panel.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -750,7 +933,7 @@ Expected: PASS.
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: Add runtime config docs**
+- [x] **Step 1: Add runtime config docs**
 
 Document:
 
@@ -763,7 +946,7 @@ RESEARCH_CONTINUITY_SCHEDULER_ACTOR
 RESEARCH_CONTINUITY_SCHEDULER_HEALTH_FILE
 ```
 
-- [ ] **Step 2: Run full validation**
+- [x] **Step 2: Run full validation**
 
 Run:
 
@@ -804,9 +987,42 @@ manual run-due still works
 /research-continuity shows worker state
 ```
 
-- [ ] **Step 4: Update docs to implemented**
+- [x] **Step 4: Update docs to implemented**
 
 After implementation and verification, change V1.8 status from `goal-ready` to `implemented`, add completion notes with exact commands, and update feature registry.
+
+## Completion Notes
+
+Implemented on 2026-05-30.
+
+Validation passed:
+
+```bash
+pnpm --filter @lunaperception/api test
+pnpm --filter @lunaperception/api lint
+pnpm --filter @lunaperception/web lint
+pnpm --filter @lunaperception/web typecheck
+pnpm --filter @lunaperception/web build
+```
+
+`pnpm --filter @lunaperception/api test` passed 142 tests. The web build passed
+with the existing large chunk warning.
+
+Worker disabled-start smoke passed:
+
+```bash
+RESEARCH_CONTINUITY_SCHEDULER_ENABLED=false
+RESEARCH_CONTINUITY_SCHEDULER_HEALTH_FILE=<temp health file>
+pnpm --filter @lunaperception/api start:continuity-scheduler
+```
+
+The worker exited with `Research continuity scheduler worker is disabled.` and
+wrote a health file with `status: "disabled"`.
+
+The local Postgres due dry-run smoke could not run in this session because
+`docker compose up -d postgres` could not connect to the Docker Desktop Linux
+engine (`dockerDesktopLinuxEngine` pipe missing). Run the manual smoke checklist
+again when a local Postgres instance is available.
 
 ## Definition Of Done
 
@@ -835,4 +1051,3 @@ V2.x  Timeline, graph/node model, provenance explorer, and multi-symbol views.
 ```
 
 Do not start V2 continuity surfaces until V1.8 proves the automated repair path can run without duplicate mutation, silent failure, or operator confusion.
-

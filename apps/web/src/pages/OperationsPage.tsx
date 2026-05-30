@@ -134,6 +134,42 @@ export function OperationsPage() {
               label="Last scheduled run"
               value={continuity?.last_scheduled_repair_run_id ?? 'none'}
             />
+            <DataPair
+              label="Worker enabled"
+              value={
+                <span className={continuity?.scheduled_repair_worker_enabled ? 'badge constructive' : 'badge'}>
+                  {continuity?.scheduled_repair_worker_enabled ? 'enabled' : 'disabled'}
+                </span>
+              }
+            />
+            <DataPair
+              label="Lease owner"
+              value={continuity?.scheduled_repair_lease_owner ?? 'none'}
+            />
+            <DataPair
+              label="Lease expires"
+              value={formatDateTime(continuity?.scheduled_repair_lease_expires_at)}
+            />
+            <DataPair
+              label="Last attempt"
+              value={formatDateTime(continuity?.scheduled_repair_last_attempt_at)}
+            />
+            <DataPair
+              label="Last success"
+              value={formatDateTime(continuity?.scheduled_repair_last_success_at)}
+            />
+            <DataPair
+              label="Next retry"
+              value={formatDateTime(continuity?.scheduled_repair_next_retry_at)}
+            />
+            <DataPair
+              label="Failures"
+              value={continuity?.scheduled_repair_consecutive_failures ?? 0}
+            />
+            <DataPair
+              label="Last error"
+              value={continuity?.scheduled_repair_last_error ?? 'none'}
+            />
             <DataPair label="Missing recent" value={continuity?.missing_entries_recent ?? 0} />
             <DataPair label="Degraded recent" value={continuity?.degraded_entries_recent ?? 0} />
             <DataPair label="Stale symbols" value={continuity?.stale_symbols ?? 0} />

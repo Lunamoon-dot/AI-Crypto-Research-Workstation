@@ -158,12 +158,7 @@ export class OperationsService {
         repair_failures_24h: numberValue(health.repair_failures_24h, 0),
         debug_access_24h: numberValue(health.debug_access_24h, 0),
         debug_denied_24h: numberValue(health.debug_denied_24h, 0),
-        scheduled_repair_mode: scheduler.scheduled_repair_mode,
-        scheduled_repair_due: scheduler.scheduled_repair_due,
-        next_scheduled_repair_due_at:
-          scheduler.next_scheduled_repair_due_at,
-        last_scheduled_repair_run_id:
-          scheduler.last_scheduled_repair_run_id,
+        ...scheduler,
       };
     } catch (error) {
       if (!isRepositoryUnavailable(error)) {
@@ -184,6 +179,14 @@ export class OperationsService {
     | 'scheduled_repair_due'
     | 'next_scheduled_repair_due_at'
     | 'last_scheduled_repair_run_id'
+    | 'scheduled_repair_worker_enabled'
+    | 'scheduled_repair_lease_owner'
+    | 'scheduled_repair_lease_expires_at'
+    | 'scheduled_repair_last_attempt_at'
+    | 'scheduled_repair_last_success_at'
+    | 'scheduled_repair_last_error'
+    | 'scheduled_repair_consecutive_failures'
+    | 'scheduled_repair_next_retry_at'
   >> {
     try {
       const settings =
@@ -199,6 +202,27 @@ export class OperationsService {
         next_scheduled_repair_due_at: nextDue,
         last_scheduled_repair_run_id: nullableString(
           settings.last_scheduled_repair_run_id,
+        ),
+        scheduled_repair_worker_enabled: isContinuitySchedulerWorkerEnabled(),
+        scheduled_repair_lease_owner: nullableString(
+          settings.scheduler_lease_owner,
+        ),
+        scheduled_repair_lease_expires_at: nullableString(
+          settings.scheduler_lease_expires_at,
+        ),
+        scheduled_repair_last_attempt_at: nullableString(
+          settings.last_scheduler_attempt_at,
+        ),
+        scheduled_repair_last_success_at: nullableString(
+          settings.last_scheduler_success_at,
+        ),
+        scheduled_repair_last_error: nullableString(settings.last_scheduler_error),
+        scheduled_repair_consecutive_failures: numberValue(
+          settings.consecutive_scheduler_failures,
+          0,
+        ),
+        scheduled_repair_next_retry_at: nullableString(
+          settings.next_scheduler_retry_at,
         ),
       };
     } catch (error) {
@@ -327,13 +351,33 @@ function defaultContinuitySchedulerHealth(): Pick<
   | 'scheduled_repair_due'
   | 'next_scheduled_repair_due_at'
   | 'last_scheduled_repair_run_id'
+  | 'scheduled_repair_worker_enabled'
+  | 'scheduled_repair_lease_owner'
+  | 'scheduled_repair_lease_expires_at'
+  | 'scheduled_repair_last_attempt_at'
+  | 'scheduled_repair_last_success_at'
+  | 'scheduled_repair_last_error'
+  | 'scheduled_repair_consecutive_failures'
+  | 'scheduled_repair_next_retry_at'
 > {
   return {
     scheduled_repair_mode: 'disabled',
     scheduled_repair_due: false,
     next_scheduled_repair_due_at: null,
     last_scheduled_repair_run_id: null,
+    scheduled_repair_worker_enabled: isContinuitySchedulerWorkerEnabled(),
+    scheduled_repair_lease_owner: null,
+    scheduled_repair_lease_expires_at: null,
+    scheduled_repair_last_attempt_at: null,
+    scheduled_repair_last_success_at: null,
+    scheduled_repair_last_error: null,
+    scheduled_repair_consecutive_failures: 0,
+    scheduled_repair_next_retry_at: null,
   };
+}
+
+function isContinuitySchedulerWorkerEnabled(): boolean {
+  return process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED === 'true';
 }
 
 function scheduledRepairModeValue(

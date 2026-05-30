@@ -98,6 +98,11 @@ interface RepairCandidate extends ResearchContinuityRepairCandidateResponse {
   sourceEntryId: string | null;
 }
 
+interface ScheduledRepairRunOptions {
+  now?: Date;
+  source?: 'manual' | 'worker';
+}
+
 const DEFAULT_SCHEDULED_REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
   'missing_continuity',
   'legacy_evidence',
@@ -428,6 +433,19 @@ export class ResearchContinuityService {
       workspaceHeader,
       'admin',
     );
+    const actor = this.auth.resolveUser(userId);
+    return this.runDueScheduledRepairForWorkspace(workspaceId, actor, {
+      source: 'manual',
+    });
+  }
+
+  async runDueScheduledRepairForWorkspace(
+    workspaceId: string,
+    actorUserId: string,
+    options: ScheduledRepairRunOptions = {},
+  ): Promise<ResearchContinuitySchedulerRunDueResponse> {
+    const source = options.source ?? 'manual';
+    const now = options.now ?? new Date();
     let settingsRow: JsonRecord | null;
     try {
       settingsRow = await this.settings.getWorkspaceSettings(workspaceId);
@@ -439,6 +457,7 @@ export class ResearchContinuityService {
         workspaceId,
         defaultWorkspaceSettings(workspaceId),
         'settings_unavailable',
+        now,
       );
     }
     const settings = toWorkspaceSettingsResponse(settingsRow, workspaceId);
@@ -447,19 +466,27 @@ export class ResearchContinuityService {
         workspaceId,
         settings,
         'scheduler_disabled',
+        now,
       );
     }
-    const now = new Date();
+    if (source === 'manual' && hasActiveSchedulerLease(settings, now)) {
+      return schedulerSkippedResponse(
+        workspaceId,
+        settings,
+        'worker_lease_active',
+        now,
+      );
+    }
     if (!isSchedulerDue(settings, now)) {
-      return schedulerSkippedResponse(workspaceId, settings, 'not_due');
+      return schedulerSkippedResponse(workspaceId, settings, 'not_due', now);
     }
     const caseTypes = runnableScheduledRepairCaseTypes(settings);
     if (caseTypes.length === 0) {
-      return schedulerSkippedResponse(workspaceId, settings, 'no_case_types');
+      return schedulerSkippedResponse(workspaceId, settings, 'no_case_types', now);
     }
     const nowIso = now.toISOString();
     const dueBasis = settings.next_scheduled_repair_due_at ?? nowIso;
-    const repairRun = await this.runRepair(
+    const repairRun = await this.runRepairForWorkspace(
       {
         from: addHours(now, -settings.scheduled_repair_lookback_days * 24).toISOString(),
         to: nowIso,
@@ -468,21 +495,34 @@ export class ResearchContinuityService {
         dry_run: settings.scheduled_repair_mode === 'dry_run',
         idempotency_key: `research-continuity-scheduler:${workspaceId}:${dueBasis}`,
       },
-      userId,
       workspaceId,
+      actorUserId,
+      nowIso,
     );
     await this.ensureScheduledRepairRunCompleted(
       repairRun.audit_run_id,
       workspaceId,
     );
+    const nextDue = addHours(
+      now,
+      settings.scheduled_repair_interval_hours,
+    ).toISOString();
+    if (source === 'worker') {
+      return {
+        workspace_id: workspaceId,
+        due: true,
+        skipped_reason: null,
+        dry_run: repairRun.dry_run,
+        audit_run_id: repairRun.audit_run_id,
+        repair_run: repairRun,
+        next_scheduled_repair_due_at: nextDue,
+      };
+    }
     const marked = await this.settings.markScheduledRepairRun({
       workspace_id: workspaceId,
       last_scheduled_repair_at: nowIso,
       last_scheduled_repair_run_id: repairRun.audit_run_id,
-      next_scheduled_repair_due_at: addHours(
-        now,
-        settings.scheduled_repair_interval_hours,
-      ).toISOString(),
+      next_scheduled_repair_due_at: nextDue,
     });
     const savedSettings = toWorkspaceSettingsResponse(marked, workspaceId);
     return {
@@ -530,12 +570,21 @@ export class ResearchContinuityService {
       'admin',
     );
     const requestedByUserId = this.auth.resolveUser(userId);
+    return this.runRepairForWorkspace(dto, workspaceId, requestedByUserId);
+  }
+
+  private async runRepairForWorkspace(
+    dto: RunResearchContinuityRepairDto,
+    workspaceId: string,
+    requestedByUserId: string,
+    requestedAt = new Date().toISOString(),
+  ): Promise<ResearchContinuityRepairRunResponse> {
     const normalized = normalizeRepairFilters(dto, true);
     const dryRun = dto.dry_run !== false;
     const auditRun = await this.audit.createRepairRun({
       workspace_id: workspaceId,
       requested_by_user_id: requestedByUserId,
-      requested_at: new Date().toISOString(),
+      requested_at: requestedAt,
       dry_run: dryRun,
       idempotency_key: trimOptional(dto.idempotency_key),
       filters: repairFiltersJson(normalized),
@@ -555,7 +604,13 @@ export class ResearchContinuityService {
           results.push(toDryRunResult(candidate));
           continue;
         }
-        results.push(await this.executeRepairCandidate(candidate, workspaceId, userId));
+        results.push(
+          await this.executeRepairCandidate(
+            candidate,
+            workspaceId,
+            requestedByUserId,
+          ),
+        );
       }
       const counts = summarizeRepairResults(results);
       const finalized = await this.audit.finalizeRepairRun(
@@ -655,6 +710,7 @@ export class ResearchContinuityService {
       due: isSchedulerDue(settings, new Date()),
       disabled: settings.scheduled_repair_mode === 'disabled',
       dry_run: settings.scheduled_repair_mode === 'dry_run',
+      worker_enabled: isSchedulerWorkerEnabled(),
       next_scheduled_repair_due_at: settings.next_scheduled_repair_due_at,
       last_scheduled_repair_at: settings.last_scheduled_repair_at,
       last_scheduled_repair_run_id: settings.last_scheduled_repair_run_id,
@@ -1611,6 +1667,13 @@ function defaultWorkspaceSettings(
     next_scheduled_repair_due_at: null,
     last_scheduled_repair_at: null,
     last_scheduled_repair_run_id: null,
+    scheduler_lease_owner: null,
+    scheduler_lease_expires_at: null,
+    last_scheduler_attempt_at: null,
+    last_scheduler_success_at: null,
+    last_scheduler_error: null,
+    consecutive_scheduler_failures: 0,
+    next_scheduler_retry_at: null,
     updated_by_user_id: null,
     updated_at: null,
   };
@@ -1651,6 +1714,16 @@ function toWorkspaceSettingsResponse(
     last_scheduled_repair_run_id: nullableString(
       row.last_scheduled_repair_run_id,
     ),
+    scheduler_lease_owner: nullableString(row.scheduler_lease_owner),
+    scheduler_lease_expires_at: nullableString(row.scheduler_lease_expires_at),
+    last_scheduler_attempt_at: nullableString(row.last_scheduler_attempt_at),
+    last_scheduler_success_at: nullableString(row.last_scheduler_success_at),
+    last_scheduler_error: nullableString(row.last_scheduler_error),
+    consecutive_scheduler_failures: numberValue(
+      row.consecutive_scheduler_failures,
+      fallback.consecutive_scheduler_failures,
+    ),
+    next_scheduler_retry_at: nullableString(row.next_scheduler_retry_at),
     updated_by_user_id: nullableString(row.updated_by_user_id),
     updated_at: nullableString(row.updated_at),
   };
@@ -1748,19 +1821,33 @@ function isSchedulerDue(
   return Number.isFinite(parsed) && parsed <= now.getTime();
 }
 
+function hasActiveSchedulerLease(
+  settings: ResearchContinuityWorkspaceSettingsResponse,
+  now: Date,
+): boolean {
+  if (!settings.scheduler_lease_owner || !settings.scheduler_lease_expires_at) {
+    return false;
+  }
+  const parsed = Date.parse(settings.scheduler_lease_expires_at);
+  return Number.isFinite(parsed) && parsed > now.getTime();
+}
+
 function schedulerSkippedResponse(
   workspaceId: string,
   settings: ResearchContinuityWorkspaceSettingsResponse,
   skippedReason: NonNullable<
     ResearchContinuitySchedulerRunDueResponse['skipped_reason']
   >,
+  now = new Date(),
 ): ResearchContinuitySchedulerRunDueResponse {
   return {
     workspace_id: workspaceId,
     due:
-      skippedReason === 'no_case_types'
+      skippedReason === 'worker_lease_active'
+        ? false
+        : skippedReason === 'no_case_types'
         ? true
-        : isSchedulerDue(settings, new Date()),
+        : isSchedulerDue(settings, now),
     skipped_reason: skippedReason,
     dry_run: settings.scheduled_repair_mode === 'dry_run',
     audit_run_id: null,
@@ -1919,6 +2006,7 @@ function toRepairRunResponse(
   return {
     audit_run_id: detail.id,
     dry_run: detail.dry_run,
+    status: detail.status,
     requested_count: detail.requested_count,
     repaired_count: detail.repaired_count,
     skipped_count: detail.skipped_count,
@@ -2703,6 +2791,10 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
     }
   }
   return fallback;
+}
+
+function isSchedulerWorkerEnabled(): boolean {
+  return process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED === 'true';
 }
 
 function stringValue(value: unknown, fallback = ''): string {

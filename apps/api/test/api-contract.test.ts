@@ -70,6 +70,10 @@ import type {
 } from '../src/research-continuity/research-continuity-audit.types';
 import type {
   ResearchContinuityMarkScheduledRepairRunInput,
+  ResearchContinuitySchedulerClaimOptions,
+  ResearchContinuitySchedulerFailureInput,
+  ResearchContinuitySchedulerLeaseClearInput,
+  ResearchContinuitySchedulerSuccessInput,
   ResearchContinuityWorkspaceSettingsUpsertInput,
 } from '../src/research-continuity/research-continuity-settings.types';
 import {
@@ -1494,6 +1498,113 @@ class FakeResearchContinuitySettingsRepository {
     } as JsonRecord;
     this.settings.set(workspaceId, saved);
     return saved;
+  }
+
+  async claimDueWorkspaceSettings(
+    options: ResearchContinuitySchedulerClaimOptions,
+  ): Promise<JsonRecord[]> {
+    const nowMs = Date.parse(options.now);
+    const claimed = [...this.settings.values()]
+      .filter((setting) =>
+        setting.scheduled_repair_mode === 'dry_run' ||
+        setting.scheduled_repair_mode === 'enabled',
+      )
+      .filter((setting) => dueAtOrNowMs(setting.next_scheduled_repair_due_at, nowMs) <= nowMs)
+      .filter((setting) => dueAtOrNowMs(setting.next_scheduler_retry_at, nowMs) <= nowMs)
+      .filter((setting) => {
+        const leaseExpiresAt = nullableString(setting.scheduler_lease_expires_at);
+        return !leaseExpiresAt || Date.parse(leaseExpiresAt) <= nowMs;
+      })
+      .sort((left, right) => {
+        const leftDue = nullableString(left.next_scheduled_repair_due_at);
+        const rightDue = nullableString(right.next_scheduled_repair_due_at);
+        if (!leftDue && rightDue) return -1;
+        if (leftDue && !rightDue) return 1;
+        const dueDelta = dueAtOrNowMs(leftDue, nowMs) - dueAtOrNowMs(rightDue, nowMs);
+        if (dueDelta !== 0) return dueDelta;
+        return (
+          dueAtOrNowMs(left.updated_at, nowMs) -
+          dueAtOrNowMs(right.updated_at, nowMs)
+        );
+      })
+      .slice(0, options.limit);
+
+    return claimed.map((setting) => {
+      const workspaceId = String(setting.workspace_id);
+      const saved = {
+        ...setting,
+        scheduler_lease_owner: options.worker_id,
+        scheduler_lease_expires_at: new Date(
+          nowMs + options.lease_seconds * 1000,
+        ).toISOString(),
+        last_scheduler_attempt_at: options.now,
+        updated_at: options.now,
+      } as JsonRecord;
+      this.settings.set(workspaceId, saved);
+      return saved;
+    });
+  }
+
+  async markSchedulerSuccess(
+    input: ResearchContinuitySchedulerSuccessInput,
+  ): Promise<JsonRecord> {
+    const existing = this.leaseOwnedSetting(input.workspace_id, input.worker_id);
+    const saved = {
+      ...existing,
+      scheduler_lease_owner: null,
+      scheduler_lease_expires_at: null,
+      last_scheduler_success_at: input.completed_at,
+      last_scheduler_error: null,
+      consecutive_scheduler_failures: 0,
+      next_scheduler_retry_at: null,
+      last_scheduled_repair_at: input.completed_at,
+      last_scheduled_repair_run_id: input.last_scheduled_repair_run_id,
+      next_scheduled_repair_due_at: input.next_scheduled_repair_due_at,
+      updated_at: input.completed_at,
+    } as JsonRecord;
+    this.settings.set(input.workspace_id, saved);
+    return saved;
+  }
+
+  async markSchedulerFailure(
+    input: ResearchContinuitySchedulerFailureInput,
+  ): Promise<JsonRecord> {
+    const existing = this.leaseOwnedSetting(input.workspace_id, input.worker_id);
+    const saved = {
+      ...existing,
+      scheduler_lease_owner: null,
+      scheduler_lease_expires_at: null,
+      last_scheduler_attempt_at: input.failed_at,
+      last_scheduler_error: input.error_message,
+      consecutive_scheduler_failures: input.consecutive_scheduler_failures,
+      next_scheduler_retry_at: input.next_scheduler_retry_at,
+      updated_at: input.failed_at,
+    } as JsonRecord;
+    this.settings.set(input.workspace_id, saved);
+    return saved;
+  }
+
+  async clearSchedulerLease(
+    input: ResearchContinuitySchedulerLeaseClearInput,
+  ): Promise<JsonRecord> {
+    const existing = this.leaseOwnedSetting(input.workspace_id, input.worker_id);
+    const saved = {
+      ...existing,
+      scheduler_lease_owner: null,
+      scheduler_lease_expires_at: null,
+    } as JsonRecord;
+    this.settings.set(input.workspace_id, saved);
+    return saved;
+  }
+
+  private leaseOwnedSetting(workspaceId: string, workerId: string): JsonRecord {
+    const existing = this.settings.get(workspaceId);
+    if (!existing || existing.scheduler_lease_owner !== workerId) {
+      throw new ConflictException(
+        'Research continuity scheduler lease is no longer owned by this worker.',
+      );
+    }
+    return existing;
   }
 }
 
@@ -4959,52 +5070,115 @@ test('operations health exposes continuity repair state', async () => {
     next_scheduled_repair_due_at: '2026-05-12T00:00:00.000Z',
     last_scheduled_repair_at: null,
     last_scheduled_repair_run_id: 'repair_run_ops',
+    scheduler_lease_owner: 'worker-ops',
+    scheduler_lease_expires_at: '2026-05-12T00:10:00.000Z',
+    last_scheduler_attempt_at: '2026-05-12T00:01:00.000Z',
+    last_scheduler_success_at: '2026-05-12T00:02:00.000Z',
+    last_scheduler_error: 'previous worker error',
+    consecutive_scheduler_failures: 2,
+    next_scheduler_retry_at: '2026-05-12T00:15:00.000Z',
     updated_by_user_id: 'user_1',
     updated_at: '2026-05-12T00:00:00.000Z',
   });
 
-  const health = await operations.health(20, 'user_1', 'workspace_a');
+  const previousSchedulerEnabled =
+    process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED;
+  process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED = 'true';
+  try {
+    const health = await operations.health(20, 'user_1', 'workspace_a');
 
-  assert.equal(health.continuity.workspace_id, 'workspace_a');
-  assert.equal(health.continuity.lookback_days, 30);
-  assert.equal(health.continuity.audit_available, true);
-  assert.equal(health.continuity.missing_entries_recent, 3);
-  assert.equal(health.continuity.last_repair_status, 'completed_with_failures');
-  assert.equal(health.continuity.debug_denied_24h, 2);
-  assert.equal(health.continuity.scheduled_repair_mode, 'dry_run');
-  assert.equal(health.continuity.scheduled_repair_due, true);
-  assert.equal(
-    health.continuity.next_scheduled_repair_due_at,
-    '2026-05-12T00:00:00.000Z',
-  );
-  assert.equal(health.continuity.last_scheduled_repair_run_id, 'repair_run_ops');
-  assert.deepEqual(audit.lastHealthRequest, {
-    workspaceId: 'workspace_a',
-    lookbackDays: 30,
-  });
+    assert.equal(health.continuity.workspace_id, 'workspace_a');
+    assert.equal(health.continuity.lookback_days, 30);
+    assert.equal(health.continuity.audit_available, true);
+    assert.equal(health.continuity.missing_entries_recent, 3);
+    assert.equal(health.continuity.last_repair_status, 'completed_with_failures');
+    assert.equal(health.continuity.debug_denied_24h, 2);
+    assert.equal(health.continuity.scheduled_repair_mode, 'dry_run');
+    assert.equal(health.continuity.scheduled_repair_due, true);
+    assert.equal(
+      health.continuity.next_scheduled_repair_due_at,
+      '2026-05-12T00:00:00.000Z',
+    );
+    assert.equal(
+      health.continuity.last_scheduled_repair_run_id,
+      'repair_run_ops',
+    );
+    assert.equal(health.continuity.scheduled_repair_worker_enabled, true);
+    assert.equal(health.continuity.scheduled_repair_lease_owner, 'worker-ops');
+    assert.equal(
+      health.continuity.scheduled_repair_lease_expires_at,
+      '2026-05-12T00:10:00.000Z',
+    );
+    assert.equal(
+      health.continuity.scheduled_repair_last_attempt_at,
+      '2026-05-12T00:01:00.000Z',
+    );
+    assert.equal(
+      health.continuity.scheduled_repair_last_success_at,
+      '2026-05-12T00:02:00.000Z',
+    );
+    assert.equal(
+      health.continuity.scheduled_repair_last_error,
+      'previous worker error',
+    );
+    assert.equal(health.continuity.scheduled_repair_consecutive_failures, 2);
+    assert.equal(
+      health.continuity.scheduled_repair_next_retry_at,
+      '2026-05-12T00:15:00.000Z',
+    );
+    assert.deepEqual(audit.lastHealthRequest, {
+      workspaceId: 'workspace_a',
+      lookbackDays: 30,
+    });
 
-  audit.failHealth = true;
-  const degraded = await operations.health(20, 'user_1', 'workspace_a');
-  assert.equal(degraded.continuity.audit_available, false);
-  assert.equal(degraded.continuity.debug_access_24h, 0);
-  assert.equal(degraded.continuity.last_repair_run_at, null);
-  assert.equal(degraded.continuity.scheduled_repair_mode, 'dry_run');
-  assert.equal(degraded.continuity.scheduled_repair_due, true);
+    audit.failHealth = true;
+    const degraded = await operations.health(20, 'user_1', 'workspace_a');
+    assert.equal(degraded.continuity.audit_available, false);
+    assert.equal(degraded.continuity.debug_access_24h, 0);
+    assert.equal(degraded.continuity.last_repair_run_at, null);
+    assert.equal(degraded.continuity.scheduled_repair_mode, 'dry_run');
+    assert.equal(degraded.continuity.scheduled_repair_due, true);
+    assert.equal(degraded.continuity.scheduled_repair_worker_enabled, true);
+    assert.equal(degraded.continuity.scheduled_repair_last_error, 'previous worker error');
 
-  audit.failHealth = false;
-  settings.failRead = true;
-  const settingsUnavailable = await operations.health(20, 'user_1', 'workspace_a');
-  assert.equal(settingsUnavailable.continuity.scheduled_repair_mode, 'disabled');
-  assert.equal(settingsUnavailable.continuity.scheduled_repair_due, false);
-  settings.failRead = false;
+    audit.failHealth = false;
+    settings.failRead = true;
+    const settingsUnavailable = await operations.health(
+      20,
+      'user_1',
+      'workspace_a',
+    );
+    assert.equal(settingsUnavailable.continuity.scheduled_repair_mode, 'disabled');
+    assert.equal(settingsUnavailable.continuity.scheduled_repair_due, false);
+    assert.equal(
+      settingsUnavailable.continuity.scheduled_repair_worker_enabled,
+      true,
+    );
+    assert.equal(
+      settingsUnavailable.continuity.scheduled_repair_lease_owner,
+      null,
+    );
+    assert.equal(
+      settingsUnavailable.continuity.scheduled_repair_consecutive_failures,
+      0,
+    );
+    settings.failRead = false;
 
-  audit.healthError = Object.assign(
-    new Error('relation "research_continuity_repair_runs" does not exist'),
-    { code: '42P01' },
-  );
-  const missingTable = await operations.health(20, 'user_1', 'workspace_a');
-  assert.equal(missingTable.continuity.audit_available, false);
-  assert.equal(missingTable.continuity.repair_failures_24h, 0);
+    audit.healthError = Object.assign(
+      new Error('relation "research_continuity_repair_runs" does not exist'),
+      { code: '42P01' },
+    );
+    const missingTable = await operations.health(20, 'user_1', 'workspace_a');
+    assert.equal(missingTable.continuity.audit_available, false);
+    assert.equal(missingTable.continuity.repair_failures_24h, 0);
+  } finally {
+    if (previousSchedulerEnabled === undefined) {
+      delete process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED;
+    } else {
+      process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED =
+        previousSchedulerEnabled;
+    }
+  }
 });
 
 test('postgres research continuity audit schema declares debug and repair history tables', () => {
@@ -5035,7 +5209,15 @@ test('postgres research continuity workspace settings schema declares scheduler 
     'CREATE TABLE IF NOT EXISTS research_continuity_workspace_settings',
     "scheduled_repair_mode TEXT NOT NULL DEFAULT 'disabled'",
     'scheduled_repair_case_types_json JSONB NOT NULL',
+    'scheduler_lease_owner',
+    'scheduler_lease_expires_at',
+    'last_scheduler_attempt_at',
+    'last_scheduler_success_at',
+    'last_scheduler_error',
+    'consecutive_scheduler_failures',
+    'next_scheduler_retry_at',
     'idx_research_continuity_workspace_settings_due',
+    'idx_research_continuity_workspace_settings_worker_due',
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
   }
@@ -5079,9 +5261,45 @@ test('research continuity settings repository upserts workspace settings and due
     'ON CONFLICT (workspace_id)',
     'next_scheduled_repair_due_at',
     'last_scheduled_repair_run_id',
+    'claimDueWorkspaceSettings',
+    'FOR UPDATE SKIP LOCKED',
+    'scheduler_lease_owner',
+    'markSchedulerSuccess',
+    'markSchedulerFailure',
+    'clearSchedulerLease',
+    'next_scheduler_retry_at',
   ]) {
     assert.ok(source.includes(fragment), `missing settings repository fragment: ${fragment}`);
   }
+});
+
+test('research continuity scheduler worker declares runtime config and lease operations', () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      'src',
+      'research-continuity',
+      'research-continuity-scheduler.worker.ts',
+    ),
+    'utf8',
+  );
+  for (const fragment of [
+    'RESEARCH_CONTINUITY_SCHEDULER_ENABLED',
+    'RESEARCH_CONTINUITY_SCHEDULER_INTERVAL_MS',
+    'claimDueWorkspaceSettings',
+    'markSchedulerSuccess',
+    'markSchedulerFailure',
+    'clearSchedulerLease',
+    'runDueScheduledRepairForWorkspace',
+    'SIGTERM',
+  ]) {
+    assert.ok(source.includes(fragment), `missing scheduler worker fragment: ${fragment}`);
+  }
+  assert.match(
+    source,
+    /process\.env\.RESEARCH_CONTINUITY_SCHEDULER_BATCH_SIZE,\s*1,/,
+    'continuity scheduler default batch size should stay single-workspace',
+  );
 });
 
 test('postgres calibration rerun schema declares append-only audit table', () => {
@@ -8125,6 +8343,211 @@ test('research continuity V1.7 scheduler reports disabled state and skips disabl
   assert.equal(audit.repairRuns.size, 0);
 });
 
+test('research continuity scheduler run-due requires admin and respects active worker leases', async () => {
+  const { audit, researchContinuityController, settings } = buildHarness();
+  const schedulerApi = researchContinuityController as unknown as {
+    runDueScheduler(userId?: string, workspaceId?: string): Promise<JsonRecord>;
+  };
+
+  await assert.rejects(
+    () => schedulerApi.runDueScheduler('editor_1', 'workspace_a'),
+    isException(ForbiddenException),
+  );
+
+  settings.settings.set('workspace_a', {
+    workspace_id: 'workspace_a',
+    scheduled_repair_mode: 'dry_run',
+    scheduled_repair_case_types: ['missing_continuity'],
+    scheduled_repair_interval_hours: 6,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 5,
+    next_scheduled_repair_due_at: '2000-01-01T00:00:00.000Z',
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: null,
+    scheduler_lease_owner: 'worker-active',
+    scheduler_lease_expires_at: '2999-01-01T00:00:00.000Z',
+    updated_by_user_id: 'user_1',
+    updated_at: '2026-05-12T00:00:00.000Z',
+  });
+
+  const leased = await schedulerApi.runDueScheduler('user_1', 'workspace_a');
+
+  assert.equal(leased.due, false);
+  assert.equal(leased.skipped_reason, 'worker_lease_active');
+  assert.equal(leased.repair_run, null);
+  assert.equal(audit.repairRuns.size, 0);
+});
+
+test('research continuity internal scheduler run uses system actor without persisting worker due advancement', async () => {
+  const { audit, researchContinuity, settings } = buildHarness();
+  const scheduler = researchContinuity as unknown as {
+    runDueScheduledRepairForWorkspace(
+      workspaceId: string,
+      actorUserId: string,
+      options: { now: Date; source: 'worker' },
+    ): Promise<JsonRecord>;
+  };
+  const dueAt = '2000-01-01T00:00:00.000Z';
+  settings.settings.set('workspace_a', {
+    workspace_id: 'workspace_a',
+    scheduled_repair_mode: 'dry_run',
+    scheduled_repair_case_types: ['missing_continuity'],
+    scheduled_repair_interval_hours: 6,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 5,
+    next_scheduled_repair_due_at: dueAt,
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: null,
+    scheduler_lease_owner: 'worker-1',
+    scheduler_lease_expires_at: '2999-01-01T00:00:00.000Z',
+    updated_by_user_id: 'user_1',
+    updated_at: '2026-05-12T00:00:00.000Z',
+  });
+
+  const result = await scheduler.runDueScheduledRepairForWorkspace(
+    'workspace_a',
+    'system:research-continuity-scheduler',
+    { now: new Date('2026-05-12T00:00:00.000Z'), source: 'worker' },
+  );
+
+  assert.equal(result.skipped_reason, null);
+  assert.equal(result.next_scheduled_repair_due_at, '2026-05-12T06:00:00.000Z');
+  assert.equal(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    dueAt,
+  );
+  const repairRun = audit.repairRuns.get(String(result.audit_run_id));
+  assert.equal(
+    repairRun?.requested_by_user_id,
+    'system:research-continuity-scheduler',
+  );
+});
+
+test('research continuity internal worker replay treats completed partial repair as success candidate', async () => {
+  const { audit, researchContinuity, settings } = buildHarness();
+  const scheduler = researchContinuity as unknown as {
+    runDueScheduledRepairForWorkspace(
+      workspaceId: string,
+      actorUserId: string,
+      options: { now: Date; source: 'worker' },
+    ): Promise<JsonRecord>;
+  };
+  const dueAt = '2000-01-01T00:00:03.000Z';
+  const idempotencyKey = `research-continuity-scheduler:workspace_a:${dueAt}`;
+  settings.settings.set('workspace_a', {
+    workspace_id: 'workspace_a',
+    scheduled_repair_mode: 'dry_run',
+    scheduled_repair_case_types: ['missing_continuity'],
+    scheduled_repair_interval_hours: 6,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 5,
+    next_scheduled_repair_due_at: dueAt,
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: null,
+    scheduler_lease_owner: 'worker-1',
+    scheduler_lease_expires_at: '2999-01-01T00:00:00.000Z',
+    updated_by_user_id: 'user_1',
+    updated_at: '2026-05-12T00:00:00.000Z',
+  });
+  const existing = await audit.createRepairRun({
+    workspace_id: 'workspace_a',
+    requested_by_user_id: 'system:research-continuity-scheduler',
+    requested_at: dueAt,
+    dry_run: true,
+    idempotency_key: idempotencyKey,
+    filters: {
+      case_types: ['missing_continuity'],
+      limit: 5,
+    },
+  });
+  await audit.finalizeRepairRun(String(existing.id), 'workspace_a', {
+    status: 'completed_with_failures',
+    requested_count: 1,
+    repaired_count: 0,
+    skipped_count: 0,
+    failed_count: 1,
+    created_entry_ids: [],
+    results: [],
+    error_message: 'candidate failed',
+  });
+
+  const result = await scheduler.runDueScheduledRepairForWorkspace(
+    'workspace_a',
+    'system:research-continuity-scheduler',
+    { now: new Date('2026-05-12T00:00:00.000Z'), source: 'worker' },
+  );
+
+  assert.equal(result.audit_run_id, existing.id);
+  assert.equal(record(result.repair_run).status, 'completed_with_failures');
+  assert.equal(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    dueAt,
+  );
+});
+
+test('research continuity internal worker replay preserves due time for failed repair run', async () => {
+  const { audit, researchContinuity, settings } = buildHarness();
+  const scheduler = researchContinuity as unknown as {
+    runDueScheduledRepairForWorkspace(
+      workspaceId: string,
+      actorUserId: string,
+      options: { now: Date; source: 'worker' },
+    ): Promise<JsonRecord>;
+  };
+  const dueAt = '2000-01-01T00:00:04.000Z';
+  const idempotencyKey = `research-continuity-scheduler:workspace_a:${dueAt}`;
+  settings.settings.set('workspace_a', {
+    workspace_id: 'workspace_a',
+    scheduled_repair_mode: 'dry_run',
+    scheduled_repair_case_types: ['missing_continuity'],
+    scheduled_repair_interval_hours: 6,
+    scheduled_repair_lookback_days: 30,
+    scheduled_repair_limit: 5,
+    next_scheduled_repair_due_at: dueAt,
+    last_scheduled_repair_at: null,
+    last_scheduled_repair_run_id: null,
+    scheduler_lease_owner: 'worker-1',
+    scheduler_lease_expires_at: '2999-01-01T00:00:00.000Z',
+    updated_by_user_id: 'user_1',
+    updated_at: '2026-05-12T00:00:00.000Z',
+  });
+  const existing = await audit.createRepairRun({
+    workspace_id: 'workspace_a',
+    requested_by_user_id: 'system:research-continuity-scheduler',
+    requested_at: dueAt,
+    dry_run: true,
+    idempotency_key: idempotencyKey,
+    filters: {
+      case_types: ['missing_continuity'],
+      limit: 5,
+    },
+  });
+  await audit.finalizeRepairRun(String(existing.id), 'workspace_a', {
+    status: 'failed',
+    requested_count: 0,
+    repaired_count: 0,
+    skipped_count: 0,
+    failed_count: 0,
+    created_entry_ids: [],
+    results: [],
+    error_message: 'previous scheduler attempt failed',
+  });
+
+  await assert.rejects(
+    () =>
+      scheduler.runDueScheduledRepairForWorkspace(
+        'workspace_a',
+        'system:research-continuity-scheduler',
+        { now: new Date('2026-05-12T00:00:00.000Z'), source: 'worker' },
+      ),
+    isException(ConflictException),
+  );
+  assert.equal(
+    settings.settings.get('workspace_a')?.next_scheduled_repair_due_at,
+    dueAt,
+  );
+});
+
 test('research continuity V1.7 scheduler dry-run creates idempotent repair history', async () => {
   const { audit, journal, researchContinuityController, settings } = buildHarness();
   seedContinuityRun(journal, {
@@ -9633,6 +10056,22 @@ function postgresContinuityEntryShape(entry: JsonRecord): JsonRecord {
     writer_metadata_json: entry.writer_metadata ?? {},
     payload: { ...entry },
   };
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return String(value);
+}
+
+function dueAtOrNowMs(value: unknown, nowMs: number): number {
+  const timestamp = nullableString(value);
+  if (!timestamp) {
+    return nowMs;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : nowMs;
 }
 
 function numberValue(value: unknown): number {

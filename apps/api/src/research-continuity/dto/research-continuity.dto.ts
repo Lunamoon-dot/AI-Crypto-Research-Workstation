@@ -135,6 +135,13 @@ export interface ResearchContinuityWorkspaceSettingsResponse {
   next_scheduled_repair_due_at: string | null;
   last_scheduled_repair_at: string | null;
   last_scheduled_repair_run_id: string | null;
+  scheduler_lease_owner: string | null;
+  scheduler_lease_expires_at: string | null;
+  last_scheduler_attempt_at: string | null;
+  last_scheduler_success_at: string | null;
+  last_scheduler_error: string | null;
+  consecutive_scheduler_failures: number;
+  next_scheduler_retry_at: string | null;
   updated_by_user_id: string | null;
   updated_at: string | null;
 }
@@ -145,6 +152,7 @@ export interface ResearchContinuitySchedulerStatusResponse {
   due: boolean;
   disabled: boolean;
   dry_run: boolean;
+  worker_enabled: boolean;
   next_scheduled_repair_due_at: string | null;
   last_scheduled_repair_at: string | null;
   last_scheduled_repair_run_id: string | null;
@@ -159,6 +167,7 @@ export interface ResearchContinuitySchedulerRunDueResponse {
     | 'scheduler_disabled'
     | 'not_due'
     | 'no_case_types'
+    | 'worker_lease_active'
     | 'settings_unavailable';
   dry_run: boolean;
   audit_run_id: string | null;
@@ -399,6 +408,7 @@ export interface ResearchContinuityRepairRunResultResponse {
 export interface ResearchContinuityRepairRunResponse {
   audit_run_id: string;
   dry_run: boolean;
+  status: ResearchContinuityRepairRunStatus;
   requested_count: number;
   repaired_count: number;
   skipped_count: number;

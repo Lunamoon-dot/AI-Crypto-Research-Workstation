@@ -482,6 +482,7 @@ function SchedulerControlsPanel({
   });
   const settings = settingsQuery.data;
   const scheduler = schedulerQuery.data;
+  const schedulerSettings = scheduler?.settings ?? settings;
   const activeMode = settings?.scheduled_repair_mode ?? mode;
   const due = scheduler?.due ?? false;
   const disabledSkippedCase = mode === 'enabled';
@@ -551,6 +552,42 @@ function SchedulerControlsPanel({
         <DataPair label="Last scheduled" value={formatDateTime(scheduler?.last_scheduled_repair_at)} />
         <DataPair label="Last run" value={<IdChip value={scheduler?.last_scheduled_repair_run_id} />} />
         <DataPair label="Last status" value={scheduler?.last_scheduled_repair_status ?? 'none'} />
+        <DataPair
+          label="Worker enabled"
+          value={
+            <span className={scheduler?.worker_enabled ? 'badge constructive' : 'badge'}>
+              {scheduler?.worker_enabled ? 'enabled' : 'disabled'}
+            </span>
+          }
+        />
+        <DataPair
+          label="Lease owner"
+          value={schedulerSettings?.scheduler_lease_owner ?? 'none'}
+        />
+        <DataPair
+          label="Lease expires"
+          value={formatDateTime(schedulerSettings?.scheduler_lease_expires_at)}
+        />
+        <DataPair
+          label="Last attempt"
+          value={formatDateTime(schedulerSettings?.last_scheduler_attempt_at)}
+        />
+        <DataPair
+          label="Last success"
+          value={formatDateTime(schedulerSettings?.last_scheduler_success_at)}
+        />
+        <DataPair
+          label="Next retry"
+          value={formatDateTime(schedulerSettings?.next_scheduler_retry_at)}
+        />
+        <DataPair
+          label="Failures"
+          value={schedulerSettings?.consecutive_scheduler_failures ?? 0}
+        />
+        <DataPair
+          label="Last error"
+          value={schedulerSettings?.last_scheduler_error ?? 'none'}
+        />
       </div>
 
       <form className="scheduler-settings-form" onSubmit={submitSettings}>

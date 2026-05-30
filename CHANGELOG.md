@@ -16,3 +16,6 @@ notes can stay in app-level changelogs such as
   - [docs/operations-monitoring.md](docs/operations-monitoring.md)
   - [docs/known-issues.md](docs/known-issues.md)
 - Added Architecture Decision Records under [docs/adr](docs/adr).
+- Added the Research Continuity V1.8 scheduled repair worker with Postgres
+  lease claims, retry backoff, worker health metadata, and Operations/web
+  visibility.

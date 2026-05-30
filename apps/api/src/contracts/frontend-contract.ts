@@ -853,6 +853,14 @@ export interface OperationsContinuityHealthResponse {
   scheduled_repair_due: boolean;
   next_scheduled_repair_due_at: string | null;
   last_scheduled_repair_run_id: string | null;
+  scheduled_repair_worker_enabled: boolean;
+  scheduled_repair_lease_owner: string | null;
+  scheduled_repair_lease_expires_at: string | null;
+  scheduled_repair_last_attempt_at: string | null;
+  scheduled_repair_last_success_at: string | null;
+  scheduled_repair_last_error: string | null;
+  scheduled_repair_consecutive_failures: number;
+  scheduled_repair_next_retry_at: string | null;
 }
 
 export interface OperationsHealthResponse {

@@ -38,6 +38,12 @@ The Research Continuity repair/backfill panel is maintenance-only and hidden by
 default. Set `VITE_ENABLE_RESEARCH_CONTINUITY_REPAIR=true` only for admin repair
 sessions.
 
+The Research Continuity scheduler controls and Operations continuity health show
+the backend worker state for the active workspace: worker enabled, lease owner,
+last attempt, last success, next retry, failure count, and last error. These
+fields are read-only in the web app; the worker is configured and started from
+the API package.
+
 The current MVP uses local header auth only:
 
 ```text

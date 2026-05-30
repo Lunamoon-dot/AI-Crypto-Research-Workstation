@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   OnModuleDestroy,
   ServiceUnavailableException,
@@ -7,6 +8,10 @@ import { Pool } from 'pg';
 import { JsonRecord } from '../database/journal.types';
 import type {
   ResearchContinuityMarkScheduledRepairRunInput,
+  ResearchContinuitySchedulerClaimOptions,
+  ResearchContinuitySchedulerFailureInput,
+  ResearchContinuitySchedulerLeaseClearInput,
+  ResearchContinuitySchedulerSuccessInput,
   ResearchContinuitySettingsRepository,
   ResearchContinuityWorkspaceSettingsUpsertInput,
 } from './research-continuity-settings.types';
@@ -117,6 +122,113 @@ export class PostgresResearchContinuitySettingsRepository
     return saved;
   }
 
+  async claimDueWorkspaceSettings(
+    options: ResearchContinuitySchedulerClaimOptions,
+  ): Promise<JsonRecord[]> {
+    const result = await this.requirePool().query<PayloadRow>(
+      `WITH due AS (
+         SELECT workspace_id
+         FROM research_continuity_workspace_settings
+         WHERE scheduled_repair_mode IN ('dry_run', 'enabled')
+           AND COALESCE(next_scheduled_repair_due_at, $2::timestamptz) <= $2::timestamptz
+           AND COALESCE(next_scheduler_retry_at, $2::timestamptz) <= $2::timestamptz
+           AND (
+             scheduler_lease_expires_at IS NULL
+             OR scheduler_lease_expires_at <= $2::timestamptz
+           )
+         ORDER BY next_scheduled_repair_due_at ASC NULLS FIRST, updated_at ASC
+         LIMIT $3
+         FOR UPDATE SKIP LOCKED
+       )
+       UPDATE research_continuity_workspace_settings settings
+       SET scheduler_lease_owner = $1,
+           scheduler_lease_expires_at = $2::timestamptz + make_interval(secs => $4),
+           last_scheduler_attempt_at = $2::timestamptz,
+           updated_at = $2::timestamptz
+       FROM due
+       WHERE settings.workspace_id = due.workspace_id
+       RETURNING ${settingsPayloadSql('settings')} AS payload_json`,
+      [
+        options.worker_id,
+        options.now,
+        options.limit,
+        options.lease_seconds,
+      ],
+    );
+    return result.rows.map((row) => parsePayload(row.payload_json));
+  }
+
+  async markSchedulerSuccess(
+    input: ResearchContinuitySchedulerSuccessInput,
+  ): Promise<JsonRecord> {
+    const saved = await this.one(
+      `UPDATE research_continuity_workspace_settings
+       SET scheduler_lease_owner = NULL,
+           scheduler_lease_expires_at = NULL,
+           last_scheduler_success_at = $3::timestamptz,
+           last_scheduler_error = NULL,
+           consecutive_scheduler_failures = 0,
+           next_scheduler_retry_at = NULL,
+           last_scheduled_repair_at = $3::timestamptz,
+           last_scheduled_repair_run_id = $4,
+           next_scheduled_repair_due_at = $5::timestamptz,
+           updated_at = $3::timestamptz
+       WHERE workspace_id = $1
+         AND scheduler_lease_owner = $2
+       RETURNING ${settingsPayloadSql()} AS payload_json`,
+      [
+        input.workspace_id,
+        input.worker_id,
+        input.completed_at,
+        input.last_scheduled_repair_run_id,
+        input.next_scheduled_repair_due_at,
+      ],
+    );
+    return requireLeaseGuardedUpdate(saved);
+  }
+
+  async markSchedulerFailure(
+    input: ResearchContinuitySchedulerFailureInput,
+  ): Promise<JsonRecord> {
+    const saved = await this.one(
+      `UPDATE research_continuity_workspace_settings
+       SET scheduler_lease_owner = NULL,
+           scheduler_lease_expires_at = NULL,
+           last_scheduler_attempt_at = $3::timestamptz,
+           last_scheduler_error = $4,
+           consecutive_scheduler_failures = $5,
+           next_scheduler_retry_at = $6::timestamptz,
+           updated_at = $3::timestamptz
+       WHERE workspace_id = $1
+         AND scheduler_lease_owner = $2
+       RETURNING ${settingsPayloadSql()} AS payload_json`,
+      [
+        input.workspace_id,
+        input.worker_id,
+        input.failed_at,
+        input.error_message,
+        input.consecutive_scheduler_failures,
+        input.next_scheduler_retry_at,
+      ],
+    );
+    return requireLeaseGuardedUpdate(saved);
+  }
+
+  async clearSchedulerLease(
+    input: ResearchContinuitySchedulerLeaseClearInput,
+  ): Promise<JsonRecord> {
+    const saved = await this.one(
+      `UPDATE research_continuity_workspace_settings
+       SET scheduler_lease_owner = NULL,
+           scheduler_lease_expires_at = NULL
+       WHERE workspace_id = $1
+         AND scheduler_lease_owner = $2
+       RETURNING ${settingsPayloadSql()} AS payload_json`,
+      [input.workspace_id, input.worker_id],
+    );
+    return requireLeaseGuardedUpdate(saved);
+  }
+
   private async one(sql: string, params: unknown[]): Promise<JsonRecord | null> {
     const result = await this.requirePool().query<PayloadRow>(sql, params);
     const row = result.rows[0];
@@ -145,9 +257,25 @@ function settingsPayloadSql(alias = ''): string {
     'next_scheduled_repair_due_at', ${prefix}next_scheduled_repair_due_at,
     'last_scheduled_repair_at', ${prefix}last_scheduled_repair_at,
     'last_scheduled_repair_run_id', ${prefix}last_scheduled_repair_run_id,
+    'scheduler_lease_owner', ${prefix}scheduler_lease_owner,
+    'scheduler_lease_expires_at', ${prefix}scheduler_lease_expires_at,
+    'last_scheduler_attempt_at', ${prefix}last_scheduler_attempt_at,
+    'last_scheduler_success_at', ${prefix}last_scheduler_success_at,
+    'last_scheduler_error', ${prefix}last_scheduler_error,
+    'consecutive_scheduler_failures', ${prefix}consecutive_scheduler_failures,
+    'next_scheduler_retry_at', ${prefix}next_scheduler_retry_at,
     'updated_by_user_id', ${prefix}updated_by_user_id,
     'updated_at', ${prefix}updated_at
   )`;
+}
+
+function requireLeaseGuardedUpdate(saved: JsonRecord | null): JsonRecord {
+  if (!saved) {
+    throw new ConflictException(
+      'Research continuity scheduler lease is no longer owned by this worker.',
+    );
+  }
+  return saved;
 }
 
 function parsePayload(value: unknown): JsonRecord {
