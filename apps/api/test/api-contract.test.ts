@@ -1708,7 +1708,11 @@ class FakeResearchContinuityAuditRepository
           filters.dry_run === undefined || run.dry_run === filters.dry_run,
       )
       .slice(0, filters.limit)
-      .map(({ results, ...run }) => run);
+      .map((run) => {
+        const summary = { ...run };
+        delete summary.results;
+        return summary;
+      });
   }
 
   async getContinuityOperationsHealth(
@@ -5903,7 +5907,7 @@ test('postgres monitoring schema declares normalized tables and idempotency inde
   const schema = readFileSync(
     join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
     'utf8',
-  );
+  ).replace(/\r\n/g, '\n');
   for (const fragment of [
     'CREATE TABLE IF NOT EXISTS thesis_monitor_plans',
     'CREATE TABLE IF NOT EXISTS thesis_pulses',
@@ -5924,7 +5928,7 @@ test('postgres research continuity audit schema declares debug and repair histor
   const schema = readFileSync(
     join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
     'utf8',
-  );
+  ).replace(/\r\n/g, '\n');
   for (const fragment of [
     'CREATE TABLE IF NOT EXISTS research_continuity_debug_access_audits',
     "decision TEXT NOT NULL CHECK (decision IN ('allowed', 'denied'))",

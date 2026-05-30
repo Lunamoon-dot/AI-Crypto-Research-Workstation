@@ -102,14 +102,15 @@ is required.
 | V1.3 | implemented | [v1.3/implementation-plan.md](v1.3/implementation-plan.md) |
 | V1.4 | implemented | [v1.4/implementation-plan.md](v1.4/implementation-plan.md) |
 | V1.5 | implemented | [v1.5/implementation-plan.md](v1.5/implementation-plan.md) |
-| V1.6 | goal-ready | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
+| V1.6 | implemented | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
+| V1.7 | goal-ready | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.7+: workspace debug settings, scheduled repair, richer operations, or
-  dedicated report view columns after V1.6 proves auditability and repair
-  history.
+- V1.8+: durable worker/cron integration, workspace debug settings, richer
+  operations, or dedicated report view columns after V1.7 proves scheduled
+  repair controls and repair detail inspection.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

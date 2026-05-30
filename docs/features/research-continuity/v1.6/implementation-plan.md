@@ -11,7 +11,7 @@
 ---
 
 Last updated: 2026-05-29
-Status: goal-ready
+Status: implemented
 
 ## One Outcome
 
@@ -468,6 +468,12 @@ pnpm --filter @lunaperception/api test
 pnpm --filter @lunaperception/web typecheck
 pnpm --filter @lunaperception/web build
 ```
+
+## Completion Notes
+
+V1.6 is implemented on `main` via the Research Continuity audit history and
+operations health slice. Final verification used the API contract test, web
+typecheck, and web production build gates listed above.
 
 ## Suggested Implementation Order
 
