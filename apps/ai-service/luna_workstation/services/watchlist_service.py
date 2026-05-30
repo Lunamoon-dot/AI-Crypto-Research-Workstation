@@ -1,4 +1,4 @@
-"""Watchlist service for thesis monitoring and local alerts."""
+"""Watchlist service for thesis tracking and local alerts."""
 
 from __future__ import annotations
 
@@ -367,7 +367,7 @@ class WatchlistService:
 
         for item in items:
             if item.item_type != WatchlistItemType.THESIS or not item.thesis_id:
-                skipped.append(f"{item.id}: no thesis monitoring rule")
+                skipped.append(f"{item.id}: no thesis watch rule")
                 continue
 
             thesis = thesis_map.get(item.thesis_id)

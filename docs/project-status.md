@@ -8,7 +8,7 @@ than the roadmaps and feature plans.
 ## Current Posture
 
 LunaCrypto is a local-first thesis discipline workstation for crypto research.
-It helps users build evidence-backed trade theses, record decisions, monitor
+It helps users build evidence-backed trade theses, record decisions, track
 what would change the thesis, and review outcomes so the next decision is less
 ad hoc than the last.
 
@@ -61,8 +61,8 @@ important themes are:
 
 1. Finish or explicitly defer Calibration Lab V1.2, then update its status and
    verification evidence.
-2. When Thesis Pulse or Market Chart work resumes, promote the standalone plan
-   into `docs/features/<feature-slug>/v1/` before coding.
+2. Keep route/API contracts aligned as Calibration Lab and research-continuity
+   work moves forward.
 3. Refresh `docs/project-status.md`, `docs/known-issues.md`, and release
    evidence after each substantial feature or production-hardening slice.
 

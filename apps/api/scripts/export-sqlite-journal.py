@@ -76,15 +76,6 @@ def export_thesis(
         conn, "outcome_reviews", "thesis_id", [thesis_id]
     )
     output["alerts"] = related_by_ids(conn, "alerts", "thesis_id", [thesis_id])
-    output["thesis_monitor_plans"] = related_by_ids(
-        conn, "thesis_monitor_plans", "thesis_id", [thesis_id]
-    )
-    output["thesis_pulses"] = related_by_ids(
-        conn, "thesis_pulses", "thesis_id", [thesis_id]
-    )
-    output["thesis_pulse_memos"] = related_by_ids(
-        conn, "thesis_pulse_memos", "thesis_id", [thesis_id]
-    )
     output["llm_calls"] = related_llm_calls(conn, run_id, [thesis_id])
     return output
 
@@ -128,15 +119,6 @@ def export_run(conn: sqlite3.Connection, run_id: str) -> dict[str, list[dict[str
     )
 
     output["alerts"] = related_by_ids(conn, "alerts", "thesis_id", thesis_ids)
-    output["thesis_monitor_plans"] = related_by_ids(
-        conn, "thesis_monitor_plans", "thesis_id", thesis_ids
-    )
-    output["thesis_pulses"] = related_by_ids(
-        conn, "thesis_pulses", "thesis_id", thesis_ids
-    )
-    output["thesis_pulse_memos"] = related_by_ids(
-        conn, "thesis_pulse_memos", "thesis_id", thesis_ids
-    )
     return output
 
 

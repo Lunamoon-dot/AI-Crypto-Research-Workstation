@@ -367,7 +367,7 @@ export class WatchlistsService implements OnModuleInit, OnModuleDestroy {
             }
           }
         }
-        skipped.push(`${stringValue(item.id, 'item')}: no thesis monitoring rule`);
+        skipped.push(`${stringValue(item.id, 'item')}: no thesis watch rule`);
         continue;
       }
       const thesisId = nullableString(item.thesis_id);

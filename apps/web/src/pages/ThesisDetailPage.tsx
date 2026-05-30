@@ -11,11 +11,6 @@ import {
 } from 'lucide-react';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
 import {
-  getThesisMonitorPlan,
-  getThesisSchedulerStatus,
-  listThesisPulses,
-} from '@/services/thesis-monitoring';
-import {
   getThesis,
   getThesisScenarios,
   recordThesisDecision,
@@ -36,7 +31,6 @@ import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
-import { ThesisMonitorSummaryCard } from '@/components/theses/ThesisMonitorPanel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
@@ -57,18 +51,6 @@ export function ThesisDetailPage() {
   const scenariosQuery = useQuery({
     queryKey: queryKeys.thesisScenarios(thesisId),
     queryFn: () => getThesisScenarios(thesisId, auth),
-  });
-  const monitorPlanQuery = useQuery({
-    queryKey: queryKeys.thesisMonitorPlan(thesisId),
-    queryFn: () => getThesisMonitorPlan(thesisId, auth),
-  });
-  const pulsesQuery = useQuery({
-    queryKey: queryKeys.thesisPulses(thesisId),
-    queryFn: () => listThesisPulses(thesisId, auth, { limit: 240 }),
-  });
-  const schedulerQuery = useQuery({
-    queryKey: queryKeys.thesisScheduler(thesisId),
-    queryFn: () => getThesisSchedulerStatus(thesisId, auth),
   });
 
   const [decisionAction, setDecisionAction] = useState('watched');
@@ -324,30 +306,6 @@ export function ThesisDetailPage() {
               <JsonView value={stabilityGuard} />
             </div>
           ) : null}
-        </Panel>
-
-        <Panel
-          className="span-12"
-          title="Thesis monitor"
-          description="Compact operational status. Open the monitor for pulse runs, scheduler controls, and plan edits."
-        >
-          <ThesisMonitorSummaryCard
-            error={monitorPlanQuery.error ?? pulsesQuery.error ?? schedulerQuery.error}
-            isError={
-              monitorPlanQuery.isError ||
-              pulsesQuery.isError ||
-              schedulerQuery.isError
-            }
-            isLoading={
-              monitorPlanQuery.isLoading ||
-              pulsesQuery.isLoading ||
-              schedulerQuery.isLoading
-            }
-            plan={monitorPlanQuery.data ?? null}
-            pulses={pulsesQuery.data ?? []}
-            scheduler={schedulerQuery.data ?? null}
-            to={routes.thesisMonitor(thesisId)}
-          />
         </Panel>
 
         <Panel className="span-4" title="Scenario radar" description="Conditional outcomes">

@@ -90,14 +90,6 @@ export const queryKeys = {
   thesesRoot: () => scopedResource('theses'),
   theses: (filters: Record<string, unknown>) => scopedFilters('theses', filters),
   thesis: (id: string) => ['thesis', queryIdentity(), id] as const,
-  thesisMonitorPlan: (id: string) =>
-    ['thesis-monitor-plan', queryIdentity(), id] as const,
-  thesisPulses: (id: string) =>
-    ['thesis-pulses', queryIdentity(), id] as const,
-  thesisPulseMemos: (id: string) =>
-    ['thesis-pulse-memos', queryIdentity(), id] as const,
-  thesisScheduler: (id: string) =>
-    ['thesis-scheduler', queryIdentity(), id] as const,
   thesisScenarios: (id: string) =>
     ['thesis-scenarios', queryIdentity(), id] as const,
   scenarioMonitor: (filters: Record<string, unknown>) =>

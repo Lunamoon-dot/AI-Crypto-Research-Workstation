@@ -273,7 +273,6 @@ domain/
 |-- debate.py                         # Debate domain model
 |-- decision.py                       # User decision domain model
 |-- evaluation.py                     # Evaluation domain model
-|-- monitoring.py                     # Monitoring/pulse domain model
 |-- observability.py                  # Observability event/domain model
 |-- outcome.py                        # Outcome review domain model
 |-- outcome_analytics.py              # Outcome analytics model/helpers
@@ -375,7 +374,6 @@ services/
 |-- brief_service.py                  # Brief use cases
 |-- evaluation_service.py             # Outcome/evaluation use cases
 |-- journal_service.py                # Journal persistence/use cases
-|-- monitoring_service.py             # Monitoring/pulse use cases
 |-- performance_tracker.py            # Performance/reliability tracking
 |-- research_service.py               # Research run use cases
 |-- signal_service.py                 # Signal query/persistence use cases
@@ -416,7 +414,6 @@ storage/
    |-- briefs.py                      # Brief repository
    |-- evaluations.py                 # Evaluation repository
    |-- journal.py                     # Journal repository
-   |-- monitoring.py                  # Monitoring repository
    |-- observability.py               # Observability repository
    |-- runs.py                        # Research run repository
    |-- signals.py                     # Signal repository
@@ -539,7 +536,6 @@ tests/
 |-- test_structured_agents.py         # Structured agent outputs
 |-- test_template_registry.py         # Template registry
 |-- test_thesis_explainability.py     # Thesis explainability
-|-- test_thesis_monitoring.py         # Thesis monitoring
 |-- test_ticker_symbol_handling.py    # Ticker/symbol handling
 `-- test_watchlist_service.py         # Watchlist service
 ```
@@ -628,7 +624,7 @@ apps/api/
    |-- research-runs/                 # Tạo/chi tiết/lịch sử research run
    |-- scenarios/                     # Scenario monitor
    |-- signals/                       # Signal explorer/detail
-   |-- theses/                        # Thesis library/detail/decision/monitoring
+   |-- theses/                        # Thesis library/detail/decision/review
    |-- users/                         # User boundary
    |-- watchlists/                    # Watchlist CRUD/checks
    |-- workbench/                     # Workbench summary endpoint
@@ -809,13 +805,11 @@ research-runs/
 
 ```text
 theses/
-|-- monitoring-jobs.service.ts        # Thesis monitor job scheduling/checking
 |-- theses.controller.ts              # Thesis routes
 |-- theses.module.ts                  # Nest module wiring
 |-- theses.service.ts                 # Thesis logic
 `-- dto/
    |-- thesis-decision.dto.ts         # User decision DTO
-   |-- thesis-monitoring.dto.ts       # Thesis monitoring DTO
    `-- thesis-review.dto.ts           # Thesis review/outcome DTO
 ```
 
@@ -895,9 +889,6 @@ components/
 |  |-- page-header.tsx                # Shared research page header
 |  |-- panel.tsx                      # Research panel container
 |  `-- workflow-visualization.tsx     # Agent workflow visualization
-|-- theses/
-|  |-- ThesisMarketChart.tsx          # Thesis market chart
-|  `-- ThesisMonitorPanel.tsx         # Thesis monitoring panel
 `-- ui/
    `-- state.tsx                      # Loading/empty/error state UI
 ```
@@ -942,7 +933,6 @@ pages/
 |-- SignalsPage.tsx                   # Signal explorer
 |-- ThesisDetailPage.tsx              # Thesis detail workflow
 |-- ThesisLibraryPage.tsx             # Thesis library
-|-- ThesisMonitorPage.tsx             # Thesis monitoring detail
 |-- WatchlistsPage.tsx                # Watchlist management
 `-- WorkbenchPage.tsx                 # Main daily command center
 ```
@@ -966,7 +956,6 @@ services/
 |-- scenarios.ts                      # Scenario API calls
 |-- signals.ts                        # Signal API calls
 |-- theses.ts                         # Thesis API calls
-|-- thesis-monitoring.ts              # Thesis monitor API calls
 |-- watchlists.ts                     # Watchlist API calls
 |-- workbench.ts                      # Workbench API calls
 `-- generated/
@@ -1034,7 +1023,7 @@ packages/
    `-- .gitkeep                       # Placeholder shared UI package
 ```
 
-`packages/database/prisma/schema.prisma` là nơi định nghĩa product data model chính: users, workspaces, memberships, research runs, jobs, snapshots, theses, signals, debates, monitor/evaluation artifacts và cac bang lien quan.
+`packages/database/prisma/schema.prisma` là nơi định nghĩa product data model chính: users, workspaces, memberships, research runs, jobs, snapshots, theses, signals, debates, evaluation artifacts và cac bang lien quan.
 
 ## 6. `docs/` File Map
 
@@ -1052,8 +1041,6 @@ docs/
 |-- lunacrypto-workstation-ux.md      # Workstation UX notes
 |-- lunacrypto-workstation-ui-concept.html # UI concept prototype/reference
 |-- lunacrypto-roadmap-design-board.html   # Roadmap design board prototype/reference
-|-- thesis-market-chart-upgrade-goal.md    # Thesis market chart feature plan
-|-- thesis-pulse-monitoring-architecture-plan.md # Thesis monitoring architecture plan
 |-- web-app-implementation-roadmap.md # Web app implementation roadmap
 |-- project-structure.md              # File này: structure map
 |-- adr/

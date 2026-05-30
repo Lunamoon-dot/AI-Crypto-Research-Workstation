@@ -44,18 +44,6 @@ HARDENING_SQL: tuple[str, ...] = (
     "ON data_freshness_checks(research_run_id, observed_timestamp DESC)",
     "CREATE INDEX IF NOT EXISTS idx_data_freshness_source_status "
     "ON data_freshness_checks(source, status, observed_timestamp DESC)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_monitor_plans_thesis "
-    "ON thesis_monitor_plans(workspace_id, thesis_id)",
-    "CREATE INDEX IF NOT EXISTS idx_thesis_monitor_plans_status "
-    "ON thesis_monitor_plans(workspace_id, status, updated_at DESC)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_pulses_bucket "
-    "ON thesis_pulses(thesis_id, bucket_start, pulse_type)",
-    "CREATE INDEX IF NOT EXISTS idx_thesis_pulses_thesis_observed "
-    "ON thesis_pulses(workspace_id, thesis_id, observed_at)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_thesis_pulse_memos_window "
-    "ON thesis_pulse_memos(workspace_id, thesis_id, window_start, window_end, memo_type)",
-    "CREATE INDEX IF NOT EXISTS idx_thesis_pulse_memos_thesis_created "
-    "ON thesis_pulse_memos(workspace_id, thesis_id, created_at DESC)",
 )
 
 

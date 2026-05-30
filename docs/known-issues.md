@@ -19,7 +19,6 @@ fixing anything.
 | P1 API | Error envelope consistency | Web roadmap calls out API error envelope stability as partial. | Frontend needs predictable validation/auth/provider error states. | [web roadmap](web-app-implementation-roadmap.md) |
 | P1 API | Config/profile endpoints | Settings/profile endpoints are deferred in the web roadmap. | Run launcher and settings should not depend on hardcoded profiles forever. | [web roadmap](web-app-implementation-roadmap.md) |
 | P1 data | SQLite/Postgres boundary | There is no automatic live mirror from AI-service SQLite journal to product Postgres. | API reads can diverge from engine-written artifacts unless sync/persistence is explicit. | [backend design](backend-system-design.md) |
-| P2 docs | Standalone plans | Thesis Pulse and Market Chart docs are goal-ready style but not yet under `docs/features`. | Feature tracking is clearer when active work uses the versioned layout. | [feature registry](features/README.md) |
 
 ## Resolved Or Historical Context
 

@@ -7,7 +7,7 @@ small: it should help contributors choose the right source before opening a
 feature plan or changing code.
 
 Product-facing docs should lead with LunaCrypto's value: thesis discipline,
-evidence trails, invalidation, monitoring, and outcome review. Scope and safety
+evidence trails, invalidation, and outcome review. Scope and safety
 boundaries still matter, but they belong in trust, release, and implementation
 sections instead of crowding the opening pitch.
 
@@ -55,10 +55,6 @@ sections instead of crowding the opening pitch.
   docs convention.
 - [goal-skill.md](goal-skill.md) is the template for goal-ready implementation
   plans.
-- Existing standalone goal plans such as
-  [thesis-pulse-monitoring-architecture-plan.md](thesis-pulse-monitoring-architecture-plan.md)
-  and [thesis-market-chart-upgrade-goal.md](thesis-market-chart-upgrade-goal.md)
-  should be linked from the feature registry before implementation starts.
 
 ### Operations And Release
 

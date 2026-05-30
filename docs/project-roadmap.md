@@ -18,7 +18,7 @@ market data
 -> structured thesis
 -> user decision
 -> journal
--> monitoring / evaluation
+-> evaluation
 -> reliability learning
 ```
 
@@ -38,8 +38,6 @@ belongs in trust and release contexts, not in the opening pitch.
 
 | Track | Focus | Source |
 | --- | --- | --- |
-| Thesis monitoring | Manual deterministic pulse, memo, scheduler controls, then hardening | [thesis-pulse-monitoring-architecture-plan.md](thesis-pulse-monitoring-architecture-plan.md) |
-| Thesis charting | Exchange-like thesis chart with OHLCV candles and thesis overlays | [thesis-market-chart-upgrade-goal.md](thesis-market-chart-upgrade-goal.md) |
 | Queue and worker durability | Durable jobs, worker isolation, cancellation, retry policy | [../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md](../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md) |
 | Tenant isolation | Workspace membership, scoped reads/writes, cross-workspace denial tests | [../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md](../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md) |
 

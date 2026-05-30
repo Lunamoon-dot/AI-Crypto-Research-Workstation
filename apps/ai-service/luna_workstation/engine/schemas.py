@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date
 import json
 from typing import Any, Literal
 
@@ -83,139 +83,6 @@ class EngineRunResult(BaseModel):
     summary: str = ""
     events_written: int = 0
     journal_path: str | None = None
-    error_type: str | None = None
-    error: str | None = None
-
-
-class EngineMonitorPlanRequest(BaseModel):
-    """Stable JSON request for monitor plan read/update."""
-
-    thesis_id: str
-    workspace_id: str = "local"
-    updates: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("thesis_id", "workspace_id")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        clean = value.strip()
-        if not clean:
-            raise ValueError("must not be blank")
-        return clean
-
-
-class EngineMonitorPlanResult(BaseModel):
-    """JSON result for a monitor plan read/update request."""
-
-    thesis_id: str
-    workspace_id: str
-    monitor_plan_id: str | None = None
-    status: str = "unknown"
-    monitor_plan: dict[str, Any] | None = None
-    error_type: str | None = None
-    error: str | None = None
-
-
-class EnginePulseRequest(BaseModel):
-    """Stable JSON request accepted by ``lunacrypto engine pulse``."""
-
-    thesis_id: str
-    workspace_id: str = "local"
-    force: bool = False
-    observed_at: datetime | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("thesis_id", "workspace_id")
-    @classmethod
-    def _pulse_not_blank(cls, value: str) -> str:
-        clean = value.strip()
-        if not clean:
-            raise ValueError("must not be blank")
-        return clean
-
-    @field_validator("observed_at", mode="before")
-    @classmethod
-    def _parse_observed_at(cls, value: Any) -> datetime | None:
-        if value in (None, ""):
-            return None
-        if isinstance(value, datetime):
-            parsed = value
-        else:
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-
-
-class EnginePulseMemoRequest(BaseModel):
-    """Stable JSON request accepted by ``lunacrypto engine pulse-memo``."""
-
-    thesis_id: str
-    workspace_id: str = "local"
-    window_minutes: int = Field(default=240, ge=30, le=1440)
-    force: bool = False
-    observed_at: datetime | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("thesis_id", "workspace_id")
-    @classmethod
-    def _memo_not_blank(cls, value: str) -> str:
-        clean = value.strip()
-        if not clean:
-            raise ValueError("must not be blank")
-        return clean
-
-    @field_validator("observed_at", mode="before")
-    @classmethod
-    def _parse_memo_observed_at(cls, value: Any) -> datetime | None:
-        if value in (None, ""):
-            return None
-        if isinstance(value, datetime):
-            parsed = value
-        else:
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-
-
-class EnginePulseResult(BaseModel):
-    """Stable JSON result returned by a deterministic pulse run."""
-
-    pulse_id: str | None = None
-    workspace_id: str
-    thesis_id: str
-    monitor_plan_id: str | None = None
-    status: str = "unknown"
-    suggested_action: str = "none"
-    observed_at: str | None = None
-    bucket_start: str | None = None
-    current_price: float | None = None
-    trigger_reasons: list[str] = Field(default_factory=list)
-    score: int | None = None
-    created: bool = False
-    pulse: dict[str, Any] | None = None
-    error_type: str | None = None
-    error: str | None = None
-
-
-class EnginePulseMemoResult(BaseModel):
-    """Stable JSON result returned by a manual pulse memo run."""
-
-    memo_id: str | None = None
-    workspace_id: str
-    thesis_id: str
-    monitor_plan_id: str | None = None
-    window_start: str | None = None
-    window_end: str | None = None
-    status: str = "unknown"
-    recommended_action: str = "none"
-    rerun_full_recommended: bool = False
-    referenced_pulse_ids: list[str] = Field(default_factory=list)
-    created: bool = False
-    skipped: bool = False
-    skip_reason: str | None = None
-    memo: dict[str, Any] | None = None
     error_type: str | None = None
     error: str | None = None
 

@@ -104,13 +104,15 @@ is required.
 | V1.5 | implemented | [v1.5/implementation-plan.md](v1.5/implementation-plan.md) |
 | V1.6 | implemented | [v1.6/implementation-plan.md](v1.6/implementation-plan.md) |
 | V1.7 | implemented | [v1.7/implementation-plan.md](v1.7/implementation-plan.md) |
+| V1.8 | goal-ready | [v1.8/implementation-plan.md](v1.8/implementation-plan.md) |
 
 ## Later Versions
 
 Likely follow-ups:
 
-- V1.8+: durable worker/cron integration, workspace debug settings, richer
-  operations, or dedicated report view columns after V1.7 proves scheduled
-  repair controls and repair detail inspection.
+- V1.8: durable scheduled repair worker integration with DB lease, retry
+  backoff, and operations health.
+- V1.9+: workspace debug settings, audit retention policy, richer operations,
+  or dedicated report view columns after V1.8 proves background repair safety.
 - V2.x: timeline, graph/node model, provenance explorer, and multi-symbol
   views.

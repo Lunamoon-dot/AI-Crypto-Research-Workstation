@@ -1,4 +1,4 @@
-"""Watchlist CLI for thesis monitoring."""
+"""Watchlist CLI for thesis tracking."""
 
 from __future__ import annotations
 

@@ -36,11 +36,6 @@ from luna_workstation.domain.tenancy import normalize_workspace_id
 from luna_workstation.storage.repositories import JournalRepository
 from luna_workstation.storage.migrations import migrate_path
 from luna_workstation.storage.sqlite import SQLiteStore
-from .monitoring_service import (
-    ThesisMonitorPlanService,
-    ThesisPulseMemoService,
-    ThesisPulseService,
-)
 
 
 _CORE_CODE_ALIASES = {
@@ -311,8 +306,6 @@ class JournalService:
                     thesis_id=saved.id,
                     _conn=conn,
                 )
-        if saved.id:
-            self.ensure_monitor_plan(saved.id, workspace_id=saved.workspace_id)
         return saved
 
     def record_user_decision(self, decision: UserDecision) -> UserDecision:
@@ -644,65 +637,7 @@ class JournalService:
             run = self.repo.complete_research_run(run, _conn=conn)
             self._add_completion_event(run, _conn=conn)
 
-        if thesis and thesis.id:
-            self.ensure_monitor_plan(thesis.id, workspace_id=thesis.workspace_id)
-
         return run, thesis, saved_scenarios
-
-    def ensure_monitor_plan(self, thesis_id: str, *, workspace_id: str | None = None):
-        return ThesisMonitorPlanService(self).ensure_monitor_plan(
-            thesis_id,
-            workspace_id=workspace_id,
-        )
-
-    def update_monitor_plan(
-        self,
-        thesis_id: str,
-        updates: dict[str, Any],
-        *,
-        workspace_id: str | None = None,
-    ):
-        return ThesisMonitorPlanService(self).update_monitor_plan(
-            thesis_id,
-            updates,
-            workspace_id=workspace_id,
-        )
-
-    def run_thesis_pulse(
-        self,
-        thesis_id: str,
-        *,
-        workspace_id: str | None = None,
-        observed_at: datetime | None = None,
-        force: bool = False,
-        pulse_type: str = "manual",
-    ):
-        return ThesisPulseService(self).run_pulse(
-            thesis_id,
-            workspace_id=workspace_id,
-            observed_at=observed_at,
-            force=force,
-            pulse_type=pulse_type,
-        )
-
-    def run_thesis_pulse_memo(
-        self,
-        thesis_id: str,
-        *,
-        workspace_id: str | None = None,
-        observed_at: datetime | None = None,
-        window_minutes: int | None = None,
-        force: bool = False,
-        memo_type: str = "manual",
-    ):
-        return ThesisPulseMemoService(self).run_memo(
-            thesis_id,
-            workspace_id=workspace_id,
-            observed_at=observed_at,
-            window_minutes=window_minutes,
-            force=force,
-            memo_type=memo_type,
-        )
 
     def save_agent_research_bundle(
         self,

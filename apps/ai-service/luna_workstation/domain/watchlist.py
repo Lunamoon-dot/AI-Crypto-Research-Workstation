@@ -1,4 +1,4 @@
-"""Watchlist and alert models for thesis monitoring."""
+"""Watchlist and alert models for thesis tracking."""
 
 from __future__ import annotations
 

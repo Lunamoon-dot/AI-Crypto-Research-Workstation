@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { Controller, Get, Headers, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { OperationsService } from './operations.service';
 
@@ -52,11 +52,4 @@ export class OperationsController {
     );
   }
 
-  @Post('monitoring/retention/dry-run')
-  monitoringRetentionDryRun(
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-workspace-id') workspaceId?: string,
-  ) {
-    return this.operations.monitoringRetentionDryRun(userId, workspaceId);
-  }
 }

@@ -397,69 +397,6 @@ def engine_run(
         raise typer.Exit(1)
 
 
-@engine_app.command("monitor-plan")
-def engine_monitor_plan(
-    request: Path = typer.Option(
-        ...,
-        "--request",
-        "-r",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-        help="JSON request file for monitor plan read/update.",
-    ),
-) -> None:
-    """Create, read, or update a thesis monitor plan from a structured request."""
-    from luna_workstation.engine import run_monitor_plan_request_file
-
-    result = run_monitor_plan_request_file(request)
-    console.print_json(data=result.model_dump(mode="json"))
-    if result.error_type:
-        raise typer.Exit(1)
-
-
-@engine_app.command("pulse")
-def engine_pulse(
-    request: Path = typer.Option(
-        ...,
-        "--request",
-        "-r",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-        help="JSON request file for deterministic thesis pulse.",
-    ),
-) -> None:
-    """Run a deterministic manual thesis pulse from a structured request."""
-    from luna_workstation.engine import run_pulse_request_file
-
-    result = run_pulse_request_file(request)
-    console.print_json(data=result.model_dump(mode="json"))
-    if result.error_type:
-        raise typer.Exit(1)
-
-
-@engine_app.command("pulse-memo")
-def engine_pulse_memo(
-    request: Path = typer.Option(
-        ...,
-        "--request",
-        "-r",
-        exists=True,
-        dir_okay=False,
-        readable=True,
-        help="JSON request file for a structured thesis pulse memo.",
-    ),
-) -> None:
-    """Run a manual structured memo over recent thesis pulses."""
-    from luna_workstation.engine import run_pulse_memo_request_file
-
-    result = run_pulse_memo_request_file(request)
-    console.print_json(data=result.model_dump(mode="json"))
-    if result.error_type:
-        raise typer.Exit(1)
-
-
 @engine_app.command("evaluate")
 def engine_evaluate(
     request: Path = typer.Option(
@@ -487,12 +424,6 @@ def engine_schema() -> None:
     from luna_workstation.engine import (
         EngineEvaluateRequest,
         EngineEvaluateResult,
-        EngineMonitorPlanRequest,
-        EngineMonitorPlanResult,
-        EnginePulseMemoRequest,
-        EnginePulseMemoResult,
-        EnginePulseRequest,
-        EnginePulseResult,
         EngineRunRequest,
         EngineRunResult,
     )
@@ -501,12 +432,6 @@ def engine_schema() -> None:
         data={
             "request": EngineRunRequest.model_json_schema(),
             "result": EngineRunResult.model_json_schema(),
-            "monitor_plan_request": EngineMonitorPlanRequest.model_json_schema(),
-            "monitor_plan_result": EngineMonitorPlanResult.model_json_schema(),
-            "pulse_request": EnginePulseRequest.model_json_schema(),
-            "pulse_result": EnginePulseResult.model_json_schema(),
-            "pulse_memo_request": EnginePulseMemoRequest.model_json_schema(),
-            "pulse_memo_result": EnginePulseMemoResult.model_json_schema(),
             "evaluate_request": EngineEvaluateRequest.model_json_schema(),
             "evaluate_result": EngineEvaluateResult.model_json_schema(),
         }

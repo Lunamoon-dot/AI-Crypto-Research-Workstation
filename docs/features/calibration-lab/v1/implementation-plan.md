@@ -118,7 +118,7 @@ Current repo facts:
 - Python SQLite journal already has `thesis_evaluations`.
 - Python domain/repository already has `ThesisEvaluation`.
 - Prisma/Postgres schema currently does not have `ThesisEvaluation`.
-- Web already has Thesis Detail, Performance Analytics, and thesis monitoring.
+- Web already has Thesis Detail and Performance Analytics.
 - Existing dirty worktree changes may exist outside this plan. Do not revert them.
 
 Files to inspect first:

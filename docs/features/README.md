@@ -33,18 +33,7 @@ Rules:
 | Feature | Latest doc | Status | Notes |
 | --- | --- | --- | --- |
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
-| Research Continuity | [research-continuity/v1.7/implementation-plan.md](research-continuity/v1.7/implementation-plan.md) | implemented | Workspace scheduled repair controls, manual run-due execution, and repair run detail inspection. |
-
-## Standalone Plans To Promote When Active
-
-These files already behave like feature plans but are not yet in the
-`docs/features/<feature-slug>/vX` layout. Promote them only when implementation
-resumes so the move has a clear purpose.
-
-| Planned feature | Current doc | Suggested feature folder |
-| --- | --- | --- |
-| Thesis Pulse Monitoring | [../thesis-pulse-monitoring-architecture-plan.md](../thesis-pulse-monitoring-architecture-plan.md) | `docs/features/thesis-pulse/v1/` |
-| Thesis Market Chart Upgrade | [../thesis-market-chart-upgrade-goal.md](../thesis-market-chart-upgrade-goal.md) | `docs/features/thesis-market-chart/v1/` |
+| Research Continuity | [research-continuity/v1.8/implementation-plan.md](research-continuity/v1.8/implementation-plan.md) | goal-ready | Automated scheduled repair worker with DB lease, retry backoff, and operations visibility. |
 
 ## Status Labels
 

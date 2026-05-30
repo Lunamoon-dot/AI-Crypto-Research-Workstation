@@ -19,12 +19,6 @@ from luna_workstation.services import EvaluationService, JournalService, Researc
 from .schemas import (
     EngineEvaluateRequest,
     EngineEvaluateResult,
-    EngineMonitorPlanRequest,
-    EngineMonitorPlanResult,
-    EnginePulseMemoRequest,
-    EnginePulseMemoResult,
-    EnginePulseRequest,
-    EnginePulseResult,
     EngineRunRequest,
     EngineRunResult,
 )
@@ -271,140 +265,6 @@ def run_engine_request_file(path: str | Path) -> EngineRunResult:
     return EngineRunner().run(request)
 
 
-def run_monitor_plan_request_file(path: str | Path) -> EngineMonitorPlanResult:
-    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    request = EngineMonitorPlanRequest.model_validate(payload)
-    return run_monitor_plan_request(request)
-
-
-def run_monitor_plan_request(
-    request: EngineMonitorPlanRequest,
-) -> EngineMonitorPlanResult:
-    try:
-        journal = JournalService(
-            _monitoring_config(request.workspace_id, request.metadata)
-        )
-        if request.updates:
-            plan = journal.update_monitor_plan(
-                request.thesis_id,
-                request.updates,
-                workspace_id=request.workspace_id,
-            )
-        else:
-            plan = journal.ensure_monitor_plan(
-                request.thesis_id,
-                workspace_id=request.workspace_id,
-            )
-        return EngineMonitorPlanResult(
-            thesis_id=request.thesis_id,
-            workspace_id=request.workspace_id,
-            monitor_plan_id=plan.id,
-            status=plan.status.value,
-            monitor_plan=plan.model_dump(mode="json"),
-        )
-    except Exception as exc:
-        return EngineMonitorPlanResult(
-            thesis_id=request.thesis_id,
-            workspace_id=request.workspace_id,
-            status="error",
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-
-def run_pulse_request_file(path: str | Path) -> EnginePulseResult:
-    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    request = EnginePulseRequest.model_validate(payload)
-    return run_pulse_request(request)
-
-
-def run_pulse_request(request: EnginePulseRequest) -> EnginePulseResult:
-    try:
-        journal = JournalService(
-            _monitoring_config(request.workspace_id, request.metadata)
-        )
-        pulse, created = journal.run_thesis_pulse(
-            request.thesis_id,
-            workspace_id=request.workspace_id,
-            observed_at=request.observed_at,
-            force=request.force,
-        )
-        return EnginePulseResult(
-            pulse_id=pulse.id,
-            workspace_id=pulse.workspace_id,
-            thesis_id=pulse.thesis_id,
-            monitor_plan_id=pulse.monitor_plan_id,
-            status=pulse.status.value,
-            suggested_action=pulse.suggested_action.value,
-            observed_at=pulse.observed_at.isoformat(),
-            bucket_start=pulse.bucket_start.isoformat(),
-            current_price=pulse.current_price,
-            trigger_reasons=pulse.trigger_reasons,
-            score=pulse.score,
-            created=created,
-            pulse=pulse.model_dump(mode="json"),
-        )
-    except Exception as exc:
-        return EnginePulseResult(
-            workspace_id=request.workspace_id,
-            thesis_id=request.thesis_id,
-            status="error",
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-
-def run_pulse_memo_request_file(path: str | Path) -> EnginePulseMemoResult:
-    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    request = EnginePulseMemoRequest.model_validate(payload)
-    return run_pulse_memo_request(request)
-
-
-def run_pulse_memo_request(request: EnginePulseMemoRequest) -> EnginePulseMemoResult:
-    try:
-        journal = JournalService(
-            _monitoring_config(request.workspace_id, request.metadata)
-        )
-        memo, created, skip_reason = journal.run_thesis_pulse_memo(
-            request.thesis_id,
-            workspace_id=request.workspace_id,
-            observed_at=request.observed_at,
-            window_minutes=request.window_minutes,
-            force=request.force,
-        )
-        if memo is None:
-            return EnginePulseMemoResult(
-                workspace_id=request.workspace_id,
-                thesis_id=request.thesis_id,
-                status="skipped",
-                created=False,
-                skipped=True,
-                skip_reason=skip_reason or "no_pulses",
-            )
-        return EnginePulseMemoResult(
-            memo_id=memo.id,
-            workspace_id=memo.workspace_id,
-            thesis_id=memo.thesis_id,
-            monitor_plan_id=memo.monitor_plan_id,
-            window_start=memo.window_start.isoformat(),
-            window_end=memo.window_end.isoformat(),
-            status=memo.status.value,
-            recommended_action=memo.recommended_action.value,
-            rerun_full_recommended=memo.rerun_full_recommended,
-            referenced_pulse_ids=memo.referenced_pulse_ids,
-            created=created,
-            memo=memo.model_dump(mode="json"),
-        )
-    except Exception as exc:
-        return EnginePulseMemoResult(
-            workspace_id=request.workspace_id,
-            thesis_id=request.thesis_id,
-            status="error",
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-
 def run_evaluate_request_file(path: str | Path) -> EngineEvaluateResult:
     payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     request = EngineEvaluateRequest.model_validate(payload)
@@ -413,7 +273,7 @@ def run_evaluate_request_file(path: str | Path) -> EngineEvaluateResult:
 
 def run_evaluate_request(request: EngineEvaluateRequest) -> EngineEvaluateResult:
     try:
-        config = _monitoring_config(request.workspace_id, request.metadata)
+        config = _engine_config(request.workspace_id, request.metadata)
         service = EvaluationService(config=config)
         with config_context(config):
             evaluation = service.evaluate_thesis(
@@ -445,15 +305,12 @@ def run_evaluate_request(request: EngineEvaluateRequest) -> EngineEvaluateResult
         )
 
 
-def _monitoring_config(workspace_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
+def _engine_config(workspace_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
     config = dict(DEFAULT_CONFIG)
     config["workspace_id"] = workspace_id
-    pulse_memo_config = metadata.get("pulse_memo")
-    if isinstance(pulse_memo_config, dict):
-        config["pulse_memo"] = dict(pulse_memo_config)
     config["_engine"] = {
         "workspace_id": workspace_id,
-        "contract_version": "monitoring.v1",
+        "contract_version": "engine.v1",
         "metadata": metadata,
     }
     return config
