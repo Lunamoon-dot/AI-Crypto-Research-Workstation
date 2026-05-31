@@ -99,6 +99,9 @@ class AgentState(MessagesState):
     quant_signal: Annotated[
         str, "Pre-computed quantitative signal (prompt block from SignalEngine)"
     ]
+    market_context: Annotated[
+        str, "Pre-computed market microstructure and cross-venue context"
+    ]
     scenario_plan: Annotated[
         str, "LLM-generated scenario plan (markdown from Scenario Planner)"
     ]
