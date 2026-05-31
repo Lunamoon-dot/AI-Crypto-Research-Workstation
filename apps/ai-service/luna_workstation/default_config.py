@@ -52,6 +52,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Crypto-specific settings
     "crypto_exchange": "binance",  # ccxt exchange id
     "crypto_benchmark": "BTC/USDT",  # benchmark ticker for alpha calc
+    "market_context": {
+        "enabled": True,
+        "primary_venue": "binance",
+        "validation_venues": ["okx", "bybit", "bitget"],
+        "divergence_threshold_bps": 25.0,
+    },
     # LLM settings
     "llm_provider": "deepseek",
     "deep_think_llm": "deepseek-v4-pro",
