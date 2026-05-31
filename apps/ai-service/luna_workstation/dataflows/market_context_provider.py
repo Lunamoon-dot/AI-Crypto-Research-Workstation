@@ -267,6 +267,7 @@ def _validate_venues(
                 )
             )
         except Exception as exc:
+            degradation_reasons.append(f"cross_venue_unavailable:{venue}")
             checks.append(
                 CrossVenueCheck(
                     venue=venue,

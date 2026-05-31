@@ -1,4 +1,6 @@
 from luna_workstation.graph.market_context import precompute_market_context
+from luna_workstation.graph.research_agents_graph import ResearchAgentsGraph
+from luna_workstation.graph.run_context import GraphRunContext
 
 
 def test_precompute_market_context_uses_config_policy(monkeypatch):
@@ -41,3 +43,23 @@ def test_precompute_market_context_uses_config_policy(monkeypatch):
     assert captured["primary_venue"] == "binance"
     assert captured["validation_venues"] == ["okx", "bybit"]
     assert captured["divergence_threshold_bps"] == 25.0
+
+
+def test_research_graph_skips_market_context_when_market_analyst_not_selected(
+    monkeypatch,
+):
+    def fail_precompute(*_args, **_kwargs):
+        raise AssertionError("market context should not be precomputed")
+
+    monkeypatch.setattr(
+        "luna_workstation.graph.research_agents_graph.precompute_market_context",
+        fail_precompute,
+    )
+
+    graph = ResearchAgentsGraph.__new__(ResearchAgentsGraph)
+    graph.config = {}
+    graph.run_context = GraphRunContext()
+    graph.selected_analysts = ("news", "social")
+
+    assert graph._precompute_market_context("BTC/USDT", "2026-05-31") == ""
+    assert graph.market_context_result is None

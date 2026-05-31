@@ -93,6 +93,13 @@ class FakeValidationExchange(FakeExchange):
         }
 
 
+class FailingValidationExchange(FakeExchange):
+    id = "bybit"
+
+    def fetch_ticker(self, symbol):
+        raise RuntimeError("ticker unavailable")
+
+
 def test_build_market_context_from_fake_exchanges():
     exchanges = {
         "binance": FakeExchange(),
@@ -137,4 +144,25 @@ def test_build_market_context_marks_divergence_degraded():
 
     assert context.cross_venue_checks[0].status == "degraded"
     assert "cross_venue_price_divergence:okx" in context.quality.degradation_reasons
+    assert context.quality.status == "degraded"
+
+
+def test_build_market_context_marks_missing_validation_venue_degraded():
+    exchanges = {
+        "binance": FakeExchange(),
+        "bybit": FailingValidationExchange(),
+    }
+
+    context = build_market_context(
+        symbol="BTC/USDT",
+        market_type="spot",
+        primary_venue="binance",
+        validation_venues=["bybit"],
+        exchange_loader=lambda venue: exchanges[venue],
+        divergence_threshold_bps=50.0,
+    )
+
+    assert context.cross_venue_checks[0].venue == "bybit"
+    assert context.cross_venue_checks[0].status == "missing"
+    assert "cross_venue_unavailable:bybit" in context.quality.degradation_reasons
     assert context.quality.status == "degraded"
