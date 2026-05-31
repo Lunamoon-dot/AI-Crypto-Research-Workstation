@@ -358,6 +358,155 @@ a {
   min-width: 0;
 }
 
+.workspace-switcher {
+  position: relative;
+}
+
+.workspace-switcher-trigger {
+  display: flex;
+  min-height: 38px;
+  max-width: 260px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(15, 15, 18, 0.9);
+  color: var(--foreground);
+  padding: 7px 10px;
+}
+
+.workspace-switcher-copy {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.workspace-switcher-copy span {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-copy strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-trigger svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.workspace-switcher-trigger svg.open {
+  transform: rotate(180deg);
+}
+
+.workspace-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  width: min(360px, calc(100vw - 32px));
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(15, 15, 18, 0.98);
+  box-shadow: var(--shadow);
+  padding: 10px;
+}
+
+.workspace-switcher-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-switcher-option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--foreground);
+  padding: 8px;
+  text-align: left;
+}
+
+.workspace-switcher-option:hover,
+.workspace-switcher-option.active {
+  border-color: rgba(103, 232, 249, 0.22);
+  background: rgba(103, 232, 249, 0.08);
+}
+
+.workspace-switcher-option span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workspace-switcher-option strong,
+.workspace-switcher-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-option strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workspace-switcher-option small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workspace-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(86px, 0.7fr) 82px;
+  gap: 7px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.workspace-create-form > strong,
+.workspace-switcher-error,
+.workspace-create-button {
+  grid-column: 1 / -1;
+}
+
+.workspace-create-form > strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.workspace-create-input,
+.workspace-create-select {
+  width: 100%;
+}
+
+.workspace-switcher-error {
+  color: var(--risk);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .top-strip-actions {
   display: flex;
   min-width: 0;
@@ -392,6 +541,39 @@ a {
 .top-command-input {
   width: 118px;
   text-transform: uppercase;
+}
+
+.top-command-symbol-context {
+  display: grid;
+  width: 118px;
+  min-height: 34px;
+  align-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(15, 15, 18, 0.88);
+  padding: 5px 9px;
+}
+
+.top-command-symbol-context span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.top-command-symbol-context strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-command-symbol-context.legacy strong {
+  color: var(--warning);
 }
 
 .top-command-select {
@@ -714,6 +896,19 @@ a {
 
 .thesis-panel-filters {
   align-self: flex-start;
+  grid-template-columns: minmax(140px, 180px) minmax(150px, 220px) minmax(150px, 220px);
+  min-width: min(100%, 620px);
+}
+
+.thesis-date-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  gap: 8px;
+}
+
+.thesis-date-all-button {
+  min-height: 38px;
+  padding: 0 12px;
 }
 
 .grid,
@@ -1067,29 +1262,9 @@ a {
   gap: 8px;
 }
 
-.research-continuity-symbol-form {
-  align-items: end;
-  justify-content: flex-end;
-}
-
-.research-continuity-symbol-field {
-  display: grid;
-  gap: 6px;
-  min-width: 180px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.research-continuity-symbol-field .input {
-  min-height: 38px;
-  background: rgba(15, 15, 18, 0.9);
-  padding: 8px 10px;
-}
-
 .research-continuity-tabs {
   min-width: 0;
-  margin: -4px 0 16px;
+  margin: 0 0 16px;
   border: 1px solid rgba(39, 39, 42, 0.86);
   border-radius: 8px;
   background:
@@ -3377,6 +3552,21 @@ a {
   gap: 12px;
 }
 
+.research-history-filter-grid {
+  grid-template-columns: minmax(180px, 300px) minmax(0, 1fr);
+}
+
+.history-date-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  gap: 8px;
+}
+
+.history-date-all-button {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 .signal-filter-grid {
   display: grid;
   grid-template-columns: minmax(180px, 380px);
@@ -5209,6 +5399,43 @@ a {
   gap: 9px;
 }
 
+.launch-workspace-target {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid rgba(103, 232, 249, 0.24);
+  border-radius: 8px;
+  background: rgba(9, 9, 11, 0.48);
+  padding: 14px 16px;
+}
+
+.launch-workspace-target span {
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.launch-workspace-target strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: clamp(28px, 5vw, 52px);
+  font-weight: 860;
+  letter-spacing: 0;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch-workspace-target small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .launch-symbol-input {
   min-height: 82px;
   border-radius: 16px;
@@ -5503,37 +5730,6 @@ a {
   }
 }
 
-
-/* Research continuity focus */
-.research-continuity-header-action {
-  display: grid;
-  justify-items: end;
-  gap: 10px;
-  min-width: min(100%, 620px);
-}
-
-.research-continuity-header-action .page-header-stats {
-  width: min(620px, 100%);
-}
-
-.research-continuity-header-action .research-continuity-symbol-form {
-  justify-content: flex-end;
-}
-
-@media (max-width: 920px) {
-  .research-continuity-header-action {
-    justify-items: stretch;
-    min-width: 0;
-    width: min(100%, calc(100vw - 48px));
-    max-width: calc(100vw - 48px);
-  }
-
-  .research-continuity-header-action .page-header-stats,
-  .research-continuity-header-action .research-continuity-symbol-form {
-    width: 100%;
-    max-width: 100%;
-  }
-}
 
 /* Research workspace dossier */
 .research-workspace-grid {

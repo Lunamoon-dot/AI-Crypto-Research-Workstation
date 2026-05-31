@@ -20,6 +20,7 @@ class ResearchGraphState(TypedDict, total=False):
     final_trade_decision: str
     final_trade_summary_json: str
     quant_signal: str
+    market_context: str
     quant_signal_text: str
     signal_text: str
     setup_type: str

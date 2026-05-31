@@ -273,6 +273,9 @@ class ResearchRunOrchestrator:
         )
 
         quant_signal_text = host._precompute_quant_signal(company_name, trade_date)
+        market_context_text = ""
+        if hasattr(host, "_precompute_market_context"):
+            market_context_text = host._precompute_market_context(company_name, trade_date)
         host._save_journal_quant_signals()
 
         vendor_list = sorted(host.config.get("data_vendors", {}).values())
@@ -293,6 +296,7 @@ class ResearchRunOrchestrator:
             market_type=host.config.get("market_type", "spot"),
         )
         init_agent_state["quant_signal"] = quant_signal_text
+        init_agent_state["market_context"] = market_context_text
         args = host.propagator.get_graph_args(callbacks=run_callbacks or None)
 
         if host.config.get("checkpoint_enabled"):

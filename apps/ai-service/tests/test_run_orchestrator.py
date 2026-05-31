@@ -96,3 +96,96 @@ def test_completed_event_is_not_logged_when_thesis_build_fails(monkeypatch):
     assert "thesis_generated" not in timeline
     assert "agent_node_completed" not in timeline
     assert "research_run_completed" not in timeline
+
+
+def test_run_orchestrator_adds_market_context_to_initial_state(monkeypatch):
+    captured = {}
+
+    class Host:
+        config = {
+            "asset_class": "crypto",
+            "market_type": "spot",
+            "llm_provider": "test",
+            "checkpoint_enabled": False,
+            "data_vendors": {},
+        }
+        graph = None
+        debug = False
+        callbacks = []
+        propagator = None
+        current_research_run = None
+        current_trade_thesis = None
+        current_signals = []
+        current_agent_opinions = []
+        current_debate = None
+        curr_state = None
+        journal_bridge = None
+
+        def _start_journal_run(self):
+            pass
+
+        def _precompute_quant_signal(self, symbol, trade_date):
+            return "QUANT"
+
+        def _precompute_market_context(self, symbol, trade_date):
+            return "MARKET"
+
+        def _save_journal_quant_signals(self):
+            pass
+
+        def _save_journal_agent_research(self, final_state):
+            pass
+
+        def _complete_journal_run(self):
+            pass
+
+        def _log_state(self, trade_date, final_state):
+            pass
+
+        def _build_trade_thesis(self, final_state):
+            return SimpleNamespace(id="thesis_1")
+
+        def process_signal(self, text):
+            return "Overweight"
+
+    class Propagator:
+        def create_initial_state(self, company_name, trade_date, past_context, market_type):
+            return {
+                "company_of_interest": company_name,
+                "trade_date": trade_date,
+                "past_context": past_context,
+                "market_type": market_type,
+                "messages": [],
+            }
+
+        def get_graph_args(self, callbacks=None):
+            return {}
+
+    class Graph:
+        def invoke(self, init_state, **_args):
+            captured.update(init_state)
+            return {
+                **init_state,
+                "market_report": "ok",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "investment_debate_state": {},
+                "risk_debate_state": {},
+                "final_trade_decision": "**Rating**: Overweight\n\nConstructive.",
+                "final_trade_summary_json": '{"rating": "Overweight"}',
+            }
+
+    host = Host()
+    host.graph = Graph()
+    host.propagator = Propagator()
+
+    monkeypatch.setattr(
+        "luna_workstation.graph.run_orchestrator.compute_config_hash",
+        lambda _config: "hash",
+    )
+
+    ResearchRunOrchestrator().run_graph(host, "BTC/USDT", "2026-05-31")
+
+    assert captured["quant_signal"] == "QUANT"
+    assert captured["market_context"] == "MARKET"

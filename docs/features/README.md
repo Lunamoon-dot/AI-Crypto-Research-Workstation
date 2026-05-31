@@ -33,6 +33,7 @@ Rules:
 | Feature | Latest doc | Status | Notes |
 | --- | --- | --- | --- |
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
+| Research Data Foundation | [research-data-foundation/README.md](research-data-foundation/README.md) | draft | Data gap ledger and source strategy for market, derivatives, on-chain, news, social, and provenance. |
 | Research Continuity | [research-continuity/v2.0/implementation-plan.md](research-continuity/v2.0/implementation-plan.md) | implemented | Timeline and item lifecycle explorer as the graph-ready continuity substrate. |
 
 ## Status Labels

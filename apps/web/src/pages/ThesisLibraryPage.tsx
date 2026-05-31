@@ -16,38 +16,63 @@ import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import { filterThesesByLibraryFilters } from '@/pages/thesis-library-filters';
 import type { JsonRecord, ThesisResponse } from '@/types';
 
 export function ThesisLibraryPage() {
   const auth = useWorkspaceStore();
+  const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
+  const [createdDate, setCreatedDate] = useState('');
   const [symbol, setSymbol] = useState('');
   const [direction, setDirection] = useState('');
+  const effectiveSymbolFilter = fixedWorkspaceSymbol ?? symbol;
   const query = useQuery({
     queryKey: queryKeys.theses({ limit: 100 }),
     queryFn: () => listTheses({ limit: 100 }, auth),
   });
 
   const theses = useMemo(() => {
-    return (query.data ?? []).filter((thesis) => {
-      const symbolOk = symbol
-        ? thesis.symbol.toLowerCase().includes(symbol.toLowerCase())
-        : true;
-      const directionOk = direction ? thesis.direction === direction : true;
-      return symbolOk && directionOk;
+    return filterThesesByLibraryFilters(query.data ?? [], {
+      createdDate,
+      direction,
+      symbol: effectiveSymbolFilter,
     });
-  }, [direction, query.data, symbol]);
+  }, [createdDate, direction, effectiveSymbolFilter, query.data]);
   const thesisSummary = useMemo(() => summarizeTheses(theses), [theses]);
   const thesisFilters = (
     <div className="scenario-filter-controls thesis-panel-filters">
       <label className="scenario-filter-label">
-        Symbol
-        <input
-          className="input"
-          placeholder="BTC"
-          value={symbol}
-          onChange={(event) => setSymbol(event.target.value)}
-        />
+        Date
+        <div className="thesis-date-filter-row">
+          <input
+            className="input"
+            type="date"
+            value={createdDate}
+            onChange={(event) => setCreatedDate(event.target.value)}
+          />
+          <button
+            className="button ghost thesis-date-all-button"
+            onClick={() => setCreatedDate('')}
+            type="button"
+          >All</button>
+        </div>
       </label>
+      {!fixedWorkspaceSymbol ? (
+        <label className="scenario-filter-label">
+          Symbol
+          <input
+            className="input"
+            placeholder="BTC"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value)}
+          />
+        </label>
+      ) : (
+        <div className="scenario-filter-label">
+          Workspace symbol
+          <span className="badge primary">{fixedWorkspaceSymbol}</span>
+        </div>
+      )}
       <label className="scenario-filter-label">
         Direction
         <select

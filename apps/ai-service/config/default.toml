@@ -36,6 +36,12 @@ disabled_data_vendors = []
 # Checkpoint / resume
 checkpoint_enabled = false
 
+[market_context]
+enabled = true
+primary_venue = "binance"
+validation_venues = ["okx", "bybit", "bitget"]
+divergence_threshold_bps = 25.0
+
 [config_validation]
 mode = "fail_fast"
 validate_llm_keys = true

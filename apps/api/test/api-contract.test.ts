@@ -29,7 +29,9 @@ import {
   ThesisReviewMetrics,
 } from '../src/database/journal.types';
 import { AuthService } from '../src/auth/auth.service';
+import { WorkspacesController } from '../src/workspaces/workspaces.controller';
 import { WorkspacesService } from '../src/workspaces/workspaces.service';
+import type { WorkspaceMetadata } from '../src/workspaces/workspace-metadata';
 import { JobLifecycleService } from '../src/jobs/job-lifecycle.service';
 import { JobsService } from '../src/jobs/jobs.service';
 import { JobsController } from '../src/jobs/jobs.controller';
@@ -1713,6 +1715,135 @@ test('WorkspacesService grants default local membership when local DATABASE_URL 
   );
 });
 
+test('GET /workspaces lists the built-in legacy mixed workspace', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: undefined,
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+    },
+    async () => {
+      const workspaces = new WorkspacesService();
+      const controller = new WorkspacesController(new AuthService(), workspaces);
+
+      const response = await controller.list('local-user');
+
+      assert.equal(response.length, 1);
+      assert.equal(response[0]?.id, 'local');
+      assert.equal(response[0]?.name, 'Legacy Mixed Workspace');
+      assert.equal(response[0]?.scope_type, 'legacy_mixed');
+      assert.equal(response[0]?.symbol, null);
+      assert.equal(response[0]?.market_type, 'mixed');
+      await workspaces.onModuleDestroy();
+    },
+  );
+});
+
+test('POST /workspaces creates fixed-symbol metadata and grants owner access', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: undefined,
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+    },
+    async () => {
+      const workspaces = new WorkspacesService();
+      const controller = new WorkspacesController(new AuthService(), workspaces);
+
+      const created = await controller.create(
+        {
+          name: 'BTC Main',
+          symbol: 'btc',
+        },
+        'local-user',
+      );
+
+      assert.match(created.id, /^workspace_/);
+      assert.equal(created.name, 'BTC Main');
+      assert.equal(created.scope_type, 'fixed_symbol');
+      assert.equal(created.symbol, 'BTC/USDT');
+      assert.equal(created.market_type, 'mixed');
+      assert.equal(created.archived, false);
+
+      const fetched = await controller.get(created.id, 'local-user');
+      assert.deepEqual(fetched, created);
+
+      const membership = await workspaces.assertAccess(
+        'local-user',
+        created.id,
+        'owner',
+      );
+      assert.equal(membership.role, 'owner');
+      await workspaces.onModuleDestroy();
+    },
+  );
+});
+
+test('POST /research-runs uses a persisted fixed workspace after service restart', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/lunacrypto',
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+      JOBS_EXECUTION_MODE: 'memory',
+      REDIS_URL: undefined,
+    },
+    async () => {
+      const pool = new FakeWorkspacePool();
+      const firstWorkspaces = new WorkspacesService(pool);
+      const controller = new WorkspacesController(
+        new AuthService(),
+        firstWorkspaces,
+      );
+      const created = await controller.create(
+        {
+          name: 'BTC Main',
+          symbol: 'btc',
+        },
+        'local-user',
+      );
+      await firstWorkspaces.onModuleDestroy();
+
+      const auth = new AuthService();
+      const restartedWorkspaces = new WorkspacesService(pool);
+      const jobs = new JobsService({
+        runInline: async (request: EngineRunRequest) => ({
+          status: 'completed',
+          run_id: request.run_id,
+        }),
+      } as unknown as PythonEngineClient);
+      const researchRuns = new ResearchRunsService(
+        new FakeJournalRepository(),
+        jobs,
+        auth,
+        restartedWorkspaces,
+      );
+
+      const response = await researchRuns.create(
+        {
+          run_id: 'run_persisted_fixed_workspace',
+          workspace_id: created.id,
+          analysis_date: '2026-05-31',
+          analysts: ['market'],
+        } as CreateResearchRunDto,
+        'local-user',
+        created.id,
+      );
+
+      assert.equal(response.run_id, 'run_persisted_fixed_workspace');
+      assert.equal(jobs.listMemoryJobs()[0]?.symbol, 'BTC/USDT');
+      await jobs.onModuleDestroy();
+      await restartedWorkspaces.onModuleDestroy();
+    },
+  );
+});
+
 test('POST /research-runs enqueues the exact engine request contract', async () => {
   await withEnv(
     { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
@@ -1776,6 +1907,136 @@ test('POST /research-runs normalizes common crypto symbol inputs', async () => {
       );
 
       assert.equal(jobs.listMemoryJobs()[0]?.symbol, 'ETH/USDT');
+    },
+  );
+});
+
+test('POST /research-runs derives the symbol from a fixed workspace', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const { researchRunsController, jobs, workspaces } = buildHarness();
+      workspaces.setWorkspaceMetadataForTest([
+        fixedWorkspaceMetadata('workspace_a', 'BTC/USDT'),
+      ]);
+
+      const response = await researchRunsController.create(
+        {
+          run_id: 'run_fixed_no_symbol',
+          workspace_id: 'workspace_a',
+          analysis_date: '2026-05-12',
+          analysts: ['market'],
+        } as CreateResearchRunDto,
+        'user_1',
+        'workspace_a',
+      );
+
+      assert.equal(response.run_id, 'run_fixed_no_symbol');
+      assert.equal(jobs.listMemoryJobs()[0]?.symbol, 'BTC/USDT');
+    },
+  );
+});
+
+test('POST /research-runs accepts matching symbols in a fixed workspace', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const { researchRunsController, jobs, workspaces } = buildHarness();
+      workspaces.setWorkspaceMetadataForTest([
+        fixedWorkspaceMetadata('workspace_a', 'BTC/USDT'),
+      ]);
+
+      await researchRunsController.create(
+        {
+          run_id: 'run_fixed_matching_symbol',
+          workspace_id: 'workspace_a',
+          symbol: 'btcusdt',
+          analysis_date: '2026-05-12',
+          analysts: ['market'],
+        },
+        'user_1',
+        'workspace_a',
+      );
+
+      assert.equal(jobs.listMemoryJobs()[0]?.symbol, 'BTC/USDT');
+    },
+  );
+});
+
+test('POST /research-runs rejects mismatched symbols in a fixed workspace', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const { researchRunsController, jobs, workspaces } = buildHarness();
+      workspaces.setWorkspaceMetadataForTest([
+        fixedWorkspaceMetadata('workspace_a', 'BTC/USDT'),
+      ]);
+
+      await assert.rejects(
+        () =>
+          researchRunsController.create(
+            {
+              run_id: 'run_fixed_mismatch',
+              workspace_id: 'workspace_a',
+              symbol: 'ETH/USDT',
+              analysis_date: '2026-05-12',
+              analysts: ['market'],
+            },
+            'user_1',
+            'workspace_a',
+          ),
+        hasBadRequestCode('symbol_workspace_mismatch'),
+      );
+      assert.equal(jobs.listMemoryJobs().length, 0);
+    },
+  );
+});
+
+test('POST /research-runs rejects legacy mixed workspace creation', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: undefined,
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+      JOBS_EXECUTION_MODE: 'memory',
+      REDIS_URL: undefined,
+    },
+    async () => {
+      const auth = new AuthService();
+      const workspaces = new WorkspacesService();
+      const jobs = new JobsService({
+        runInline: async (request: EngineRunRequest) => ({
+          status: 'completed',
+          run_id: request.run_id,
+        }),
+      } as unknown as PythonEngineClient);
+      const researchRuns = new ResearchRunsService(
+        new FakeJournalRepository(),
+        jobs,
+        auth,
+        workspaces,
+      );
+
+      await assert.rejects(
+        () =>
+          researchRuns.create(
+            {
+              run_id: 'run_legacy_rejected',
+              workspace_id: 'local',
+              symbol: 'BTC/USDT',
+              analysis_date: '2026-05-12',
+              analysts: ['market'],
+            },
+            'local-user',
+            'local',
+          ),
+        hasBadRequestCode('legacy_workspace_read_only'),
+      );
+      assert.equal(jobs.listMemoryJobs().length, 0);
+      await jobs.onModuleDestroy();
+      await workspaces.onModuleDestroy();
     },
   );
 });
@@ -5219,6 +5480,23 @@ test('postgres research continuity audit schema declares debug and repair histor
     "status TEXT NOT NULL CHECK (\n        status IN ('started', 'completed', 'completed_with_failures', 'failed')",
     'idx_research_continuity_repair_runs_workspace_requested',
     'idx_research_continuity_repair_runs_idempotency',
+  ]) {
+    assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
+test('postgres workspace schema declares fixed-symbol metadata columns', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  for (const fragment of [
+    "scope_type TEXT NOT NULL DEFAULT 'legacy_mixed'",
+    "symbol TEXT",
+    "market_type TEXT NOT NULL DEFAULT 'mixed'",
+    'default_timeframe TEXT',
+    'archived BOOLEAN NOT NULL DEFAULT false',
+    'updated_at TIMESTAMPTZ NOT NULL DEFAULT now()',
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
   }
@@ -10959,4 +11237,138 @@ function hasForbiddenCode(code: string): (error: unknown) => boolean {
         : {};
     return record.code === code && record.statusCode === 403;
   };
+}
+
+function hasBadRequestCode(code: string): (error: unknown) => boolean {
+  return (error: unknown): boolean => {
+    if (!(error instanceof BadRequestException)) {
+      return false;
+    }
+    const response = error.getResponse();
+    const record =
+      response && typeof response === 'object'
+        ? (response as Record<string, unknown>)
+        : {};
+    return record.code === code;
+  };
+}
+
+function fixedWorkspaceMetadata(
+  id: string,
+  symbol: string,
+): WorkspaceMetadata {
+  return {
+    id,
+    name: `${symbol} Workspace`,
+    scope_type: 'fixed_symbol',
+    symbol,
+    market_type: 'mixed',
+    default_timeframe: null,
+    archived: false,
+    created_at: '2026-05-31T00:00:00.000Z',
+    updated_at: '2026-05-31T00:00:00.000Z',
+  };
+}
+
+class FakeWorkspacePool {
+  private readonly users = new Set<string>();
+  private readonly workspaces = new Map<string, Record<string, unknown>>();
+  private readonly memberships = new Map<string, Record<string, unknown>>();
+
+  async query(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (
+      normalized === 'begin' ||
+      normalized === 'commit' ||
+      normalized === 'rollback' ||
+      normalized.startsWith('create table') ||
+      normalized.startsWith('alter table') ||
+      normalized.startsWith('create unique index') ||
+      normalized.startsWith('create index')
+    ) {
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith('insert into users')) {
+      this.users.add(String(params[0]));
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith('insert into workspaces')) {
+      const [
+        id,
+        name,
+        scopeType,
+        symbol,
+        marketType,
+        defaultTimeframe,
+        archived,
+        createdAt,
+        updatedAt,
+      ] = params;
+      this.workspaces.set(String(id), {
+        id,
+        name,
+        scope_type: scopeType,
+        symbol,
+        market_type: marketType,
+        default_timeframe: defaultTimeframe,
+        archived,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith('insert into workspace_memberships')) {
+      const [id, workspaceId, userId, role] = params;
+      this.memberships.set(`${userId}:${workspaceId}`, {
+        id,
+        workspace_id: workspaceId,
+        user_id: userId,
+        role,
+      });
+      return { rows: [] };
+    }
+
+    if (
+      normalized.includes('from workspace_memberships') &&
+      normalized.includes('where user_id = $1 and workspace_id = $2')
+    ) {
+      const [userId, workspaceId] = params;
+      const membership = this.memberships.get(`${userId}:${workspaceId}`);
+      return { rows: membership ? [membership] : [] };
+    }
+
+    if (
+      normalized.includes('from workspaces') &&
+      normalized.includes('where id = $1')
+    ) {
+      const workspace = this.workspaces.get(String(params[0]));
+      return { rows: workspace ? [workspace] : [] };
+    }
+
+    if (
+      normalized.includes('from workspaces') &&
+      normalized.includes('join workspace_memberships')
+    ) {
+      const userId = String(params[0]);
+      const rows = [...this.memberships.values()]
+        .filter((membership) => membership.user_id === userId)
+        .map((membership) =>
+          this.workspaces.get(String(membership.workspace_id)),
+        )
+        .filter((workspace): workspace is Record<string, unknown> =>
+          Boolean(workspace),
+        );
+      return { rows };
+    }
+
+    throw new Error(`Unexpected fake workspace query: ${sql}`);
+  }
+
+  async end(): Promise<void> {}
 }

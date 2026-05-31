@@ -16,6 +16,7 @@ from luna_workstation.default_config import DEFAULT_CONFIG
 from luna_workstation.config_validation import validate_and_normalize_config
 from luna_workstation.dataflows.utils import safe_ticker_component
 from .conditional_logic import ConditionalLogic
+from .market_context import precompute_market_context
 from .quant_signals import precompute_quant_signal
 from .propagation import Propagator
 from .tooling import create_tool_nodes
@@ -260,6 +261,7 @@ class ResearchAgentsGraph(GraphRunContextMixin, JournalPersistenceMixin):
     ):
         """Initialize the research-workstation graph and components."""
         self.debug = debug
+        self.selected_analysts = selected_analysts
         self.config = validate_and_normalize_config(
             config or DEFAULT_CONFIG,
             source="ResearchAgentsGraph.__init__",
@@ -314,6 +316,27 @@ class ResearchAgentsGraph(GraphRunContextMixin, JournalPersistenceMixin):
         quant_prompt, result = precompute_quant_signal(self.config, symbol, trade_date)
         self.quant_signal_result = result
         return quant_prompt
+
+    def _precompute_market_context(self, symbol: str, trade_date: str) -> str:
+        """Build Market Analyst context before graph execution."""
+        if not self._includes_market_analyst():
+            self.market_context_result = None
+            return ""
+        market_prompt, result = precompute_market_context(
+            self.config,
+            symbol,
+            trade_date,
+        )
+        self.market_context_result = result
+        return market_prompt
+
+    def _includes_market_analyst(self) -> bool:
+        selected = getattr(self, "selected_analysts", None)
+        if selected is None:
+            return True
+        if isinstance(selected, str):
+            return selected == "market"
+        return "market" in selected
 
     def _on_llm_provider_switched(self, deep_llm, quick_llm, new_provider):
         """Fan out new LLM references to all graph components after a provider switch."""

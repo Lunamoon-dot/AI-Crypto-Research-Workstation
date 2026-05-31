@@ -6,6 +6,29 @@ export interface WorkspacePermissionDto {
   role: string;
 }
 
+export type WorkspaceScopeType = 'fixed_symbol' | 'legacy_mixed';
+
+export type WorkspaceMarketType = 'mixed' | 'spot' | 'perp';
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  scope_type: WorkspaceScopeType;
+  symbol: string | null;
+  market_type: WorkspaceMarketType;
+  default_timeframe: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWorkspaceRequest {
+  name: string;
+  symbol: string;
+  market_type?: WorkspaceMarketType;
+  default_timeframe?: string | null;
+}
+
 export interface ResearchRunQueuedResponse {
   run_id: string;
   workspace_id: string;
@@ -1630,7 +1653,7 @@ export interface EvidenceBundleResponse {
 export type CreateResearchRunRequest = {
   run_id?: string;
   workspace_id: string;
-  symbol: string;
+  symbol?: string;
   asset_class?: string;
   market_type?: 'spot' | 'perp';
   analysis_date: string;

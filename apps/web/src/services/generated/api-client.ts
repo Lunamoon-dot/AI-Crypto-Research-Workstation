@@ -6,6 +6,7 @@ import type {
   BriefResponse,
   CheckWatchlistRequest,
   CreateDailyBriefRequest,
+  CreateWorkspaceRequest,
   CreateWatchlistRequest,
   EvidenceBundleResponse,
   GenerateResearchContinuityRequest,
@@ -39,6 +40,7 @@ import type {
   WatchlistCheckResponse,
   WatchlistItemResponse,
   WatchlistResponse,
+  WorkspaceSummary,
 } from '@/types';
 
 export type JsonRecord = Record<string, unknown>;
@@ -66,7 +68,7 @@ export interface EngineRunRequest {
 export type CreateResearchRunRequest = {
   run_id?: string;
   workspace_id: string;
-  symbol: string;
+  symbol?: string;
   asset_class?: string;
   market_type?: 'spot' | 'perp';
   analysis_date: string;
@@ -318,6 +320,11 @@ export type ApiTransport = <T>(
 export function createApiClient(request: ApiTransport) {
   return {
     getHealth: () => request<HealthResponse>('/health', {}),
+    listWorkspaces: () => request<WorkspaceSummary[]>('/workspaces', {}),
+    createWorkspace: (body: CreateWorkspaceRequest) =>
+      request<WorkspaceSummary>('/workspaces', { method: 'POST', body }),
+    getWorkspace: (id: string) =>
+      request<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`, {}),
     listResearchRuns: (params: {
       symbol?: string;
       status?: string;

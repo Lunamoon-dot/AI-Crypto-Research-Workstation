@@ -10,6 +10,10 @@ _MARKET_SYSTEM_CONTENT = (
     "A quantitative signal engine has ALREADY run and produced the "
     "structured assessment shown below. Do NOT call any signal-generation "
     "tools — that work is already done.\n\n"
+    "A pre-computed market context block is provided below. Treat it as the primary "
+    "market microstructure evidence for ticker, spread, order book depth, recent "
+    "trade VWAP, and cross-venue validation. Do not invent venues, prices, depth, "
+    "or tape conditions that are absent from the block.\n\n"
     "YOUR JOB:\n"
     "1. Review the pre-computed quantitative signal (factor breakdown, "
     "   confidence, trend, regime).\n"
@@ -34,4 +38,6 @@ def create_market_analyst(llm, config=None):
         system_content=_MARKET_SYSTEM_CONTENT,
         report_key="market_report",
         inject_quant_signal=True,
+        inject_market_context=True,
+        market_context_label="PRE-COMPUTED MARKET CONTEXT",
     )

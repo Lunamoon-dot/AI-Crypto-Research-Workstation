@@ -22,10 +22,11 @@ export class CreateResearchRunDto {
   @Matches(/\S/, { message: 'workspace_id must not be blank' })
   workspace_id: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @Matches(/\S/, { message: 'symbol must not be blank' })
-  symbol: string;
+  symbol?: string;
 
   @IsOptional()
   @IsString()

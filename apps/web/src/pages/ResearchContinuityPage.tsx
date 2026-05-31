@@ -8,7 +8,6 @@ import {
   GitBranch,
   Layers,
   Play,
-  RefreshCw,
   Save,
   Search,
   Settings2,
@@ -31,9 +30,7 @@ import {
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid, DataPair, MetricTile } from '@/components/research/bento';
-import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
-import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { IdChip, StatusBadge } from '@/components/research/badges';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -46,6 +43,10 @@ import {
   selectedLifecycleTimelineEvents,
   windowedLifecycleLabel,
 } from './research-continuity-lifecycle';
+import {
+  buildCapturedContinuityMemoryGroups,
+  buildContinuitySnapshotView,
+} from './research-continuity-current-view';
 import {
   RESEARCH_CONTINUITY_TABS,
   normalizeResearchContinuityTab,
@@ -92,9 +93,11 @@ type DisplayReportSection = ResearchContinuityThinReport['sections'][number];
 
 export function ResearchContinuityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const auth = useWorkspaceStore();
+  const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
   const selectedSymbol = searchParams.get('symbol') ?? 'BTC/USDT';
+  const effectiveSelectedSymbol = fixedWorkspaceSymbol ?? selectedSymbol;
   const activeTab = normalizeResearchContinuityTab(searchParams.get('tab'));
-  const [symbolInput, setSymbolInput] = useState(selectedSymbol);
   const [lifecycleItemType, setLifecycleItemType] =
     useState<ResearchContinuityLifecycleItemType | 'all'>('all');
   const [lifecycleStatus, setLifecycleStatus] =
@@ -103,8 +106,10 @@ export function ResearchContinuityPage() {
   const [selectedLifecycleItemKey, setSelectedLifecycleItemKey] = useState<
     string | null
   >(null);
-  const symbol = useMemo(() => selectedSymbol.trim() || 'BTC/USDT', [selectedSymbol]);
-  const auth = useWorkspaceStore();
+  const symbol = useMemo(
+    () => (fixedWorkspaceSymbol ?? effectiveSelectedSymbol.trim()) || 'BTC/USDT',
+    [effectiveSelectedSymbol, fixedWorkspaceSymbol],
+  );
   const queryClient = useQueryClient();
   const stateQuery = useQuery({
     queryKey: queryKeys.researchContinuityState(symbol),
@@ -138,16 +143,6 @@ export function ResearchContinuityPage() {
     setSelectedLifecycleItemKey(null);
   }, [symbol, lifecycleItemType, lifecycleStatus, includeLifecycleContext]);
 
-  function applySymbol(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const nextSymbol = symbolInput.trim();
-    if (nextSymbol) {
-      const nextParams = setResearchContinuityTabParam(searchParams, activeTab);
-      nextParams.set('symbol', nextSymbol);
-      setSearchParams(nextParams);
-    }
-  }
-
   function selectTab(tab: ResearchContinuityTab) {
     setSearchParams(setResearchContinuityTabParam(searchParams, tab));
   }
@@ -156,7 +151,12 @@ export function ResearchContinuityPage() {
   const entries = entriesQuery.data?.entries ?? [];
   const latestEntry = stateQuery.data?.latest_entry ?? entries[0] ?? null;
   const quality = record(state?.data_quality ?? latestEntry?.thin_report?.quality);
+  const snapshotView = buildContinuitySnapshotView({ state, latestEntry });
   const activeItemCount = state?.active_items.length ?? 0;
+  const tabMemoryLabel =
+    snapshotView?.memoryKind === 'captured'
+      ? snapshotView.memoryLabel
+      : `${activeItemCount} memory`;
   const qualityStatus = stringValue(quality.status, 'unknown');
 
   function refreshContinuityQueries() {
@@ -189,64 +189,6 @@ export function ResearchContinuityPage() {
 
   return (
     <main className="page">
-      <PageHeader
-        eyebrow="Luna Research"
-        title="Research continuity ledger"
-        description={`Evidence-backed memory for ${symbol}. Continuity carries claims, risks, invalidations, and source coverage into the next research run.`}
-        action={
-          <div className="research-continuity-header-action">
-            <HeaderStats
-              className="research-continuity-header-stats"
-              stats={[
-                {
-                  icon: <Activity aria-hidden size={14} />,
-                  label: 'Active memory',
-                  meta: 'Tracked items',
-                  tone: 'primary',
-                  value: stateQuery.isLoading ? '...' : activeItemCount,
-                },
-                {
-                  icon: <FileText aria-hidden size={14} />,
-                  label: 'Entries',
-                  meta: latestEntry ? formatDateTime(latestEntry.generated_at) : 'No entry yet',
-                  tone: latestEntry ? 'constructive' : 'degraded',
-                  value: entriesQuery.isLoading ? '...' : entries.length,
-                },
-                {
-                  icon: <ShieldCheck aria-hidden size={14} />,
-                  label: 'Evidence',
-                  meta: 'Coverage health',
-                  tone: qualityStatus === 'clean' ? 'constructive' : 'warning',
-                  value: qualityStatus,
-                },
-              ]}
-            />
-            <form className="top-strip-meta research-continuity-symbol-form" onSubmit={applySymbol}>
-              <label className="research-continuity-symbol-field">
-                <span>Symbol</span>
-                <input
-                  className="input"
-                  list="research-continuity-symbols"
-                  onChange={(event) => setSymbolInput(event.target.value)}
-                  value={symbolInput}
-                />
-              </label>
-              <datalist id="research-continuity-symbols">
-                <option value="BTC/USDT" />
-                <option value="ETH/USDT" />
-                <option value="SOL/USDT" />
-                <option value="LINK/USDT" />
-                <option value="BNB/USDT" />
-              </datalist>
-              <button className="button" type="submit">
-                <RefreshCw aria-hidden size={15} />
-                Load ledger
-              </button>
-            </form>
-          </div>
-        }
-      />
-
       {stateQuery.isError ? <ErrorState error={stateQuery.error} /> : null}
       {entriesQuery.isError ? <ErrorState error={entriesQuery.error} /> : null}
       {activeTab === 'lifecycle' && timelineQuery.isError ? (
@@ -254,10 +196,10 @@ export function ResearchContinuityPage() {
       ) : null}
 
       <ResearchContinuityTabs
-        activeItemCount={activeItemCount}
         activeTab={activeTab}
         entriesCount={entries.length}
         evidenceStatus={qualityStatus}
+        memoryLabel={tabMemoryLabel}
         onSelect={selectTab}
       />
 
@@ -285,7 +227,7 @@ export function ResearchContinuityPage() {
             title="Active research memory"
             description="Claims, risks, monitored signals, invalidations, and levels"
           >
-            <ActiveItems state={state} />
+            <ActiveItems latestEntry={latestEntry} state={state} />
           </Panel>
 
           <Panel
@@ -361,16 +303,16 @@ function booleanViteEnv(key: string, fallback: boolean): boolean {
 }
 
 function ResearchContinuityTabs({
-  activeItemCount,
   activeTab,
   entriesCount,
   evidenceStatus,
+  memoryLabel,
   onSelect,
 }: {
-  activeItemCount: number;
   activeTab: ResearchContinuityTab;
   entriesCount: number;
   evidenceStatus: string;
+  memoryLabel: string;
   onSelect: (tab: ResearchContinuityTab) => void;
 }) {
   return (
@@ -394,9 +336,9 @@ function ResearchContinuityTabs({
                 <strong>{tab.label}</strong>
                 <span>
                   {researchContinuityTabMeta({
-                    activeItemCount,
                     entriesCount,
                     evidenceStatus,
+                    memoryLabel,
                     tab: tab.id,
                   })}
                 </span>
@@ -421,14 +363,14 @@ function researchContinuityTabIcon(tab: ResearchContinuityTab): ReactNode {
 }
 
 function researchContinuityTabMeta({
-  activeItemCount,
   entriesCount,
   evidenceStatus,
+  memoryLabel,
   tab,
 }: {
-  activeItemCount: number;
   entriesCount: number;
   evidenceStatus: string;
+  memoryLabel: string;
   tab: ResearchContinuityTab;
 }): string {
   switch (tab) {
@@ -437,7 +379,7 @@ function researchContinuityTabMeta({
     case 'repair':
       return 'Scheduler controls and repair runs';
     default:
-      return `${activeItemCount} memory / ${entriesCount} entries / ${evidenceStatus} evidence`;
+      return `${memoryLabel} / ${entriesCount} entries / ${evidenceStatus} evidence`;
   }
 }
 
@@ -777,35 +719,32 @@ function CurrentView({
   state: ResearchContinuityStateResponse | null;
   latestEntry: ResearchContinuityEntrySummaryResponse | null;
 }) {
-  if (!state) {
+  const snapshot = buildContinuitySnapshotView({ state, latestEntry });
+  if (!snapshot) {
     return <EmptyState label="No continuity state for this symbol yet." />;
   }
-  const view = record(state.current_view);
-  const directionalBias = stringValue(view.directional_bias);
-  const riskPosture = stringValue(view.risk_posture);
-  const conviction = stringValue(view.conviction);
-  const timeContext = stringValue(view.time_context);
   return (
     <div className="continuity-current-view">
       <div className="continuity-current-focus">
         <span className="small muted">Current stance</span>
-        <strong>{directionalBias}</strong>
+        <strong>{snapshot.directionalBias}</strong>
         <p>
-          {riskPosture} risk posture / {conviction} conviction / {timeContext}
+          {snapshot.riskPosture} risk posture / {snapshot.conviction} conviction /{' '}
+          {snapshot.timeContext}
         </p>
       </div>
       <div className="research-continuity-data-grid">
-        <DataPair label="Latest run" value={<IdChip value={state.latest_run_id} />} />
-        <DataPair label="Latest entry" value={<IdChip value={state.latest_entry_id} />} />
-        <DataPair label="Time context" value={timeContext} />
+        <DataPair label="Latest run" value={<IdChip value={snapshot.latestRunId} />} />
+        <DataPair label="Latest entry" value={<IdChip value={snapshot.latestEntryId} />} />
+        <DataPair label="Time context" value={snapshot.timeContext} />
       </div>
       <div className="row">
-        <span className="badge primary">
+        <span className={`badge ${snapshot.memoryKind === 'captured' ? 'warning' : 'primary'}`}>
           <Activity aria-hidden size={13} />
-          {state.active_items.length} active
+          {snapshot.memoryLabel}
         </span>
         <StatusBadge value={latestEntry?.status ?? 'unknown'} />
-        <span className="small muted">{formatDateTime(state.updated_at)}</span>
+        <span className="small muted">{formatDateTime(snapshot.updatedAt)}</span>
       </div>
     </div>
   );
@@ -876,9 +815,53 @@ function TrustQuality({ quality }: { quality: JsonRecord }) {
   );
 }
 
-function ActiveItems({ state }: { state: ResearchContinuityStateResponse | null }) {
+function ActiveItems({
+  latestEntry,
+  state,
+}: {
+  latestEntry: ResearchContinuityEntrySummaryResponse | null;
+  state: ResearchContinuityStateResponse | null;
+}) {
   const items = records(state?.active_items);
   if (items.length === 0) {
+    const snapshot = buildContinuitySnapshotView({ state, latestEntry });
+    const capturedGroups = buildCapturedContinuityMemoryGroups(latestEntry);
+    if (snapshot?.memoryKind === 'captured' && capturedGroups.length > 0) {
+      return (
+        <div className="continuity-active-items">
+          {capturedGroups.map((group) => (
+            <section className="continuity-item-group" key={group.id}>
+              <div className="continuity-item-group-header">
+                <div>
+                  <strong>{group.title}</strong>
+                  <span>{group.description}</span>
+                </div>
+                <span className="badge warning">{group.items.length}</span>
+              </div>
+              {group.items.map((item, index) => (
+                <article className="continuity-active-item" key={`${group.id}-${index}`}>
+                  <div className="continuity-active-item-main">
+                    <div className="continuity-active-item-meta">
+                      <span className="badge warning">captured</span>
+                      <StatusBadge value={latestEntry?.status ?? 'degraded'} />
+                    </div>
+                    <p>{item}</p>
+                  </div>
+                </article>
+              ))}
+            </section>
+          ))}
+        </div>
+      );
+    }
+    if (snapshot?.memoryKind === 'captured') {
+      const noun = snapshot.capturedItemCount === 1 ? 'item was' : 'items were';
+      return (
+        <EmptyState
+          label={`${snapshot.capturedItemCount} captured ${noun} saved in the latest degraded entry but not promoted to active memory.`}
+        />
+      );
+    }
     return <EmptyState label="No active tracked items." />;
   }
   return (
