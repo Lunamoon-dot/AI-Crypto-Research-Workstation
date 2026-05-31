@@ -1,21 +1,213 @@
-import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, ChevronDown, Plus } from 'lucide-react';
+import { errorMessage } from '@/services/client';
+import { queryKeys } from '@/services/query-keys';
+import { createWorkspace, listWorkspaces } from '@/services/workspaces';
+import { legacyMixedWorkspace, useWorkspaceStore } from '@/store/useWorkspaceStore';
+import {
+  isFixedSymbolWorkspace,
+  selectWorkspaceActivationTarget,
+} from './workspace-switcher-model';
+import type { WorkspaceMarketType, WorkspaceSummary } from '@/types';
 
-export function WorkspaceSwitcher() {
+type WorkspaceSwitcherProps = {
+  fixedOnly?: boolean;
+};
+
+export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps) {
   const auth = useWorkspaceStore();
+  const { setWorkspace, workspace, workspaceId } = auth;
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [symbol, setSymbol] = useState('');
+  const [marketType, setMarketType] = useState<WorkspaceMarketType>('mixed');
+
+  const workspacesQuery = useQuery({
+    queryKey: queryKeys.workspacesRoot(),
+    queryFn: () => listWorkspaces(auth),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    const listedWorkspaces = workspacesQuery.data;
+    if (!listedWorkspaces) {
+      return;
+    }
+
+    const activationTarget = selectWorkspaceActivationTarget({
+      currentWorkspace: workspace,
+      fixedOnly,
+      legacyWorkspace: legacyMixedWorkspace,
+      listedWorkspaces,
+      workspaceId,
+    });
+
+    if (activationTarget) {
+      setWorkspace(activationTarget);
+    }
+  }, [fixedOnly, setWorkspace, workspace, workspaceId, workspacesQuery.data]);
+
+  useEffect(() => {
+    if (fixedOnly && marketType === 'mixed') {
+      setMarketType('spot');
+    }
+  }, [fixedOnly, marketType]);
+
+  const fallbackActiveWorkspace = workspace ?? legacyMixedWorkspace;
+  const workspaces = useMemo(() => {
+    const listed = workspacesQuery.data ?? [];
+    const selectableWorkspaces = fixedOnly
+      ? listed.filter(isFixedSymbolWorkspace)
+      : listed;
+
+    if (fixedOnly) {
+      return selectableWorkspaces;
+    }
+
+    return selectableWorkspaces.some(
+      (workspace) => workspace.id === fallbackActiveWorkspace.id,
+    )
+      ? selectableWorkspaces
+      : [fallbackActiveWorkspace, ...selectableWorkspaces];
+  }, [fallbackActiveWorkspace, fixedOnly, workspacesQuery.data]);
+  const activeWorkspace = fixedOnly
+    ? workspaces.find((candidate) => candidate.id === workspaceId) ??
+      workspaces[0] ??
+      null
+    : fallbackActiveWorkspace;
+  const activeWorkspaceContext = activeWorkspace
+    ? workspaceContext(activeWorkspace)
+    : 'Fixed-symbol only';
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createWorkspace(
+        {
+          name: name.trim(),
+          symbol: symbol.trim(),
+          market_type: fixedOnly && marketType === 'mixed' ? 'spot' : marketType,
+        },
+        auth,
+      ),
+    onSuccess: async (workspace) => {
+      setWorkspace(workspace);
+      setName('');
+      setSymbol('');
+      setMarketType('mixed');
+      setOpen(false);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacesRoot() });
+    },
+  });
+
+  function submitCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (name.trim() && symbol.trim()) {
+      createMutation.mutate();
+    }
+  }
+
   return (
-    <div className="top-strip-meta">
-      <span className="badge" title={`auth: ${auth.mode}`}>
-        <span className="chip-prefix">auth: </span>
-        {auth.mode}
-      </span>
-      <span className="badge" title={`user: ${auth.userId}`}>
-        <span className="chip-prefix">user: </span>
-        {auth.userId.slice(0, 10)}
-      </span>
-      <span className="badge" title={`workspace: ${auth.workspaceId}`}>
-        <span className="chip-prefix">workspace: </span>
-        {auth.workspaceId.slice(0, 10)}
-      </span>
+    <div className="workspace-switcher">
+      <button
+        aria-expanded={open}
+        className="workspace-switcher-trigger"
+        title={
+          activeWorkspace
+            ? `Current workspace: ${activeWorkspace.name}`
+            : 'Select fixed-symbol workspace'
+        }
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="workspace-switcher-copy">
+          <span>{activeWorkspace?.name ?? 'Select workspace'}</span>
+          <strong>{activeWorkspaceContext}</strong>
+        </span>
+        <ChevronDown aria-hidden className={open ? 'open' : undefined} size={15} />
+      </button>
+
+      {open ? (
+        <div className="workspace-switcher-menu" role="dialog" aria-label="Workspace selector">
+          <div className="workspace-switcher-list">
+            {workspaces.map((workspace) => (
+              <button
+                className={
+                  workspace.id === activeWorkspace?.id
+                    ? 'workspace-switcher-option active'
+                    : 'workspace-switcher-option'
+                }
+                key={workspace.id}
+                type="button"
+                onClick={() => {
+                  setWorkspace(workspace);
+                  setOpen(false);
+                }}
+              >
+                <span>
+                  <strong>{workspace.name}</strong>
+                  <small>{workspaceContext(workspace)}</small>
+                </span>
+                {workspace.id === activeWorkspace?.id ? <Check aria-hidden size={15} /> : null}
+              </button>
+            ))}
+            {workspacesQuery.isError ? (
+              <span className="workspace-switcher-error">Workspace list unavailable.</span>
+            ) : null}
+          </div>
+
+          <form className="workspace-create-form" onSubmit={submitCreate}>
+            <strong>Create workspace</strong>
+            <input
+              aria-label="Workspace name"
+              className="top-command-input workspace-create-input"
+              placeholder="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <input
+              aria-label="Workspace symbol"
+              className="top-command-input workspace-create-input"
+              placeholder="BTC"
+              value={symbol}
+              onChange={(event) => setSymbol(event.target.value)}
+            />
+            <select
+              aria-label="Workspace market type"
+              className="top-command-select workspace-create-select"
+              value={fixedOnly && marketType === 'mixed' ? 'spot' : marketType}
+              onChange={(event) =>
+                setMarketType(event.target.value as WorkspaceMarketType)
+              }
+            >
+              {fixedOnly ? null : <option value="mixed">Mixed</option>}
+              <option value="spot">Spot</option>
+              <option value="perp">Perp</option>
+            </select>
+            <button
+              className="button primary workspace-create-button"
+              disabled={createMutation.isPending || !name.trim() || !symbol.trim()}
+              type="submit"
+            >
+              <Plus aria-hidden size={15} />
+              <span>{createMutation.isPending ? 'Creating' : 'Create'}</span>
+            </button>
+            {createMutation.error ? (
+              <span className="workspace-switcher-error">
+                {errorMessage(createMutation.error)}
+              </span>
+            ) : null}
+          </form>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function workspaceContext(workspace: WorkspaceSummary): string {
+  if (workspace.scope_type === 'legacy_mixed') {
+    return 'Legacy mixed';
+  }
+  return workspace.symbol ?? 'Fixed symbol';
 }

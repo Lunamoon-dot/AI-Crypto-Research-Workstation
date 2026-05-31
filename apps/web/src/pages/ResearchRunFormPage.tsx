@@ -21,14 +21,6 @@ import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 type MarketType = "spot" | "perp";
 
-const symbolPresets = [
-  "BTC/USDT",
-  "ETH/USDT",
-  "SOL/USDT",
-  "LINK/USDT",
-  "BNB/USDT",
-];
-
 const marketOptions: Array<{
   value: MarketType;
   label: string;
@@ -127,7 +119,10 @@ export function ResearchRunFormPage() {
     "onchain",
   ]);
 
+  const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
+  const legacyMixedWorkspace = auth.isLegacyMixedWorkspace();
   const normalizedSymbol = symbol.trim().toUpperCase();
+  const effectiveSymbol = fixedWorkspaceSymbol ?? normalizedSymbol;
   const selectedProfile =
     profileOptions.find((option) => option.value === profile) ??
     profileOptions[0];
@@ -138,18 +133,20 @@ export function ResearchRunFormPage() {
         .map((analyst) => analyst.label),
     [analysts],
   );
-  const disabledReason = !normalizedSymbol
-    ? "Enter a symbol before launching."
-    : analysts.length === 0
-      ? "Select at least one analyst module."
-      : "";
+  const disabledReason = legacyMixedWorkspace
+    ? "Create a fixed-symbol workspace to run research"
+    : !effectiveSymbol
+      ? "Enter a symbol before launching."
+      : analysts.length === 0
+        ? "Select at least one analyst module."
+        : "";
 
   const mutation = useMutation({
     mutationFn: () =>
       createResearchRun(
         researchRunRequestSchema.parse({
           workspace_id: auth.workspaceId,
-          symbol: normalizedSymbol,
+          symbol: fixedWorkspaceSymbol ?? normalizedSymbol,
           asset_class: "crypto",
           market_type: marketType,
           analysis_date: analysisDate,
@@ -186,36 +183,40 @@ export function ResearchRunFormPage() {
           <Panel
             className="span-7 emphasis launch-target-panel"
             title="Research target"
-            description="Start with the instrument and the market lens. Presets are shortcuts, not locked templates."
+            description="Start with the workspace instrument and the market lens."
           >
             <div className="launch-target-stack">
-              <label className="label launch-symbol-label">
-                Symbol
-                <input
-                  className="input launch-symbol-input"
-                  value={symbol}
-                  onChange={(event) =>
-                    setSymbol(event.target.value.toUpperCase())
-                  }
-                  placeholder="BTC/USDT"
-                  autoComplete="off"
-                  spellCheck={false}
-                  required
-                />
-              </label>
-
-              <div className="symbol-chip-row" aria-label="Common symbols">
-                {symbolPresets.map((preset) => (
-                  <button
-                    className={`symbol-chip${normalizedSymbol === preset ? " active" : ""}`}
-                    key={preset}
-                    type="button"
-                    onClick={() => setSymbol(preset)}
-                  >
-                    {preset}
-                  </button>
-                ))}
+              <div className="launch-workspace-target">
+                <span>Workspace target</span>
+                <strong>
+                  {fixedWorkspaceSymbol ??
+                    (legacyMixedWorkspace ? "Legacy mixed" : normalizedSymbol || "No symbol")}
+                </strong>
+                <small>
+                  {fixedWorkspaceSymbol
+                    ? auth.workspace?.name ?? "Fixed-symbol workspace"
+                    : legacyMixedWorkspace
+                      ? "Create or switch to a fixed-symbol workspace."
+                      : "Workspace metadata will lock this symbol after creation."}
+                </small>
               </div>
+
+              {!fixedWorkspaceSymbol && !legacyMixedWorkspace ? (
+                <label className="label launch-symbol-label">
+                  Symbol
+                  <input
+                    className="input launch-symbol-input"
+                    value={symbol}
+                    onChange={(event) =>
+                      setSymbol(event.target.value.toUpperCase())
+                    }
+                    placeholder="BTC/USDT"
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                  />
+                </label>
+              ) : null}
 
               <div className="launch-choice-grid" aria-label="Market type">
                 {marketOptions.map((option) => (
@@ -314,7 +315,7 @@ export function ResearchRunFormPage() {
             <div className="launch-summary-card">
               <div className="launch-summary-symbol">
                 <span>Target</span>
-                <strong>{normalizedSymbol || "No symbol"}</strong>
+                <strong>{effectiveSymbol || "No symbol"}</strong>
               </div>
               <div className="launch-summary-grid">
                 <div>
@@ -338,7 +339,7 @@ export function ResearchRunFormPage() {
 
             <div className="launch-checklist" aria-label="Pre-flight checklist">
               <PreflightItem
-                ready={Boolean(normalizedSymbol)}
+                ready={!legacyMixedWorkspace && Boolean(effectiveSymbol)}
                 label="Symbol is defined"
               />
               <PreflightItem

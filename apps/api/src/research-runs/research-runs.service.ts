@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
@@ -45,6 +46,7 @@ import {
 } from '../jobs/sqlite-journal-sync.service';
 import { MarketDataGuardService } from './market-data-guard.service';
 import { normalizeCryptoSymbol } from '../common/market-symbols';
+import { normalizeWorkspaceSymbol } from '../workspaces/workspace-metadata';
 
 const ORPHANED_JOB_REASON = 'orphaned_job_state';
 const ANALYST_KEYS = ['market', 'news', 'social', 'onchain'] as const;
@@ -116,7 +118,11 @@ export class ResearchRunsService {
       'editor',
     );
     const assetClass = dto.asset_class ?? 'crypto';
-    const symbol = normalizeResearchSymbol(dto.symbol, assetClass);
+    const symbol = await this.resolveCreateSymbol(
+      workspaceId,
+      dto.symbol,
+      assetClass,
+    );
     const request: EngineRunRequest = {
       run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
       workspace_id: workspaceId,
@@ -153,6 +159,43 @@ export class ResearchRunsService {
       permission,
       result: job.result,
     };
+  }
+
+  private async resolveCreateSymbol(
+    workspaceId: string,
+    requestSymbol: string | undefined,
+    assetClass: string,
+  ): Promise<string> {
+    const workspace = await this.workspaces.getMetadataById(workspaceId);
+    if (workspace?.scope_type === 'legacy_mixed') {
+      throw new BadRequestException({
+        code: 'legacy_workspace_read_only',
+        message: 'Legacy mixed workspaces cannot create new research runs.',
+      });
+    }
+
+    if (workspace?.scope_type === 'fixed_symbol') {
+      const expectedSymbol = workspace.symbol;
+      if (!expectedSymbol) {
+        throw new BadRequestException('Fixed-symbol workspace is missing symbol.');
+      }
+      if (requestSymbol !== undefined) {
+        const normalizedRequestSymbol = normalizeWorkspaceSymbol(requestSymbol);
+        if (normalizedRequestSymbol !== expectedSymbol) {
+          throw new BadRequestException({
+            code: 'symbol_workspace_mismatch',
+            expected_symbol: expectedSymbol,
+            received_symbol: normalizedRequestSymbol,
+          });
+        }
+      }
+      return expectedSymbol;
+    }
+
+    if (!requestSymbol) {
+      throw new BadRequestException('symbol must not be blank');
+    }
+    return normalizeResearchSymbol(requestSymbol, assetClass);
   }
 
   async get(id: string, userId?: string, workspaceHeader?: string) {

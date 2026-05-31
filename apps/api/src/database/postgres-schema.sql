@@ -14,7 +14,15 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    scope_type TEXT NOT NULL DEFAULT 'legacy_mixed'
+        CHECK (scope_type IN ('fixed_symbol', 'legacy_mixed')),
+    symbol TEXT,
+    market_type TEXT NOT NULL DEFAULT 'mixed'
+        CHECK (market_type IN ('mixed', 'spot', 'perp')),
+    default_timeframe TEXT,
+    archived BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS workspace_memberships (

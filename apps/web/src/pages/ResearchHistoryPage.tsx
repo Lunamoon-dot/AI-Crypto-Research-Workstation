@@ -20,6 +20,10 @@ import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import {
+  filterResearchRunsByHistoryFilters,
+  lifecycleStatus,
+} from '@/pages/research-history-filters';
 import type { ResearchRunResponse } from '@/types';
 
 const statusOptions = [
@@ -34,39 +38,33 @@ const statusOptions = [
 
 export function ResearchHistoryPage() {
   const auth = useWorkspaceStore();
+  const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
+  const [startedDate, setStartedDate] = useState('');
   const [symbol, setSymbol] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
+  const effectiveSymbolFilter = fixedWorkspaceSymbol ?? symbol;
   const query = useQuery({
-    queryKey: queryKeys.researchRuns({ limit: 100 }),
-    queryFn: () => listResearchRuns({ limit: 100 }, auth),
+    queryKey: queryKeys.researchRuns({
+      limit: 100,
+      symbol: fixedWorkspaceSymbol ?? undefined,
+    }),
+    queryFn: () =>
+      listResearchRuns(
+        { limit: 100, symbol: fixedWorkspaceSymbol ?? undefined },
+        auth,
+      ),
     refetchInterval: 5000,
   });
 
   const runs = useMemo(() => {
-    return (query.data ?? []).filter((run) => {
-      const symbolOk = symbol
-        ? run.symbol.toLowerCase().includes(symbol.trim().toLowerCase())
-        : true;
-      const statusOk = status ? lifecycleStatus(run.status) === status : true;
-      const haystack = [
-        run.id,
-        run.run_id,
-        run.symbol,
-        run.status,
-        run.market_type,
-        run.thesis_id,
-        run.timeframe,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      const searchOk = search
-        ? haystack.includes(search.trim().toLowerCase())
-        : true;
-      return symbolOk && statusOk && searchOk;
+    return filterResearchRunsByHistoryFilters(query.data ?? [], {
+      search,
+      startedDate,
+      status,
+      symbol: effectiveSymbolFilter,
     });
-  }, [query.data, search, status, symbol]);
+  }, [effectiveSymbolFilter, query.data, search, startedDate, status]);
 
   const metrics = useMemo(() => summarizeRuns(query.data ?? []), [query.data]);
 
@@ -114,16 +112,39 @@ export function ResearchHistoryPage() {
 
       <BentoGrid>
         <Panel className="span-12" title="Filters">
-          <div className="form-grid">
+          <div className="form-grid research-history-filter-grid">
             <label className="label">
-              Symbol
-              <input
-                className="input"
-                placeholder="BTC, ETH, SOL"
-                value={symbol}
-                onChange={(event) => setSymbol(event.target.value)}
-              />
+              Date
+              <div className="history-date-filter-row">
+                <input
+                  className="input"
+                  type="date"
+                  value={startedDate}
+                  onChange={(event) => setStartedDate(event.target.value)}
+                />
+                <button
+                  className="button ghost history-date-all-button"
+                  onClick={() => setStartedDate('')}
+                  type="button"
+                >All</button>
+              </div>
             </label>
+            {!fixedWorkspaceSymbol ? (
+              <label className="label">
+                Symbol
+                <input
+                  className="input"
+                  placeholder="BTC, ETH, SOL"
+                  value={symbol}
+                  onChange={(event) => setSymbol(event.target.value)}
+                />
+              </label>
+            ) : (
+              <div className="label">
+                Workspace symbol
+                <span className="badge primary">{fixedWorkspaceSymbol}</span>
+              </div>
+            )}
             <label className="label">
               Status
               <select
@@ -249,6 +270,7 @@ export function ResearchHistoryPage() {
   );
 
   function clearFilters() {
+    setStartedDate('');
     setSymbol('');
     setStatus('');
     setSearch('');
@@ -304,8 +326,4 @@ function summarizeRuns(runs: ResearchRunResponse[]) {
 
 function isActiveRun(status: string | null | undefined): boolean {
   return status === 'queued' || status === 'running' || status === 'created';
-}
-
-function lifecycleStatus(status: string | null | undefined): string {
-  return status === 'completed_degraded' ? 'completed' : status || 'unknown';
 }
