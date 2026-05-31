@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
+from datetime import datetime
 
 from langchain_core.messages import AIMessage
 
@@ -25,6 +27,15 @@ logger = logging.getLogger(__name__)
 _TEMPLATE_LINE = (
     "setup_type must be one of: breakout, range_reversion, funding_squeeze, "
     "news_event, macro_event, trend_pullback, liquidity_sweep, or agent_debate."
+)
+
+_DATE_REFERENCE_RE = re.compile(
+    r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|"
+    r"Dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
 )
 
 
@@ -55,6 +66,109 @@ def _build_template_context(state: dict) -> dict[str, str]:
     if signal_text:
         ctx["quant_signal"] = str(signal_text)[:2000]
     return ctx
+
+
+def _source_evidence_text(state: dict, research_reports: dict[str, str]) -> str:
+    parts = [
+        state.get("investment_plan", ""),
+        state.get("final_trade_decision", ""),
+        state.get("quant_signal_text", ""),
+        state.get("signal_text", ""),
+        *research_reports.values(),
+    ]
+    return "\n".join(str(part) for part in parts if part)
+
+
+def _analysis_date_aliases(analysis_date: str) -> set[str]:
+    raw = str(analysis_date or "").strip()
+    aliases = {raw.lower()} if raw else set()
+    if not raw:
+        return aliases
+    try:
+        parsed = datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        return aliases
+
+    day = str(parsed.day)
+    year = str(parsed.year)
+    for month in (parsed.strftime("%B"), parsed.strftime("%b")):
+        aliases.add(f"{month} {day}".lower())
+        aliases.add(f"{month} {day}, {year}".lower())
+    return aliases
+
+
+def _replace_unsupported_calendar_dates(
+    text: str,
+    *,
+    evidence_text: str,
+    analysis_date: str,
+) -> str:
+    if not text:
+        return text
+
+    evidence_lower = evidence_text.lower()
+    allowed = _analysis_date_aliases(analysis_date)
+
+    def replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        normalized = token.lower()
+        if normalized in allowed or normalized in evidence_lower:
+            return token
+        return "prior"
+
+    return _DATE_REFERENCE_RE.sub(replace, text)
+
+
+def _ground_scenario_plan_dates(
+    plan: ScenarioPlan,
+    *,
+    evidence_text: str,
+    analysis_date: str,
+) -> ScenarioPlan:
+    grounded_scenarios = []
+    for scenario in plan.scenarios:
+        grounded_scenarios.append(
+            scenario.model_copy(
+                update={
+                    "condition": _replace_unsupported_calendar_dates(
+                        scenario.condition,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
+                    "expected_behavior": _replace_unsupported_calendar_dates(
+                        scenario.expected_behavior,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
+                    "invalidation": _replace_unsupported_calendar_dates(
+                        scenario.invalidation,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
+                    "risk_factors": [
+                        _replace_unsupported_calendar_dates(
+                            risk,
+                            evidence_text=evidence_text,
+                            analysis_date=analysis_date,
+                        )
+                        for risk in scenario.risk_factors
+                    ],
+                }
+            )
+        )
+    return plan.model_copy(update={"scenarios": grounded_scenarios})
+
+
+def _date_grounding_instruction(analysis_date: str) -> str:
+    return (
+        f"Analysis date: {analysis_date or 'unknown'}.\n"
+        "Date/source grounding: Use the analysis date only as the run anchor. "
+        "Do not attach a specific calendar date to a level, breakout, support, "
+        "resistance, or catalyst unless that exact date appears in the supplied "
+        "source artifacts. If a source gives a level without a date, refer to it "
+        "as a prior breakout/support/resistance level or evidence-backed level "
+        "instead of naming a day."
+    )
 
 
 def _template_field_instructions(
@@ -120,6 +234,7 @@ def create_scenario_planner(llm):
 
     def scenario_node(state, name):
         company_name = state["company_of_interest"]
+        analysis_date = str(state.get("trade_date") or state.get("analysis_date") or "")
         instrument_context = build_instrument_context(company_name)
         investment_plan = state.get("investment_plan", "")
         pm_decision = state.get("final_trade_decision", "") or ""
@@ -139,6 +254,8 @@ def create_scenario_planner(llm):
             for k, v in research_reports.items()
             if v
         )
+        source_evidence = _source_evidence_text(state, research_reports)
+        date_grounding = _date_grounding_instruction(analysis_date)
 
         # --- Phase 5: pre-LLM template field validation ---
         requested_setup = state.get("setup_type")
@@ -169,6 +286,7 @@ def create_scenario_planner(llm):
                     "scenarios (not trade commands). Each scenario must have concrete "
                     "conditions, invalidation, risk factors, and a suggested user action "
                     "such as review, watch, or stand aside — never imperative buy/sell."
+                    f"\n\n{date_grounding}"
                     f"{field_instructions}"
                 ),
             },
@@ -177,6 +295,7 @@ def create_scenario_planner(llm):
                 "content": (
                     f"Generate a structured scenario map for {company_name}. "
                     f"{instrument_context}\n\n"
+                    f"{date_grounding}\n\n"
                     f"{_TEMPLATE_LINE}\n\n"
                     f"Produce exactly 3–4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
                     f"invalidation / adverse path, neutral/wait, and (if debate shows conflict) "
@@ -192,6 +311,11 @@ def create_scenario_planner(llm):
         if structured_llm is not None:
             try:
                 plan = structured_llm.invoke(messages)
+                plan = _ground_scenario_plan_dates(
+                    plan,
+                    evidence_text=source_evidence,
+                    analysis_date=analysis_date,
+                )
                 markdown = render_scenario_plan(plan)
                 return {
                     "messages": [AIMessage(content=markdown)],
@@ -213,6 +337,8 @@ def create_scenario_planner(llm):
         fallback_prompt = f"""You are a Scenario Planning Analyst. Generate 2-3 alternative
 future market scenarios for {company_name}. {instrument_context}
 
+{date_grounding}
+
 For each scenario, describe:
 - Key market conditions and catalysts
 - Probability assessment
@@ -231,6 +357,11 @@ Investment Plan:
 """
         response = llm.invoke(fallback_prompt)
         content = response.content if hasattr(response, "content") else str(response)
+        content = _replace_unsupported_calendar_dates(
+            content,
+            evidence_text=source_evidence,
+            analysis_date=analysis_date,
+        )
         return {
             "messages": [AIMessage(content=content)],
             "scenario_plan": content,

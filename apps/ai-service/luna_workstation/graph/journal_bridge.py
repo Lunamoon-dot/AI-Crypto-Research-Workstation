@@ -483,6 +483,22 @@ class JournalBridge:
                 opinions,
                 debate,
             )
+            news_snapshot = final_state.get("news_context_snapshot")
+            if run.id and isinstance(news_snapshot, dict) and news_snapshot:
+                quality = news_snapshot.get("quality") or {}
+                self.service.add_run_event(
+                    run.id,
+                    "news.context.snapshot",
+                    f"News context snapshot recorded for {run.symbol}",
+                    {
+                        "quality": quality,
+                        "coverage": news_snapshot.get("coverage") or {},
+                        "item_count": len(news_snapshot.get("items") or []),
+                        "story_cluster_count": len(
+                            news_snapshot.get("story_clusters") or []
+                        ),
+                    },
+                )
             risk_state = final_state.get("risk_debate_state") or {}
             if run.id and risk_state:
                 self.service.add_run_event(

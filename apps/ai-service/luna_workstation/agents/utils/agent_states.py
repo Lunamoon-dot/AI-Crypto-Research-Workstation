@@ -102,6 +102,12 @@ class AgentState(MessagesState):
     market_context: Annotated[
         str, "Pre-computed market microstructure and cross-venue context"
     ]
+    news_context: Annotated[
+        str, "Pre-computed source-grounded news catalyst context"
+    ]
+    news_context_snapshot: Annotated[
+        dict[str, Any], "Normalized NewsContext snapshot for provenance"
+    ]
     scenario_plan: Annotated[
         str, "LLM-generated scenario plan (markdown from Scenario Planner)"
     ]

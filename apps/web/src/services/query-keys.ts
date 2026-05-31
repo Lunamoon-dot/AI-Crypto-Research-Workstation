@@ -16,6 +16,8 @@ function scopedFilters(resource: string, filters: Record<string, unknown>) {
 export const queryKeys = {
   workspacesRoot: () => scopedResource('workspaces'),
   workspace: (id: string) => ['workspace', queryIdentity(), id] as const,
+  workspaceNewsSources: (id: string) =>
+    ['workspace-news-sources', queryIdentity(), id] as const,
   workbench: () => scopedResource('workbench'),
   workbenchAttention: (filters: Record<string, unknown>) =>
     scopedFilters('workbench-attention', filters),

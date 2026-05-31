@@ -116,6 +116,66 @@ def test_engine_request_keeps_only_graph_analyst_lanes():
     assert request.analysts == ["market", "social"]
 
 
+def test_engine_runner_maps_metadata_news_sources_to_news_context_overrides():
+    loader = _CapturingConfigLoader()
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_news_sources",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["news"],
+            "metadata": {
+                "news_sources": [
+                    {
+                        "id": "bitcoin_ops",
+                        "name": "Bitcoin Ops",
+                        "type": "rss",
+                        "url": "https://bitcoinops.org/en/feed.xml",
+                        "category": "official_project",
+                        "trust_tier": "user_trusted",
+                        "target_analysts": ["news"],
+                        "scope": ["BTC"],
+                    },
+                    {
+                        "id": "sentiment_forums",
+                        "name": "Sentiment Forums",
+                        "type": "rss",
+                        "url": "https://example.com/social.xml",
+                        "category": "crypto_media",
+                        "target_analysts": ["social"],
+                    },
+                    {
+                        "id": "paused",
+                        "name": "Paused",
+                        "type": "rss",
+                        "url": "https://example.com/rss.xml",
+                        "category": "crypto_media",
+                        "enabled": False,
+                    },
+                ]
+            },
+        }
+    )
+
+    config = EngineRunner(config_loader=loader)._load_config(request)
+
+    assert config["news_context"]["workspace_sources"] == [
+        {
+            "id": "bitcoin_ops",
+            "name": "Bitcoin Ops",
+            "type": "rss",
+            "url": "https://bitcoinops.org/en/feed.xml",
+            "category": "official_project",
+            "trust_tier": "user_trusted",
+            "target_analysts": ["news"],
+            "scope": ["BTC"],
+        }
+    ]
+    assert config["_engine"]["metadata"] == request.metadata
+
+
 def test_engine_evaluate_request_accepts_window_presets():
     request = EngineEvaluateRequest.model_validate(
         {
@@ -294,6 +354,13 @@ class _StaticConfigLoader:
 
     def load(self, **_kwargs):
         return dict(self.config)
+
+
+class _CapturingConfigLoader:
+    def load(self, **kwargs):
+        config = {"journal": {"enabled": False}}
+        config.update(kwargs["cli_overrides"])
+        return config
 
 
 class _FailingResearchService:

@@ -1783,6 +1783,128 @@ test('POST /workspaces creates fixed-symbol metadata and grants owner access', a
   );
 });
 
+test('workspace news sources can be saved, listed, and require editor access', async () => {
+  const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'owner_1', workspace_id: 'workspace_a', role: 'owner' },
+    { user_id: 'viewer_1', workspace_id: 'workspace_a', role: 'viewer' },
+  ]);
+  workspaces.setWorkspaceMetadataForTest([
+    {
+      id: 'workspace_a',
+      name: 'BTC Workspace',
+      scope_type: 'fixed_symbol',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      default_timeframe: null,
+      archived: false,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    },
+  ]);
+  const controller = new WorkspacesController(new AuthService(), workspaces);
+  const newsApi = controller as unknown as {
+    listNewsSources(
+      id: string,
+      userId?: string,
+    ): Promise<{ workspace_id: string; sources: JsonRecord[] }>;
+    updateNewsSources(
+      id: string,
+      dto: JsonRecord,
+      userId?: string,
+    ): Promise<{ workspace_id: string; sources: JsonRecord[] }>;
+  };
+
+  const saved = await newsApi.updateNewsSources(
+    'workspace_a',
+    {
+      sources: [
+        {
+          id: 'btc-core-blog',
+          name: ' BTC Core Blog ',
+          type: 'rss',
+          url: ' https://bitcoincore.org/en/rss.xml ',
+          category: 'official_project',
+          trust_tier: 'user_trusted',
+          scope: ['btc', 'eth'],
+          official: true,
+          enabled: true,
+        },
+        {
+          name: 'Paused Source',
+          type: 'rss',
+          url: 'https://example.com/rss.xml',
+          category: 'crypto_media',
+          trust_tier: 'medium',
+          scope: 'ALL',
+          enabled: false,
+        },
+        {
+          name: 'Workspace Default Source',
+          type: 'rss',
+          url: 'https://example.com/default.xml',
+          category: 'crypto_media',
+          trust_tier: 'medium',
+        },
+      ],
+    },
+    'owner_1',
+  );
+
+  assert.equal(saved.workspace_id, 'workspace_a');
+  assert.deepEqual(saved.sources.map((source) => source.id), [
+    'btc-core-blog',
+    'paused_source',
+    'workspace_default_source',
+  ]);
+  assert.deepEqual(saved.sources[0]?.scope, ['BTC', 'ETH']);
+  assert.equal(saved.sources[0]?.name, 'BTC Core Blog');
+  assert.equal(saved.sources[1]?.enabled, false);
+  assert.deepEqual(saved.sources[2]?.scope, ['BTC']);
+
+  const listed = await newsApi.listNewsSources('workspace_a', 'viewer_1');
+  assert.deepEqual(listed, saved);
+
+  await assert.rejects(
+    () =>
+      newsApi.updateNewsSources(
+        'workspace_a',
+        { sources: [] },
+        'viewer_1',
+      ),
+    isException(ForbiddenException),
+  );
+
+  await assert.rejects(
+    () =>
+      newsApi.updateNewsSources(
+        'workspace_a',
+        {
+          sources: [
+            {
+              id: 'dupe',
+              name: 'One',
+              type: 'rss',
+              url: 'https://example.com/one.xml',
+              category: 'crypto_media',
+            },
+            {
+              id: 'dupe',
+              name: 'Two',
+              type: 'rss',
+              url: 'https://example.com/two.xml',
+              category: 'crypto_media',
+            },
+          ],
+        },
+        'owner_1',
+      ),
+    isException(BadRequestException),
+  );
+
+  await workspaces.onModuleDestroy();
+});
+
 test('POST /research-runs uses a persisted fixed workspace after service restart', async () => {
   await withEnv(
     {
@@ -1884,6 +2006,113 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
           metadata: { source: 'contract-test' },
         },
       ]);
+    },
+  );
+});
+
+test('POST /research-runs injects enabled workspace news sources into engine metadata', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const { researchRunsController, jobs, workspaces } = buildHarness();
+      workspaces.setWorkspaceMetadataForTest([
+        {
+          id: 'workspace_a',
+          name: 'BTC Workspace',
+          scope_type: 'fixed_symbol',
+          symbol: 'BTC/USDT',
+          market_type: 'spot',
+          default_timeframe: null,
+          archived: false,
+          created_at: '2026-05-31T00:00:00.000Z',
+          updated_at: '2026-05-31T00:00:00.000Z',
+        },
+      ]);
+      const workspaceNews = workspaces as unknown as {
+        updateNewsSources(
+          workspaceId: string,
+          userId: string,
+          dto: JsonRecord,
+        ): Promise<{ workspace_id: string; sources: JsonRecord[] }>;
+      };
+      const savedSourcesResponse = await workspaceNews.updateNewsSources('workspace_a', 'user_1', {
+        sources: [
+          {
+            id: 'bitcoin_ops',
+            name: 'Bitcoin Ops',
+            type: 'rss',
+            url: 'https://bitcoinops.org/en/feed.xml',
+            category: 'official_project',
+            trust_tier: 'user_trusted',
+            target_analysts: ['news'],
+            scope: ['BTC'],
+            enabled: true,
+          },
+          {
+            id: 'sentiment_forums',
+            name: 'Sentiment Forums',
+            type: 'rss',
+            url: 'https://example.com/social.xml',
+            category: 'crypto_media',
+            trust_tier: 'medium',
+            target_analysts: ['social'],
+            scope: ['BTC'],
+            enabled: true,
+          },
+          {
+            id: 'paused_media',
+            name: 'Paused Media',
+            type: 'rss',
+            url: 'https://example.com/rss.xml',
+            category: 'crypto_media',
+            trust_tier: 'medium',
+            target_analysts: ['news'],
+            scope: ['BTC'],
+            enabled: false,
+          },
+        ],
+      });
+      const savedSources = records(savedSourcesResponse.sources);
+      assert.deepEqual(
+        savedSources.map((source) => [
+          source.id,
+          source.target_analysts,
+        ]),
+        [
+          ['bitcoin_ops', ['news']],
+          ['sentiment_forums', ['social']],
+          ['paused_media', ['news']],
+        ],
+      );
+
+      await researchRunsController.create(
+        {
+          run_id: 'run_workspace_news_sources',
+          workspace_id: 'workspace_a',
+          symbol: 'BTC/USDT',
+          analysis_date: '2026-05-12',
+          analysts: ['news'],
+          metadata: { source: 'ui' },
+        },
+        'user_1',
+        'workspace_a',
+      );
+
+      const metadata = record(jobs.listMemoryJobs()[0]?.metadata);
+      const newsContext = record(metadata.news_context);
+      const metadataSources = records(metadata.news_sources);
+      const contextSources = records(newsContext.workspace_sources);
+      assert.equal(metadata.source, 'ui');
+      assert.deepEqual(metadataSources.map((source) => source.id), [
+        'bitcoin_ops',
+      ]);
+      assert.deepEqual(metadataSources[0]?.target_analysts, ['news']);
+      assert.deepEqual(contextSources.map((source) => source.id), [
+        'bitcoin_ops',
+      ]);
+      assert.deepEqual(contextSources[0]?.target_analysts, ['news']);
+      assert.equal(contextSources[0]?.url, 'https://bitcoinops.org/en/feed.xml');
+      assert.equal(contextSources[0]?.enabled, undefined);
     },
   );
 });
@@ -11274,6 +11503,7 @@ class FakeWorkspacePool {
   private readonly users = new Set<string>();
   private readonly workspaces = new Map<string, Record<string, unknown>>();
   private readonly memberships = new Map<string, Record<string, unknown>>();
+  private readonly newsSources = new Map<string, Record<string, unknown>[]>();
 
   async query(
     sql: string,
@@ -11332,6 +11562,41 @@ class FakeWorkspacePool {
         role,
       });
       return { rows: [] };
+    }
+
+    if (normalized.startsWith('delete from workspace_news_sources')) {
+      this.newsSources.delete(String(params[0]));
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith('insert into workspace_news_sources')) {
+      const [workspaceId, sourceId, enabled, targetAnalysts, sortOrder, payload] = params;
+      const rows = this.newsSources.get(String(workspaceId)) ?? [];
+      rows.push({
+        workspace_id: workspaceId,
+        source_id: sourceId,
+        enabled,
+        target_analysts_json:
+          typeof targetAnalysts === 'string'
+            ? JSON.parse(targetAnalysts)
+            : targetAnalysts,
+        sort_order: sortOrder,
+        payload_json: typeof payload === 'string' ? JSON.parse(payload) : payload,
+      });
+      this.newsSources.set(String(workspaceId), rows);
+      return { rows: [] };
+    }
+
+    if (
+      normalized.includes('from workspace_news_sources') &&
+      normalized.includes('where workspace_id = $1')
+    ) {
+      const rows = [...(this.newsSources.get(String(params[0])) ?? [])].sort(
+        (left, right) =>
+          Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0) ||
+          String(left.source_id ?? '').localeCompare(String(right.source_id ?? '')),
+      );
+      return { rows };
     }
 
     if (

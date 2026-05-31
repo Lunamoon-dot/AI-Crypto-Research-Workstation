@@ -137,6 +137,7 @@ class EngineRunner:
         profile = request.config_profile
         if profile and profile.lower() == "default":
             profile = None
+        workspace_news_sources = _metadata_workspace_news_sources(request.metadata)
         overrides: dict[str, Any] = {
             "asset_class": request.asset_class,
             "market_type": request.market_type,
@@ -147,6 +148,10 @@ class EngineRunner:
                 "metadata": request.metadata,
             },
         }
+        if workspace_news_sources:
+            overrides["news_context"] = {
+                "workspace_sources": workspace_news_sources,
+            }
         if request.exchange:
             overrides["crypto_exchange"] = request.exchange
         if request.dry_run:
@@ -314,3 +319,50 @@ def _engine_config(workspace_id: str, metadata: dict[str, Any]) -> dict[str, Any
         "metadata": metadata,
     }
     return config
+
+
+def _metadata_workspace_news_sources(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    context = metadata.get("news_context")
+    raw_sources: Any = metadata.get("news_sources")
+    if isinstance(context, dict) and "workspace_sources" in context:
+        raw_sources = context.get("workspace_sources")
+    if not isinstance(raw_sources, list):
+        return []
+
+    sources: list[dict[str, Any]] = []
+    for raw in raw_sources:
+        if (
+            not isinstance(raw, dict)
+            or raw.get("enabled") is False
+            or not _metadata_source_targets_news(raw)
+        ):
+            continue
+        source = {
+            key: raw[key]
+            for key in (
+                "id",
+                "name",
+                "type",
+                "url",
+                "category",
+                "trust_tier",
+                "target_analysts",
+                "scope",
+                "official",
+            )
+            if key in raw
+        }
+        if all(source.get(key) for key in ("id", "name", "url", "category")):
+            sources.append(source)
+    return sources
+
+
+def _metadata_source_targets_news(source: dict[str, Any]) -> bool:
+    raw_targets = source.get("target_analysts")
+    if raw_targets is None:
+        return True
+    if isinstance(raw_targets, str):
+        raw_targets = raw_targets.split(",")
+    if not isinstance(raw_targets, list):
+        return False
+    return "news" in {str(target).strip().lower() for target in raw_targets}

@@ -39,6 +39,21 @@ ON workspace_memberships(workspace_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user_workspace
 ON workspace_memberships(user_id, workspace_id);
 
+CREATE TABLE IF NOT EXISTS workspace_news_sources (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    target_analysts_json JSONB NOT NULL DEFAULT '["news"]'::jsonb,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (workspace_id, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_news_sources_workspace_order
+ON workspace_news_sources(workspace_id, sort_order, source_id);
+
 CREATE TABLE IF NOT EXISTS research_runs (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

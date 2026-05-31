@@ -31,6 +31,21 @@ backoff_base_sec = 0.35
 backoff_max_sec = 2.5
 rate_limit_per_sec = 8.0
 
+[news_context]
+enabled = true
+lookback_days = 7
+feed_timeout_sec = 8.0
+workspace_sources = []
+
+# Example workspace source:
+# [[news_context.workspace_sources]]
+# name = "Arbitrum governance forum"
+# type = "rss"
+# url = "https://forum.arbitrum.foundation/latest.rss"
+# scope = ["ARB"]
+# trust_tier = "user_trusted"
+# category = "official_project"
+
 [observability]
 persist_run_events = true
 persist_data_provider_calls = true

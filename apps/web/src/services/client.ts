@@ -6,7 +6,7 @@ import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 export type { ApiError } from '@/services/api-error';
 
 export type ApiOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
 };

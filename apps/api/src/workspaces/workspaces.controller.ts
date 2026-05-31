@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
+import { UpdateWorkspaceNewsSourcesDto } from './dto/update-workspace-news-sources.dto';
 import { WorkspacesService } from './workspaces.service';
 
 @Controller('workspaces')
@@ -29,5 +30,24 @@ export class WorkspacesController {
   get(@Param('id') id: string, @Headers('x-user-id') userId?: string) {
     const user = this.auth.resolveUser(userId);
     return this.workspaces.getMetadata(id, user);
+  }
+
+  @Get(':id/news-sources')
+  listNewsSources(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+  ) {
+    const user = this.auth.resolveUser(userId);
+    return this.workspaces.listNewsSources(id, user);
+  }
+
+  @Put(':id/news-sources')
+  updateNewsSources(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkspaceNewsSourcesDto,
+    @Headers('x-user-id') userId?: string,
+  ) {
+    const user = this.auth.resolveUser(userId);
+    return this.workspaces.updateNewsSources(id, user, dto);
   }
 }

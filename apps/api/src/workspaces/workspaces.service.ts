@@ -10,12 +10,20 @@ import {
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { shouldUseLocalPostgresFallback } from '../database/postgres-availability';
+import { JsonRecord } from '../database/journal.types';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
 import {
   validateWorkspaceMetadata,
   WorkspaceMarketType,
   WorkspaceMetadata,
 } from './workspace-metadata';
+import {
+  toEngineNewsSource,
+  isWorkspaceNewsSourceTargetedTo,
+  validateWorkspaceNewsSources,
+  WorkspaceNewsSource,
+  WorkspaceNewsSourcesResponse,
+} from './workspace-news-sources';
 
 type WorkspacePool = {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
@@ -43,6 +51,7 @@ export class WorkspacesService implements OnModuleDestroy {
   private readonly pool?: WorkspacePool;
   private readonly ownsPool: boolean;
   private readonly metadata = new Map<string, WorkspaceMetadata>();
+  private readonly newsSources = new Map<string, WorkspaceNewsSource[]>();
   private readonly runtimeMemberships: WorkspaceMembership[] = [];
   private postgresSchemaReady = false;
   private staticMemberships: WorkspaceMembership[] | undefined;
@@ -186,6 +195,45 @@ export class WorkspacesService implements OnModuleDestroy {
       this.metadata.get(workspace) ??
       (await this.getPostgresMetadataById(workspace))
     );
+  }
+
+  async listNewsSources(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceNewsSourcesResponse> {
+    const user = normalizeUserId(userId);
+    const workspace = this.resolveWorkspace(workspaceId);
+    await this.assertAccess(user, workspace, 'viewer');
+    return {
+      workspace_id: workspace,
+      sources: await this.getNewsSourcesByWorkspace(workspace),
+    };
+  }
+
+  async updateNewsSources(
+    workspaceId: string,
+    userId: string,
+    input: unknown,
+  ): Promise<WorkspaceNewsSourcesResponse> {
+    const user = normalizeUserId(userId);
+    const workspace = this.resolveWorkspace(workspaceId);
+    await this.assertAccess(user, workspace, 'editor');
+    const sources = validateWorkspaceNewsSources(input, {
+      defaultScope: await this.requireWorkspaceNewsSourceScope(workspace),
+    });
+    await this.savePostgresNewsSources(workspace, sources);
+    this.newsSources.set(workspace, sources);
+    return {
+      workspace_id: workspace,
+      sources,
+    };
+  }
+
+  async listEnabledNewsSourcesForEngine(workspaceId: string): Promise<JsonRecord[]> {
+    const workspace = this.resolveWorkspace(workspaceId);
+    return (await this.getNewsSourcesByWorkspace(workspace))
+      .filter((source) => source.enabled && isWorkspaceNewsSourceTargetedTo(source, 'news'))
+      .map(toEngineNewsSource);
   }
 
   setMembershipsForTest(memberships: WorkspaceMembership[]): void {
@@ -438,6 +486,106 @@ export class WorkspacesService implements OnModuleDestroy {
     }
   }
 
+  private async getNewsSourcesByWorkspace(
+    workspaceId: string,
+  ): Promise<WorkspaceNewsSource[]> {
+    const runtimeSources = this.newsSources.get(workspaceId);
+    if (runtimeSources) {
+      return runtimeSources;
+    }
+    const postgresSources = await this.listPostgresNewsSources(workspaceId);
+    this.newsSources.set(workspaceId, postgresSources);
+    return postgresSources;
+  }
+
+  private async requireWorkspaceNewsSourceScope(workspaceId: string): Promise<string> {
+    const metadata = await this.getMetadataById(workspaceId);
+    if (!metadata?.symbol) {
+      throw new BadRequestException(
+        `Workspace ${workspaceId} must have a symbol before configuring news sources.`,
+      );
+    }
+    return metadata.symbol;
+  }
+
+  private async listPostgresNewsSources(
+    workspaceId: string,
+  ): Promise<WorkspaceNewsSource[]> {
+    if (!this.pool) {
+      return [];
+    }
+
+    try {
+      await this.ensurePostgresWorkspaceSchema();
+      const result = await this.pool.query(
+        `
+        SELECT payload_json
+        FROM workspace_news_sources
+        WHERE workspace_id = $1
+        ORDER BY sort_order ASC, source_id ASC
+        `,
+        [workspaceId],
+      );
+      return validateWorkspaceNewsSources({
+        sources: result.rows.map((row) => payloadFromRow(row)),
+      });
+    } catch (error) {
+      if (shouldUseLocalPostgresFallback(this.databaseUrl, error)) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async savePostgresNewsSources(
+    workspaceId: string,
+    sources: WorkspaceNewsSource[],
+  ): Promise<void> {
+    if (!this.pool) {
+      return;
+    }
+
+    try {
+      await this.ensurePostgresWorkspaceSchema();
+      await this.pool.query('BEGIN');
+      await this.pool.query(
+        'DELETE FROM workspace_news_sources WHERE workspace_id = $1',
+        [workspaceId],
+      );
+      for (const [index, source] of sources.entries()) {
+        await this.pool.query(
+          `
+          INSERT INTO workspace_news_sources (
+            workspace_id,
+            source_id,
+            enabled,
+            target_analysts_json,
+            sort_order,
+            payload_json,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4::jsonb, $5, $6::jsonb, now())
+          `,
+          [
+            workspaceId,
+            source.id,
+            source.enabled,
+            JSON.stringify(source.target_analysts),
+            index,
+            JSON.stringify(source),
+          ],
+        );
+      }
+      await this.pool.query('COMMIT');
+    } catch (error) {
+      await this.rollbackPostgresWorkspaceTransaction();
+      if (shouldUseLocalPostgresFallback(this.databaseUrl, error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
   private async rollbackPostgresWorkspaceTransaction(): Promise<void> {
     try {
       await this.pool?.query('ROLLBACK');
@@ -491,6 +639,24 @@ export class WorkspacesService implements OnModuleDestroy {
 
       CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user_workspace
         ON workspace_memberships(user_id, workspace_id);
+
+      CREATE TABLE IF NOT EXISTS workspace_news_sources (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT true,
+        target_analysts_json JSONB NOT NULL DEFAULT '["news"]'::jsonb,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        payload_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (workspace_id, source_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_workspace_news_sources_workspace_order
+        ON workspace_news_sources(workspace_id, sort_order, source_id);
+
+      ALTER TABLE workspace_news_sources
+        ADD COLUMN IF NOT EXISTS target_analysts_json JSONB NOT NULL DEFAULT '["news"]'::jsonb;
     `);
     this.postgresSchemaReady = true;
   }
@@ -663,6 +829,22 @@ function membershipFromRow(row: unknown): WorkspaceMembership {
     workspace_id: String(record.workspace_id ?? record.workspaceId ?? '').trim(),
     role: normalizeRole(record.role),
   };
+}
+
+function payloadFromRow(row: unknown): JsonRecord {
+  const record = row as Record<string, unknown>;
+  const payload = record.payload_json;
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as JsonRecord;
+    } catch {
+      return {};
+    }
+  }
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as JsonRecord;
+  }
+  return {};
 }
 
 function normalizeRole(role: unknown): WorkspaceRole {

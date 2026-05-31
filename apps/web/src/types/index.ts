@@ -29,6 +29,39 @@ export interface CreateWorkspaceRequest {
   default_timeframe?: string | null;
 }
 
+export type WorkspaceNewsSourceType = 'rss' | 'atom';
+
+export type WorkspaceNewsSourceTargetAnalyst = 'news' | 'social';
+
+export type WorkspaceNewsSourceTrustTier =
+  | 'high'
+  | 'user_trusted'
+  | 'medium'
+  | 'low'
+  | 'aggregator';
+
+export interface WorkspaceNewsSource {
+  id: string;
+  name: string;
+  type: WorkspaceNewsSourceType;
+  url: string;
+  category: string;
+  trust_tier: WorkspaceNewsSourceTrustTier;
+  target_analysts: WorkspaceNewsSourceTargetAnalyst[];
+  scope: string[];
+  official: boolean;
+  enabled: boolean;
+}
+
+export interface WorkspaceNewsSourcesResponse {
+  workspace_id: string;
+  sources: WorkspaceNewsSource[];
+}
+
+export interface UpdateWorkspaceNewsSourcesRequest {
+  sources: WorkspaceNewsSource[];
+}
+
 export interface ResearchRunQueuedResponse {
   run_id: string;
   workspace_id: string;

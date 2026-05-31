@@ -22,6 +22,15 @@ from .evaluation import EvaluationAnalytics, EvaluationMetricsRow, ThesisEvaluat
 from .outcome import OutcomeReview, OutcomeResult
 from .outcome_analytics import OutcomeAnalytics, RetrospectiveInsight
 from .observability import DataFreshnessCheck, LLMCallRecord, ProviderHealthRecord
+from .news_context import (
+    AssetNewsProfile,
+    NewsContext,
+    NewsCoverage,
+    NewsItem,
+    NewsQuality,
+    NewsSource,
+    NewsStoryCluster,
+)
 from .provenance import DataFreshness, SignalProvenance
 from .research_run import ResearchRun, ResearchRunStatus
 from .scenario import Scenario, ScenarioProbabilityBand
@@ -67,6 +76,7 @@ __all__ = [
     "DataFreshnessCheck",
     "AgentOpinion",
     "AgentStance",
+    "AssetNewsProfile",
     "render_agent_opinion",
     "ConflictLevel",
     "FactorReliability",
@@ -94,6 +104,12 @@ __all__ = [
     "StructuredResearchItem",
     "MarketSnapshot",
     "MarketBrief",
+    "NewsContext",
+    "NewsCoverage",
+    "NewsItem",
+    "NewsQuality",
+    "NewsSource",
+    "NewsStoryCluster",
     "SignalSnapshot",
     "SignalProvenance",
     "TemplateField",

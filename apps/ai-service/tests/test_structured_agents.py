@@ -16,6 +16,8 @@ from luna_workstation.agents.schemas import (
     MarketType,
     PortfolioRating,
     ResearchPlan,
+    ScenarioItem,
+    ScenarioPlan,
     SetupAction,
     SetupProposal,
     TraderAction,
@@ -28,6 +30,7 @@ from luna_workstation.agents.planners.setup_planner import (
     create_setup_planner,
     create_trader,
 )
+from luna_workstation.agents.planners.scenario_planner import create_scenario_planner
 
 
 # ---------------------------------------------------------------------------
@@ -290,3 +293,100 @@ class TestResearchManagerAgent:
         rm = create_research_manager(llm)
         result = rm(_make_rm_state())
         assert result["investment_plan"] == plain_response
+
+
+# ---------------------------------------------------------------------------
+# Scenario Planner agent: prompt grounding
+# ---------------------------------------------------------------------------
+
+
+def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
+    if plan is None:
+        plan = ScenarioPlan(
+            setup_type="agent_debate",
+            scenarios=[
+                ScenarioItem(
+                    condition="If price reclaims the review zone with fresh volume.",
+                    expected_behavior="Momentum improves after confirmation.",
+                    probability_band="medium",
+                    invalidation="Invalid if price loses the review zone.",
+                    risk_factors=["Manual review required."],
+                    suggested_action="watch",
+                )
+            ],
+        )
+    structured = MagicMock()
+
+    def invoke(prompt):
+        captured["prompt"] = prompt
+        return plan
+
+    structured.invoke.side_effect = invoke
+    llm = MagicMock()
+    llm.with_structured_output.return_value = structured
+    return llm
+
+
+@pytest.mark.unit
+class TestScenarioPlannerAgent:
+    def test_prompt_includes_analysis_date_and_date_provenance_guard(self):
+        captured = {}
+        llm = _structured_scenario_llm(captured)
+        scenario_planner = create_scenario_planner(llm)
+
+        scenario_planner(
+            {
+                "company_of_interest": "BNB/USDT",
+                "trade_date": "2026-05-31",
+                "investment_plan": "RSI divergence near a pullback zone.",
+                "final_trade_decision": "Watch the $643 level for confirmation.",
+                "market_report": "Price is near $643. No dated breakout evidence.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        prompt_text = "\n".join(message["content"] for message in captured["prompt"])
+        assert "Analysis date: 2026-05-31" in prompt_text
+        assert "Do not attach a specific calendar date" in prompt_text
+        assert "prior breakout/support/resistance level" in prompt_text
+
+    def test_structured_output_replaces_unsupported_calendar_dates(self):
+        captured = {}
+        llm = _structured_scenario_llm(
+            captured,
+            ScenarioPlan(
+                setup_type="agent_debate",
+                scenarios=[
+                    ScenarioItem(
+                        condition="If price retests the May 30 breakout level ($643).",
+                        expected_behavior="May 30 support should hold before upside.",
+                        probability_band="medium",
+                        invalidation="Invalid below the May 30 low.",
+                        risk_factors=["May 30 level was not sourced."],
+                        suggested_action="watch",
+                    )
+                ],
+            ),
+        )
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BNB/USDT",
+                "trade_date": "2026-05-31",
+                "investment_plan": "RSI divergence near a pullback zone.",
+                "final_trade_decision": "Watch the $643 level for confirmation.",
+                "market_report": "Price is near $643. No dated breakout evidence.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        assert "May 30" not in result["scenario_plan"]
+        assert "May 30" not in result["scenario_plan_json"]
+        assert "prior breakout level ($643)" in result["scenario_plan"]

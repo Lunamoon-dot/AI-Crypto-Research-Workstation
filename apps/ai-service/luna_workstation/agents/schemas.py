@@ -516,6 +516,10 @@ class ScenarioItem(BaseModel):
         description=(
             "Concrete trigger condition with specific price levels, indicator "
             "values, or event thresholds from the reports and debate context. "
+            "Do not attach a specific calendar date to a level or event unless "
+            "that date appears in the source context; use phrasing like "
+            "'prior breakout/support/resistance level' when the source gives "
+            "a level without a date. "
             "E.g. 'If BTC breaks above $108,000 resistance with spot CVD "
             "turning positive and funding resetting below 0.01%'."
         ),

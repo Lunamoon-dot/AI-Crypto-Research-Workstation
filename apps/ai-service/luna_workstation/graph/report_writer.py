@@ -61,6 +61,7 @@ class ReportWriter:
             "final_trade_summary_json": final_state.get("final_trade_summary_json", ""),
             "scenario_plan": final_state.get("scenario_plan", ""),
             "quant_signal": final_state.get("quant_signal", ""),
+            "news_context_snapshot": final_state.get("news_context_snapshot", {}),
             "run_quality": final_state.get("run_quality", {}),
         }
         if trade_thesis is not None:

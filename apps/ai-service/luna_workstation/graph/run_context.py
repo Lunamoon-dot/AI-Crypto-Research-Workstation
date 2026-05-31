@@ -28,6 +28,7 @@ class GraphRunContext:
     log_states_dict: dict[str, Any] = field(default_factory=dict)
     quant_signal_result: Any = None
     market_context_result: Any = None
+    news_context_result: Any = None
     replay_thread_id: str | None = None
     current_scenario_plan: str = ""
 
@@ -121,6 +122,14 @@ class GraphRunContextMixin:
     @market_context_result.setter
     def market_context_result(self, value: Any) -> None:
         self._ensure_run_context().market_context_result = value
+
+    @property
+    def news_context_result(self) -> Any:
+        return self._ensure_run_context().news_context_result
+
+    @news_context_result.setter
+    def news_context_result(self, value: Any) -> None:
+        self._ensure_run_context().news_context_result = value
 
     @property
     def _replay_thread_id(self) -> str | None:

@@ -75,6 +75,13 @@ export const navGroups: NavigationGroup[] = [
         mobile: true,
       },
       {
+        id: 'research-workspace',
+        label: 'Workspace Config',
+        title: 'Workspace configuration',
+        href: routes.researchWorkspace,
+        icon: Settings,
+      },
+      {
         id: 'research-continuity',
         label: 'Continuity',
         title: 'Research continuity ledger',

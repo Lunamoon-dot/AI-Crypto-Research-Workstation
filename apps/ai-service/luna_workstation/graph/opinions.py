@@ -102,6 +102,22 @@ _NEWS_FEED_MISSING_MARKERS = (
     "do not fabricate headlines",
     "news-derived claims are unsupported",
 )
+_NEWS_CONTEXT_QUALITY_RE = re.compile(
+    r"quality\s*:\s*(?P<status>clean|degraded|insufficient_data|insufficient)"
+    r"(?:\s*\((?P<score>\d+(?:\.\d+)?)\))?",
+    re.IGNORECASE,
+)
+_NEWS_REASON_CODES = (
+    "missing_news_feed",
+    "insufficient_news_evidence",
+    "aggregator_only_news",
+    "search_only_news",
+    "stale_news_window",
+    "missing_primary_source_news",
+    "conflicting_news_sources",
+    "low_relevance_news",
+    "workspace_news_source_unavailable",
+)
 
 
 def build_agent_opinions(
@@ -412,8 +428,24 @@ def normalize_opinion_quality(
     data_quality = opinion.data_quality
     stance = opinion.stance
     confidence = opinion.confidence
+    news_quality = _news_context_quality(text) if source_report_type == "news" else None
 
-    if source_report_type == "news" and not _has_primary_news_evidence(text):
+    if news_quality is not None:
+        status, score, context_codes = news_quality
+        reason_codes = dedupe([*reason_codes, *context_codes])
+        if status == "clean":
+            data_quality = max(data_quality, max(score, 0.75))
+            missing_data = _drop_news_context_boilerplate(missing_data)
+        elif status == "insufficient_data":
+            data_quality = min(data_quality, score if score > 0 else 0.25)
+            stance = AgentStance.UNCERTAIN
+            confidence = _cap_confidence(confidence, 0.25)
+            missing_data = dedupe([*missing_data, *context_codes])[:8]
+        else:
+            data_quality = min(data_quality, score if score > 0 else 0.6)
+            confidence = _cap_confidence(confidence, 0.6)
+            missing_data = dedupe([*missing_data, *context_codes])[:8]
+    elif source_report_type == "news" and not _has_primary_news_evidence(text):
         data_quality = 0.0
         stance = AgentStance.UNCERTAIN
         confidence = _cap_confidence(confidence, 0.2)
@@ -554,6 +586,13 @@ def _count_stale_mentions(opinions: list[AgentOpinion]) -> int:
 
 def _has_primary_news_evidence(text: str) -> bool:
     lowered = (text or "").lower()
+    quality = _news_context_quality(text)
+    if quality is not None:
+        status, _score, codes = quality
+        if status == "clean":
+            return True
+        if any(code in codes for code in ("missing_primary_source_news", "aggregator_only_news", "search_only_news")):
+            return False
     if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
         return False
     if "cryptopanic" in lowered and _ISO_DATE_RE.search(text or ""):
@@ -578,6 +617,9 @@ def _missing_data_dominates(text: str, missing_data: list[str]) -> bool:
 def _reason_codes_from_text(text: str) -> list[str]:
     lowered = (text or "").lower()
     codes = []
+    for code in _NEWS_REASON_CODES:
+        if code in lowered:
+            codes.append(code)
     if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
         codes.append("missing_news_feed")
     if "liquidation" in lowered and any(term in lowered for term in MISSING_DATA_TERMS):
@@ -593,6 +635,43 @@ def _reason_codes_from_text(text: str) -> list[str]:
     ):
         codes.append("exchange_oi_unsupported")
     return codes
+
+
+def _news_context_quality(text: str) -> tuple[str, float, list[str]] | None:
+    lowered = (text or "").lower()
+    if "pre-computed news context" not in lowered:
+        return None
+    match = _NEWS_CONTEXT_QUALITY_RE.search(text or "")
+    if not match:
+        return None
+    status = match.group("status").lower()
+    if status == "insufficient":
+        status = "insufficient_data"
+    raw_score = match.group("score")
+    score = 0.0
+    if raw_score:
+        try:
+            score = max(min(float(raw_score), 1.0), 0.0)
+        except ValueError:
+            score = 0.0
+    elif status == "clean":
+        score = 0.85
+    elif status == "degraded":
+        score = 0.6
+    codes = [code for code in _NEWS_REASON_CODES if code in lowered]
+    return status, score, codes
+
+
+def _drop_news_context_boilerplate(values: list[str]) -> list[str]:
+    out = []
+    for value in values:
+        lowered = value.lower().strip()
+        if lowered in {"none", "- none"}:
+            continue
+        if lowered.startswith("missing/degraded data"):
+            continue
+        out.append(value)
+    return out
 
 
 def _cap_confidence(value: float | None, cap: float) -> float | None:

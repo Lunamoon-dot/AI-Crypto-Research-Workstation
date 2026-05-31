@@ -17,6 +17,7 @@ import { SignalsPage } from '@/pages/SignalsPage';
 import { ThesisDetailPage } from '@/pages/ThesisDetailPage';
 import { ThesisLibraryPage } from '@/pages/ThesisLibraryPage';
 import { WorkbenchPage } from '@/pages/WorkbenchPage';
+import { WorkspaceConfigurationPage } from '@/pages/WorkspaceConfigurationPage';
 
 export const router = createBrowserRouter([
   {
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: 'workbench', element: <WorkbenchPage /> },
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
+      { path: 'research/workspace', element: <WorkspaceConfigurationPage /> },
       { path: 'research-continuity', element: <ResearchContinuityPage /> },
       {
         path: 'research-continuity/entries/:id',

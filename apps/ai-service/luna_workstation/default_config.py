@@ -58,6 +58,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "validation_venues": ["okx", "bybit", "bitget"],
         "divergence_threshold_bps": 25.0,
     },
+    "news_context": {
+        "enabled": True,
+        "lookback_days": 7,
+        "feed_timeout_sec": 8.0,
+        "workspace_sources": [],
+        "asset_profiles": {},
+    },
     # LLM settings
     "llm_provider": "deepseek",
     "deep_think_llm": "deepseek-v4-pro",

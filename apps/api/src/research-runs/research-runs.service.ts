@@ -123,6 +123,8 @@ export class ResearchRunsService {
       dto.symbol,
       assetClass,
     );
+    const workspaceNewsSources =
+      await this.workspaces.listEnabledNewsSourcesForEngine(workspaceId);
     const request: EngineRunRequest = {
       run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
       workspace_id: workspaceId,
@@ -134,7 +136,10 @@ export class ResearchRunsService {
       config_profile: dto.config_profile ?? 'default',
       exchange: normalizeOptional(dto.exchange) ?? null,
       dry_run: dto.dry_run ?? false,
-      metadata: dto.metadata ?? {},
+      metadata: metadataWithWorkspaceNewsSources(
+        dto.metadata ?? {},
+        workspaceNewsSources,
+      ),
     };
     await this.marketDataGuard?.assertAvailable({
       symbol: request.symbol,
@@ -862,6 +867,23 @@ function normalizeSelectedAnalysts(values: string[]): string[] {
     return [...ANALYST_KEYS];
   }
   return unique;
+}
+
+function metadataWithWorkspaceNewsSources(
+  metadata: JsonRecord,
+  sources: JsonRecord[],
+): JsonRecord {
+  if (sources.length === 0) {
+    return metadata;
+  }
+  return {
+    ...metadata,
+    news_sources: sources,
+    news_context: {
+      ...recordFromValue(metadata.news_context),
+      workspace_sources: sources,
+    },
+  };
 }
 
 function normalizeResearchSymbol(symbol: string, assetClass: string): string {

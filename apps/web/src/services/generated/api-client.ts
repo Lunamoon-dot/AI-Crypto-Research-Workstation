@@ -307,7 +307,7 @@ export interface JournalRunWorkspaceResponse {
 }
 
 export type ApiRequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
 };

@@ -10,10 +10,12 @@ import { env } from '@/lib/env';
 export function SettingsPage() {
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
+
   function updateLocalUserId(userId: string) {
     auth.setLocalUserId(userId);
     queryClient.clear();
   }
+
   function updateLocalWorkspaceId(workspaceId: string) {
     auth.setLocalWorkspaceId(workspaceId);
     queryClient.clear();

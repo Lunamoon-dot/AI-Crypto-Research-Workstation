@@ -1,0 +1,61 @@
+<h2>Where is the userflow most broken?</h2>
+<p class="subtitle">I mapped the current app flow from routing, navigation, and the UX docs. Pick the pain point that feels most damaging in actual use.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Current flow shape: too many competing entry points</div>
+  <div class="mockup-body">
+    <div style="display:grid;gap:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <div class="placeholder" style="min-width:140px;padding:14px;border-color:#60a5fa">/ redirects to<br><strong>New Research</strong></div>
+        <div style="font-weight:800;color:#94a3b8">vs</div>
+        <div class="placeholder" style="min-width:160px;padding:14px;border-color:#34d399">Workbench<br><strong>daily desk</strong></div>
+        <div style="font-weight:800;color:#94a3b8">vs</div>
+        <div class="placeholder" style="min-width:170px;padding:14px;border-color:#fbbf24">Workspace Config<br><strong>new prerequisite</strong></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+        <div class="placeholder" style="padding:12px">Launch run</div>
+        <div class="placeholder" style="padding:12px">Run workspace</div>
+        <div class="placeholder" style="padding:12px">Thesis detail</div>
+        <div class="placeholder" style="padding:12px">Decision / review</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <span class="label" style="color:#fbbf24">friction</span>
+        <span class="label">planned nav groups are visible</span>
+        <span class="label">watchlists and briefs redirect away</span>
+        <span class="label">decision loop is a tab, not the obvious next step</span>
+        <span class="label">workspace context now matters but feels bolted on</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="entry" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Entry Point Is Wrong</h3>
+      <p>The app opens directly to creating a run, while the docs say the user should start from the daily workbench and attention queue.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="workspace" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Workspace-First Flow Is Confusing</h3>
+      <p>Fixed-symbol workspaces, legacy mixed workspace, config, and research launch are not presented as one clean setup-to-run journey.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="decision" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Decision Loop Is Buried</h3>
+      <p>The valuable loop is thesis -> decision -> monitoring -> outcome review, but the UI still makes that feel secondary.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="navigation" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Navigation Taxonomy Is Noisy</h3>
+      <p>Many planned groups, redirects, and overlapping route labels make the product feel bigger than the usable workflow.</p>
+    </div>
+  </div>
+</div>

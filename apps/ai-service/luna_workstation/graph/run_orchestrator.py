@@ -35,6 +35,36 @@ def _log_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
+def _append_unique(items: list[str], value: str) -> None:
+    text = str(value).strip()
+    if text and text not in items:
+        items.append(text)
+
+
+def _apply_news_context_quality(run: ResearchRun | None, news_context: Any) -> None:
+    if run is None or news_context is None:
+        return
+    quality = getattr(news_context, "quality", None)
+    if quality is None:
+        return
+    status = str(getattr(quality, "status", "clean") or "clean")
+    if status == "clean":
+        return
+    for code in getattr(quality, "reason_codes", []) or []:
+        _append_unique(run.missing_optional_data, code)
+        _append_unique(run.degradation_reasons, code)
+
+
+def _snapshot_model(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
 def run_quality_payload(run: ResearchRun | None) -> dict[str, Any]:
     if run is None:
         return {}
@@ -276,6 +306,11 @@ class ResearchRunOrchestrator:
         market_context_text = ""
         if hasattr(host, "_precompute_market_context"):
             market_context_text = host._precompute_market_context(company_name, trade_date)
+        news_context_text = ""
+        if hasattr(host, "_precompute_news_context"):
+            news_context_text = host._precompute_news_context(company_name, trade_date)
+        news_context_result = getattr(host, "news_context_result", None)
+        _apply_news_context_quality(host.current_research_run, news_context_result)
         host._save_journal_quant_signals()
 
         vendor_list = sorted(host.config.get("data_vendors", {}).values())
@@ -297,6 +332,10 @@ class ResearchRunOrchestrator:
         )
         init_agent_state["quant_signal"] = quant_signal_text
         init_agent_state["market_context"] = market_context_text
+        init_agent_state["news_context"] = news_context_text
+        init_agent_state["news_context_snapshot"] = _snapshot_model(
+            news_context_result
+        )
         args = host.propagator.get_graph_args(callbacks=run_callbacks or None)
 
         if host.config.get("checkpoint_enabled"):

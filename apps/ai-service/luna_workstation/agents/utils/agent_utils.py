@@ -114,6 +114,8 @@ def run_analyst_chain(
     quant_signal_label: str | None = None,
     inject_market_context: bool = False,
     market_context_label: str | None = None,
+    inject_news_context: bool = False,
+    news_context_label: str | None = None,
 ) -> dict:
     """Centralised chain construction for analyst nodes.
 
@@ -141,6 +143,16 @@ def run_analyst_chain(
                 f"\n\n===== {label} =====\n"
                 f"{guard_untrusted_context(label, market_block)}"
                 f"===== END MARKET CONTEXT =====\n"
+            )
+
+    if inject_news_context:
+        news_block = state.get("news_context", "")
+        if news_block:
+            label = news_context_label or "PRE-COMPUTED NEWS CONTEXT"
+            system_content += (
+                f"\n\n===== {label} =====\n"
+                f"{guard_untrusted_context(label, news_block)}"
+                f"===== END NEWS CONTEXT =====\n"
             )
 
     system_content += get_language_instruction(config=config)
@@ -194,6 +206,8 @@ def create_analyst(
     quant_signal_label: str | None = None,
     inject_market_context: bool = False,
     market_context_label: str | None = None,
+    inject_news_context: bool = False,
+    news_context_label: str | None = None,
 ):
     """Unified analyst factory — eliminates duplication across the 4 analyst files.
 
@@ -213,6 +227,8 @@ def create_analyst(
             quant_signal_label=quant_signal_label,
             inject_market_context=inject_market_context,
             market_context_label=market_context_label,
+            inject_news_context=inject_news_context,
+            news_context_label=news_context_label,
         )
 
     return analyst_node
