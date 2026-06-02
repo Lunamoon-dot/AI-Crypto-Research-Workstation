@@ -23,6 +23,7 @@ from luna_workstation.domain import (
     UserDecisionAction,
     Watchlist,
 )
+from luna_workstation.graph.journal_bridge import JournalBridge
 from luna_workstation.services import JournalService
 
 
@@ -196,6 +197,54 @@ def test_journal_service_marks_optional_data_as_completed_degraded(tmp_path):
     assert loaded.missing_core_data == []
     assert "missing_funding_rate" in loaded.missing_optional_data
     assert "missing_funding_rate" not in loaded.degradation_reasons
+
+
+def test_journal_bridge_persists_news_context_source_health_snapshot(tmp_path):
+    bridge = JournalBridge(_config(tmp_path))
+    run = bridge.start_run(ResearchRun(symbol="BTC/USDT"))
+    snapshot = {
+        "quality": {"status": "clean", "score": 0.82, "reason_codes": []},
+        "coverage": {"default_sources": "clean", "workspace_sources": "skipped"},
+        "materiality": {"status": "no_material_news_found"},
+        "source_health": [
+            {
+                "source_id": "coindesk",
+                "fetch_status": "fetched",
+                "parse_status": "parsed",
+                "raw_count": 10,
+                "parsed_count": 10,
+                "accepted_count": 0,
+                "rejected_count": 10,
+                "rejection_reasons": {"asset_mismatch": 10},
+            }
+        ],
+        "items": [],
+        "story_clusters": [],
+    }
+
+    run, _opinions, _debate = bridge.save_agent_research(
+        run,
+        {
+            "market_report": "Market structure is balanced.",
+            "sentiment_report": "",
+            "news_report": "",
+            "fundamentals_report": "",
+            "investment_debate_state": {},
+            "risk_debate_state": {},
+            "final_trade_decision": "Hold",
+            "news_context_snapshot": snapshot,
+        },
+        None,
+    )
+
+    events = bridge.service.list_timeline_events(research_run_id=run.id)
+    news_event = next(
+        event for event in events if event.event_type == "news.context.snapshot"
+    )
+
+    persisted = news_event.payload["news_context_snapshot"]
+    assert persisted["materiality"]["status"] == "no_material_news_found"
+    assert persisted["source_health"][0]["source_id"] == "coindesk"
 
 
 def test_journal_service_does_not_mark_nonempty_reasons_completed(tmp_path):

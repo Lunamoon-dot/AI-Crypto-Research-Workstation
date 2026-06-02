@@ -323,3 +323,37 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
         "missing_primary_source_news"
         not in host.current_research_run.degradation_reasons
     )
+
+
+def test_run_orchestrator_captures_news_source_health_and_materiality():
+    class FakeNewsContext:
+        def to_prompt_block(self):
+            return (
+                "===== PRE-COMPUTED NEWS CONTEXT =====\n"
+                "Quality: clean (0.82)\n"
+                "Materiality: no_material_news_found"
+            )
+
+        def model_dump(self, mode="json"):
+            assert mode == "json"
+            return {
+                "quality": {"status": "clean", "score": 0.82, "reason_codes": []},
+                "materiality": {"status": "no_material_news_found"},
+                "source_health": [
+                    {
+                        "source_id": "coindesk",
+                        "fetch_status": "fetched",
+                        "parse_status": "parsed",
+                        "raw_count": 10,
+                        "parsed_count": 10,
+                        "accepted_count": 0,
+                        "rejected_count": 10,
+                        "rejection_reasons": {"asset_mismatch": 10},
+                    }
+                ],
+            }
+
+    snapshot = run_orchestrator._snapshot_model(FakeNewsContext())
+
+    assert snapshot["materiality"]["status"] == "no_material_news_found"
+    assert snapshot["source_health"][0]["source_id"] == "coindesk"

@@ -497,6 +497,7 @@ class JournalBridge:
                         "story_cluster_count": len(
                             news_snapshot.get("story_clusters") or []
                         ),
+                        "news_context_snapshot": news_snapshot,
                     },
                 )
             risk_state = final_state.get("risk_debate_state") or {}
