@@ -29,7 +29,7 @@ export interface CreateWorkspaceRequest {
   default_timeframe?: string | null;
 }
 
-export type WorkspaceNewsSourceType = 'rss' | 'atom';
+export type WorkspaceNewsSourceType = 'rss' | 'atom' | 'html';
 
 export type WorkspaceNewsSourceTargetAnalyst = 'news' | 'social';
 
@@ -51,6 +51,8 @@ export interface WorkspaceNewsSource {
   scope: string[];
   official: boolean;
   enabled: boolean;
+  parser_mode?: 'html_list';
+  selectors?: Record<string, string>;
 }
 
 export interface WorkspaceNewsSourcesResponse {

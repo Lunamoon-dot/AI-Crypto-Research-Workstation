@@ -36,10 +36,12 @@ import type {
   ThesisDecisionResponse,
   ThesisReviewResponse,
   UpdateResearchContinuitySettingsRequest,
+  UpdateWorkspaceNewsSourcesRequest,
   UpdateWatchlistRequest,
   WatchlistCheckResponse,
   WatchlistItemResponse,
   WatchlistResponse,
+  WorkspaceNewsSourcesResponse,
   WorkspaceSummary,
 } from '@/types';
 
@@ -327,6 +329,19 @@ export function createApiClient(request: ApiTransport) {
       request<WorkspaceSummary>('/workspaces', { method: 'POST', body }),
     getWorkspace: (id: string) =>
       request<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`, {}),
+    listWorkspaceNewsSources: (id: string) =>
+      request<WorkspaceNewsSourcesResponse>(
+        `/workspaces/${encodeURIComponent(id)}/news-sources`,
+        {},
+      ),
+    updateWorkspaceNewsSources: (
+      id: string,
+      body: UpdateWorkspaceNewsSourcesRequest,
+    ) =>
+      request<WorkspaceNewsSourcesResponse>(
+        `/workspaces/${encodeURIComponent(id)}/news-sources`,
+        { method: 'PUT', body },
+      ),
     listResearchRuns: (params: {
       symbol?: string;
       status?: string;

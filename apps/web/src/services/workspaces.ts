@@ -29,11 +29,7 @@ export function listWorkspaceNewsSources(
   id: string,
   auth: WorkspaceRequestContext,
 ) {
-  return apiRequest<WorkspaceNewsSourcesResponse>(
-    `/workspaces/${encodeURIComponent(id)}/news-sources`,
-    {},
-    auth,
-  );
+  return generatedClient(auth).listWorkspaceNewsSources(id);
 }
 
 export function updateWorkspaceNewsSources(
@@ -41,11 +37,7 @@ export function updateWorkspaceNewsSources(
   request: UpdateWorkspaceNewsSourcesRequest,
   auth: WorkspaceRequestContext,
 ) {
-  return apiRequest<WorkspaceNewsSourcesResponse>(
-    `/workspaces/${encodeURIComponent(id)}/news-sources`,
-    { method: 'PUT', body: request },
-    auth,
-  );
+  return generatedClient(auth).updateWorkspaceNewsSources(id, request);
 }
 
 function generatedClient(auth: WorkspaceRequestContext) {

@@ -7,6 +7,41 @@ export interface WorkspacePermissionDto {
   role: string;
 }
 
+export type WorkspaceNewsSourceType = 'rss' | 'atom' | 'html';
+
+export type WorkspaceNewsSourceTargetAnalyst = 'news' | 'social';
+
+export type WorkspaceNewsSourceTrustTier =
+  | 'high'
+  | 'user_trusted'
+  | 'medium'
+  | 'low'
+  | 'aggregator';
+
+export interface WorkspaceNewsSource {
+  id: string;
+  name: string;
+  type: WorkspaceNewsSourceType;
+  url: string;
+  category: string;
+  trust_tier: WorkspaceNewsSourceTrustTier;
+  target_analysts: WorkspaceNewsSourceTargetAnalyst[];
+  scope: string[];
+  official: boolean;
+  enabled: boolean;
+  parser_mode?: 'html_list';
+  selectors?: Record<string, string>;
+}
+
+export interface WorkspaceNewsSourcesResponse {
+  workspace_id: string;
+  sources: WorkspaceNewsSource[];
+}
+
+export interface UpdateWorkspaceNewsSourcesRequest {
+  sources: WorkspaceNewsSource[];
+}
+
 export interface ResearchRunQueuedResponse {
   run_id: string;
   workspace_id: string;

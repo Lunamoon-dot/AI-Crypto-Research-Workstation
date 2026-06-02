@@ -32,6 +32,58 @@ export const openApiDocument = {
         },
       },
     },
+    '/workspaces': {
+      get: {
+        operationId: 'listWorkspaces',
+        tags: ['workspaces'],
+        responses: jsonArrayResponse(
+          'Workspaces available to the active user.',
+          'WorkspaceSummary',
+        ),
+      },
+      post: {
+        operationId: 'createWorkspace',
+        tags: ['workspaces'],
+        requestBody: jsonRequest('CreateWorkspaceRequest'),
+        responses: jsonResponse(
+          'Created fixed-symbol workspace metadata.',
+          'WorkspaceSummary',
+          '201',
+        ),
+      },
+    },
+    '/workspaces/{id}': {
+      get: {
+        operationId: 'getWorkspace',
+        tags: ['workspaces'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace metadata for the active user.',
+          'WorkspaceSummary',
+        ),
+      },
+    },
+    '/workspaces/{id}/news-sources': {
+      get: {
+        operationId: 'listWorkspaceNewsSources',
+        tags: ['workspaces'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped news source allowlist.',
+          'WorkspaceNewsSourcesResponse',
+        ),
+      },
+      put: {
+        operationId: 'updateWorkspaceNewsSources',
+        tags: ['workspaces'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('UpdateWorkspaceNewsSourcesRequest'),
+        responses: jsonResponse(
+          'Updated workspace-scoped news source allowlist.',
+          'WorkspaceNewsSourcesResponse',
+        ),
+      },
+    },
     '/market-data/ohlcv': {
       get: {
         operationId: 'getMarketOhlcv',
@@ -1213,6 +1265,112 @@ export const openApiDocument = {
           user_id: { type: 'string' },
           workspace_id: { type: 'string' },
           role: { type: 'string' },
+        },
+      },
+      WorkspaceSummary: {
+        type: 'object',
+        required: [
+          'id',
+          'name',
+          'scope_type',
+          'symbol',
+          'market_type',
+          'default_timeframe',
+          'archived',
+          'created_at',
+          'updated_at',
+        ],
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          scope_type: {
+            type: 'string',
+            enum: ['fixed_symbol', 'legacy_mixed'],
+          },
+          symbol: { type: ['string', 'null'] },
+          market_type: {
+            type: 'string',
+            enum: ['mixed', 'spot', 'perp'],
+          },
+          default_timeframe: { type: ['string', 'null'] },
+          archived: { type: 'boolean' },
+          created_at: { type: 'string' },
+          updated_at: { type: 'string' },
+        },
+      },
+      CreateWorkspaceRequest: {
+        type: 'object',
+        required: ['name', 'symbol'],
+        properties: {
+          name: { type: 'string', minLength: 1 },
+          symbol: { type: 'string', minLength: 1 },
+          market_type: {
+            type: 'string',
+            enum: ['mixed', 'spot', 'perp'],
+          },
+          default_timeframe: { type: ['string', 'null'] },
+        },
+      },
+      WorkspaceNewsSource: {
+        type: 'object',
+        required: [
+          'id',
+          'name',
+          'type',
+          'url',
+          'category',
+          'trust_tier',
+          'target_analysts',
+          'scope',
+          'official',
+          'enabled',
+        ],
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          type: { type: 'string', enum: ['rss', 'atom', 'html'] },
+          url: { type: 'string', format: 'uri' },
+          category: { type: 'string' },
+          trust_tier: {
+            type: 'string',
+            enum: ['high', 'user_trusted', 'medium', 'low', 'aggregator'],
+          },
+          target_analysts: {
+            type: 'array',
+            items: { type: 'string', enum: ['news', 'social'] },
+          },
+          scope: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+          official: { type: 'boolean' },
+          enabled: { type: 'boolean' },
+          parser_mode: { type: 'string', enum: ['html_list'] },
+          selectors: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+          },
+        },
+      },
+      WorkspaceNewsSourcesResponse: {
+        type: 'object',
+        required: ['workspace_id', 'sources'],
+        properties: {
+          workspace_id: { type: 'string' },
+          sources: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/WorkspaceNewsSource' },
+          },
+        },
+      },
+      UpdateWorkspaceNewsSourcesRequest: {
+        type: 'object',
+        required: ['sources'],
+        properties: {
+          sources: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/WorkspaceNewsSource' },
+          },
         },
       },
       ResearchRunQueuedResponse: {

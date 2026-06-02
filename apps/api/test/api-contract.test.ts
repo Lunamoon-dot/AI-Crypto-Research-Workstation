@@ -1954,6 +1954,10 @@ test('workspace news sources accept html allowlist parser selectors', async () =
     link: 'a',
     date: 'time',
   });
+  const schema = record(openApiDocument.components.schemas.WorkspaceNewsSource);
+  assert.ok(JSON.stringify(schema).includes('html'));
+  assert.ok(JSON.stringify(schema).includes('parser_mode'));
+  assert.ok(JSON.stringify(schema).includes('selectors'));
 
   await assert.rejects(
     () =>
@@ -2668,6 +2672,9 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
   const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
   const expectedRoutes: Array<[string, string[]]> = [
     ['/market-data/ohlcv', ['get']],
+    ['/workspaces', ['get', 'post']],
+    ['/workspaces/{id}', ['get']],
+    ['/workspaces/{id}/news-sources', ['get', 'put']],
     ['/research-runs', ['get', 'post']],
     ['/research-runs/{id}', ['get']],
     ['/research-runs/{id}/events', ['get']],
