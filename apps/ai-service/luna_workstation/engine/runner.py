@@ -137,7 +137,7 @@ class EngineRunner:
         profile = request.config_profile
         if profile and profile.lower() == "default":
             profile = None
-        workspace_news_sources = _metadata_workspace_news_sources(request.metadata)
+        news_context_overrides = _metadata_news_context_overrides(request.metadata)
         overrides: dict[str, Any] = {
             "asset_class": request.asset_class,
             "market_type": request.market_type,
@@ -148,10 +148,8 @@ class EngineRunner:
                 "metadata": request.metadata,
             },
         }
-        if workspace_news_sources:
-            overrides["news_context"] = {
-                "workspace_sources": workspace_news_sources,
-            }
+        if news_context_overrides:
+            overrides["news_context"] = news_context_overrides
         if request.exchange:
             overrides["crypto_exchange"] = request.exchange
         if request.dry_run:
@@ -321,11 +319,38 @@ def _engine_config(workspace_id: str, metadata: dict[str, Any]) -> dict[str, Any
     return config
 
 
-def _metadata_workspace_news_sources(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+def _metadata_news_context_overrides(metadata: dict[str, Any]) -> dict[str, Any]:
     context = metadata.get("news_context")
-    raw_sources: Any = metadata.get("news_sources")
-    if isinstance(context, dict) and "workspace_sources" in context:
-        raw_sources = context.get("workspace_sources")
+    if isinstance(context, dict):
+        catalog_sources = _metadata_news_sources_from_value(
+            context.get("catalog_sources")
+        )
+        workspace_sources = _metadata_news_sources_from_value(
+            context.get("workspace_sources")
+        )
+        overrides: dict[str, Any] = {}
+        if catalog_sources:
+            overrides["default_sources"] = catalog_sources
+        if workspace_sources:
+            overrides["workspace_sources"] = workspace_sources
+        resolved_pack_ids = _metadata_string_list(context.get("resolved_source_packs"))
+        if resolved_pack_ids:
+            overrides["selected_source_packs"] = resolved_pack_ids
+        if "use_article_cache" in context:
+            overrides["use_article_cache"] = bool(context.get("use_article_cache"))
+        source_health = context.get("source_health")
+        if isinstance(source_health, list):
+            overrides["source_health"] = source_health
+        if overrides:
+            return overrides
+
+    legacy_sources = _metadata_news_sources_from_value(metadata.get("news_sources"))
+    if legacy_sources:
+        return {"workspace_sources": legacy_sources}
+    return {}
+
+
+def _metadata_news_sources_from_value(raw_sources: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_sources, list):
         return []
 
@@ -355,6 +380,14 @@ def _metadata_workspace_news_sources(metadata: dict[str, Any]) -> list[dict[str,
         if all(source.get(key) for key in ("id", "name", "url", "category")):
             sources.append(source)
     return sources
+
+
+def _metadata_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _metadata_source_targets_news(source: dict[str, Any]) -> bool:

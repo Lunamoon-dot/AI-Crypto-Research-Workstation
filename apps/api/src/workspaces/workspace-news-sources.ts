@@ -30,6 +30,11 @@ export interface WorkspaceNewsSourcesResponse {
   sources: WorkspaceNewsSource[];
 }
 
+export interface ResolvedWorkspaceNewsCatalog {
+  resolved_source_packs: string[];
+  sources: JsonRecord[];
+}
+
 type WorkspaceNewsSourceValidationOptions = {
   defaultScope?: string | null;
 };
@@ -46,6 +51,122 @@ const TRUST_TIERS = new Set<WorkspaceNewsSourceTrustTier>([
   'low',
   'aggregator',
 ]);
+
+const SYSTEM_CATALOG_SOURCES: JsonRecord[] = [
+  {
+    id: 'binance_announcements',
+    name: 'Binance Announcements',
+    type: 'rss',
+    url: 'https://www.binance.com/en/support/announcement/rss',
+    category: 'exchange_announcements',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['ALL'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'coinbase_blog',
+    name: 'Coinbase Blog',
+    type: 'rss',
+    url: 'https://www.coinbase.com/blog/rss.xml',
+    category: 'exchange_announcements',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['ALL'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'sec_press_releases',
+    name: 'SEC Press Releases',
+    type: 'rss',
+    url: 'https://www.sec.gov/news/pressreleases.rss',
+    category: 'regulatory',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['ALL'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'coindesk',
+    name: 'CoinDesk',
+    type: 'rss',
+    url: 'https://www.coindesk.com/arc/outboundfeeds/rss/',
+    category: 'crypto_media',
+    trust_tier: 'medium',
+    target_analysts: ['news'],
+    scope: ['ALL'],
+    official: false,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'bitcoin_core_blog',
+    name: 'Bitcoin Core Blog',
+    type: 'rss',
+    url: 'https://bitcoincore.org/en/rss.xml',
+    category: 'official_project',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['BTC'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'ethereum_blog',
+    name: 'Ethereum Foundation Blog',
+    type: 'rss',
+    url: 'https://blog.ethereum.org/feed.xml',
+    category: 'official_project',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['ETH'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+  {
+    id: 'bnb_chain_blog',
+    name: 'BNB Chain Blog',
+    type: 'rss',
+    url: 'https://www.bnbchain.org/en/blog/rss.xml',
+    category: 'official_project',
+    trust_tier: 'high',
+    target_analysts: ['news'],
+    scope: ['BNB'],
+    official: true,
+    source_origin: 'system_catalog',
+  },
+];
+
+const SYSTEM_SOURCE_PACKS: Record<string, { source_ids: string[] }> = {
+  pack_exchange_announcements: {
+    source_ids: ['binance_announcements', 'coinbase_blog'],
+  },
+  pack_regulatory_us: {
+    source_ids: ['sec_press_releases'],
+  },
+  pack_core_crypto_media: {
+    source_ids: ['coindesk'],
+  },
+  pack_btc_official: {
+    source_ids: ['bitcoin_core_blog'],
+  },
+  pack_eth_official: {
+    source_ids: ['ethereum_blog'],
+  },
+  pack_bnb_official: {
+    source_ids: ['bnb_chain_blog'],
+  },
+};
+
+const DEFAULT_PACK_IDS_BY_SYMBOL: Record<string, string[]> = {
+  BTC: ['pack_exchange_announcements', 'pack_regulatory_us', 'pack_btc_official'],
+  ETH: ['pack_exchange_announcements', 'pack_regulatory_us', 'pack_eth_official'],
+  BNB: ['pack_exchange_announcements', 'pack_regulatory_us', 'pack_bnb_official'],
+};
+
+const DEFAULT_SHARED_PACK_IDS = ['pack_exchange_announcements', 'pack_regulatory_us'];
 
 export function validateWorkspaceNewsSources(
   input: unknown,
@@ -88,6 +209,43 @@ export function isWorkspaceNewsSourceTargetedTo(
   analyst: WorkspaceNewsSourceTargetAnalyst,
 ): boolean {
   return source.target_analysts.includes(analyst);
+}
+
+export function resolveSystemCatalogNewsSourcesForSymbol(
+  symbol: string | null | undefined,
+): ResolvedWorkspaceNewsCatalog {
+  const baseSymbol = normalizeScopeItem(symbol);
+  if (!baseSymbol) {
+    return { resolved_source_packs: [], sources: [] };
+  }
+  const resolvedPackIds =
+    DEFAULT_PACK_IDS_BY_SYMBOL[baseSymbol] ?? DEFAULT_SHARED_PACK_IDS;
+  const catalogById = new Map(
+    SYSTEM_CATALOG_SOURCES.map((source) => [String(source.id), source]),
+  );
+  const sources: JsonRecord[] = [];
+  const seen = new Set<string>();
+  for (const packId of resolvedPackIds) {
+    const pack = SYSTEM_SOURCE_PACKS[packId];
+    if (!pack) {
+      continue;
+    }
+    for (const sourceId of pack.source_ids) {
+      if (seen.has(sourceId)) {
+        continue;
+      }
+      const source = catalogById.get(sourceId);
+      if (!source || !sourceAppliesToSymbol(source, baseSymbol)) {
+        continue;
+      }
+      seen.add(sourceId);
+      sources.push({ ...source });
+    }
+  }
+  return {
+    resolved_source_packs: [...resolvedPackIds],
+    sources,
+  };
 }
 
 function validateWorkspaceNewsSource(
@@ -224,6 +382,13 @@ function normalizeScope(value: unknown, defaultScope?: string | null): string[] 
   throw new BadRequestException(
     'News source scope requires the workspace symbol.',
   );
+}
+
+function sourceAppliesToSymbol(source: JsonRecord, symbol: string): boolean {
+  const scope = Array.isArray(source.scope)
+    ? source.scope.map((item) => normalizeScopeItem(item)).filter(Boolean)
+    : [];
+  return scope.includes('ALL') || scope.includes(symbol);
 }
 
 function normalizeScopeItem(value: unknown): string | null {

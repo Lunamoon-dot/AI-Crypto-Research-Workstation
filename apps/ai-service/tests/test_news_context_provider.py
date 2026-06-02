@@ -2,6 +2,10 @@ from luna_workstation.dataflows.news_context_provider import (
     build_news_context,
     merge_news_sources,
 )
+from luna_workstation.dataflows.news_article_cache import (
+    CachedNewsArticle,
+    InMemoryNewsArticleCache,
+)
 
 
 def test_build_news_context_merges_sources_filters_dedupes_and_scores():
@@ -183,6 +187,49 @@ def test_build_news_context_accepts_reputable_media_without_primary_source_gap()
     assert context.missing_data == []
 
 
+def test_build_news_context_treats_no_material_news_as_neutral():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "working_default",
+                    "name": "Working Default",
+                    "type": "rss",
+                    "url": "https://example.test/working.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                    "official": False,
+                }
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Solana ecosystem update</title>
+            <link>https://example.test/solana</link>
+            <pubDate>Sun, 31 May 2026 10:00:00 GMT</pubDate>
+            <description>Solana only.</description>
+          </item>
+        </channel></rss>"""
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-24",
+        end_date="2026-05-31",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: feed,
+        now_fn=lambda: "2026-05-31T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.quality.status == "clean"
+    assert context.quality.reason_codes == ["no_material_news_found"]
+    assert context.missing_data == []
+
+
 def test_build_news_context_uses_extended_window_for_official_project_sources():
     config = {
         "news_context": {
@@ -226,6 +273,79 @@ def test_build_news_context_uses_extended_window_for_official_project_sources():
     ]
     assert context.quality.status == "clean"
     assert "missing_primary_source_news" not in context.quality.reason_codes
+
+
+def test_build_news_context_reads_cached_articles_for_selected_packs():
+    cache = InMemoryNewsArticleCache()
+    cache.upsert_many([cached_article_for_eth_listing()])
+
+    context = build_news_context(
+        symbol="ETH/USDT",
+        start_date="2026-06-01",
+        end_date="2026-06-03",
+        config={
+            "news_context": {
+                "selected_source_packs": ["pack_exchange_announcements"],
+                "use_article_cache": True,
+            }
+        },
+        article_cache=cache,
+        feed_fetcher=lambda _url, _timeout: (_ for _ in ()).throw(
+            AssertionError("live fetch should not run")
+        ),
+        now_fn=lambda: "2026-06-03T02:00:00Z",
+    )
+
+    assert context.items[0].source_id == "binance_announcements"
+    assert context.items[0].matched_assets == ["ETH"]
+    assert context.quality.status in {"clean", "degraded"}
+
+
+def test_build_news_context_uses_cached_source_health_for_failures():
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-06-01",
+        end_date="2026-06-03",
+        config={
+            "news_context": {
+                "selected_source_packs": ["pack_exchange_announcements"],
+                "use_article_cache": True,
+                "source_health": [
+                    {"source_id": "binance_announcements", "fetch_status": "failed"},
+                    {"source_id": "coinbase_blog", "fetch_status": "failed"},
+                ],
+            }
+        },
+        article_cache=InMemoryNewsArticleCache(),
+        now_fn=lambda: "2026-06-03T02:00:00Z",
+    )
+
+    assert context.coverage.default_sources == "failed"
+    assert context.quality.status == "insufficient_data"
+    assert "missing_news_feed" in context.quality.reason_codes
+
+
+def test_build_news_context_requires_article_cache_when_cache_mode_enabled():
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-06-01",
+        end_date="2026-06-03",
+        config={
+            "news_context": {
+                "selected_source_packs": ["pack_exchange_announcements"],
+                "use_article_cache": True,
+            }
+        },
+        article_cache=None,
+        feed_fetcher=lambda _url, _timeout: (_ for _ in ()).throw(
+            AssertionError("live fetch should not run")
+        ),
+    )
+
+    assert context.items == []
+    assert context.coverage.default_sources == "failed"
+    assert context.quality.status == "insufficient_data"
+    assert "missing_news_article_cache" in context.quality.reason_codes
 
 
 def test_build_news_context_degrades_partial_default_source_failure_by_source():
@@ -343,3 +463,20 @@ def test_merge_news_sources_omits_sources_targeted_to_social_only():
 
     assert [source.id for source in sources] == ["news_feed"]
     assert sources[0].target_analysts == ["news"]
+
+
+def cached_article_for_eth_listing() -> CachedNewsArticle:
+    return CachedNewsArticle(
+        id="binance_announcements_eth_listing",
+        source_id="binance_announcements",
+        source_url="https://www.binance.com/en/support/announcement/rss",
+        article_url="https://example.com/eth-listing",
+        canonical_url="https://example.com/eth-listing",
+        title="Binance lists ETH example market",
+        published_at="2026-06-03T00:00:00Z",
+        first_seen_at="2026-06-03T00:05:00Z",
+        last_seen_at="2026-06-03T00:05:00Z",
+        fetched_at="2026-06-03T00:05:00Z",
+        content_hash="hash_001",
+        summary="Exchange announcement mentioning Ethereum.",
+    )

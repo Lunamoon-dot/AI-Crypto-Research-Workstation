@@ -1,6 +1,6 @@
 # Goal Skill
 
-Last updated: 2026-05-21  
+Last updated: 2026-06-03  
 Purpose: reusable guide for writing implementation goals that are focused,
 verifiable, and safe for long-running agent work.
 
@@ -20,45 +20,42 @@ Use these seven sections when writing goals:
 6. Checkpoint behavior
 7. Stop rules
 
-## Recommended Docs Layout
+## Recommended File Usage
 
-Use feature folders under `docs/features`:
+Use this guide with any planning or implementation file. The goal document can
+live wherever the surrounding work already belongs: a feature plan, design note,
+issue write-up, refactor plan, migration checklist, incident follow-up, or other
+project document.
 
 ```text
-docs/
-  features/
-    feature-name/
-      README.md
-      v1/
-        implementation-plan.md
-      v1.1/
-        follow-up-plan.md
+<any-path>/
+  <goal-document>.md
 ```
 
 Rules:
 
-- Put long-lived feature planning under `docs/features`.
-- Keep each version focused on one deliverable.
-- Use `README.md` for feature overview and version links.
-- Use `v1/implementation-plan.md` for the goal-ready execution plan.
-- Use follow-up version folders to prevent scope creep in V1.
+- Put the goal document where it is easiest to discover and maintain.
+- Keep each goal document focused on one deliverable.
+- Link related background documents instead of duplicating them.
+- Split follow-up work into separate goal documents to prevent scope creep.
+- Prefer precise file references over broad folder references.
 
 ## Goal-Ready Template
 
-Copy this into a feature implementation plan and fill it in:
+Copy this into the relevant goal document and fill it in:
 
 ```markdown
-# <Feature Name> V<Version> Implementation Plan
+# <Goal Name> Plan
 
 Last updated: YYYY-MM-DD
 Status: goal-ready / draft / implemented
 
 ## Goal-Ready Prompt
 
-/goal Implement <Feature Name> V<Version> end-to-end.
+/goal Implement <Goal Name> end-to-end.
 
 Read this document first:
-docs/features/<feature-name>/v<version>/implementation-plan.md
+<path/to/this-goal-document.md>
 
 Objective:
 - <one clear outcome>
@@ -92,7 +89,7 @@ Definition of done:
 
 Supporting materials:
 
-- <docs>
+- <documents>
 - <files>
 - <issue links/logs>
 - <specs/commands>
@@ -167,7 +164,8 @@ Before starting `/goal`, confirm the plan has:
 
 - One outcome.
 - Binary completion criteria.
-- File/doc/context references.
+- The exact goal document path.
+- File/document/context references.
 - Explicit non-goals.
 - Validation commands.
 - Manual checks if UI or artifacts are involved.
@@ -179,9 +177,9 @@ Before starting `/goal`, confirm the plan has:
 
 When handing a goal to another agent:
 
-- Tell it to read the feature plan before editing.
+- Tell it to read the specified goal document before editing.
 - Tell it to inspect the listed files before changing code.
-- Tell it not to implement deferred versions.
+- Tell it not to implement deferred or related work unless it is explicitly in scope.
 - Tell it to follow existing repo patterns.
 - Tell it to ask only about unresolved decisions.
 - Tell it to preserve unrelated dirty worktree changes.
@@ -198,4 +196,3 @@ Avoid goals that say:
 
 Replace them with a specific outcome, concrete routes/files/contracts, and
 explicit validation.
-

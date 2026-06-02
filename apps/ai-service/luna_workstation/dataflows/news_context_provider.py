@@ -12,6 +12,9 @@ from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Callable
 
+from luna_workstation.data.news_source_packs import resolve_news_sources_for_workspace
+from luna_workstation.dataflows.news_article_cache import InMemoryNewsArticleCache
+from luna_workstation.data.news_source_catalog import default_news_source_dicts
 from luna_workstation.domain.news_context import (
     AssetNewsProfile,
     NewsContext,
@@ -26,48 +29,7 @@ logger = logging.getLogger(__name__)
 
 FeedFetcher = Callable[[str, float], str]
 
-DEFAULT_NEWS_SOURCES: tuple[dict[str, Any], ...] = (
-    {
-        "id": "binance_announcements",
-        "name": "Binance Announcements",
-        "type": "rss",
-        "url": "https://www.binance.com/en/support/announcement/rss",
-        "category": "exchange_announcements",
-        "trust_tier": "high",
-        "scope": ["ALL"],
-        "official": True,
-    },
-    {
-        "id": "coinbase_blog",
-        "name": "Coinbase Blog",
-        "type": "rss",
-        "url": "https://www.coinbase.com/blog/rss.xml",
-        "category": "exchange_announcements",
-        "trust_tier": "high",
-        "scope": ["ALL"],
-        "official": True,
-    },
-    {
-        "id": "sec_press_releases",
-        "name": "SEC Press Releases",
-        "type": "rss",
-        "url": "https://www.sec.gov/news/pressreleases.rss",
-        "category": "regulatory",
-        "trust_tier": "high",
-        "scope": ["ALL"],
-        "official": True,
-    },
-    {
-        "id": "coindesk",
-        "name": "CoinDesk",
-        "type": "rss",
-        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "category": "crypto_media",
-        "trust_tier": "medium",
-        "scope": ["ALL"],
-        "official": False,
-    },
-)
+DEFAULT_NEWS_SOURCES: tuple[dict[str, Any], ...] = default_news_source_dicts()
 
 DEFAULT_ASSET_PROFILES: dict[str, dict[str, Any]] = {
     "BTC": {
@@ -192,6 +154,7 @@ def build_news_context(
     feed_fetcher: FeedFetcher | None = None,
     now_fn: Callable[[], str] | None = None,
     timeout_sec: float | None = None,
+    article_cache: InMemoryNewsArticleCache | None = None,
 ) -> NewsContext:
     policy = dict(config.get("news_context", {}) or {})
     if timeout_sec is None:
@@ -199,6 +162,15 @@ def build_news_context(
     fetcher = feed_fetcher or _fetch_url
     fetched_at = now_fn() if now_fn is not None else _utc_now_iso()
     profile = asset_profile_for_symbol(symbol, config)
+    if policy.get("use_article_cache"):
+        return _build_news_context_from_cache(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            policy=policy,
+            profile=profile,
+            article_cache=article_cache,
+        )
     sources = [
         source
         for source in merge_news_sources(config)
@@ -267,6 +239,118 @@ def build_news_context(
     )
 
 
+def _build_news_context_from_cache(
+    *,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    policy: dict[str, Any],
+    profile: AssetNewsProfile,
+    article_cache: InMemoryNewsArticleCache | None,
+) -> NewsContext:
+    sources = resolve_news_sources_for_workspace(
+        selected_pack_ids=policy.get("selected_source_packs") or [],
+        disabled_source_ids=policy.get("disabled_source_ids") or [],
+        symbol=profile.symbol,
+    )
+    if article_cache is None:
+        return NewsContext(
+            instrument=symbol,
+            window_start=start_date,
+            window_end=end_date,
+            coverage=NewsCoverage(
+                default_sources="failed" if sources else "skipped",
+                workspace_sources="skipped",
+                targeted_search="skipped",
+                aggregator="skipped",
+            ),
+            quality=NewsQuality(
+                status="insufficient_data",
+                score=0.0,
+                reason_codes=[
+                    "missing_news_article_cache",
+                    "insufficient_news_evidence",
+                ],
+            ),
+            missing_data=[
+                "missing_news_article_cache",
+                "insufficient_news_evidence",
+            ],
+        )
+    coverage_inputs = _init_coverage(sources)
+    failures = _failures_from_source_health(sources, policy)
+    successes: dict[str, list[str]] = defaultdict(list)
+    items: list[NewsItem] = []
+
+    if sources:
+        source_by_id = {source.id: source for source in sources}
+        query_start = _cache_query_window_start(start_date, end_date, sources, policy)
+        cached_articles = article_cache.query(
+            source_ids=[source.id for source in sources],
+            window_start=query_start,
+            window_end=end_date,
+        )
+        for article in cached_articles:
+            source = source_by_id.get(article.source_id)
+            if source is None:
+                continue
+            source_start_date = _source_window_start(
+                start_date,
+                end_date,
+                source,
+                policy,
+            )
+            if not _within_window(article.published_at, source_start_date, end_date):
+                continue
+            match = _match_asset(
+                profile,
+                article.title,
+                article.summary or article.raw_excerpt,
+                article.article_url,
+            )
+            if not match:
+                continue
+            successes[_coverage_group(source)].append(source.id)
+            items.append(
+                _to_news_item(
+                    {
+                        "title": article.title,
+                        "url": article.article_url,
+                        "published_at": article.published_at,
+                        "summary": article.summary or article.raw_excerpt,
+                    },
+                    source=source,
+                    profile=profile,
+                    fetched_at=article.fetched_at,
+                    match=match,
+                    end_date=end_date,
+                )
+            )
+
+    items = _dedupe_items(items)
+    items.sort(
+        key=lambda item: (
+            item.relevance_score,
+            item.source_trust_score,
+            item.published_at,
+        ),
+        reverse=True,
+    )
+    clusters = _build_story_clusters(items)
+    coverage = _build_coverage(coverage_inputs, failures, successes, items)
+    quality = _build_quality(items, failures, coverage)
+    return NewsContext(
+        instrument=symbol,
+        window_start=start_date,
+        window_end=end_date,
+        coverage=coverage,
+        quality=quality,
+        items=items[:12],
+        story_clusters=clusters[:8],
+        missing_data=_missing_data_for_quality(quality),
+    )
+
+
 def asset_profile_for_symbol(symbol: str, config: dict[str, Any]) -> AssetNewsProfile:
     base = _base_symbol(symbol)
     policy = dict(config.get("news_context", {}) or {})
@@ -322,6 +406,36 @@ def _source_window_start(
     if configured is not None and configured <= extended:
         return start_date
     return extended.isoformat()
+
+
+def _cache_query_window_start(
+    start_date: str,
+    end_date: str,
+    sources: list[NewsSource],
+    policy: dict[str, Any],
+) -> str:
+    starts = [
+        _source_window_start(start_date, end_date, source, policy) for source in sources
+    ]
+    return min(starts) if starts else start_date
+
+
+def _failures_from_source_health(
+    sources: list[NewsSource],
+    policy: dict[str, Any],
+) -> defaultdict[str, list[str]]:
+    source_by_id = {source.id: source for source in sources}
+    failures: defaultdict[str, list[str]] = defaultdict(list)
+    for raw in policy.get("source_health") or []:
+        if not isinstance(raw, dict):
+            continue
+        source_id = str(raw.get("source_id") or "").strip()
+        source = source_by_id.get(source_id)
+        if source is None:
+            continue
+        if str(raw.get("fetch_status") or "").strip().lower() == "failed":
+            failures[_coverage_group(source)].append(source.id)
+    return failures
 
 
 def _coverage_group(source: NewsSource) -> str:
@@ -382,18 +496,33 @@ def _build_quality(
     coverage: NewsCoverage,
 ) -> NewsQuality:
     if not items:
-        reason_codes = ["insufficient_news_evidence"]
         active_coverage = [
             value
             for value in coverage.model_dump().values()
             if value not in {"skipped"}
         ]
         if active_coverage and all(value == "failed" for value in active_coverage):
-            reason_codes.insert(0, "missing_news_feed")
+            return NewsQuality(
+                status="insufficient_data",
+                score=0.0,
+                reason_codes=["missing_news_feed", "insufficient_news_evidence"],
+            )
+        if any(failures.values()):
+            return NewsQuality(
+                status="insufficient_data",
+                score=0.0,
+                reason_codes=["insufficient_news_evidence"],
+            )
+        if active_coverage:
+            return NewsQuality(
+                status="clean",
+                score=0.0,
+                reason_codes=["no_material_news_found"],
+            )
         return NewsQuality(
             status="insufficient_data",
             score=0.0,
-            reason_codes=_dedupe(reason_codes),
+            reason_codes=["insufficient_news_evidence"],
         )
 
     primary_items = [

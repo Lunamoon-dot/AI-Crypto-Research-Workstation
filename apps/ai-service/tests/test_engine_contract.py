@@ -176,6 +176,72 @@ def test_engine_runner_maps_metadata_news_sources_to_news_context_overrides():
     assert config["_engine"]["metadata"] == request.metadata
 
 
+def test_engine_runner_maps_catalog_sources_without_losing_workspace_sources():
+    loader = _CapturingConfigLoader()
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_catalog_news_sources",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["news"],
+            "metadata": {
+                "news_context": {
+                    "resolved_source_packs": [
+                        "pack_exchange_announcements",
+                        "pack_regulatory_us",
+                        "pack_btc_official",
+                    ],
+                    "catalog_sources": [
+                        {
+                            "id": "binance_announcements",
+                            "name": "Binance Announcements",
+                            "type": "rss",
+                            "url": "https://www.binance.com/en/support/announcement/rss",
+                            "category": "exchange_announcements",
+                            "trust_tier": "high",
+                            "target_analysts": ["news"],
+                            "scope": ["ALL"],
+                            "official": True,
+                            "source_origin": "system_catalog",
+                        }
+                    ],
+                    "workspace_sources": [
+                        {
+                            "id": "bitcoin_ops",
+                            "name": "Bitcoin Ops",
+                            "type": "rss",
+                            "url": "https://bitcoinops.org/en/feed.xml",
+                            "category": "official_project",
+                            "trust_tier": "user_trusted",
+                            "target_analysts": ["news"],
+                            "scope": ["BTC"],
+                        }
+                    ],
+                },
+                "news_sources": [
+                    {"id": "combined_should_not_be_used_when_context_is_present"}
+                ],
+            },
+        }
+    )
+
+    config = EngineRunner(config_loader=loader)._load_config(request)
+
+    assert config["news_context"]["selected_source_packs"] == [
+        "pack_exchange_announcements",
+        "pack_regulatory_us",
+        "pack_btc_official",
+    ]
+    assert [source["id"] for source in config["news_context"]["default_sources"]] == [
+        "binance_announcements"
+    ]
+    assert [source["id"] for source in config["news_context"]["workspace_sources"]] == [
+        "bitcoin_ops"
+    ]
+
+
 def test_engine_evaluate_request_accepts_window_presets():
     request = EngineEvaluateRequest.model_validate(
         {

@@ -20,7 +20,9 @@ import {
 import {
   toEngineNewsSource,
   isWorkspaceNewsSourceTargetedTo,
+  resolveSystemCatalogNewsSourcesForSymbol,
   validateWorkspaceNewsSources,
+  ResolvedWorkspaceNewsCatalog,
   WorkspaceNewsSource,
   WorkspaceNewsSourcesResponse,
 } from './workspace-news-sources';
@@ -234,6 +236,17 @@ export class WorkspacesService implements OnModuleDestroy {
     return (await this.getNewsSourcesByWorkspace(workspace))
       .filter((source) => source.enabled && isWorkspaceNewsSourceTargetedTo(source, 'news'))
       .map(toEngineNewsSource);
+  }
+
+  async listResolvedCatalogNewsSourcesForEngine(
+    workspaceId: string,
+  ): Promise<ResolvedWorkspaceNewsCatalog> {
+    const workspace = this.resolveWorkspace(workspaceId);
+    const metadata = await this.getMetadataById(workspace);
+    if (metadata?.scope_type !== 'fixed_symbol') {
+      return { resolved_source_packs: [], sources: [] };
+    }
+    return resolveSystemCatalogNewsSourcesForSymbol(metadata.symbol);
   }
 
   setMembershipsForTest(memberships: WorkspaceMembership[]): void {

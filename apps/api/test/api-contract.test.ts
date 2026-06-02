@@ -2101,18 +2101,126 @@ test('POST /research-runs injects enabled workspace news sources into engine met
       const metadata = record(jobs.listMemoryJobs()[0]?.metadata);
       const newsContext = record(metadata.news_context);
       const metadataSources = records(metadata.news_sources);
+      const catalogSources = records(newsContext.catalog_sources);
       const contextSources = records(newsContext.workspace_sources);
       assert.equal(metadata.source, 'ui');
       assert.deepEqual(metadataSources.map((source) => source.id), [
+        'binance_announcements',
+        'coinbase_blog',
+        'sec_press_releases',
+        'bitcoin_core_blog',
         'bitcoin_ops',
       ]);
-      assert.deepEqual(metadataSources[0]?.target_analysts, ['news']);
+      assert.deepEqual(catalogSources.map((source) => source.id), [
+        'binance_announcements',
+        'coinbase_blog',
+        'sec_press_releases',
+        'bitcoin_core_blog',
+      ]);
+      assert.deepEqual(metadataSources[4]?.target_analysts, ['news']);
       assert.deepEqual(contextSources.map((source) => source.id), [
         'bitcoin_ops',
       ]);
       assert.deepEqual(contextSources[0]?.target_analysts, ['news']);
       assert.equal(contextSources[0]?.url, 'https://bitcoinops.org/en/feed.xml');
       assert.equal(contextSources[0]?.enabled, undefined);
+    },
+  );
+});
+
+test('POST /research-runs injects resolved catalog news sources for fixed-symbol workspaces', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const cases = [
+        {
+          workspaceId: 'workspace_a',
+          runId: 'run_btc_catalog_sources',
+          symbol: 'BTC/USDT',
+          expectedPacks: [
+            'pack_exchange_announcements',
+            'pack_regulatory_us',
+            'pack_btc_official',
+          ],
+          expectedSources: [
+            'binance_announcements',
+            'coinbase_blog',
+            'sec_press_releases',
+            'bitcoin_core_blog',
+          ],
+        },
+        {
+          workspaceId: 'workspace_b',
+          runId: 'run_eth_catalog_sources',
+          symbol: 'ETH/USDT',
+          expectedPacks: [
+            'pack_exchange_announcements',
+            'pack_regulatory_us',
+            'pack_eth_official',
+          ],
+          expectedSources: [
+            'binance_announcements',
+            'coinbase_blog',
+            'sec_press_releases',
+            'ethereum_blog',
+          ],
+        },
+        {
+          workspaceId: 'workspace_c',
+          runId: 'run_bnb_catalog_sources',
+          symbol: 'BNB/USDT',
+          expectedPacks: [
+            'pack_exchange_announcements',
+            'pack_regulatory_us',
+            'pack_bnb_official',
+          ],
+          expectedSources: [
+            'binance_announcements',
+            'coinbase_blog',
+            'sec_press_releases',
+            'bnb_chain_blog',
+          ],
+        },
+      ];
+
+      for (const testCase of cases) {
+        const { researchRunsController, jobs, workspaces } = buildHarness();
+        workspaces.setMembershipsForTest([
+          { user_id: 'user_1', workspace_id: testCase.workspaceId, role: 'owner' },
+        ]);
+        workspaces.setWorkspaceMetadataForTest([
+          fixedWorkspaceMetadata(testCase.workspaceId, testCase.symbol),
+        ]);
+
+        await researchRunsController.create(
+          {
+            run_id: testCase.runId,
+            workspace_id: testCase.workspaceId,
+            analysis_date: '2026-05-12',
+            analysts: ['news'],
+          } as CreateResearchRunDto,
+          'user_1',
+          testCase.workspaceId,
+        );
+
+        const metadata = record(jobs.listMemoryJobs()[0]?.metadata);
+        const newsContext = record(metadata.news_context);
+        const metadataSources = records(metadata.news_sources);
+        const catalogSources = records(newsContext.catalog_sources);
+        assert.deepEqual(newsContext.resolved_source_packs, testCase.expectedPacks);
+        assert.deepEqual(
+          metadataSources.map((source) => source.id),
+          testCase.expectedSources,
+        );
+        assert.deepEqual(
+          catalogSources.map((source) => source.id),
+          testCase.expectedSources,
+        );
+        assert.deepEqual(
+          catalogSources.map((source) => source.source_origin),
+          testCase.expectedSources.map(() => 'system_catalog'),
+        );
+      }
     },
   );
 });

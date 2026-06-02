@@ -46,6 +46,26 @@ def test_precompute_news_context_uses_config_policy(monkeypatch):
     assert captured["timeout_sec"] == 2.5
 
 
+def test_precompute_news_context_reports_missing_cache_when_cache_mode_enabled():
+    prompt, result = precompute_news_context(
+        {
+            "news_context": {
+                "enabled": True,
+                "lookback_days": 3,
+                "selected_source_packs": ["pack_exchange_announcements"],
+                "use_article_cache": True,
+            }
+        },
+        "BTC/USDT",
+        "2026-06-03",
+    )
+
+    assert result is not None
+    assert result.quality.status == "insufficient_data"
+    assert "missing_news_article_cache" in result.quality.reason_codes
+    assert "missing_news_article_cache" in prompt
+
+
 def test_research_graph_skips_news_context_when_news_analyst_not_selected(monkeypatch):
     def fail_precompute(*_args, **_kwargs):
         raise AssertionError("news context should not be precomputed")

@@ -123,6 +123,8 @@ export class ResearchRunsService {
       dto.symbol,
       assetClass,
     );
+    const catalogNewsSources =
+      await this.workspaces.listResolvedCatalogNewsSourcesForEngine(workspaceId);
     const workspaceNewsSources =
       await this.workspaces.listEnabledNewsSourcesForEngine(workspaceId);
     const request: EngineRunRequest = {
@@ -136,8 +138,9 @@ export class ResearchRunsService {
       config_profile: dto.config_profile ?? 'default',
       exchange: normalizeOptional(dto.exchange) ?? null,
       dry_run: dto.dry_run ?? false,
-      metadata: metadataWithWorkspaceNewsSources(
+      metadata: metadataWithNewsSources(
         dto.metadata ?? {},
+        catalogNewsSources,
         workspaceNewsSources,
       ),
     };
@@ -869,19 +872,25 @@ function normalizeSelectedAnalysts(values: string[]): string[] {
   return unique;
 }
 
-function metadataWithWorkspaceNewsSources(
+function metadataWithNewsSources(
   metadata: JsonRecord,
-  sources: JsonRecord[],
+  catalog: { resolved_source_packs: string[]; sources: JsonRecord[] },
+  workspaceSources: JsonRecord[],
 ): JsonRecord {
-  if (sources.length === 0) {
+  const catalogSources = catalog.sources;
+  const allSources = [...catalogSources, ...workspaceSources];
+  if (allSources.length === 0 && catalog.resolved_source_packs.length === 0) {
     return metadata;
   }
+  const newsContext = recordFromValue(metadata.news_context) ?? {};
   return {
     ...metadata,
-    news_sources: sources,
+    news_sources: allSources,
     news_context: {
-      ...recordFromValue(metadata.news_context),
-      workspace_sources: sources,
+      ...newsContext,
+      resolved_source_packs: catalog.resolved_source_packs,
+      catalog_sources: catalogSources,
+      workspace_sources: workspaceSources,
     },
   };
 }
