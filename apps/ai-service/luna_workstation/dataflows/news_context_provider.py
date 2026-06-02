@@ -17,8 +17,11 @@ from luna_workstation.domain.news_context import (
     NewsContext,
     NewsCoverage,
     NewsItem,
+    NewsItemDecision,
+    NewsMateriality,
     NewsQuality,
     NewsSource,
+    NewsSourceHealth,
     NewsStoryCluster,
 )
 
@@ -209,28 +212,99 @@ def build_news_context(
     items: list[NewsItem] = []
     failures: dict[str, list[str]] = defaultdict(list)
     successes: dict[str, list[str]] = defaultdict(list)
+    source_health: list[NewsSourceHealth] = []
+    item_decisions: list[NewsItemDecision] = []
     for source in sources:
         group = _coverage_group(source)
         if source.type.lower() not in {"rss", "atom"}:
             failures[group].append(source.id)
+            source_health.append(
+                _source_health(
+                    source=source,
+                    fetch_status="skipped",
+                    parse_status="unsupported",
+                    raw_count=0,
+                    parsed_count=0,
+                    accepted_count=0,
+                    rejected_count=0,
+                    rejection_reasons={},
+                    error_code="unsupported_source_type",
+                    error_message=f"Unsupported source type: {source.type}",
+                )
+            )
             continue
         try:
             raw_feed = fetcher(source.url, float(timeout_sec))
-            parsed = _parse_feed(raw_feed, source, fetched_at=fetched_at)
         except Exception as exc:
             logger.warning("News source %s unavailable: %s", source.id, exc)
             failures[group].append(source.id)
+            source_health.append(
+                _source_health(
+                    source=source,
+                    fetch_status="failed",
+                    parse_status="not_parsed",
+                    raw_count=0,
+                    parsed_count=0,
+                    accepted_count=0,
+                    rejected_count=0,
+                    rejection_reasons={},
+                    error_code="source_fetch_failed",
+                    error_message=str(exc)[:240],
+                )
+            )
+            continue
+        try:
+            parsed, raw_count, parse_rejections = _parse_feed(
+                raw_feed, source, fetched_at=fetched_at
+            )
+        except Exception as exc:
+            logger.warning("News source %s unparseable: %s", source.id, exc)
+            failures[group].append(source.id)
+            source_health.append(
+                _source_health(
+                    source=source,
+                    fetch_status="fetched",
+                    parse_status="failed",
+                    raw_count=0,
+                    parsed_count=0,
+                    accepted_count=0,
+                    rejected_count=0,
+                    rejection_reasons={},
+                    error_code="source_parse_failed",
+                    error_message=str(exc)[:240],
+                )
+            )
             continue
 
         successes[group].append(source.id)
         source_start_date = _source_window_start(start_date, end_date, source, policy)
+        accepted_count = 0
+        rejection_reasons = dict(parse_rejections)
         for entry in parsed:
             if not _within_window(entry["published_at"], source_start_date, end_date):
+                _bump_reason(rejection_reasons, "out_of_window")
+                item_decisions.append(
+                    NewsItemDecision(
+                        source_id=source.id,
+                        item_url=entry["url"],
+                        decision="rejected",
+                        reason="out_of_window",
+                    )
+                )
                 continue
             match = _match_asset(
                 profile, entry["title"], entry.get("summary"), entry["url"]
             )
             if not match:
+                _bump_reason(rejection_reasons, "asset_mismatch")
+                item_decisions.append(
+                    NewsItemDecision(
+                        source_id=source.id,
+                        item_url=entry["url"],
+                        decision="rejected",
+                        reason="asset_mismatch",
+                    )
+                )
                 continue
             item = _to_news_item(
                 entry,
@@ -240,7 +314,30 @@ def build_news_context(
                 match=match,
                 end_date=end_date,
             )
+            accepted_count += 1
+            item_decisions.append(
+                NewsItemDecision(
+                    source_id=source.id,
+                    item_url=item.canonical_url,
+                    decision="accepted",
+                    reason="asset_match",
+                    matched_alias=str(match.get("type") or "asset"),
+                    relevance_score=item.relevance_score,
+                )
+            )
             items.append(item)
+        source_health.append(
+            _source_health(
+                source=source,
+                fetch_status="fetched",
+                parse_status="parsed" if parsed else "empty",
+                raw_count=raw_count,
+                parsed_count=len(parsed),
+                accepted_count=accepted_count,
+                rejected_count=max(raw_count - accepted_count, 0),
+                rejection_reasons=rejection_reasons,
+            )
+        )
 
     items = _dedupe_items(items)
     items.sort(
@@ -253,7 +350,14 @@ def build_news_context(
     )
     clusters = _build_story_clusters(items)
     coverage = _build_coverage(coverage_inputs, failures, successes, items)
-    quality = _build_quality(items, failures, coverage)
+    materiality = _materiality_for_items(items, source_health)
+    quality = _build_quality(
+        items,
+        failures,
+        coverage,
+        source_health=source_health,
+        materiality=materiality,
+    )
     missing_data = _missing_data_for_quality(quality)
     return NewsContext(
         instrument=symbol,
@@ -261,6 +365,9 @@ def build_news_context(
         window_end=end_date,
         coverage=coverage,
         quality=quality,
+        materiality=materiality,
+        source_health=source_health,
+        item_decisions=item_decisions[:50],
         items=items[:12],
         story_clusters=clusters[:8],
         missing_data=missing_data,
@@ -343,6 +450,53 @@ def _init_coverage(sources: list[NewsSource]) -> dict[str, int]:
     return counts
 
 
+def _source_health(
+    *,
+    source: NewsSource,
+    fetch_status: str,
+    parse_status: str,
+    raw_count: int,
+    parsed_count: int,
+    accepted_count: int,
+    rejected_count: int,
+    rejection_reasons: dict[str, int],
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> NewsSourceHealth:
+    return NewsSourceHealth(
+        source_id=source.id,
+        fetch_status=fetch_status,
+        parse_status=parse_status,
+        raw_count=raw_count,
+        parsed_count=parsed_count,
+        accepted_count=accepted_count,
+        rejected_count=rejected_count,
+        rejection_reasons={key: value for key, value in rejection_reasons.items() if value},
+        error_code=error_code,
+        error_message=error_message,
+    )
+
+
+def _bump_reason(counts: dict[str, int], reason: str) -> None:
+    counts[reason] = counts.get(reason, 0) + 1
+
+
+def _materiality_for_items(
+    items: list[NewsItem],
+    source_health: list[NewsSourceHealth],
+) -> NewsMateriality:
+    if items:
+        return NewsMateriality(status="material_news_found")
+    if any(
+        health.fetch_status == "fetched"
+        and health.parse_status == "parsed"
+        and health.parsed_count > 0
+        for health in source_health
+    ):
+        return NewsMateriality(status="no_material_news_found")
+    return NewsMateriality(status="unknown")
+
+
 def _build_coverage(
     source_counts: dict[str, int],
     failures: dict[str, list[str]],
@@ -380,15 +534,33 @@ def _build_quality(
     items: list[NewsItem],
     failures: dict[str, list[str]],
     coverage: NewsCoverage,
+    *,
+    source_health: list[NewsSourceHealth],
+    materiality: NewsMateriality,
 ) -> NewsQuality:
     if not items:
-        reason_codes = ["insufficient_news_evidence"]
         active_coverage = [
             value
             for value in coverage.model_dump().values()
             if value not in {"skipped"}
         ]
-        if active_coverage and all(value == "failed" for value in active_coverage):
+        all_active_failed = bool(active_coverage) and all(
+            value == "failed" for value in active_coverage
+        )
+        any_source_failed = any(
+            health.fetch_status == "failed" or health.parse_status == "failed"
+            for health in source_health
+        )
+        if materiality.status == "no_material_news_found" and not all_active_failed:
+            if any_source_failed:
+                return NewsQuality(
+                    status="degraded",
+                    score=0.62,
+                    reason_codes=["workspace_news_source_unavailable"],
+                )
+            return NewsQuality(status="clean", score=0.82, reason_codes=[])
+        reason_codes = ["insufficient_news_evidence"]
+        if all_active_failed or any_source_failed:
             reason_codes.insert(0, "missing_news_feed")
         return NewsQuality(
             status="insufficient_data",
@@ -476,7 +648,7 @@ def _to_news_item(
 
 def _parse_feed(
     raw_feed: str, source: NewsSource, *, fetched_at: str
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
     del fetched_at
     root = ET.fromstring(raw_feed)
     root_name = _local_name(root.tag)
@@ -487,6 +659,7 @@ def _parse_feed(
     else:
         entries = _children(root, "entry")
     parsed: list[dict[str, Any]] = []
+    rejection_reasons: dict[str, int] = {}
     for entry in entries:
         title = _first_text(entry, "title")
         url = _entry_url(entry)
@@ -497,7 +670,14 @@ def _parse_feed(
             or _first_text(entry, "date")
         )
         published_at = _parse_timestamp(published_raw)
-        if not title or not url or not published_at:
+        if not title:
+            _bump_reason(rejection_reasons, "missing_title")
+            continue
+        if not url:
+            _bump_reason(rejection_reasons, "missing_url")
+            continue
+        if not published_at:
+            _bump_reason(rejection_reasons, "missing_published_at")
             continue
         parsed.append(
             {
@@ -515,7 +695,7 @@ def _parse_feed(
                 "source_id": source.id,
             }
         )
-    return parsed
+    return parsed, len(entries), rejection_reasons
 
 
 def _entry_url(entry: ET.Element) -> str | None:

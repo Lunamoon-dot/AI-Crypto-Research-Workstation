@@ -140,6 +140,90 @@ def test_build_news_context_marks_insufficient_when_all_sources_fail():
     assert context.coverage.default_sources == "failed"
 
 
+def test_build_news_context_marks_no_material_news_when_sources_are_healthy():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "coindesk",
+                    "name": "CoinDesk",
+                    "type": "rss",
+                    "url": "https://example.test/coindesk.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                }
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Solana ecosystem update</title>
+            <link>https://example.test/solana-update</link>
+            <pubDate>Sun, 31 May 2026 10:00:00 GMT</pubDate>
+            <description>Solana validators ship a routine update.</description>
+          </item>
+        </channel></rss>"""
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: feed,
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.quality.status == "clean"
+    assert context.materiality.status == "no_material_news_found"
+    assert context.quality.reason_codes == []
+    assert context.source_health[0].fetch_status == "fetched"
+    assert context.source_health[0].parse_status == "parsed"
+    assert context.source_health[0].raw_count == 1
+    assert context.source_health[0].parsed_count == 1
+    assert context.source_health[0].accepted_count == 0
+    assert context.source_health[0].rejection_reasons == {"asset_mismatch": 1}
+
+
+def test_build_news_context_keeps_insufficient_when_all_sources_fail_with_diagnostics():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "broken_feed",
+                    "name": "Broken Feed",
+                    "type": "rss",
+                    "url": "https://example.test/broken.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                }
+            ],
+        }
+    }
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: (_ for _ in ()).throw(RuntimeError("down")),
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.quality.status == "insufficient_data"
+    assert context.materiality.status == "unknown"
+    assert "missing_news_feed" in context.quality.reason_codes
+    assert context.source_health[0].source_id == "broken_feed"
+    assert context.source_health[0].fetch_status == "failed"
+    assert context.source_health[0].error_code == "source_fetch_failed"
+
+
 def test_build_news_context_accepts_reputable_media_without_primary_source_gap():
     config = {
         "news_context": {
@@ -282,9 +366,12 @@ def test_build_news_context_degrades_partial_default_source_failure_by_source():
 
     assert context.items == []
     assert context.coverage.default_sources == "degraded"
-    assert context.quality.status == "insufficient_data"
+    assert context.quality.status == "degraded"
+    assert context.materiality.status == "no_material_news_found"
     assert "missing_news_feed" not in context.quality.reason_codes
-    assert "insufficient_news_evidence" in context.quality.reason_codes
+    assert "insufficient_news_evidence" not in context.quality.reason_codes
+    assert context.source_health[0].fetch_status == "failed"
+    assert context.source_health[1].rejection_reasons == {"asset_mismatch": 1}
 
 
 def test_merge_news_sources_assigns_workspace_ids_and_stable_ids():
