@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -120,6 +122,77 @@ class NewsCoverage(BaseModel):
     aggregator: str = "skipped"
 
 
+class NewsMateriality(BaseModel):
+    status: str = "unknown"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, value) -> str:
+        normalized = str(value or "unknown").strip().lower()
+        if normalized not in {
+            "material_news_found",
+            "no_material_news_found",
+            "unknown",
+        }:
+            return "unknown"
+        return normalized
+
+
+class NewsFetchResult(BaseModel):
+    source_id: str
+    status: str
+    fetched_at: str | None = None
+    http_status: int | None = None
+    raw_bytes: int = 0
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class NewsParseResult(BaseModel):
+    source_id: str
+    parser_mode: str
+    raw_count: int = 0
+    parsed_count: int = 0
+    rejected_count: int = 0
+    rejection_reasons: dict[str, int] = Field(default_factory=dict)
+
+
+class NewsItemDecision(BaseModel):
+    source_id: str
+    item_url: str | None = None
+    decision: str
+    reason: str
+    matched_alias: str | None = None
+    relevance_score: float = 0.0
+
+
+class NewsSourceHealth(BaseModel):
+    source_id: str
+    fetch_status: str
+    parse_status: str
+    raw_count: int = 0
+    parsed_count: int = 0
+    accepted_count: int = 0
+    rejected_count: int = 0
+    rejection_reasons: dict[str, int] = Field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+
+    def model_dump_compact(self) -> dict[str, Any]:
+        return {
+            "source_id": self.source_id,
+            "fetch_status": self.fetch_status,
+            "parse_status": self.parse_status,
+            "raw_count": self.raw_count,
+            "parsed_count": self.parsed_count,
+            "accepted_count": self.accepted_count,
+            "rejected_count": self.rejected_count,
+            "rejection_reasons": dict(self.rejection_reasons),
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+        }
+
+
 class NewsQuality(BaseModel):
     status: str = "insufficient_data"
     score: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -142,6 +215,9 @@ class NewsContext(BaseModel):
     window_end: str
     coverage: NewsCoverage = Field(default_factory=NewsCoverage)
     quality: NewsQuality = Field(default_factory=NewsQuality)
+    materiality: NewsMateriality = Field(default_factory=NewsMateriality)
+    source_health: list[NewsSourceHealth] = Field(default_factory=list)
+    item_decisions: list[NewsItemDecision] = Field(default_factory=list)
     items: list[NewsItem] = Field(default_factory=list)
     story_clusters: list[NewsStoryCluster] = Field(default_factory=list)
     missing_data: list[str] = Field(default_factory=list)
@@ -152,16 +228,31 @@ class NewsContext(BaseModel):
             f"Instrument: {self.instrument}",
             f"Window: {self.window_start} -> {self.window_end}",
             f"Quality: {self.quality.status} ({self.quality.score:.2f})",
+            f"Materiality: {self.materiality.status}",
             "",
             "Coverage:",
             f"- default_sources: {self.coverage.default_sources}",
             f"- workspace_sources: {self.coverage.workspace_sources}",
             f"- targeted_search: {self.coverage.targeted_search}",
             f"- aggregator: {self.coverage.aggregator}",
-            "",
-            "Top catalysts:",
         ]
-        if not self.items:
+        lines.extend(["", "Source health:"])
+        if not self.source_health:
+            lines.append("- none")
+        for health in self.source_health:
+            details = (
+                f"{health.source_id}: {health.fetch_status}/{health.parse_status}, "
+                f"raw {health.raw_count}, parsed {health.parsed_count}, "
+                f"accepted {health.accepted_count}, rejected {health.rejected_count}"
+            )
+            if health.error_code:
+                details += f", error {health.error_code}"
+            lines.append(f"- {details}")
+
+        lines.extend(["", "Top catalysts:"])
+        if self.materiality.status == "no_material_news_found":
+            lines.append("- No material news found for this instrument/window.")
+        if not self.items and self.materiality.status != "no_material_news_found":
             lines.append("- none")
         for item in self.items[:8]:
             tag = _primary_tag(item)
