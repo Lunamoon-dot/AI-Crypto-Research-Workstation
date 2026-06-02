@@ -18,6 +18,8 @@ class NewsSource(BaseModel):
     scope: list[str] = Field(default_factory=lambda: ["ALL"])
     official: bool = False
     workspace_id: str | None = None
+    parser_mode: str | None = None
+    selectors: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("target_analysts", mode="before")
     @classmethod

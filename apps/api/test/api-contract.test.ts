@@ -1905,6 +1905,77 @@ test('workspace news sources can be saved, listed, and require editor access', a
   await workspaces.onModuleDestroy();
 });
 
+test('workspace news sources accept html allowlist parser selectors', async () => {
+  const { workspaces } = buildHarness();
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'workspace_eth', role: 'owner' },
+  ]);
+  workspaces.setWorkspaceMetadataForTest([
+    {
+      id: 'workspace_eth',
+      name: 'ETH Workspace',
+      scope_type: 'fixed_symbol',
+      symbol: 'ETH/USDT',
+      market_type: 'spot',
+      default_timeframe: null,
+      archived: false,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    },
+  ]);
+
+  const saved = await workspaces.updateNewsSources('workspace_eth', 'user_1', {
+    sources: [
+      {
+        id: 'ethereum_blog',
+        name: 'Ethereum Blog',
+        type: 'html',
+        url: 'https://blog.ethereum.org/',
+        category: 'official_project',
+        trust_tier: 'high',
+        target_analysts: ['news'],
+        scope: ['ETH'],
+        official: true,
+        parser_mode: 'html_list',
+        selectors: {
+          item: 'article',
+          title: 'h2',
+          link: 'a',
+          date: 'time',
+        },
+      },
+    ],
+  });
+
+  assert.equal(saved.sources[0]?.type, 'html');
+  assert.deepEqual(record(saved.sources[0]?.selectors), {
+    item: 'article',
+    title: 'h2',
+    link: 'a',
+    date: 'time',
+  });
+
+  await assert.rejects(
+    () =>
+      workspaces.updateNewsSources('workspace_eth', 'user_1', {
+        sources: [
+          {
+            id: 'generic_html',
+            name: 'Generic HTML',
+            type: 'html',
+            url: 'https://example.com/',
+            category: 'crypto_media',
+            trust_tier: 'medium',
+            target_analysts: ['news'],
+            scope: ['ETH'],
+            parser_mode: 'html_list',
+          },
+        ],
+      }),
+    isException(BadRequestException),
+  );
+});
+
 test('POST /research-runs uses a persisted fixed workspace after service restart', async () => {
   await withEnv(
     {

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { JsonRecord } from '../database/journal.types';
 
-export type WorkspaceNewsSourceType = 'rss' | 'atom';
+export type WorkspaceNewsSourceType = 'rss' | 'atom' | 'html';
 
 export type WorkspaceNewsSourceTargetAnalyst = 'news' | 'social';
 
@@ -23,6 +23,8 @@ export interface WorkspaceNewsSource {
   scope: string[];
   official: boolean;
   enabled: boolean;
+  parser_mode?: 'html_list';
+  selectors?: Record<string, string>;
 }
 
 export interface WorkspaceNewsSourcesResponse {
@@ -34,7 +36,7 @@ type WorkspaceNewsSourceValidationOptions = {
   defaultScope?: string | null;
 };
 
-const SOURCE_TYPES = new Set<WorkspaceNewsSourceType>(['rss', 'atom']);
+const SOURCE_TYPES = new Set<WorkspaceNewsSourceType>(['rss', 'atom', 'html']);
 const TARGET_ANALYSTS = new Set<WorkspaceNewsSourceTargetAnalyst>([
   'news',
   'social',
@@ -80,6 +82,8 @@ export function toEngineNewsSource(source: WorkspaceNewsSource): JsonRecord {
     target_analysts: source.target_analysts,
     scope: source.scope,
     official: source.official,
+    ...(source.parser_mode ? { parser_mode: source.parser_mode } : {}),
+    ...(source.selectors ? { selectors: source.selectors } : {}),
   };
 }
 
@@ -104,6 +108,8 @@ function validateWorkspaceNewsSource(
   const trustTier = normalizeTrustTier(record.trust_tier);
   const targetAnalysts = normalizeTargetAnalysts(record.target_analysts);
   const scope = normalizeScope(record.scope, options.defaultScope);
+  const parserMode = normalizeParserMode(record.parser_mode, type);
+  const selectors = normalizeSelectors(record.selectors, type);
   return {
     id,
     name,
@@ -115,6 +121,8 @@ function validateWorkspaceNewsSource(
     scope,
     official: Boolean(record.official),
     enabled: record.enabled === undefined ? true : Boolean(record.enabled),
+    ...(parserMode ? { parser_mode: parserMode } : {}),
+    ...(selectors ? { selectors } : {}),
   };
 }
 
@@ -163,9 +171,39 @@ function normalizeSourceId(value: unknown, fallback: string): string {
 function normalizeSourceType(value: unknown): WorkspaceNewsSourceType {
   const normalized = String(value ?? 'rss').trim().toLowerCase();
   if (!SOURCE_TYPES.has(normalized as WorkspaceNewsSourceType)) {
-    throw new BadRequestException('News source type must be rss or atom.');
+    throw new BadRequestException('News source type must be rss, atom, or html.');
   }
   return normalized as WorkspaceNewsSourceType;
+}
+
+function normalizeParserMode(
+  value: unknown,
+  type: WorkspaceNewsSourceType,
+): 'html_list' | undefined {
+  if (type !== 'html') {
+    return undefined;
+  }
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized !== 'html_list') {
+    throw new BadRequestException('HTML news source parser_mode must be html_list.');
+  }
+  return 'html_list';
+}
+
+function normalizeSelectors(
+  value: unknown,
+  type: WorkspaceNewsSourceType,
+): Record<string, string> | undefined {
+  if (type !== 'html') {
+    return undefined;
+  }
+  const record = objectValue(value);
+  return {
+    item: requiredString(record.item, 'selectors.item'),
+    title: requiredString(record.title, 'selectors.title'),
+    link: requiredString(record.link, 'selectors.link'),
+    date: requiredString(record.date, 'selectors.date'),
+  };
 }
 
 function normalizeTrustTier(value: unknown): WorkspaceNewsSourceTrustTier {

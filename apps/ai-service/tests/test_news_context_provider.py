@@ -374,6 +374,97 @@ def test_build_news_context_degrades_partial_default_source_failure_by_source():
     assert context.source_health[1].rejection_reasons == {"asset_mismatch": 1}
 
 
+def test_build_news_context_parses_allowlisted_html_list_source():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [],
+            "workspace_sources": [
+                {
+                    "id": "ethereum_blog",
+                    "name": "Ethereum Blog",
+                    "type": "html",
+                    "url": "https://blog.ethereum.org/",
+                    "category": "official_project",
+                    "trust_tier": "high",
+                    "scope": ["ETH"],
+                    "official": True,
+                    "parser_mode": "html_list",
+                    "selectors": {
+                        "item": "article",
+                        "title": "h2",
+                        "link": "a",
+                        "date": "time",
+                    },
+                }
+            ],
+        }
+    }
+    html = """
+    <html><body>
+      <article>
+        <h2>Ethereum Foundation security update</h2>
+        <a href="/security-update">Read</a>
+        <time datetime="2026-05-30T10:00:00Z">May 30, 2026</time>
+      </article>
+    </body></html>
+    """
+
+    context = build_news_context(
+        symbol="ETH/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: html,
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert context.quality.status == "clean"
+    assert context.materiality.status == "material_news_found"
+    assert [item.title for item in context.items] == [
+        "Ethereum Foundation security update"
+    ]
+    assert context.items[0].canonical_url == "https://blog.ethereum.org/security-update"
+    assert context.source_health[0].accepted_count == 1
+
+
+def test_build_news_context_rejects_html_source_without_selectors():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [],
+            "workspace_sources": [
+                {
+                    "id": "ethereum_blog",
+                    "name": "Ethereum Blog",
+                    "type": "html",
+                    "url": "https://blog.ethereum.org/",
+                    "category": "official_project",
+                    "trust_tier": "high",
+                    "scope": ["ETH"],
+                    "official": True,
+                    "parser_mode": "html_list",
+                }
+            ],
+        }
+    }
+
+    context = build_news_context(
+        symbol="ETH/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: "<html><body></body></html>",
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.quality.status == "insufficient_data"
+    assert context.source_health[0].fetch_status == "fetched"
+    assert context.source_health[0].parse_status == "failed"
+    assert context.source_health[0].error_code == "source_parse_failed"
+
+
 def test_merge_news_sources_assigns_workspace_ids_and_stable_ids():
     sources = merge_news_sources(
         {

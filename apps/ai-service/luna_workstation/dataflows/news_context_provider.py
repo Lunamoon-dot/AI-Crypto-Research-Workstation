@@ -216,7 +216,8 @@ def build_news_context(
     item_decisions: list[NewsItemDecision] = []
     for source in sources:
         group = _coverage_group(source)
-        if source.type.lower() not in {"rss", "atom"}:
+        source_type = source.type.lower()
+        if source_type not in {"rss", "atom", "html"}:
             failures[group].append(source.id)
             source_health.append(
                 _source_health(
@@ -254,9 +255,14 @@ def build_news_context(
             )
             continue
         try:
-            parsed, raw_count, parse_rejections = _parse_feed(
-                raw_feed, source, fetched_at=fetched_at
-            )
+            if source_type == "html":
+                if source.parser_mode != "html_list":
+                    raise ValueError("html source requires parser_mode=html_list")
+                parsed, raw_count, parse_rejections = _parse_html_list(raw_feed, source)
+            else:
+                parsed, raw_count, parse_rejections = _parse_feed(
+                    raw_feed, source, fetched_at=fetched_at
+                )
         except Exception as exc:
             logger.warning("News source %s unparseable: %s", source.id, exc)
             failures[group].append(source.id)
@@ -696,6 +702,51 @@ def _parse_feed(
             }
         )
     return parsed, len(entries), rejection_reasons
+
+
+def _parse_html_list(
+    raw_html: str,
+    source: NewsSource,
+) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
+    from parsel import Selector
+
+    selectors = dict(source.selectors or {})
+    required = ("item", "title", "link", "date")
+    if any(not selectors.get(key) for key in required):
+        raise ValueError("html source requires item/title/link/date selectors")
+
+    root = Selector(text=raw_html)
+    nodes = root.css(selectors["item"])
+    parsed: list[dict[str, Any]] = []
+    rejection_reasons: dict[str, int] = {}
+    for node in nodes:
+        title = _clean_text(" ".join(node.css(selectors["title"] + "::text").getall()))
+        href = node.css(selectors["link"] + "::attr(href)").get()
+        date_text = (
+            node.css(selectors["date"] + "::attr(datetime)").get()
+            or " ".join(node.css(selectors["date"] + "::text").getall())
+        )
+        published_at = _parse_timestamp(date_text)
+        if not title:
+            _bump_reason(rejection_reasons, "missing_title")
+            continue
+        if not href:
+            _bump_reason(rejection_reasons, "missing_url")
+            continue
+        if not published_at:
+            _bump_reason(rejection_reasons, "missing_published_at")
+            continue
+        parsed.append(
+            {
+                "title": title,
+                "url": urllib.parse.urljoin(source.url, href.strip()),
+                "published_at": published_at,
+                "summary": None,
+                "author": None,
+                "source_id": source.id,
+            }
+        )
+    return parsed, len(nodes), rejection_reasons
 
 
 def _entry_url(entry: ET.Element) -> str | None:
