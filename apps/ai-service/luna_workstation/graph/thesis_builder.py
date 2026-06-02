@@ -472,6 +472,21 @@ def _is_social_opinion(opinion: Any) -> bool:
     return source in {"sentiment", "social"} or "sentiment" in role or "social" in role
 
 
+def _has_non_news_quality_evidence(
+    opinions: list[Any],
+    signal_quality_values: list[float],
+) -> bool:
+    if any(value >= 0.75 for value in signal_quality_values):
+        return True
+    for opinion in opinions:
+        if _is_news_opinion(opinion):
+            continue
+        value = normalize_confidence_value(getattr(opinion, "data_quality", None))
+        if value is not None and value >= 0.75:
+            return True
+    return False
+
+
 def _has_insufficient_news_context(opinions: list[Any]) -> bool:
     for opinion in opinions:
         if not _is_news_opinion(opinion):
@@ -1156,12 +1171,18 @@ class ThesisBuilder:
             [*opinion_reason_codes, *opinion_missing_data]
         )
         news_opinion_machine_codes = _news_opinion_machine_codes(opinions)
-        if (
+        has_insufficient_news = (
             "news_context_insufficient_data" in machine_codes
             or _has_insufficient_news_context(opinions)
             or "insufficient_news_evidence" in news_opinion_machine_codes
-        ):
-            quality = min(quality, 0.34)
+        )
+        if has_insufficient_news:
+            news_cap = (
+                0.6
+                if _has_non_news_quality_evidence(opinions, signal_quality_values)
+                else 0.34
+            )
+            quality = min(quality, news_cap)
         if (
             "missing_onchain_flows" in opinion_machine_codes
             or "insufficient_onchain_evidence" in opinion_machine_codes

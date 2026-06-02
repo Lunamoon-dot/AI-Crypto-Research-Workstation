@@ -5058,16 +5058,30 @@ a {
 
 .workflow-node-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px 12px;
   color: var(--muted);
 }
 
 .workflow-node-meta span {
   min-width: 0;
+  white-space: nowrap;
+}
+
+.workflow-node-meta span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.workflow-node-analyst .workflow-node-meta {
+  grid-template-columns: max-content max-content;
+}
+
+.workflow-node-analyst .workflow-node-meta span:last-child {
+  grid-column: 1 / -1;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .workflow-warning {

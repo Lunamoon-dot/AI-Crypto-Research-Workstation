@@ -148,6 +148,7 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     _NO_STRUCTURED_OUTPUT_MODELS = frozenset(
         {
             "deepseek-reasoner",
+            "deepseek-v4-flash",
             "deepseek-v4-pro",
         }
     )
@@ -202,6 +203,7 @@ class OpenAIClient(BaseLLMClient):
         llm_kwargs = {
             "model": self.model,
             "request_timeout": 300,  # 5 min default; prevents indefinite hangs
+            "max_retries": 0,
         }
 
         # Provider-specific base URL and auth. An explicit base_url on the

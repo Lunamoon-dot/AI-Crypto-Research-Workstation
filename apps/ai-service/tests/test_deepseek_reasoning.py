@@ -5,8 +5,8 @@ Two pieces verified:
 1. ``reasoning_content`` is captured on receive into the AIMessage's
    ``additional_kwargs`` and re-attached on send so DeepSeek's API
    sees the same value across turns.
-2. ``with_structured_output`` raises NotImplementedError for
-   ``deepseek-reasoner`` so the agent factories' free-text fallback
+2. ``with_structured_output`` raises NotImplementedError for DeepSeek
+   thinking models so the agent factories' free-text fallback
    handles the request instead of failing at runtime.
 """
 
@@ -148,8 +148,8 @@ class TestDeepSeekReasonerStructuredOutput:
         with pytest.raises(NotImplementedError):
             client.with_structured_output(_Sample)
 
-    def test_with_structured_output_works_for_v4(self):
-        """V4 models (non-reasoner) accept tool_choice; structured output works."""
+    def test_with_structured_output_raises_for_v4_flash(self):
+        """V4 flash rejects tool_choice in thinking mode; skip structured output."""
         client = DeepSeekChatOpenAI(
             model="deepseek-v4-flash",
             api_key="placeholder",
@@ -160,10 +160,21 @@ class TestDeepSeekReasonerStructuredOutput:
         class _Sample(BaseModel):
             answer: str
 
-        # Should return a Runnable, not raise. (The actual API call would
-        # require a real key; we only assert binding succeeds.)
-        wrapped = client.with_structured_output(_Sample)
-        assert wrapped is not None
+        with pytest.raises(NotImplementedError):
+            client.with_structured_output(_Sample)
+
+    def test_openai_compatible_client_disables_hidden_sdk_retries_by_default(self):
+        """Provider fallback should see timeouts instead of waiting through SDK retries."""
+        from luna_workstation.llm_clients.openai_client import OpenAIClient
+
+        client = OpenAIClient(
+            "deepseek-v4-flash",
+            provider="deepseek",
+            api_key="placeholder",
+        )
+        llm = client.get_llm()
+
+        assert llm.root_client.max_retries == 0
 
 
 # ---------------------------------------------------------------------------

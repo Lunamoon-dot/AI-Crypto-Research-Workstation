@@ -445,7 +445,7 @@ def test_degraded_run_caps_pm_confidence_and_surfaces_reason_codes():
     assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
 
 
-def test_news_opinion_missing_feed_caps_data_quality_and_merges_summary_codes():
+def test_news_opinion_missing_feed_degrades_quality_without_flat_insufficient_cap():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "BTC/USDT"
     graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
@@ -506,9 +506,9 @@ def test_news_opinion_missing_feed_caps_data_quality_and_merges_summary_codes():
     )
 
     summary = thesis.structured_summary
-    assert thesis.confidence == 0.25
-    assert summary.data_quality == 0.34
-    assert summary.data_quality_label == "insufficient_data"
+    assert thesis.confidence == 0.45
+    assert summary.data_quality == 0.6
+    assert summary.data_quality_label == "degraded"
     assert "missing_news_feed" in summary.missing_data_reason_codes
     assert "insufficient_news_evidence" in summary.missing_data_reason_codes
     assert "insufficient_news_evidence" in summary.missing_data

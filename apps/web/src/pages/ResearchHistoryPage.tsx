@@ -1,15 +1,16 @@
 import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
+  Ban,
   CheckCircle2,
   FileText,
   FlaskConical,
   History,
 } from 'lucide-react';
-import { listResearchRuns } from '@/services/research-runs';
+import { cancelJob, listResearchRuns } from '@/services/research-runs';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { IdChip, StatusBadge } from '@/components/research/badges';
@@ -18,6 +19,7 @@ import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
+import { errorMessage } from '@/services/client';
 import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import {
@@ -38,6 +40,7 @@ const statusOptions = [
 
 export function ResearchHistoryPage() {
   const auth = useWorkspaceStore();
+  const queryClient = useQueryClient();
   const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
   const [startedDate, setStartedDate] = useState('');
   const [symbol, setSymbol] = useState('');
@@ -55,6 +58,14 @@ export function ResearchHistoryPage() {
         auth,
       ),
     refetchInterval: 5000,
+  });
+  const cancelQueuedMutation = useMutation({
+    mutationFn: (runId: string) => cancelJob(runId, auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchRunsRoot(),
+      });
+    },
   });
 
   const runs = useMemo(() => {
@@ -199,53 +210,80 @@ export function ResearchHistoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {runs.map((run) => (
-                    <tr key={run.id ?? run.run_id ?? `${run.symbol}-${run.started_at}`}>
-                      <td>
-                        <div className="stack small">
-                          <Link to={routes.researchRun(run.run_id ?? run.id ?? '')}>
-                            <strong>{run.symbol}</strong>
-                          </Link>
-                          <span className="muted">
-                            {run.market_type} | {run.timeframe ?? 'n/a'}
-                          </span>
-                          <IdChip value={run.run_id ?? run.id} />
-                        </div>
-                      </td>
-                      <td>
-                        <StatusBadge value={lifecycleStatus(run.status)} />
-                      </td>
-                      <td>{formatDateTime(run.started_at)}</td>
-                      <td>{formatDateTime(run.completed_at)}</td>
-                      <td>
-                        <div className="stack small">
-                          <span>
-                            Thesis <IdChip value={run.thesis_id} />
-                          </span>
-                          <span className="muted">
-                            Signal <IdChip value={run.signal_snapshot_id} />
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <QualitySummary run={run} />
-                      </td>
-                      <td>
-                        <div className="top-strip-meta">
-                          <Link className="button" to={routes.researchRun(run.run_id ?? run.id ?? '')}>
-                            <FlaskConical aria-hidden size={15} />
-                            Open run
-                          </Link>
-                          {run.thesis_id ? (
-                            <Link className="button" to={routes.thesis(run.thesis_id)}>
-                              <FileText aria-hidden size={15} />
-                              Thesis
+                  {runs.map((run) => {
+                    const runId = run.run_id ?? run.id ?? '';
+                    const cancelPending =
+                      cancelQueuedMutation.isPending &&
+                      cancelQueuedMutation.variables === runId;
+                    const cancelError =
+                      cancelQueuedMutation.isError &&
+                      cancelQueuedMutation.variables === runId
+                        ? errorMessage(cancelQueuedMutation.error)
+                        : null;
+
+                    return (
+                      <tr key={run.id ?? run.run_id ?? `${run.symbol}-${run.started_at}`}>
+                        <td>
+                          <div className="stack small">
+                            <Link to={routes.researchRun(runId)}>
+                              <strong>{run.symbol}</strong>
                             </Link>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <span className="muted">
+                              {run.market_type} | {run.timeframe ?? 'n/a'}
+                            </span>
+                            <IdChip value={runId} />
+                          </div>
+                        </td>
+                        <td>
+                          <StatusBadge value={lifecycleStatus(run.status)} />
+                        </td>
+                        <td>{formatDateTime(run.started_at)}</td>
+                        <td>{formatDateTime(run.completed_at)}</td>
+                        <td>
+                          <div className="stack small">
+                            <span>
+                              Thesis <IdChip value={run.thesis_id} />
+                            </span>
+                            <span className="muted">
+                              Signal <IdChip value={run.signal_snapshot_id} />
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <QualitySummary run={run} />
+                        </td>
+                        <td>
+                          <div className="top-strip-meta">
+                            <Link className="button" to={routes.researchRun(runId)}>
+                              <FlaskConical aria-hidden size={15} />
+                              Open run
+                            </Link>
+                            {canCancelQueuedRun(run) ? (
+                              <button
+                                aria-label={`Cancel queued run ${runId}`}
+                                className="button risk"
+                                disabled={cancelPending}
+                                onClick={() => cancelQueuedMutation.mutate(runId)}
+                                type="button"
+                              >
+                                <Ban aria-hidden size={15} />
+                                {cancelPending ? 'Cancelling' : 'Cancel queued'}
+                              </button>
+                            ) : null}
+                            {run.thesis_id ? (
+                              <Link className="button" to={routes.thesis(run.thesis_id)}>
+                                <FileText aria-hidden size={15} />
+                                Thesis
+                              </Link>
+                            ) : null}
+                            {cancelError ? (
+                              <span className="badge risk">{cancelError}</span>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -305,4 +343,8 @@ function summarizeRuns(runs: ResearchRunResponse[]) {
 
 function isActiveRun(status: string | null | undefined): boolean {
   return status === 'queued' || status === 'running' || status === 'created';
+}
+
+function canCancelQueuedRun(run: ResearchRunResponse): boolean {
+  return run.status === 'queued' && Boolean(run.run_id ?? run.id);
 }

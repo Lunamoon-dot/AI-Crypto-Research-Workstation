@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -10,7 +10,7 @@ import {
   Radar,
   ShieldCheck,
 } from "lucide-react";
-import { createResearchRun } from "@/services/research-runs";
+import { createResearchRun, getApiHealth } from "@/services/research-runs";
 import { BentoGrid } from "@/components/research/bento";
 import { Panel } from "@/components/research/panel";
 import { errorMessage } from "@/services/client";
@@ -133,13 +133,27 @@ export function ResearchRunFormPage() {
         .map((analyst) => analyst.label),
     [analysts],
   );
-  const disabledReason = legacyMixedWorkspace
+  const apiHealth = useQuery({
+    queryKey: ["api-health", auth.mode],
+    queryFn: () => getApiHealth(auth),
+    retry: true,
+    retryDelay: 1000,
+    refetchInterval: (query) =>
+      query.state.status === "success" ? false : 1000,
+    refetchIntervalInBackground: true,
+    staleTime: 5000,
+  });
+  const apiReady = apiHealth.data?.status === "ok";
+  const validationDisabledReason = legacyMixedWorkspace
     ? "Create a fixed-symbol workspace to run research"
     : !effectiveSymbol
       ? "Enter a symbol before launching."
       : analysts.length === 0
         ? "Select at least one analyst module."
         : "";
+  const disabledReason = !apiReady
+    ? "Backend is starting. Launch will unlock when API is ready."
+    : validationDisabledReason;
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -170,7 +184,7 @@ export function ResearchRunFormPage() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (mutation.isPending || disabledReason) {
+    if (mutation.isPending || !apiReady || disabledReason) {
       return;
     }
     mutation.mutate();
@@ -411,7 +425,9 @@ export function ResearchRunFormPage() {
                 ) : null}
                 <button
                   className="button primary launch-submit-button"
-                  disabled={mutation.isPending || Boolean(disabledReason)}
+                  disabled={
+                    mutation.isPending || !apiReady || Boolean(disabledReason)
+                  }
                   type="submit"
                 >
                   <Play aria-hidden size={16} />

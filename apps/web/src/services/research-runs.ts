@@ -3,6 +3,7 @@ import { apiRequest } from '@/services/client';
 import {
   createApiClient,
   CreateResearchRunRequest,
+  HealthResponse,
   JobStatusResponse,
   JournalRunWorkspaceResponse,
   ResearchRunResponse,
@@ -22,6 +23,10 @@ export function createResearchRun(
   auth: WorkspaceRequestContext,
 ) {
   return generatedClient(auth).createResearchRun(request);
+}
+
+export function getApiHealth(auth: WorkspaceRequestContext) {
+  return generatedClient(auth).getHealth();
 }
 
 export function getResearchRunWorkspace(id: string, auth: WorkspaceRequestContext) {
@@ -67,6 +72,7 @@ function generatedClient(auth: WorkspaceRequestContext) {
 export type {
   CreateResearchRunRequest,
   EvidenceBundleResponse,
+  HealthResponse,
   JobStatusResponse,
   JournalRunWorkspaceResponse,
   ResearchRunResponse,
