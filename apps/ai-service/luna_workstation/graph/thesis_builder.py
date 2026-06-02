@@ -81,6 +81,7 @@ _CANONICAL_MACHINE_REASON_CODES = {
     "workspace_news_source_unavailable",
     "low_relevance_news",
     "conflicting_news_sources",
+    "no_material_news_found",
     "single_source_concentration",
     "missing_social_feed",
     "missing_onchain_flows",

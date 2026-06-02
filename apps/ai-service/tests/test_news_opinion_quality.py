@@ -57,6 +57,37 @@ def test_news_opinion_accepts_clean_primary_source_context():
     assert "missing_news_feed" not in opinion.reason_codes
 
 
+def test_news_opinion_treats_no_material_news_as_clean_neutral_evidence():
+    text = """
+    ===== PRE-COMPUTED NEWS CONTEXT =====
+    Instrument: BTC/USDT
+    Quality: clean (0.82)
+    Materiality: no_material_news_found
+    Source health:
+    - coindesk: fetched/parsed, raw 10, parsed 10, accepted 0, rejected 10
+    Top catalysts:
+    - No material news found for this instrument/window.
+    Missing/degraded data:
+    - none
+    ===== END NEWS CONTEXT =====
+    """
+
+    opinion = opinion_from_text(
+        "News Analyst",
+        text,
+        research_run_id="run_1",
+        role="news_analyst",
+        source_report_type="news",
+    )
+
+    assert opinion is not None
+    assert opinion.data_quality_label == "clean"
+    assert opinion.data_quality >= 0.75
+    assert "insufficient_news_evidence" not in opinion.reason_codes
+    assert "missing_news_feed" not in opinion.reason_codes
+    assert "no_material_news_found" in opinion.reason_codes
+
+
 def test_sentiment_missing_social_feed_does_not_emit_missing_news_feed():
     opinion = opinion_from_text(
         "Sentiment Analyst",

@@ -117,6 +117,7 @@ _NEWS_REASON_CODES = (
     "conflicting_news_sources",
     "low_relevance_news",
     "workspace_news_source_unavailable",
+    "no_material_news_found",
 )
 _NEWS_SOURCE_TYPES = {"news"}
 _SOCIAL_SOURCE_TYPES = {"sentiment", "social"}
@@ -470,8 +471,12 @@ def normalize_opinion_quality(
     if news_quality is not None:
         status, score, context_codes = news_quality
         reason_codes = dedupe([*reason_codes, *context_codes])
+        has_no_material_news = "no_material_news_found" in text.lower()
         if status == "clean":
             data_quality = max(data_quality, max(score, 0.75))
+            if has_no_material_news:
+                stance = AgentStance.NEUTRAL
+                reason_codes = dedupe([*reason_codes, "no_material_news_found"])
             missing_data = _drop_news_context_boilerplate(missing_data)
         elif status == "insufficient_data":
             data_quality = min(data_quality, score if score > 0 else 0.25)

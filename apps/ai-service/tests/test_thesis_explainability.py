@@ -515,6 +515,58 @@ def test_news_opinion_missing_feed_caps_data_quality_and_merges_summary_codes():
     assert "missing primary-source crypto headlines" in summary.missing_data
 
 
+def test_no_material_news_found_does_not_cap_thesis_quality_to_insufficient():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = [
+        AgentOpinion(
+            agent_name="Market Analyst",
+            role="market_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=1.0,
+        ),
+        AgentOpinion(
+            agent_name="News Analyst",
+            role="news_analyst",
+            stance=AgentStance.NEUTRAL,
+            data_quality=0.82,
+            data_quality_label="clean",
+            reason_codes=["no_material_news_found"],
+        ),
+    ]
+    graph.current_research_run = ResearchRun(id="run_no_material_news", symbol="BTC/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if flows hold.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive while market structure holds",
+              "entry_zone": "Pullback near 100000",
+              "confirmation_condition": "Daily acceptance above 104000",
+              "invalidation": "Close below 95000",
+              "target_zones": ["110000"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.structured_summary.data_quality_label == "clean"
+    assert thesis.structured_summary.data_quality >= 0.75
+    assert thesis.confidence == 0.82
+    assert "no_material_news_found" in thesis.structured_summary.missing_data_reason_codes
+
+
 def test_sentiment_missing_news_feed_does_not_apply_news_insufficient_cap():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "ETH/USDT"
