@@ -2782,6 +2782,40 @@ test('JobsService inline mode returns engine result without memory queue', async
   );
 });
 
+test('JobsService inline mode returns a failed job result when the engine throws', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'inline', REDIS_URL: undefined },
+    async () => {
+      const jobs = new JobsService({
+        runInline: async () => {
+          throw new Error('engine crashed before artifacts persisted');
+        },
+      } as unknown as PythonEngineClient);
+
+      const result = await jobs.enqueueResearchRun(
+        engineRequest('run_inline_engine_error'),
+      );
+      const status = await jobs.getJobStatus(result.id);
+
+      assert.equal(result.backend, 'inline');
+      assert.match(result.id, /^inline_/);
+      assert.deepEqual(result.result, {
+        status: 'failed',
+        run_id: 'run_inline_engine_error',
+        workspace_id: 'workspace_a',
+        error: 'engine crashed before artifacts persisted',
+      });
+      assert.equal(status.status, 'failed');
+      assert.equal(
+        status.error_message,
+        'engine crashed before artifacts persisted',
+      );
+      assert.deepEqual(status.result_summary, result.result);
+      await jobs.onModuleDestroy();
+    },
+  );
+});
+
 test('JobsService inline completion triggers research continuity generation', async () => {
   await withEnv(
     { JOBS_EXECUTION_MODE: 'inline', REDIS_URL: undefined },

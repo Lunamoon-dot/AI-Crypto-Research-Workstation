@@ -108,7 +108,11 @@ export class JobsService implements OnModuleDestroy {
           result: syncedResult,
         };
       } catch (error) {
-        throw error;
+        return {
+          id,
+          backend: 'inline',
+          result: await this.inlineFailureResult(id, request, error),
+        };
       }
     }
     if (executionMode === 'bullmq' && !this.queue) {
@@ -237,6 +241,27 @@ export class JobsService implements OnModuleDestroy {
     if (this.ownsLifecycle) {
       await this.lifecycle.onModuleDestroy();
     }
+  }
+
+  private async inlineFailureResult(
+    id: string,
+    request: EngineRunRequest,
+    error: unknown,
+  ): Promise<JsonRecord> {
+    const record = await this.lifecycle.get(id).catch(() => null);
+    if (record?.result_summary) {
+      return record.result_summary;
+    }
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Research engine failed.';
+    return {
+      status: 'failed',
+      run_id: request.run_id,
+      workspace_id: request.workspace_id,
+      error: message,
+    };
   }
 
   private scheduleMemoryProcessing(): void {
