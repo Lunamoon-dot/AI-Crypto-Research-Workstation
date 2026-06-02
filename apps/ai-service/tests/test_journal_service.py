@@ -195,7 +195,7 @@ def test_journal_service_marks_optional_data_as_completed_degraded(tmp_path):
     assert loaded.status == ResearchRunStatus.COMPLETED_DEGRADED
     assert loaded.missing_core_data == []
     assert "missing_funding_rate" in loaded.missing_optional_data
-    assert "missing_funding_rate" in loaded.degradation_reasons
+    assert "missing_funding_rate" not in loaded.degradation_reasons
 
 
 def test_journal_service_does_not_mark_nonempty_reasons_completed(tmp_path):
@@ -263,6 +263,101 @@ def test_journal_service_normalizes_missing_data_reason_codes(tmp_path):
     loaded = service.get_research_run(saved_run.id)
     assert "missing_liquidations" in loaded.missing_optional_data
     assert "missing_onchain_flows" in loaded.missing_optional_data
+
+
+def test_journal_service_filters_noisy_optional_missing_text_from_debate(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="ETH/USDT", market_type="spot"))
+    market_snapshot = service.save_market_snapshot(
+        MarketSnapshot(
+            research_run_id=run.id,
+            symbol="ETH/USDT",
+            current_price=2000.0,
+        )
+    )
+    run.market_snapshot_id = market_snapshot.id
+    opinion = AgentOpinion(
+        research_run_id=run.id,
+        agent_name="Sentiment Analyst",
+        role="sentiment_analyst",
+        stance=AgentStance.NEUTRAL,
+        missing_data=[
+            "**Missing Data**:",
+            "No data",
+            "Unavailable",
+            "`missing_news_feed` - delegated to News Analyst",
+            "project-specific news missing primary feed",
+            "No strong high-confidence directional signal can be derived from the "
+            "sentiment/social data alone due to missing news feed and low headline count",
+            "missing_liquidations",
+        ],
+        reason_codes=["missing_news_feed"],
+        source_report_type="sentiment",
+    )
+    debate = ResearchDebate(
+        research_run_id=run.id,
+        symbol="ETH/USDT",
+        consensus_stance=AgentStance.NEUTRAL,
+        conflict_level=ConflictLevel.LOW,
+        missing_data=opinion.missing_data,
+    )
+    run, _opinions, debate = service.save_agent_research_bundle(
+        run,
+        [opinion],
+        debate,
+    )
+    thesis = TradeThesis(
+        symbol="ETH/USDT",
+        direction=ThesisDirection.WATCH,
+        thesis_text="Watch for confirmation.",
+    )
+
+    saved_run, _thesis, _scenarios = service.complete_research_run_bundle(
+        run,
+        thesis,
+        [],
+    )
+
+    loaded = service.get_research_run(saved_run.id)
+    assert loaded.status == ResearchRunStatus.COMPLETED_DEGRADED
+    assert loaded.missing_core_data == []
+    assert loaded.missing_optional_data == [
+        "missing_social_feed",
+        "missing_liquidations",
+    ]
+    assert loaded.degradation_reasons == []
+
+
+def test_journal_service_sanitizes_legacy_run_quality_on_read(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(
+        ResearchRun(
+            symbol="ETH/USDT",
+            market_type="spot",
+            degradation_reasons=[
+                "missing_liquidations",
+                "missing_data",
+                "missing_project_specific_news_missing_primary_feed",
+            ],
+            missing_optional_data=[
+                "No data",
+                "Unavailable",
+                "missing_liquidations",
+                "missing_news_derived_sentiment_appears_bearish_but_with_"
+                "insufficient_sample_size_to_be_reliable",
+            ],
+        )
+    )
+
+    loaded = service.get_research_run(run.id)
+    listed = service.list_research_runs(limit=1)
+
+    assert loaded.degradation_reasons == []
+    assert loaded.missing_optional_data == [
+        "missing_liquidations",
+        "missing_social_feed",
+    ]
+    assert listed[0].degradation_reasons == []
 
 
 def test_journal_service_records_decision_and_outcome(tmp_path):

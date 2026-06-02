@@ -70,9 +70,11 @@ def create_setup_planner(llm, config=None):
                     "not an execution instruction.\n\nProposed Research Plan: "
                     f"{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
                     "Return a research setup proposal with market_type, action as a setup "
-                    "stance, reasoning, entry_zone as the manual review zone, invalidation, "
-                    "target_zones as objective zones, position_sizing as conviction context, "
-                    "spot_notes or perp_notes, and missing_data where relevant."
+                    "stance, reasoning, entry_zone as the manual review zone, "
+                    "confirmation_condition as the condition that validates the setup, "
+                    "invalidation, target_zones as objective zones, position_sizing as "
+                    "conviction context, spot_notes or perp_notes, and missing_data where "
+                    "relevant."
                 ),
             },
         ]

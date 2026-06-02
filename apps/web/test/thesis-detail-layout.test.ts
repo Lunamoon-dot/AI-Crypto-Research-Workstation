@@ -23,3 +23,27 @@ test('thesis detail keeps status summary inside the brief panel', () => {
   assert.equal(source.includes('<DirectionBadge'), true);
   assert.equal(source.includes('<ConfidenceBadge'), true);
 });
+
+test('thesis detail counts data gaps from structured summary missing data', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('const dataGaps ='), true);
+  assert.equal(source.includes('dataGaps.length'), true);
+  assert.equal(source.includes('values={dataGaps}'), true);
+  assert.equal(source.includes('thesis.stale_or_missing_data.length'), false);
+});
+
+test('thesis detail renders first-class confirmation condition', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('const confirmation ='), true);
+  assert.equal(source.includes('thesis.confirmation_condition'), true);
+  assert.equal(source.includes('<span>Confirmation</span>'), true);
+  assert.equal(source.includes('<p>{confirmation}</p>'), true);
+});

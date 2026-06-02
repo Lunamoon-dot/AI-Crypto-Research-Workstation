@@ -34,6 +34,79 @@ def test_fetch_nvt_uses_market_cap_over_total_volume(monkeypatch):
     assert "network may be overvalued relative to usage" not in text
 
 
+def test_fetch_long_short_ratio_uses_ccxt_long_short_method_and_perp_symbol(
+    monkeypatch,
+):
+    class FakeExchange:
+        id = "binance"
+        markets = {"ETH/USDT": {}, "ETH/USDT:USDT": {}}
+
+        def __init__(self):
+            self.long_short_calls = []
+
+        def fetch_open_interest_history(self, *_args, **_kwargs):
+            raise AssertionError("long/short ratio must not use open interest history")
+
+        def fetch_long_short_ratio_history(self, symbol, **kwargs):
+            self.long_short_calls.append(("history", symbol, kwargs))
+            return [
+                {
+                    "timestamp": 1780272000000,
+                    "longShortRatio": "1.35",
+                    "longAccount": "0.5745",
+                    "shortAccount": "0.4255",
+                }
+            ]
+
+    exchange = FakeExchange()
+    monkeypatch.setattr(onchain_provider, "_get_configured_exchange", lambda: exchange)
+
+    text = onchain_provider.fetch_long_short_ratio("ETH/USDT")
+
+    assert exchange.long_short_calls[0][1] == "ETH/USDT:USDT"
+    assert "Ratio:  1.35 (Long/Short)" in text
+    assert "Longs:  57.45%" in text
+    assert "Shorts: 42.55%" in text
+
+
+def test_fetch_liquidations_uses_perp_symbol_and_quote_value(monkeypatch):
+    class FakeExchange:
+        id = "binance"
+        markets = {"ETH/USDT": {}, "ETH/USDT:USDT": {}}
+
+        def __init__(self):
+            self.calls = []
+
+        def fetch_liquidations(self, symbol):
+            self.calls.append(symbol)
+            return [
+                {
+                    "timestamp": 1780272000000,
+                    "datetime": "2026-06-01T00:00:00Z",
+                    "side": "sell",
+                    "quoteValue": "150000",
+                    "amount": None,
+                    "price": None,
+                },
+                {
+                    "timestamp": 1780272060000,
+                    "datetime": "2026-06-01T00:01:00Z",
+                    "side": "buy",
+                    "info": {"quoteQty": "50000"},
+                },
+            ]
+
+    exchange = FakeExchange()
+    monkeypatch.setattr(onchain_provider, "_get_configured_exchange", lambda: exchange)
+
+    text = onchain_provider.fetch_liquidations("ETH/USDT")
+
+    assert exchange.calls == ["ETH/USDT:USDT"]
+    assert "Long liquidations:  $150,000" in text
+    assert "Short liquidations: $50,000" in text
+    assert "Latest event:       2026-06-01T00:01:00Z" in text
+
+
 def test_exchange_metrics_low_turnover_is_not_accumulation(monkeypatch):
     def _fake_metrics(base):
         return {

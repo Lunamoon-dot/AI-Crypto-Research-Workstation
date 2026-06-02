@@ -167,6 +167,7 @@ export interface ThesisSummaryResponse {
   confidence: number | null;
   market_type: string;
   action_summary: string;
+  confirmation_condition: string;
   entry_zone: string;
   upside_catalyst: string;
   invalidation: string;
@@ -198,6 +199,7 @@ export interface ThesisResponse {
   stability_guard: JsonRecord;
   created_at: string | null;
   entry_zone: string;
+  confirmation_condition: string;
   invalidation_level: string;
   target_zones: string[];
   thesis_text: string;
@@ -1538,6 +1540,10 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   const evidence = recordValue(thesis.evidence);
   const monitorNext = researchItemTextList(thesis.monitor_next);
   const entryZone = firstString(thesis.entry_zone, summary.entry_zone);
+  const confirmationCondition = firstString(
+    thesis.confirmation_condition,
+    summary.confirmation_condition,
+  );
   const invalidation = firstString(
     thesis.invalidation_level,
     thesis.invalidation,
@@ -1547,6 +1553,7 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
   const summaryResponse = toThesisSummaryResponse(
     summary,
     entryZone,
+    confirmationCondition,
     invalidation,
     targets,
   );
@@ -1573,6 +1580,7 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     stability_guard: recordValue(evidence.stability_guard),
     created_at: nullableString(thesis.created_at),
     entry_zone: entryZone,
+    confirmation_condition: confirmationCondition,
     invalidation_level: invalidation,
     target_zones: targets,
     thesis_text: stringValue(thesis.thesis_text),
@@ -2073,6 +2081,7 @@ export function toAlertResponse(alert: JsonRecord): AlertResponse {
 function toThesisSummaryResponse(
   summary: JsonRecord,
   entryZone: string,
+  confirmationCondition: string,
   invalidation: string,
   targetZones: string[],
 ): ThesisSummaryResponse {
@@ -2082,6 +2091,7 @@ function toThesisSummaryResponse(
     confidence: nullableNumber(summary.confidence),
     market_type: stringValue(summary.market_type, 'spot'),
     action_summary: stringValue(summary.action_summary),
+    confirmation_condition: confirmationCondition,
     entry_zone: entryZone,
     upside_catalyst: stringValue(summary.upside_catalyst),
     invalidation,

@@ -168,20 +168,6 @@ export function ResearchHistoryPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </label>
-            <div className="label">
-              Quick view
-              <div className="top-strip-meta">
-                <button className="button ghost" type="button" onClick={() => setStatus('running')}>
-                  Running
-                </button>
-                <button className="button ghost" type="button" onClick={() => setSearch('degraded')}>
-                  Degraded
-                </button>
-                <button className="button ghost" type="button" onClick={clearFilters}>
-                  Clear
-                </button>
-              </div>
-            </div>
           </div>
         </Panel>
 
@@ -268,13 +254,6 @@ export function ResearchHistoryPage() {
       </BentoGrid>
     </main>
   );
-
-  function clearFilters() {
-    setStartedDate('');
-    setSymbol('');
-    setStatus('');
-    setSearch('');
-  }
 }
 
 function QualitySummary({ run }: { run: ResearchRunResponse }) {

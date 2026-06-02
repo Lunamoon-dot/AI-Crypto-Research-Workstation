@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Callable
 
@@ -208,6 +208,7 @@ def build_news_context(
     coverage_inputs = _init_coverage(sources)
     items: list[NewsItem] = []
     failures: dict[str, list[str]] = defaultdict(list)
+    successes: dict[str, list[str]] = defaultdict(list)
     for source in sources:
         group = _coverage_group(source)
         if source.type.lower() not in {"rss", "atom"}:
@@ -221,10 +222,14 @@ def build_news_context(
             failures[group].append(source.id)
             continue
 
+        successes[group].append(source.id)
+        source_start_date = _source_window_start(start_date, end_date, source, policy)
         for entry in parsed:
-            if not _within_window(entry["published_at"], start_date, end_date):
+            if not _within_window(entry["published_at"], source_start_date, end_date):
                 continue
-            match = _match_asset(profile, entry["title"], entry.get("summary"), entry["url"])
+            match = _match_asset(
+                profile, entry["title"], entry.get("summary"), entry["url"]
+            )
             if not match:
                 continue
             item = _to_news_item(
@@ -247,7 +252,7 @@ def build_news_context(
         reverse=True,
     )
     clusters = _build_story_clusters(items)
-    coverage = _build_coverage(coverage_inputs, failures, items)
+    coverage = _build_coverage(coverage_inputs, failures, successes, items)
     quality = _build_quality(items, failures, coverage)
     missing_data = _missing_data_for_quality(quality)
     return NewsContext(
@@ -298,6 +303,27 @@ def _source_applies_to_symbol(source: NewsSource, symbol: str) -> bool:
     return "ALL" in scope or symbol.upper() in scope
 
 
+def _source_window_start(
+    start_date: str,
+    end_date: str,
+    source: NewsSource,
+    policy: dict[str, Any],
+) -> str:
+    if source.category != "official_project":
+        return start_date
+    end = _date_from_iso(end_date)
+    if end is None:
+        return start_date
+    lookback_days = max(int(policy.get("official_source_lookback_days", 30)), 0)
+    if lookback_days <= 0:
+        return start_date
+    extended = end - timedelta(days=lookback_days)
+    configured = _date_from_iso(start_date)
+    if configured is not None and configured <= extended:
+        return start_date
+    return extended.isoformat()
+
+
 def _coverage_group(source: NewsSource) -> str:
     if source.category == "aggregator" or source.evidence_type == "aggregator":
         return "aggregator"
@@ -320,6 +346,7 @@ def _init_coverage(sources: list[NewsSource]) -> dict[str, int]:
 def _build_coverage(
     source_counts: dict[str, int],
     failures: dict[str, list[str]],
+    successes: dict[str, list[str]],
     items: list[NewsItem],
 ) -> NewsCoverage:
     relevant_by_group: defaultdict[str, int] = defaultdict(int)
@@ -337,7 +364,7 @@ def _build_coverage(
             statuses[group] = "skipped"
         elif relevant_by_group[group]:
             statuses[group] = "clean" if not failures.get(group) else "degraded"
-        elif failures.get(group):
+        elif failures.get(group) and not successes.get(group):
             statuses[group] = "failed"
         else:
             statuses[group] = "degraded"
@@ -355,8 +382,13 @@ def _build_quality(
     coverage: NewsCoverage,
 ) -> NewsQuality:
     if not items:
-        reason_codes = ["insufficient_news_evidence", "missing_primary_source_news"]
-        if any(failures.values()):
+        reason_codes = ["insufficient_news_evidence"]
+        active_coverage = [
+            value
+            for value in coverage.model_dump().values()
+            if value not in {"skipped"}
+        ]
+        if active_coverage and all(value == "failed" for value in active_coverage):
             reason_codes.insert(0, "missing_news_feed")
         return NewsQuality(
             status="insufficient_data",
@@ -374,11 +406,11 @@ def _build_quality(
     codes: list[str] = []
     status = "clean"
     if not primary_items:
-        status = "degraded"
-        codes.append("missing_primary_source_news")
         if all(item.evidence_type == "aggregator" for item in items):
+            status = "degraded"
             codes.append("aggregator_only_news")
         elif all(item.evidence_type == "search_result" for item in items):
+            status = "degraded"
             codes.append("search_only_news")
     if any(value == "failed" for value in coverage.model_dump().values()):
         status = "degraded"
@@ -386,7 +418,9 @@ def _build_quality(
     if max_score < 0.45:
         status = "degraded"
         codes.append("low_relevance_news")
-    return NewsQuality(status=status, score=round(max_score, 2), reason_codes=_dedupe(codes))
+    return NewsQuality(
+        status=status, score=round(max_score, 2), reason_codes=_dedupe(codes)
+    )
 
 
 def _missing_data_for_quality(quality: NewsQuality) -> list[str]:
@@ -440,7 +474,9 @@ def _to_news_item(
     )
 
 
-def _parse_feed(raw_feed: str, source: NewsSource, *, fetched_at: str) -> list[dict[str, Any]]:
+def _parse_feed(
+    raw_feed: str, source: NewsSource, *, fetched_at: str
+) -> list[dict[str, Any]]:
     del fetched_at
     root = ET.fromstring(raw_feed)
     root_name = _local_name(root.tag)
@@ -532,7 +568,12 @@ def _parse_timestamp(value: str | None) -> str | None:
             return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        parsed.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _within_window(published_at: str, start: str, end: str) -> bool:
@@ -670,7 +711,10 @@ def _url_matches_domains(url: str, domains: list[str]) -> bool:
         host = urllib.parse.urlparse(url).netloc.lower()
     except Exception:
         return False
-    return any(host == domain.lower() or host.endswith("." + domain.lower()) for domain in domains)
+    return any(
+        host == domain.lower() or host.endswith("." + domain.lower())
+        for domain in domains
+    )
 
 
 def _dedupe_items(items: list[NewsItem]) -> list[NewsItem]:
@@ -760,4 +804,9 @@ def _fetch_url(url: str, timeout_sec: float) -> str:
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )

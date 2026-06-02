@@ -156,6 +156,13 @@ class SetupProposal(BaseModel):
         default=None,
         description="Setup area or trigger zone for manual review.",
     )
+    confirmation_condition: Optional[str] = Field(
+        default=None,
+        description=(
+            "Concrete condition that confirms the setup thesis. Include "
+            "price, volume, flow, or event thresholds when possible."
+        ),
+    )
     invalidation: Optional[str] = Field(
         default=None,
         description="Condition or level that invalidates the setup.",
@@ -248,6 +255,8 @@ def render_setup_proposal(proposal: SetupProposal) -> str:
     ]
     if entry_zone:
         parts.extend(["", f"**Review Zone**: {entry_zone}"])
+    if proposal.confirmation_condition:
+        parts.extend(["", f"**Confirmation**: {proposal.confirmation_condition}"])
     if invalidation:
         parts.extend(["", f"**Invalidation**: {invalidation}"])
     if target_zones:
@@ -343,6 +352,13 @@ class PortfolioDecision(BaseModel):
         description=(
             "Concrete condition that would improve the thesis or justify "
             "increased attention. Include a price/volume/event trigger when possible."
+        ),
+    )
+    confirmation_condition: str = Field(
+        default="",
+        description=(
+            "Concrete condition that confirms the thesis is playing out. Include "
+            "price, volume, flow, or event thresholds when possible."
         ),
     )
     invalidation: str = Field(
@@ -450,6 +466,8 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     parts.extend(["", f"**Market Type**: {decision.market_type.value}"])
+    if decision.confirmation_condition:
+        parts.extend(["", f"**Confirmation**: {decision.confirmation_condition}"])
     if decision.invalidation:
         parts.extend(["", f"**Invalidation**: {decision.invalidation}"])
     if decision.upside_catalyst:
@@ -482,6 +500,7 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "confidence": decision.confidence,
         "market_type": decision.market_type.value,
         "action_summary": decision.action_summary or decision.executive_summary,
+        "confirmation_condition": decision.confirmation_condition,
         "upside_catalyst": decision.upside_catalyst,
         "invalidation": decision.invalidation,
         "key_reasons": _json_ready_items(decision.key_reasons),

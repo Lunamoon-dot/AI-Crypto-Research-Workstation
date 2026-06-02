@@ -78,6 +78,9 @@ class TestParseRating:
             rating=PortfolioRating.OVERWEIGHT,
             executive_summary="Build gradually while support holds.",
             investment_thesis="Flow and trend evidence remain constructive.",
+            confirmation_condition=(
+                "Daily close above resistance with volume expansion confirms the thesis."
+            ),
         )
         text = render_pm_decision(decision)
         smoke_script = (
@@ -88,6 +91,11 @@ class TestParseRating:
 
         assert "**Research Summary**:" in text
         assert "**Executive Summary**:" not in text
+        assert (
+            "**Confirmation**: Daily close above resistance with volume expansion confirms the thesis."
+            in text
+        )
+        assert '"confirmation_condition"' in text
         assert '"**Research Summary**:"' in smoke_script
         assert '"**Executive Summary**:"' not in smoke_script
 

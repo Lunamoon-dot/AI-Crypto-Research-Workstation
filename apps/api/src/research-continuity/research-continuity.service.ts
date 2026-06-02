@@ -1391,11 +1391,26 @@ export class ResearchContinuityService {
 
     const run = await this.getRunOrThrow(runId, workspaceId);
     const symbol = normalizeContinuitySymbol(stringValue(run.symbol));
-    const previousState = await this.journal.getResearchContinuityState(
+    const persistedState = await this.journal.getResearchContinuityState(
       symbol,
       workspaceId,
     );
-    const previousEntryId = nullableString(previousState?.latest_entry_id);
+    const historicalPrevious = persistedState
+      ? null
+      : await this.loadHistoricalPreviousContext(
+          symbol,
+          runTimestamp(run),
+          workspaceId,
+        );
+    const previousState = persistedState ?? historicalPrevious?.state ?? null;
+    const previousEntryId =
+      nullableString(persistedState?.latest_entry_id) ??
+      historicalPrevious?.entryId ??
+      null;
+    const previousRunId =
+      nullableString(persistedState?.latest_run_id) ??
+      historicalPrevious?.runId ??
+      null;
     if (!isContinuityEligibleStatus(stringValue(run.status))) {
       const entry = await this.createSkippedEntry({
         run,
@@ -1456,7 +1471,7 @@ export class ResearchContinuityService {
         sections: report.sections,
         events,
         snapshot_quality: quality,
-        source_run_ids: [runId, nullableString(previousState?.latest_run_id)].filter(
+        source_run_ids: [runId, previousRunId].filter(
           (id): id is string => Boolean(id),
         ),
         writer_metadata: report.writerMetadata,

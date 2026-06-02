@@ -134,6 +134,14 @@ export function ThesisDetailPage() {
   const actionSummary =
     thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
   const entry = thesis.entry_zone || thesis.summary.entry_zone || 'n/a';
+  const confirmation =
+    thesis.confirmation_condition ||
+    thesis.summary.confirmation_condition ||
+    'No confirmation condition recorded.';
+  const dataGaps =
+    thesis.summary.missing_data.length > 0
+      ? thesis.summary.missing_data
+      : thesis.stale_or_missing_data;
   const invalidation =
     thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
 
@@ -224,9 +232,9 @@ export function ThesisDetailPage() {
                   </ThesisBriefKpi>
                   <ThesisBriefKpi
                     label="Data gaps"
-                    tone={thesis.stale_or_missing_data.length > 0 ? 'warning' : 'constructive'}
+                    tone={dataGaps.length > 0 ? 'warning' : 'constructive'}
                   >
-                    <strong>{thesis.stale_or_missing_data.length}</strong>
+                    <strong>{dataGaps.length}</strong>
                   </ThesisBriefKpi>
                 </div>
 
@@ -257,10 +265,16 @@ export function ThesisDetailPage() {
                   ) : null}
                 </div>
 
-                <section className="thesis-boundary">
-                  <span>Invalidation</span>
-                  <p>{invalidation}</p>
-                </section>
+                <div className="thesis-boundary-grid">
+                  <section className="thesis-boundary thesis-boundary-confirmation">
+                    <span>Confirmation</span>
+                    <p>{confirmation}</p>
+                  </section>
+                  <section className="thesis-boundary">
+                    <span>Invalidation</span>
+                    <p>{invalidation}</p>
+                  </section>
+                </div>
 
                 <div className="top-strip-meta thesis-brief-actions">
                   {thesis.research_run_id ? (
@@ -308,7 +322,7 @@ export function ThesisDetailPage() {
               <div className="grid three">
                 <EvidenceBlock title="Target zones" tone="constructive" values={thesis.target_zones} />
                 <EvidenceBlock title="Monitor next" tone="primary" values={thesis.monitor_next} />
-                <EvidenceBlock title="Stale or missing data" tone="warning" values={thesis.stale_or_missing_data} />
+                <EvidenceBlock title="Stale or missing data" tone="warning" values={dataGaps} />
               </div>
               <div style={{ marginTop: 14 }} className="badge">
                 <GitBranch aria-hidden size={14} />

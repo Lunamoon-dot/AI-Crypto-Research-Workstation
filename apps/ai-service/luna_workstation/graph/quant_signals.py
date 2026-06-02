@@ -44,6 +44,7 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
     nvt_csv = None
     exchange_metrics_csv = None
     missing_optional_data: list[str] = []
+    perp_symbol = _linear_perp_symbol(symbol)
 
     def _fetch_or_none(method: str, label: str, *args):
         try:
@@ -54,10 +55,12 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
             return None
 
     funding_csv = _fetch_or_none(
-        "get_crypto_funding_rate_history", "funding_rate_history", symbol, 60
+        "get_crypto_funding_rate_history", "funding_rate_history", perp_symbol, 60
     )
     if funding_csv is None:
-        funding_csv = _fetch_or_none("get_crypto_funding_rate", "funding_rate", symbol)
+        funding_csv = _fetch_or_none(
+            "get_crypto_funding_rate", "funding_rate", perp_symbol
+        )
         if funding_csv is not None:
             missing_optional_data = [
                 item for item in missing_optional_data if item != "missing_funding_rate"
@@ -66,10 +69,12 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
                 missing_optional_data.append("missing_funding_rate")
                 funding_csv = None
     oi_csv = _fetch_or_none(
-        "get_crypto_open_interest_history", "open_interest_history", symbol, 60
+        "get_crypto_open_interest_history", "open_interest_history", perp_symbol, 60
     )
     if oi_csv is None:
-        oi_csv = _fetch_or_none("get_crypto_open_interest", "open_interest", symbol)
+        oi_csv = _fetch_or_none(
+            "get_crypto_open_interest", "open_interest", perp_symbol
+        )
         if oi_csv is not None:
             missing_optional_data = [
                 item
@@ -79,9 +84,9 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
             if _looks_unavailable(oi_csv):
                 missing_optional_data.append("exchange_oi_unsupported")
                 oi_csv = None
-    liq_csv = _fetch_or_none("get_crypto_liquidations", "liquidations", symbol)
+    liq_csv = _fetch_or_none("get_crypto_liquidations", "liquidations", perp_symbol)
     long_short_csv = _fetch_or_none(
-        "get_crypto_long_short_ratio", "long_short_ratio", symbol
+        "get_crypto_long_short_ratio", "long_short_ratio", perp_symbol
     )
     nvt_csv = _fetch_or_none("get_crypto_nvt", "nvt", symbol)
     exchange_metrics_csv = _fetch_or_none(
@@ -112,6 +117,14 @@ def precompute_quant_signal(config: dict, symbol: str, trade_date: str):
 def _looks_unavailable(text: str | None) -> bool:
     lowered = (text or "").lower()
     return "not available" in lowered or "does not support" in lowered
+
+
+def _linear_perp_symbol(symbol: str) -> str:
+    text = str(symbol or "").strip()
+    if not text or ":" in text or "/" not in text:
+        return text
+    quote = text.split("/", 1)[1].split(":", 1)[0]
+    return f"{text}:{quote}"
 
 
 def _dedupe(items: list[str]) -> list[str]:

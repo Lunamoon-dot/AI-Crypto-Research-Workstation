@@ -30,6 +30,10 @@ from .thesis_builder import parse_structured_summary_payload
 
 logger = logging.getLogger(__name__)
 
+_IGNORED_NEWS_CONTEXT_REASON_CODES = {
+    "missing_primary_source_news",
+}
+
 
 def _log_value(value: Any) -> Any:
     return getattr(value, "value", value)
@@ -50,7 +54,12 @@ def _apply_news_context_quality(run: ResearchRun | None, news_context: Any) -> N
     status = str(getattr(quality, "status", "clean") or "clean")
     if status == "clean":
         return
+    if status == "insufficient_data":
+        _append_unique(run.missing_optional_data, "news_context_insufficient_data")
+        _append_unique(run.degradation_reasons, "news_context_insufficient_data")
     for code in getattr(quality, "reason_codes", []) or []:
+        if code in _IGNORED_NEWS_CONTEXT_REASON_CODES:
+            continue
         _append_unique(run.missing_optional_data, code)
         _append_unique(run.degradation_reasons, code)
 
@@ -305,7 +314,9 @@ class ResearchRunOrchestrator:
         quant_signal_text = host._precompute_quant_signal(company_name, trade_date)
         market_context_text = ""
         if hasattr(host, "_precompute_market_context"):
-            market_context_text = host._precompute_market_context(company_name, trade_date)
+            market_context_text = host._precompute_market_context(
+                company_name, trade_date
+            )
         news_context_text = ""
         if hasattr(host, "_precompute_news_context"):
             news_context_text = host._precompute_news_context(company_name, trade_date)
@@ -333,9 +344,7 @@ class ResearchRunOrchestrator:
         init_agent_state["quant_signal"] = quant_signal_text
         init_agent_state["market_context"] = market_context_text
         init_agent_state["news_context"] = news_context_text
-        init_agent_state["news_context_snapshot"] = _snapshot_model(
-            news_context_result
-        )
+        init_agent_state["news_context_snapshot"] = _snapshot_model(news_context_result)
         args = host.propagator.get_graph_args(callbacks=run_callbacks or None)
 
         if host.config.get("checkpoint_enabled"):
@@ -513,6 +522,12 @@ class ResearchRunOrchestrator:
             f"{latest.confidence:.0%}" if latest.confidence is not None else "unknown"
         )
         invalidation = latest.invalidation_level or latest.invalidation or "n/a"
+        confirmation = latest.confirmation_condition or (
+            latest.structured_summary.confirmation_condition
+            if latest.structured_summary
+            else ""
+        )
+        confirmation = confirmation or "n/a"
         action_summary = (
             latest.structured_summary.action_summary
             if latest.structured_summary
@@ -522,7 +537,8 @@ class ResearchRunOrchestrator:
             f"Latest same-symbol thesis: id={latest.id}, "
             f"created_at={latest.created_at.isoformat()}, "
             f"direction={latest.direction.value}, rating={rating}, "
-            f"confidence={confidence}, invalidation={invalidation}. "
+            f"confidence={confidence}, confirmation={confirmation}, "
+            f"invalidation={invalidation}. "
             f"Summary: {action_summary}. "
             f"Stability policy: for reruns within "
             f"{float(cfg.get('cooldown_minutes', 60)):.0f} minutes, treat new "

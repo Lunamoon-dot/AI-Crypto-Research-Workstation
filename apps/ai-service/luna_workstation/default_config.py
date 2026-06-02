@@ -61,6 +61,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "news_context": {
         "enabled": True,
         "lookback_days": 7,
+        "official_source_lookback_days": 30,
         "feed_timeout_sec": 8.0,
         "workspace_sources": [],
         "asset_profiles": {},

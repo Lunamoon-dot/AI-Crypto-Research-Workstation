@@ -58,9 +58,11 @@ _OPTIONAL_CODE_ALIASES = {
     "news_feed": "missing_news_feed",
     "missing_news": "missing_news_feed",
     "missing_news_feed": "missing_news_feed",
+    "missing_primary_source_news": "missing_primary_source_news",
     "insufficient_news_evidence": "insufficient_news_evidence",
-    "social": "missing_social",
-    "missing_social": "missing_social",
+    "social": "missing_social_feed",
+    "missing_social": "missing_social_feed",
+    "missing_social_feed": "missing_social_feed",
     "onchain": "missing_onchain_flows",
     "onchain_secondary": "missing_onchain_flows",
     "onchain_flows": "missing_onchain_flows",
@@ -77,6 +79,42 @@ _OPTIONAL_CODE_ALIASES = {
     "oi": "exchange_oi_unsupported",
     "exchange_oi_unsupported": "exchange_oi_unsupported",
 }
+_NOISY_MISSING_CODES = {
+    "0",
+    "data",
+    "missing_data",
+    "missing_no_data",
+    "missing_unavailable",
+    "missing_none",
+    "missing_evidence",
+    "missing_missing_data",
+    "missing_missing_evidence",
+    "missing_explicit_label",
+    "missing_data_quality",
+    "no_data",
+    "unavailable",
+    "missing_primary_source_news",
+}
+_SPOT_OPTIONAL_ONLY_CODES = {
+    "missing_funding_rate",
+    "missing_liquidations",
+    "missing_long_short_ratio",
+    "missing_onchain_flows",
+    "missing_social_feed",
+    "exchange_oi_unsupported",
+}
+_CANONICAL_OPTIONAL_CODES = set(_OPTIONAL_CODE_ALIASES.values()) | {
+    "aggregator_only_news",
+    "search_only_news",
+    "stale_news_window",
+    "workspace_news_source_unavailable",
+    "low_relevance_news",
+    "conflicting_news_sources",
+    "news_context_insufficient_data",
+}
+_CANONICAL_DEGRADATION_CODES = _CANONICAL_OPTIONAL_CODES | set(
+    _CORE_CODE_ALIASES.values()
+)
 
 
 def resolve_journal_db_path(config: dict[str, Any] | None = None) -> Path:
@@ -531,15 +569,19 @@ class JournalService:
     def list_research_runs(
         self, limit: int = 20, *, workspace_id: str | None = None
     ) -> list[ResearchRun]:
-        return self.repo.list_research_runs(
-            limit=limit,
-            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
-        )
+        return [
+            _sanitize_run_quality(run)
+            for run in self.repo.list_research_runs(
+                limit=limit,
+                workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            )
+        ]
 
     def get_research_run(
         self, run_id: str, *, workspace_id: str | None = None
     ) -> ResearchRun | None:
-        return self.repo.get_research_run(run_id, workspace_id=workspace_id)
+        run = self.repo.get_research_run(run_id, workspace_id=workspace_id)
+        return _sanitize_run_quality(run) if run else None
 
     def list_theses(
         self, limit: int = 20, *, workspace_id: str | None = None
@@ -756,11 +798,20 @@ class JournalService:
         scenarios: list[Scenario] | None = None,
         _conn=None,
     ) -> None:
-        missing_core = [_core_reason_code(item) for item in run.missing_core_data]
-        missing_optional = [
-            _optional_reason_code(item) for item in run.missing_optional_data
+        market_type = getattr(run, "market_type", "spot")
+        missing_core = [
+            code for item in run.missing_core_data if (code := _core_reason_code(item))
         ]
-        reasons = [_reason_code(item) for item in run.degradation_reasons]
+        missing_optional = [
+            code
+            for item in run.missing_optional_data
+            if (code := _optional_reason_code(item))
+        ]
+        reasons = [
+            code
+            for item in run.degradation_reasons
+            if (code := _degradation_reason_code(item, market_type=market_type))
+        ]
 
         if not (run.symbol or "").strip():
             missing_core.append("symbol_invalid")
@@ -775,24 +826,27 @@ class JournalService:
 
         if thesis:
             missing_optional.extend(
-                _optional_reason_code(item) for item in thesis.stale_or_missing_data
+                code
+                for item in thesis.stale_or_missing_data
+                if (code := _optional_reason_code(item))
             )
         if debate:
             missing_optional.extend(
-                _optional_reason_code(item) for item in debate.missing_data
+                code
+                for item in debate.missing_data
+                if (code := _optional_reason_code(item))
             )
         for scenario in scenarios or []:
             metadata = scenario.template_metadata or {}
             if metadata.get("template_degraded"):
                 reason = metadata.get("degrade_reason") or "template degraded"
-                missing_optional.append(_optional_reason_code(f"template_{reason}"))
+                if code := _optional_reason_code(f"template_{reason}"):
+                    missing_optional.append(code)
 
         run.missing_core_data = _dedupe(missing_core)
         run.missing_optional_data = _dedupe(missing_optional)
         if run.missing_core_data:
             reasons.extend(run.missing_core_data)
-        if run.missing_optional_data:
-            reasons.extend(run.missing_optional_data)
         run.degradation_reasons = _dedupe(reasons)
         if run.missing_core_data:
             run.status = ResearchRunStatus.FAILED
@@ -964,10 +1018,28 @@ def _reason_code(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = text.split(":", 1)[0] if ":" in text else text
     text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    if "news_feed" in text and "delegated_to_news_analyst" in text:
+        return "missing_social_feed"
+    if "sentiment_social" in text and "news_feed" in text:
+        return "missing_social_feed"
+    if "news_derived_sentiment" in text and "insufficient_sample_size" in text:
+        return "missing_social_feed"
+    if "project_specific_news" in text and (
+        "primary_feed" in text or "primary_source" in text
+    ):
+        return "missing_primary_source_news"
+    if "primary_source" in text and "unsupported" in text:
+        return "missing_primary_source_news"
     aliases = {
         "missing_news": "missing_news_feed",
         "news": "missing_news_feed",
         "news_feed": "missing_news_feed",
+        "missing_primary_source_news": "missing_primary_source_news",
+        "primary_source_news": "missing_primary_source_news",
+        "primary_source_news_feed": "missing_primary_source_news",
+        "missing_primary_source_news_feed": "missing_primary_source_news",
+        "missing_social": "missing_social_feed",
+        "missing_social_feed": "missing_social_feed",
         "missing_onchain_secondary": "missing_onchain_flows",
         "onchain_secondary": "missing_onchain_flows",
         "onchain": "missing_onchain_flows",
@@ -984,15 +1056,74 @@ def _core_reason_code(value: Any) -> str:
     return _CORE_CODE_ALIASES.get(code, code)
 
 
-def _optional_reason_code(value: Any) -> str:
+def _optional_reason_code(value: Any) -> str | None:
     code = _reason_code(value)
+    code = _OPTIONAL_CODE_ALIASES.get(code, code)
+    if _is_noisy_missing_code(code):
+        return None
     if "liquidation" in code:
         return "missing_liquidations"
     if "onchain" in code or "on_chain" in code or "exchange_flow" in code:
         return "missing_onchain_flows"
-    if code.startswith("missing_") or code.startswith("exchange_"):
-        return _OPTIONAL_CODE_ALIASES.get(code, code)
-    return _OPTIONAL_CODE_ALIASES.get(code, f"missing_{code}")
+    if code in _CANONICAL_OPTIONAL_CODES:
+        return code
+    if code.startswith("signal_factor_"):
+        return code
+    if code.startswith("template_"):
+        return f"missing_{code}"
+    return None
+
+
+def _sanitize_run_quality(run: ResearchRun) -> ResearchRun:
+    market_type = getattr(run, "market_type", "spot")
+    missing_core = [
+        code for item in run.missing_core_data if (code := _core_reason_code(item))
+    ]
+    missing_optional = [
+        code
+        for item in run.missing_optional_data
+        if (code := _optional_reason_code(item))
+    ]
+    degradation_reasons = [
+        code
+        for item in run.degradation_reasons
+        if (code := _degradation_reason_code(item, market_type=market_type))
+    ]
+    if missing_core:
+        degradation_reasons.extend(missing_core)
+    run.missing_core_data = _dedupe(missing_core)
+    run.missing_optional_data = _dedupe(missing_optional)
+    run.degradation_reasons = _dedupe(degradation_reasons)
+    return run
+
+
+def _degradation_reason_code(value: Any, *, market_type: str) -> str | None:
+    code = _reason_code(value)
+    code = _OPTIONAL_CODE_ALIASES.get(code, code)
+    if _is_noisy_missing_code(code):
+        return None
+    if (
+        str(market_type or "spot").lower() == "spot"
+        and code in _SPOT_OPTIONAL_ONLY_CODES
+    ):
+        return None
+    if code in _CANONICAL_DEGRADATION_CODES:
+        return code
+    if code.startswith(("cross_venue_", "signal_factor_")):
+        return code
+    if code.startswith("missing_template_"):
+        return code
+    return None
+
+
+def _is_noisy_missing_code(code: str) -> bool:
+    if not code:
+        return True
+    if code in _NOISY_MISSING_CODES:
+        return True
+    if code.startswith("missing_final_setup_stance"):
+        return True
+    return False
 
 
 def _build_retrospective_insights(

@@ -334,10 +334,15 @@ class ReportGenerator:
         if confidence is not None:
             lines.append(f"**Confidence**: {confidence:.0%}")
         entry = summary.get("entry_zone") or thesis.get("entry_zone")
+        confirmation = summary.get("confirmation_condition") or thesis.get(
+            "confirmation_condition"
+        )
         invalidation = summary.get("invalidation") or thesis.get("invalidation_level")
         targets = summary.get("target_zones") or thesis.get("target_zones") or []
         if entry:
             lines.append(f"**Entry/Review Zone**: {entry}")
+        if confirmation:
+            lines.append(f"**Confirmation**: {confirmation}")
         if invalidation:
             lines.append(f"**Invalidation**: {invalidation}")
         if targets:

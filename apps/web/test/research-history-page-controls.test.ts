@@ -26,3 +26,16 @@ test('research history hides symbol filters for fixed-symbol workspaces', () => 
   assert.equal(source.includes('!fixedWorkspaceSymbol ?'), true);
   assert.equal(source.includes('Workspace symbol'), true);
 });
+
+test('research history filter panel does not render quick view shortcuts', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ResearchHistoryPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('Quick view'), false);
+  assert.equal(source.includes("onClick={() => setStatus('running')}"), false);
+  assert.equal(source.includes("onClick={() => setSearch('degraded')}"), false);
+  assert.equal(source.includes('onClick={clearFilters}'), false);
+  assert.equal(source.includes('function clearFilters()'), false);
+});

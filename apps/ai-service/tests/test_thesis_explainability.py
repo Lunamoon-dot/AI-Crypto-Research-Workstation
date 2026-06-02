@@ -115,6 +115,7 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
               "direction": "short",
               "confidence": 0.81,
               "action_summary": "Fade failed reclaim",
+              "confirmation_condition": "Bearish thesis confirms if BTC rejects 100000 with rising sell volume",
               "entry_zone": "Failed reclaim near 100000",
               "invalidation": "Close above 105000",
               "target_zones": ["92000", "88000"],
@@ -132,6 +133,12 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     assert thesis.confidence == 0.45
     assert thesis.structured_summary.rating == "Sell"
     assert thesis.structured_summary.action_summary == "Fade failed reclaim"
+    assert thesis.confirmation_condition == (
+        "Bearish thesis confirms if BTC rejects 100000 with rising sell volume"
+    )
+    assert thesis.structured_summary.confirmation_condition == (
+        "Bearish thesis confirms if BTC rejects 100000 with rising sell volume"
+    )
     assert thesis.entry_zone == "Failed reclaim near 100000"
     assert thesis.target_zones == ["92000", "88000"]
     assert thesis.invalidation == "Close above 105000"
@@ -172,6 +179,7 @@ def test_graph_preserves_object_first_research_evidence_contract():
               "confidence": 0.66,
               "action_summary": "Constructive while reclaim holds",
               "entry_zone": "Pullback near support",
+              "confirmation_condition": "Daily close above resistance with expanding spot volume",
               "invalidation": "Close back below support",
               "target_zones": ["range high"],
               "key_reasons": [
@@ -274,6 +282,7 @@ def test_graph_preserves_object_first_research_evidence_contract():
     assert thesis.monitor_next == [
         "Watch whether BTC accepts above resistance.",
         "entry: Pullback near support",
+        "confirmation: Daily close above resistance with expanding spot volume",
         "invalidation: Close back below support",
         "target: range high",
     ]
@@ -371,6 +380,7 @@ def test_graph_uses_debate_confidence_when_pm_confidence_missing():
               "confidence": null,
               "action_summary": "Avoid fresh longs",
               "entry_zone": "No new entry",
+              "confirmation_condition": "Daily rejection below 110 confirms continued avoidance",
               "invalidation": "Close above 110",
               "target_zones": ["92", "84"],
               "risks": ["Positive catalyst risk"],
@@ -505,7 +515,70 @@ def test_news_opinion_missing_feed_caps_data_quality_and_merges_summary_codes():
     assert "missing primary-source crypto headlines" in summary.missing_data
 
 
-def test_onchain_opinion_missing_flows_caps_data_quality_to_degraded():
+def test_sentiment_missing_news_feed_does_not_apply_news_insufficient_cap():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "ETH/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = [
+        AgentOpinion(
+            agent_name="News Analyst",
+            role="news_analyst",
+            stance=AgentStance.BULLISH,
+            data_quality=0.88,
+            data_quality_label="clean",
+            raw_text=(
+                "===== PRE-COMPUTED NEWS CONTEXT =====\n"
+                "Quality: clean (0.88)\n"
+                "Confirmed Primary-Source Items:\n"
+                "- Title: Ethereum Foundation security update; "
+                "URL: https://blog.ethereum.org/example; "
+                "Published: 2026-05-31T00:00:00Z\n"
+                "===== END NEWS CONTEXT ====="
+            ),
+        ),
+        AgentOpinion(
+            agent_name="Sentiment Analyst",
+            role="sentiment_analyst",
+            stance=AgentStance.UNCERTAIN,
+            data_quality=1.0,
+            missing_data=["No third-party crypto news feed / unsupported by workspace"],
+            reason_codes=["missing_news_feed"],
+        ),
+    ]
+    graph.current_research_run = ResearchRun(
+        id="run_sentiment_missing", symbol="ETH/USDT"
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "ETH/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if support holds.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive while support holds",
+              "entry_zone": "$1,990-$2,020",
+              "invalidation": "Close below $1,930",
+              "target_zones": ["$2,200-$2,280"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert summary.data_quality > 0.34
+    assert summary.data_quality_label != "insufficient_data"
+    assert thesis.confidence != 0.25
+
+
+def test_spot_onchain_opinion_missing_flows_remains_optional():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "ETH/USDT"
     graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
@@ -557,6 +630,7 @@ def test_onchain_opinion_missing_flows_caps_data_quality_to_degraded():
               "confidence": 0.82,
               "action_summary": "Constructive, but onchain flow is missing",
               "entry_zone": "Pullback near 3150",
+              "confirmation_condition": "Daily acceptance above 3300 with spot volume expansion",
               "invalidation": "Close below 3000",
               "target_zones": ["3500"],
               "market_type": "spot"
@@ -566,11 +640,231 @@ def test_onchain_opinion_missing_flows_caps_data_quality_to_degraded():
     )
 
     summary = thesis.structured_summary
-    assert thesis.confidence == 0.45
-    assert summary.data_quality == 0.6
-    assert summary.data_quality_label == "degraded"
+    assert thesis.confidence == 0.82
+    assert summary.data_quality >= 0.75
+    assert summary.data_quality_label == "clean"
     assert "missing_onchain_flows" in summary.missing_data_reason_codes
     assert "exchange flow data unavailable" in summary.missing_data
+
+
+def test_graph_fills_missing_structured_entry_and_targets_from_pm_prose():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "ETH/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_prose_zones", symbol="ETH/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "ETH/USDT",
+            "final_trade_decision": (
+                "**Rating**: Overweight\n\n"
+                "Portfolio Manager plan.\n"
+                "Confirmation: 4H close back above $2,050 with expanding spot volume\n"
+                "Entry Zone: $1,990-$2,020\n"
+                "Invalidation: Close below $1,930\n"
+                "Target zones: $2,200-$2,280"
+            ),
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive while support holds",
+              "invalidation": "Close below $1,930",
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.entry_zone == "$1,990-$2,020"
+    assert thesis.confirmation_condition == (
+        "4H close back above $2,050 with expanding spot volume"
+    )
+    assert thesis.structured_summary.confirmation_condition == (
+        "4H close back above $2,050 with expanding spot volume"
+    )
+    assert thesis.target_zones == ["$2,200-$2,280"]
+    assert thesis.structured_summary.entry_zone == "$1,990-$2,020"
+    assert thesis.structured_summary.target_zones == ["$2,200-$2,280"]
+    assert "entry_zone_missing_from_structured_summary" not in (
+        thesis.structured_summary.degradation_reasons
+    )
+    assert "confirmation_condition_missing_from_structured_summary" not in (
+        thesis.structured_summary.degradation_reasons
+    )
+    assert "target_zones_missing_from_structured_summary" not in (
+        thesis.structured_summary.degradation_reasons
+    )
+
+
+def test_spot_optional_derivatives_and_onchain_gaps_do_not_heavily_cap_thesis():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "ETH/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_spot_optional_missing",
+        symbol="ETH/USDT",
+        market_type="spot",
+        degradation_reasons=[
+            "missing_funding_rate",
+            "missing_liquidations",
+            "missing_onchain_flows",
+        ],
+        missing_optional_data=[
+            "missing_funding_rate",
+            "missing_liquidations",
+            "missing_onchain_flows",
+        ],
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "ETH/USDT",
+            "final_trade_decision": "**Rating**: Overweight\n\nConstructive if support holds.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Overweight",
+              "direction": "long",
+              "confidence": 0.82,
+              "action_summary": "Constructive while support holds",
+              "entry_zone": "$1,990-$2,020",
+              "confirmation_condition": "4H close back above $2,050 with expanding spot volume",
+              "invalidation": "Close below $1,930",
+              "target_zones": ["$2,200-$2,280"],
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert summary.data_quality_label == "clean"
+    assert summary.data_quality >= 0.75
+    assert thesis.confidence > 0.45
+    assert "missing_funding_rate" in summary.missing_data_reason_codes
+    assert "missing_liquidations" in summary.missing_data_reason_codes
+    assert "missing_onchain_flows" in summary.missing_data_reason_codes
+
+
+def test_thesis_reason_codes_filter_llm_prose_and_primary_source_noise():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.7)
+    graph.current_debate = None
+    graph.current_agent_opinions = [
+        AgentOpinion(
+            agent_name="Sentiment Analyst",
+            role="sentiment_analyst",
+            stance=AgentStance.UNCERTAIN,
+            data_quality=1.0,
+            missing_data=[
+                "The sentiment analyst said no strong bullish or bearish social "
+                "signal and flagged missing polarity data.",
+                "Missing the first 5% move is a small price to pay for avoiding a "
+                "10-15% drawdown.",
+            ],
+            source_report_type="sentiment",
+        )
+    ]
+    graph.current_research_run = ResearchRun(
+        id="run_noisy_reason_codes",
+        symbol="BTC/USDT",
+        market_type="spot",
+        status="completed_degraded",
+        degradation_reasons=[
+            "missing_primary_source_news",
+            "missing_liquidations",
+            "missing_onchain_flows",
+            "missing_funding_rate",
+            "missing_news_feed",
+            "insufficient_news_evidence",
+            "exchange_oi_unsupported",
+            "missing_data",
+            "missing_data_conflicts",
+            "single_source_concentration_all_6_articles_from_coindesk_no_bloomberg_reuters_decrypt_or_the_block_cross_check",
+            "missing_workspace_sources_and_targeted_search",
+            "missing_primary_source_crypto_headlines",
+            "data_quality",
+            "but_here_s_what_you_re_missing",
+            "the_risk_of_missing_a_violent_reversal_is_far_greater_than_the_risk_of_a_small_drawdown",
+            "you_mention_shorts_piling_on_after_the_ibit_outflow_but_there_s_no_data_confirming_that",
+            "supporting_evidence",
+            "text",
+        ],
+        missing_optional_data=[
+            "missing_liquidations",
+            "missing_onchain_flows",
+            "missing_funding_rate",
+            "exchange_oi_unsupported",
+        ],
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": "**Rating**: Hold\n\nWait for confirmation.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Hold",
+              "direction": "watch",
+              "confidence": 0.62,
+              "action_summary": "Wait for confirmation",
+              "entry_zone": "$104,000-$106,000",
+              "confirmation_condition": "Daily close back above $108,000",
+              "invalidation": "Close below $101,000",
+              "target_zones": ["$112,000-$115,000"],
+              "market_type": "spot",
+              "missing_data": [
+                "But here's what you're missing",
+                "weekly trend ADX / MA slope values, exact order book depth per level, and a macro event calendar e.g. FOMC are unavailable"
+              ],
+              "missing_data_reason_codes": [
+                "missing_primary_source_news",
+                "missing_news_feed",
+                "insufficient_news_evidence",
+                "missing_data",
+                "data_quality",
+                "supporting_evidence",
+                "text"
+              ]
+            }
+            """,
+        },
+    )
+
+    summary = thesis.structured_summary
+    assert summary.missing_data_reason_codes == [
+        "missing_news_feed",
+        "insufficient_news_evidence",
+        "missing_social_feed",
+        "missing_liquidations",
+        "missing_onchain_flows",
+        "missing_funding_rate",
+        "exchange_oi_unsupported",
+        "single_source_concentration",
+        "workspace_news_source_unavailable",
+    ]
+    assert "missing_primary_source_news" not in summary.missing_data_reason_codes
+    assert "but_here_s_what_you_re_missing" not in summary.degradation_reasons
+    assert "data_quality" not in summary.degradation_reasons
+    assert "supporting_evidence" not in summary.degradation_reasons
+    assert "text" not in summary.degradation_reasons
+    assert "missing_liquidations" not in summary.degradation_reasons
+    assert "missing_funding_rate" not in summary.degradation_reasons
 
 
 def test_low_quant_confidence_caps_high_pm_confidence_as_watch_memo():
@@ -599,6 +893,7 @@ def test_low_quant_confidence_caps_high_pm_confidence_as_watch_memo():
               "confidence": 0.82,
               "action_summary": "Constructive, but quant confidence is weak",
               "entry_zone": "Pullback near 3150",
+              "confirmation_condition": "Daily close above 3300 with improving quant confirmation",
               "invalidation": "Close below 3000",
               "target_zones": ["3500"],
               "market_type": "spot"
@@ -648,6 +943,7 @@ def test_mtf_alignment_conflict_penalizes_final_confidence():
               "confidence": 0.80,
               "action_summary": "Constructive only on confirmation",
               "entry_zone": "Break above 103000",
+              "confirmation_condition": "Daily close above 103000 with weekly structure holding bullish",
               "invalidation": "Close below 96000",
               "target_zones": ["110000"],
               "market_type": "spot"

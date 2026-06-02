@@ -235,6 +235,7 @@ class TradeThesisStructuredSummary(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     market_type: str = "spot"
     action_summary: str = ""
+    confirmation_condition: str = ""
     entry_zone: str = ""
     upside_catalyst: str = ""
     invalidation: str = ""
@@ -322,6 +323,7 @@ class TradeThesisStructuredSummary(BaseModel):
 
     @field_validator(
         "action_summary",
+        "confirmation_condition",
         "entry_zone",
         "upside_catalyst",
         "invalidation",
@@ -411,6 +413,7 @@ class TradeThesis(BaseModel):
     consensus: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
     why_this_thesis: str = ""
+    confirmation_condition: str = ""
     supporting_evidence: list[str] = Field(default_factory=list)
     contradicting_evidence: list[str] = Field(default_factory=list)
     stale_or_missing_data: list[str] = Field(default_factory=list)

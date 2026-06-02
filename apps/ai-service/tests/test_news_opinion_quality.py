@@ -55,3 +55,43 @@ def test_news_opinion_accepts_clean_primary_source_context():
     assert opinion.data_quality_label == "clean"
     assert opinion.data_quality >= 0.75
     assert "missing_news_feed" not in opinion.reason_codes
+
+
+def test_sentiment_missing_social_feed_does_not_emit_missing_news_feed():
+    opinion = opinion_from_text(
+        "Sentiment Analyst",
+        (
+            "No third-party crypto news feed / unsupported by workspace. "
+            "Social source coverage is unavailable for this run."
+        ),
+        research_run_id="run_1",
+        role="sentiment_analyst",
+        source_report_type="sentiment",
+    )
+
+    assert opinion is not None
+    assert "missing_social_feed" in opinion.reason_codes
+    assert "missing_news_feed" not in opinion.reason_codes
+
+
+def test_sentiment_missing_data_filters_generic_headers_and_news_delegation():
+    opinion = opinion_from_text(
+        "Sentiment Analyst",
+        "\n".join(
+            [
+                "**Missing Evidence**",
+                "`missing_news_feed` - delegated to News Analyst",
+                "**Missing Data**:",
+                "No strong high-confidence directional signal can be derived from "
+                "the sentiment/social data alone due to missing news feed and low "
+                "headline count",
+            ]
+        ),
+        research_run_id="run_1",
+        role="sentiment_analyst",
+        source_report_type="sentiment",
+    )
+
+    assert opinion is not None
+    assert opinion.reason_codes == ["missing_social_feed"]
+    assert opinion.missing_data == ["missing_social_feed"]

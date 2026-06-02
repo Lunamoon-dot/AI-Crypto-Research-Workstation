@@ -8285,6 +8285,7 @@ test('research continuity V1.2 attaches item evidence before global fallback and
     direction: 'long',
     confidence: 0.66,
     action_summary: 'Constructive while reclaim holds.',
+    confirmation_condition: 'Daily acceptance above resistance confirms the long thesis.',
     entry_zone: 'Pullback near support',
     invalidation: 'Close back below support',
     target_zones: ['range high'],
@@ -8337,6 +8338,14 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   assert.deepEqual(publicThesis.summary.key_reasons, [
     'Market structure improved after reclaiming the prior range.',
   ]);
+  assert.equal(
+    publicThesis.confirmation_condition,
+    'Daily acceptance above resistance confirms the long thesis.',
+  );
+  assert.equal(
+    publicThesis.summary.confirmation_condition,
+    'Daily acceptance above resistance confirms the long thesis.',
+  );
   assert.deepEqual(publicThesis.summary.risks, [
     'Funding data is unavailable for this run.',
   ]);
@@ -8382,10 +8391,15 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   const watchpoint = trackedItems.find((item) =>
     String(item.text).includes('Watch whether BTC accepts'),
   );
+  const confirmationWatchpoint = trackedItems.find((item) =>
+    String(item.text).includes('Daily acceptance above resistance confirms'),
+  );
 
   assert.ok(claim);
   assert.ok(risk);
   assert.ok(watchpoint);
+  assert.ok(confirmationWatchpoint);
+  assert.equal(confirmationWatchpoint.type, 'watchpoint');
   assert.deepEqual(records(claim.evidence).map((item) => item.text), [
     'BTC reclaimed the prior range and held above it into close.',
   ]);
@@ -8665,6 +8679,58 @@ test('research continuity skips insufficient runs and constrains degraded state 
   assert.equal(state.state?.latest_entry_id, degraded.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity falls back to historical entry context when state is missing', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_missing_state_1',
+    thesisId: 'thesis_missing_state_1',
+    debateId: 'debate_missing_state_1',
+    marketSnapshotId: 'market_missing_state_1',
+    signalSnapshotId: 'signal_missing_state_1',
+    stance: 'neutral',
+    thesisDirection: 'neutral',
+    risks: ['Funding is becoming crowded.'],
+    monitorNext: ['Watch whether spot demand follows the breakout.'],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_missing_state_2',
+    thesisId: 'thesis_missing_state_2',
+    debateId: 'debate_missing_state_2',
+    marketSnapshotId: 'market_missing_state_2',
+    signalSnapshotId: 'signal_missing_state_2',
+    stance: 'cautious_bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is becoming crowded.', 'ETF inflow momentum could fade.'],
+    monitorNext: ['Watch whether spot demand follows the breakout.'],
+    currentPrice: 103500,
+  });
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_missing_state_1',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  journal.continuityStates.delete(key('BTC/USDT', 'workspace_a'));
+
+  const delta = await researchContinuity.generateForRun(
+    'run_missing_state_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const rawDelta = await journal.getResearchContinuityEntry(
+    String(delta.entry.id),
+    'workspace_a',
+  );
+
+  assert.equal(delta.entry.entry_type, 'delta');
+  assert.equal(delta.entry.state_transition.previous_entry_id, baseline.entry.id);
+  assert.equal(record(rawDelta?.snapshot_quality).status, 'clean');
+  assert.ok(delta.entry.diff_summary.has_comparison);
+  assert.ok(delta.entry.diff_summary.added_count > 0);
 });
 
 test('research continuity exposes runtime thin-report fallback for legacy entries without mutating payload', async () => {

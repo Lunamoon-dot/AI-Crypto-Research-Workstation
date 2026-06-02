@@ -56,11 +56,87 @@ _MTF_DIRECTION_RE = re.compile(
     r"\b(?P<timeframe>daily|weekly|monthly)\b[^\n]*(?P<direction>bullish|bearish|sideways|neutral)",
     re.IGNORECASE,
 )
+_TEXT_LIST_SPLIT_RE = re.compile(r"[;\n\u2022]|\band\b|,(?=\s+)", re.IGNORECASE)
+_NEWS_CODES_RESCOPED_FOR_SOCIAL = {
+    "missing_news_feed",
+    "insufficient_news_evidence",
+    "missing_primary_source_news",
+    "workspace_news_source_unavailable",
+}
+_SPOT_OPTIONAL_MISSING_CODES = {
+    "missing_social_feed",
+    "missing_funding_rate",
+    "missing_liquidations",
+    "missing_onchain_flows",
+    "missing_long_short_ratio",
+    "exchange_oi_unsupported",
+}
+_CANONICAL_MACHINE_REASON_CODES = {
+    "news_context_insufficient_data",
+    "missing_news_feed",
+    "insufficient_news_evidence",
+    "aggregator_only_news",
+    "search_only_news",
+    "stale_news_window",
+    "workspace_news_source_unavailable",
+    "low_relevance_news",
+    "conflicting_news_sources",
+    "single_source_concentration",
+    "missing_social_feed",
+    "missing_onchain_flows",
+    "missing_liquidations",
+    "missing_funding_rate",
+    "missing_long_short_ratio",
+    "exchange_oi_unsupported",
+    "ohlcv_unavailable",
+    "symbol_invalid",
+    "market_snapshot_unavailable",
+    "thesis_row_missing",
+    "run_events_unavailable",
+}
+_DEGRADATION_MACHINE_REASON_CODES = {
+    "news_context_insufficient_data",
+    "missing_news_feed",
+    "insufficient_news_evidence",
+    "aggregator_only_news",
+    "search_only_news",
+    "stale_news_window",
+    "workspace_news_source_unavailable",
+    "low_relevance_news",
+    "conflicting_news_sources",
+    "single_source_concentration",
+    "ohlcv_unavailable",
+    "symbol_invalid",
+    "market_snapshot_unavailable",
+    "thesis_row_missing",
+    "run_events_unavailable",
+}
+_NOISY_MACHINE_REASON_CODES = {
+    "0",
+    "data",
+    "missing_data",
+    "missing_no_data",
+    "missing_unavailable",
+    "missing_none",
+    "missing_evidence",
+    "missing_missing_data",
+    "missing_missing_evidence",
+    "missing_explicit_label",
+    "missing_data_quality",
+    "missing_data_conflicts",
+    "data_quality",
+    "supporting_evidence",
+    "text",
+    "no_data",
+    "unavailable",
+    "none",
+    "missing_primary_source_news",
+}
 
 
 def extract_thesis_field(text: str, field: str) -> str | None:
     pattern = (
-        rf"(\*{{0,2}}{field}\s*(?:Zone|Level|Price)?\*{{0,2}}\s*:?\s*)"
+        rf"(\*{{0,2}}{field}\s*(?:Zones?|Levels?|Prices?)?\*{{0,2}}\s*:?\s*)"
         r"(.+?)(?:\n|$)"
     )
     match = re.search(pattern, text, re.IGNORECASE)
@@ -71,7 +147,7 @@ def extract_thesis_list_field(text: str, field: str) -> list[str]:
     value = extract_thesis_field(text, field)
     if not value:
         return []
-    parts = re.split(r"[,;â€¢]|\band\b", value)
+    parts = _TEXT_LIST_SPLIT_RE.split(value)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -163,7 +239,7 @@ def structured_list(payload: dict[str, Any], *keys: str) -> list[str]:
         if value is None:
             continue
         if isinstance(value, str):
-            parts = re.split(r"[,;\n]|\band\b", value)
+            parts = _TEXT_LIST_SPLIT_RE.split(value)
             return [part.strip() for part in parts if part.strip()]
         if isinstance(value, (list, tuple)):
             return [str(part).strip() for part in value if str(part).strip()]
@@ -312,7 +388,48 @@ def _dedupe(values: list[Any]) -> list[str]:
 
 
 def _machine_reason_codes(values: list[Any]) -> list[str]:
-    return _dedupe([_reason_code(value) for value in values])
+    codes: list[str] = []
+    for value in values:
+        code = _canonical_machine_reason_code(_reason_code(value))
+        if code:
+            codes.append(code)
+    return _dedupe(codes)
+
+
+def _canonical_machine_reason_code(code: str) -> str | None:
+    if not code or code in _NOISY_MACHINE_REASON_CODES:
+        return None
+    if code.startswith("single_source_concentration"):
+        return "single_source_concentration"
+    if code == "missing_workspace_sources_and_targeted_search":
+        return "workspace_news_source_unavailable"
+    if code == "missing_primary_source_crypto_headlines":
+        return "insufficient_news_evidence"
+    if "missing_polarity_data" in code or (
+        "polarity" in code and ("sentiment" in code or "social" in code)
+    ):
+        return "missing_social_feed"
+    if code in _CANONICAL_MACHINE_REASON_CODES:
+        return code
+    if code.startswith(("cross_venue_", "signal_factor_", "missing_template_")):
+        return code
+    return None
+
+
+def _visible_degradation_reason_codes(
+    values: list[Any],
+    *,
+    optional_missing_codes: set[str],
+) -> list[str]:
+    codes: list[str] = []
+    for code in _machine_reason_codes(values):
+        if code in optional_missing_codes:
+            continue
+        if code in _DEGRADATION_MACHINE_REASON_CODES or code.startswith(
+            ("cross_venue_", "signal_factor_", "missing_template_")
+        ):
+            codes.append(code)
+    return _dedupe(codes)
 
 
 def _opinion_values(opinions: list[Any], attr: str) -> list[str]:
@@ -322,18 +439,112 @@ def _opinion_values(opinions: list[Any], attr: str) -> list[str]:
     return _dedupe(values)
 
 
+def _opinion_scoped_reason_values(opinions: list[Any], attr: str) -> list[str]:
+    values: list[str] = []
+    for opinion in opinions:
+        for value in text_list(getattr(opinion, attr, None)):
+            code = _reason_code(value)
+            if _is_social_opinion(opinion) and code in _NEWS_CODES_RESCOPED_FOR_SOCIAL:
+                code = "missing_social_feed"
+            values.append(code)
+    return _dedupe(values)
+
+
+def _news_opinion_machine_codes(opinions: list[Any]) -> list[str]:
+    values: list[Any] = []
+    for opinion in opinions:
+        if not _is_news_opinion(opinion):
+            continue
+        values.extend(text_list(getattr(opinion, "reason_codes", None)))
+        values.extend(text_list(getattr(opinion, "missing_data", None)))
+    return _machine_reason_codes(values)
+
+
+def _is_news_opinion(opinion: Any) -> bool:
+    source = str(getattr(opinion, "source_report_type", "") or "").lower()
+    role = str(getattr(opinion, "role", "") or "").lower()
+    return source == "news" or role == "news_analyst"
+
+
+def _is_social_opinion(opinion: Any) -> bool:
+    source = str(getattr(opinion, "source_report_type", "") or "").lower()
+    role = str(getattr(opinion, "role", "") or "").lower()
+    return source in {"sentiment", "social"} or "sentiment" in role or "social" in role
+
+
+def _has_insufficient_news_context(opinions: list[Any]) -> bool:
+    for opinion in opinions:
+        if not _is_news_opinion(opinion):
+            continue
+        text = str(getattr(opinion, "raw_text", "") or "").lower()
+        if "pre-computed news context" not in text:
+            continue
+        if "quality: insufficient_data" in text or "quality: insufficient" in text:
+            return True
+    return False
+
+
+def _optional_missing_codes(
+    run: ResearchRun | None,
+    payload: dict[str, Any],
+) -> set[str]:
+    raw_market_type = payload.get("market_type") or (
+        getattr(run, "market_type", "spot") if run else "spot"
+    )
+    market_type = str(raw_market_type or "spot").lower()
+    return (
+        _SPOT_OPTIONAL_MISSING_CODES
+        if market_type == "spot"
+        else {"missing_social_feed"}
+    )
+
+
 def _reason_code(value: Any) -> str:
     text = str(value or "").strip().lower()
     text = text.split(":", 1)[0] if ":" in text else text
     text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    if "third_party_crypto_news_feed" in text:
+        return "missing_news_feed"
+    if "news_feed" in text and any(
+        term in text for term in ("missing", "no", "unsupported", "unavailable")
+    ):
+        return "missing_news_feed"
+    if text.startswith("single_source_concentration"):
+        return "single_source_concentration"
+    if "workspace_sources" in text and "targeted_search" in text:
+        return "workspace_news_source_unavailable"
+    if "primary_source_crypto_headlines" in text:
+        return "insufficient_news_evidence"
+    if "missing_polarity_data" in text or (
+        "polarity" in text and ("sentiment" in text or "social" in text)
+    ):
+        return "missing_social_feed"
     aliases = {
         "news": "missing_news_feed",
         "missing_news": "missing_news_feed",
         "missing_news_feed": "missing_news_feed",
+        "missing_primary_source_news": "missing_primary_source_news",
+        "news_context_insufficient_data": "news_context_insufficient_data",
         "insufficient_news_evidence": "insufficient_news_evidence",
+        "aggregator_only_news": "aggregator_only_news",
+        "search_only_news": "search_only_news",
+        "stale_news_window": "stale_news_window",
+        "workspace_news_source_unavailable": "workspace_news_source_unavailable",
+        "low_relevance_news": "low_relevance_news",
+        "conflicting_news_sources": "conflicting_news_sources",
+        "single_source_concentration": "single_source_concentration",
+        "social": "missing_social_feed",
+        "missing_social": "missing_social_feed",
+        "missing_social_feed": "missing_social_feed",
         "liquidation": "missing_liquidations",
         "liquidations": "missing_liquidations",
         "missing_liquidations": "missing_liquidations",
+        "funding_rate": "missing_funding_rate",
+        "funding_rate_history": "missing_funding_rate",
+        "missing_funding_rate": "missing_funding_rate",
+        "open_interest": "exchange_oi_unsupported",
+        "open_interest_history": "exchange_oi_unsupported",
+        "exchange_oi_unsupported": "exchange_oi_unsupported",
         "onchain": "missing_onchain_flows",
         "on_chain": "missing_onchain_flows",
         "onchain_secondary": "missing_onchain_flows",
@@ -521,6 +732,14 @@ class ThesisBuilder:
             "entry_level",
             "entry_price",
         )
+        confirmation_condition = structured_text(
+            structured_payload,
+            "confirmation_condition",
+            "confirmation",
+            "confirm_condition",
+            "validation_condition",
+            "validation_trigger",
+        )
         invalidation_level = structured_text(
             structured_payload,
             "invalidation_level",
@@ -542,21 +761,32 @@ class ThesisBuilder:
         contract_degradation_reasons: list[str] = []
         if not structured_payload:
             contract_degradation_reasons.append("structured_summary_missing")
+        if not entry_zone:
             prose_entry = extract_thesis_field(clean_decision, "entry")
-            prose_invalidation = extract_thesis_field(clean_decision, "invalidation")
-            prose_targets = extract_thesis_list_field(clean_decision, "target")
             if prose_entry:
                 entry_zone = prose_entry
                 contract_degradation_reasons.append("entry_zone_from_prose")
+        if not confirmation_condition:
+            prose_confirmation = extract_thesis_field(
+                clean_decision, "confirmation"
+            ) or extract_thesis_field(clean_decision, "validation")
+            if prose_confirmation:
+                confirmation_condition = prose_confirmation
+                contract_degradation_reasons.append("confirmation_condition_from_prose")
+        if not invalidation_level:
+            prose_invalidation = extract_thesis_field(clean_decision, "invalidation")
             if prose_invalidation:
                 invalidation_level = prose_invalidation
                 contract_degradation_reasons.append("invalidation_from_prose")
+        if not target_zones:
+            prose_targets = extract_thesis_list_field(clean_decision, "target")
             if prose_targets:
                 target_zones = prose_targets
                 contract_degradation_reasons.append("target_zones_from_prose")
 
         for field_name, value in (
             ("entry_zone", entry_zone),
+            ("confirmation_condition", confirmation_condition),
             ("invalidation", invalidation_level),
             ("target_zones", target_zones),
         ):
@@ -583,6 +813,7 @@ class ThesisBuilder:
             str(part or "")
             for part in [
                 entry_zone,
+                confirmation_condition,
                 invalidation_level,
                 *[f"upside target {target}" for target in target_zones],
                 structured_payload.get("upside_catalyst"),
@@ -607,11 +838,18 @@ class ThesisBuilder:
         run_degradation_reasons = list(
             getattr(run, "degradation_reasons", []) if run else []
         )
+        optional_missing_codes = _optional_missing_codes(run, structured_payload)
         all_degradation_reasons = _dedupe(
             [
                 *contract_degradation_reasons,
-                *run_degradation_reasons,
-                *missing_data_reason_codes,
+                *_visible_degradation_reason_codes(
+                    run_degradation_reasons,
+                    optional_missing_codes=optional_missing_codes,
+                ),
+                *_visible_degradation_reason_codes(
+                    missing_data_reason_codes,
+                    optional_missing_codes=optional_missing_codes,
+                ),
             ]
         )
         why_this_thesis = first_nonempty_line(clean_decision) or (
@@ -622,6 +860,11 @@ class ThesisBuilder:
             for item in [
                 *structured_item_text_list(structured_payload.get("monitor_next")),
                 f"entry: {entry_zone}" if entry_zone else "",
+                (
+                    f"confirmation: {confirmation_condition}"
+                    if confirmation_condition
+                    else ""
+                ),
                 f"invalidation: {invalidation_level}" if invalidation_level else "",
                 *[f"target: {target}" for target in target_zones],
             ]
@@ -692,6 +935,7 @@ class ThesisBuilder:
             confidence=confidence,
             thesis_text=clean_decision,
             entry_zone=entry_zone,
+            confirmation_condition=confirmation_condition,
             invalidation_level=invalidation_level,
             target_zones=target_zones,
             supporting_evidence=supporting_evidence,
@@ -729,6 +973,7 @@ class ThesisBuilder:
             contradicting_signal_ids=contradicting_ids,
             agent_opinion_ids=opinion_ids,
             entry_zone=entry_zone,
+            confirmation_condition=confirmation_condition or "",
             invalidation_level=invalidation_level,
             target_zones=target_zones,
             contradictions=contradictions,
@@ -842,8 +1087,9 @@ class ThesisBuilder:
             getattr(run, "missing_optional_data", []) if run else []
         )
         run_missing_core = list(getattr(run, "missing_core_data", []) if run else [])
-        opinion_reason_codes = _opinion_values(opinions, "reason_codes")
-        opinion_missing_data = _opinion_values(opinions, "missing_data")
+        optional_missing_codes = _optional_missing_codes(run, payload)
+        opinion_reason_codes = _opinion_scoped_reason_values(opinions, "reason_codes")
+        opinion_missing_data = _opinion_scoped_reason_values(opinions, "missing_data")
         reason_codes = _dedupe(
             [
                 *structured_list(payload, "missing_data_reason_codes", "reason_codes"),
@@ -883,9 +1129,23 @@ class ThesisBuilder:
             quality = min(
                 quality, sum(opinion_quality_values) / len(opinion_quality_values)
             )
+        run_degradation_codes = _machine_reason_codes(
+            [*run_degradation, *run_missing_optional]
+        )
+        non_optional_run_degradation = any(
+            code not in optional_missing_codes for code in run_degradation_codes
+        )
+        run_status = getattr(
+            getattr(run, "status", ""), "value", getattr(run, "status", "")
+        )
+        if run and str(run_status) == "completed_degraded":
+            non_optional_run_degradation = non_optional_run_degradation or not (
+                run_degradation_codes
+            )
+
         if run and run.missing_core_data:
             quality = min(quality, 0.25)
-        elif run and run.has_degradation():
+        elif run and run.has_degradation() and non_optional_run_degradation:
             quality = min(quality, 0.6)
         if contract_degradation_reasons:
             quality = min(quality, 0.65)
@@ -895,17 +1155,22 @@ class ThesisBuilder:
         opinion_machine_codes = _machine_reason_codes(
             [*opinion_reason_codes, *opinion_missing_data]
         )
+        news_opinion_machine_codes = _news_opinion_machine_codes(opinions)
         if (
-            any(item == "insufficient_news_evidence" for item in machine_codes)
-            or "missing_news_feed" in opinion_machine_codes
+            "news_context_insufficient_data" in machine_codes
+            or _has_insufficient_news_context(opinions)
+            or "insufficient_news_evidence" in news_opinion_machine_codes
         ):
             quality = min(quality, 0.34)
         if (
             "missing_onchain_flows" in opinion_machine_codes
             or "insufficient_onchain_evidence" in opinion_machine_codes
-        ):
+        ) and "missing_onchain_flows" not in optional_missing_codes:
             quality = min(quality, 0.6)
-        if any(item.startswith("missing_") for item in machine_codes):
+        if any(
+            item.startswith("missing_") and item not in optional_missing_codes
+            for item in machine_codes
+        ):
             quality = min(quality, 0.6)
 
         quality = round(max(min(quality, 1.0), 0.0), 2)
@@ -987,6 +1252,7 @@ class ThesisBuilder:
             str(part or "")
             for part in [
                 thesis.entry_zone,
+                thesis.confirmation_condition,
                 thesis.invalidation_level,
                 *[f"upside target {target}" for target in thesis.target_zones],
                 thesis.invalidation,
@@ -1075,6 +1341,7 @@ class ThesisBuilder:
             "rating": proposed_rating,
             "confidence": thesis.confidence,
             "entry_zone": thesis.entry_zone,
+            "confirmation_condition": thesis.confirmation_condition,
             "invalidation_level": thesis.invalidation_level,
             "target_zones": list(thesis.target_zones),
             "action_summary": (
@@ -1093,6 +1360,7 @@ class ThesisBuilder:
         thesis.confidence = previous.confidence
         thesis.heuristic_confidence = previous.heuristic_confidence
         thesis.entry_zone = previous.entry_zone
+        thesis.confirmation_condition = previous.confirmation_condition
         thesis.invalidation_level = previous.invalidation_level
         thesis.invalidation = previous.invalidation
         thesis.target_zones = list(previous.target_zones)
@@ -1123,6 +1391,7 @@ class ThesisBuilder:
                     "direction": previous.direction,
                     "confidence": previous.confidence,
                     "entry_zone": previous.entry_zone or "",
+                    "confirmation_condition": previous.confirmation_condition or "",
                     "invalidation": previous.invalidation or "",
                     "target_zones": list(previous.target_zones),
                 }
@@ -1208,6 +1477,7 @@ class ThesisBuilder:
         text_parts = [
             thesis.thesis_text,
             thesis.invalidation,
+            thesis.confirmation_condition,
             thesis.invalidation_level,
             thesis.why_this_thesis,
             thesis.confidence_rationale,
@@ -1216,6 +1486,7 @@ class ThesisBuilder:
             text_parts.extend(
                 [
                     thesis.structured_summary.action_summary,
+                    thesis.structured_summary.confirmation_condition,
                     thesis.structured_summary.invalidation,
                     thesis.structured_summary.upside_catalyst,
                     *structured_item_text_list(thesis.structured_summary.key_reasons),
@@ -1327,6 +1598,7 @@ class ThesisBuilder:
         confidence: float | None,
         thesis_text: str,
         entry_zone: str | None,
+        confirmation_condition: str | None,
         invalidation_level: str | None,
         target_zones: list[str],
         supporting_evidence: list[str],
@@ -1362,6 +1634,11 @@ class ThesisBuilder:
             target_zones[0] if target_zones else ""
         )
         summary_payload["entry_zone"] = entry_zone or ""
+        summary_payload["confirmation_condition"] = (
+            summary_payload.get("confirmation_condition")
+            or confirmation_condition
+            or ""
+        )
         summary_payload["invalidation"] = (
             summary_payload.get("invalidation") or invalidation_level or ""
         )
@@ -1407,6 +1684,7 @@ class ThesisBuilder:
                     "confidence": confidence,
                     "action_summary": executive_summary or why_this_thesis,
                     "entry_zone": entry_zone or "",
+                    "confirmation_condition": confirmation_condition or "",
                     "upside_catalyst": target_zones[0] if target_zones else "",
                     "invalidation": invalidation_level or "",
                     "target_zones": target_zones,

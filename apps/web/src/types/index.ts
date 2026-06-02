@@ -239,6 +239,7 @@ export interface ThesisSummaryResponse {
   confidence: number | null;
   market_type: string;
   action_summary: string;
+  confirmation_condition: string;
   entry_zone: string;
   upside_catalyst: string;
   invalidation: string;
@@ -270,6 +271,7 @@ export interface ThesisResponse {
   stability_guard?: JsonRecord;
   created_at: string | null;
   entry_zone: string;
+  confirmation_condition: string;
   invalidation_level: string;
   target_zones: string[];
   thesis_text: string;

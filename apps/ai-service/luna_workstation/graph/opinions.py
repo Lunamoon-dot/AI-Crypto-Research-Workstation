@@ -118,6 +118,24 @@ _NEWS_REASON_CODES = (
     "low_relevance_news",
     "workspace_news_source_unavailable",
 )
+_NEWS_SOURCE_TYPES = {"news"}
+_SOCIAL_SOURCE_TYPES = {"sentiment", "social"}
+_NEWS_CODES_RESCOPED_FOR_SOCIAL = {
+    "missing_news_feed",
+    "insufficient_news_evidence",
+    "missing_primary_source_news",
+    "workspace_news_source_unavailable",
+}
+_GENERIC_MISSING_ITEMS = {
+    "missing",
+    "missing_data",
+    "missing_evidence",
+    "data",
+    "data_unavailable",
+    "no_data",
+    "unavailable",
+    "none",
+}
 
 
 def build_agent_opinions(
@@ -418,17 +436,36 @@ def normalize_opinion_quality(
     """Separate market stance from data confidence for persisted opinions."""
 
     text = raw_text or opinion.raw_text or ""
-    missing_data = dedupe(
+    missing_data = _clean_missing_data(
         [
             *opinion.missing_data,
             *_extract_sentences(text, terms=MISSING_DATA_TERMS, limit=5),
-        ]
+        ],
+        source_report_type=source_report_type,
     )[:8]
-    reason_codes = dedupe([*opinion.reason_codes, *_reason_codes_from_text(text)])
+    reason_codes = _source_scoped_reason_codes(
+        dedupe(
+            [
+                *opinion.reason_codes,
+                *_reason_codes_from_text(
+                    text,
+                    source_report_type=source_report_type,
+                ),
+            ]
+        ),
+        source_report_type=source_report_type,
+    )
     data_quality = opinion.data_quality
     stance = opinion.stance
     confidence = opinion.confidence
     news_quality = _news_context_quality(text) if source_report_type == "news" else None
+
+    if (
+        source_report_type in _SOCIAL_SOURCE_TYPES
+        and "missing_social_feed" in reason_codes
+        and "missing_social_feed" not in missing_data
+    ):
+        missing_data = [*missing_data, "missing_social_feed"][:8]
 
     if news_quality is not None:
         status, score, context_codes = news_quality
@@ -528,6 +565,58 @@ def _extract_sentences(text: str, *, terms: tuple[str, ...], limit: int) -> list
     return dedupe(selected)
 
 
+def _clean_missing_data(
+    items: list[str],
+    *,
+    source_report_type: str,
+) -> list[str]:
+    cleaned: list[str] = []
+    for item in items:
+        normalized = _clean_missing_data_item(
+            item,
+            source_report_type=source_report_type,
+        )
+        if normalized:
+            cleaned.append(normalized)
+    return dedupe(cleaned)
+
+
+def _clean_missing_data_item(
+    item: str,
+    *,
+    source_report_type: str,
+) -> str | None:
+    text = str(item or "").strip()
+    if not text:
+        return None
+    normalized = re.sub(r"[`*_#]+", "", text).strip(" :-").lower()
+    code_like = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    if code_like in _GENERIC_MISSING_ITEMS or code_like == "0":
+        return None
+    if code_like.startswith("final_setup_stance"):
+        return None
+
+    is_social = source_report_type in _SOCIAL_SOURCE_TYPES
+    if is_social and (
+        "missing_news_feed" in code_like
+        or "news_feed" in code_like
+        or "third_party_crypto_news_feed" in code_like
+    ):
+        return "missing_social_feed"
+
+    explicit_code = re.fullmatch(
+        r"(?:missing|insufficient|exchange)_[a-z0-9_]+",
+        normalized,
+    )
+    if code_like in _NEWS_CODES_RESCOPED_FOR_SOCIAL and is_social:
+        return "missing_social_feed"
+    if explicit_code:
+        return code_like
+    if source_report_type in _SOCIAL_SOURCE_TYPES:
+        return None
+    return text
+
+
 def _iter_sentence_candidates(text: str):
     cleaned = text.strip()
     if not cleaned:
@@ -591,7 +680,14 @@ def _has_primary_news_evidence(text: str) -> bool:
         status, _score, codes = quality
         if status == "clean":
             return True
-        if any(code in codes for code in ("missing_primary_source_news", "aggregator_only_news", "search_only_news")):
+        if any(
+            code in codes
+            for code in (
+                "missing_primary_source_news",
+                "aggregator_only_news",
+                "search_only_news",
+            )
+        ):
             return False
     if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
         return False
@@ -614,14 +710,19 @@ def _missing_data_dominates(text: str, missing_data: list[str]) -> bool:
     return missing_hits >= 2 and evidence_hits <= 1
 
 
-def _reason_codes_from_text(text: str) -> list[str]:
+def _reason_codes_from_text(text: str, *, source_report_type: str) -> list[str]:
     lowered = (text or "").lower()
     codes = []
-    for code in _NEWS_REASON_CODES:
-        if code in lowered:
-            codes.append(code)
+    is_news = source_report_type in _NEWS_SOURCE_TYPES
+    is_social = source_report_type in _SOCIAL_SOURCE_TYPES
+    if is_news:
+        for code in _NEWS_REASON_CODES:
+            if code in lowered:
+                codes.append(code)
+    elif is_social and any(code in lowered for code in _NEWS_CODES_RESCOPED_FOR_SOCIAL):
+        codes.append("missing_social_feed")
     if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
-        codes.append("missing_news_feed")
+        codes.append("missing_news_feed" if is_news else "missing_social_feed")
     if "liquidation" in lowered and any(term in lowered for term in MISSING_DATA_TERMS):
         codes.append("missing_liquidations")
     if (
@@ -635,6 +736,21 @@ def _reason_codes_from_text(text: str) -> list[str]:
     ):
         codes.append("exchange_oi_unsupported")
     return codes
+
+
+def _source_scoped_reason_codes(
+    codes: list[str],
+    *,
+    source_report_type: str,
+) -> list[str]:
+    if source_report_type not in _SOCIAL_SOURCE_TYPES:
+        return codes
+    return dedupe(
+        [
+            "missing_social_feed" if code in _NEWS_CODES_RESCOPED_FOR_SOCIAL else code
+            for code in codes
+        ]
+    )
 
 
 def _news_context_quality(text: str) -> tuple[str, float, list[str]] | None:

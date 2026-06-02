@@ -97,6 +97,7 @@ Market type: {market_type}
 ---
 
 Be decisive and ground every conclusion in specific evidence from the analysts.
+Every thesis must explicitly state why the stance is bullish/bearish/watch, what condition confirms it, and what condition invalidates it.
 This is a research stance for manual review, not an exchange order or automated execution instruction.
 For spot, include accumulation/DCA/allocation-risk notes where relevant. For perp, include funding, OI, liquidation, leverage cap, invalidation distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
 
@@ -110,6 +111,7 @@ TRADE_THESIS_JSON:
   "confidence": 0.0,
   "market_type": "spot | perp",
   "action_summary": "one short UI research stance summary",
+  "confirmation_condition": "specific condition that confirms the thesis",
   "upside_catalyst": "specific condition that improves the thesis",
   "invalidation": "specific condition that invalidates the thesis",
   "key_reasons": [

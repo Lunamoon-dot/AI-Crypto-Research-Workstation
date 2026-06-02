@@ -140,6 +140,153 @@ def test_build_news_context_marks_insufficient_when_all_sources_fail():
     assert context.coverage.default_sources == "failed"
 
 
+def test_build_news_context_accepts_reputable_media_without_primary_source_gap():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "reputable_media",
+                    "name": "Reputable Media",
+                    "type": "rss",
+                    "url": "https://example.test/media.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                    "official": False,
+                }
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Bitcoin ETF flows support Bitcoin market structure</title>
+            <link>https://example.test/bitcoin-etf-flows</link>
+            <pubDate>Sun, 31 May 2026 10:00:00 GMT</pubDate>
+            <description>Bitcoin ETF flows and liquidity remain relevant for crypto traders.</description>
+          </item>
+        </channel></rss>"""
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: feed,
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert len(context.items) == 1
+    assert context.quality.status == "clean"
+    assert "missing_primary_source_news" not in context.quality.reason_codes
+    assert context.missing_data == []
+
+
+def test_build_news_context_uses_extended_window_for_official_project_sources():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [],
+            "official_source_lookback_days": 30,
+            "workspace_sources": [
+                {
+                    "name": "Ethereum Foundation Blog",
+                    "type": "rss",
+                    "url": "https://example.test/ethereum.xml",
+                    "scope": ["ETH"],
+                    "trust_tier": "user_trusted",
+                    "category": "official_project",
+                    "official": True,
+                }
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Ethereum Foundation security update</title>
+            <link>https://blog.ethereum.org/security-update</link>
+            <pubDate>Tue, 12 May 2026 10:00:00 GMT</pubDate>
+            <description>Ethereum Foundation security work for the Ethereum ecosystem.</description>
+          </item>
+        </channel></rss>"""
+
+    context = build_news_context(
+        symbol="ETH/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: feed,
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert [item.title for item in context.items] == [
+        "Ethereum Foundation security update"
+    ]
+    assert context.quality.status == "clean"
+    assert "missing_primary_source_news" not in context.quality.reason_codes
+
+
+def test_build_news_context_degrades_partial_default_source_failure_by_source():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "broken_default",
+                    "name": "Broken Default",
+                    "type": "rss",
+                    "url": "https://example.test/broken.rss",
+                    "category": "exchange_announcements",
+                    "trust_tier": "high",
+                    "scope": ["ALL"],
+                    "official": True,
+                },
+                {
+                    "id": "working_default",
+                    "name": "Working Default",
+                    "type": "rss",
+                    "url": "https://example.test/working.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                    "official": False,
+                },
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Solana ecosystem update</title>
+            <link>https://example.test/solana</link>
+            <pubDate>Sun, 31 May 2026 10:00:00 GMT</pubDate>
+            <description>Solana only.</description>
+          </item>
+        </channel></rss>"""
+
+    def fetch(url, _timeout):
+        if url.endswith("broken.rss"):
+            raise RuntimeError("parse failed")
+        return feed
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-24",
+        end_date="2026-05-31",
+        config=config,
+        feed_fetcher=fetch,
+        now_fn=lambda: "2026-05-31T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.coverage.default_sources == "degraded"
+    assert context.quality.status == "insufficient_data"
+    assert "missing_news_feed" not in context.quality.reason_codes
+    assert "insufficient_news_evidence" in context.quality.reason_codes
+
+
 def test_merge_news_sources_assigns_workspace_ids_and_stable_ids():
     sources = merge_news_sources(
         {

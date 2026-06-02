@@ -149,7 +149,9 @@ def test_run_orchestrator_adds_market_context_to_initial_state(monkeypatch):
             return "Overweight"
 
     class Propagator:
-        def create_initial_state(self, company_name, trade_date, past_context, market_type):
+        def create_initial_state(
+            self, company_name, trade_date, past_context, market_type
+        ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
@@ -197,7 +199,11 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
     class FakeNewsContext:
         quality = SimpleNamespace(
             status="degraded",
-            reason_codes=["aggregator_only_news", "low_relevance_news"],
+            reason_codes=[
+                "aggregator_only_news",
+                "low_relevance_news",
+                "missing_primary_source_news",
+            ],
         )
 
         def model_dump(self, mode="python"):
@@ -205,7 +211,11 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
             return {
                 "quality": {
                     "status": "degraded",
-                    "reason_codes": ["aggregator_only_news", "low_relevance_news"],
+                    "reason_codes": [
+                        "aggregator_only_news",
+                        "low_relevance_news",
+                        "missing_primary_source_news",
+                    ],
                 }
             }
 
@@ -261,7 +271,9 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
             return "Overweight"
 
     class Propagator:
-        def create_initial_state(self, company_name, trade_date, past_context, market_type):
+        def create_initial_state(
+            self, company_name, trade_date, past_context, market_type
+        ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
@@ -303,3 +315,11 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
     assert captured["news_context_snapshot"]["quality"]["status"] == "degraded"
     assert "aggregator_only_news" in host.current_research_run.missing_optional_data
     assert "low_relevance_news" in host.current_research_run.degradation_reasons
+    assert (
+        "missing_primary_source_news"
+        not in host.current_research_run.missing_optional_data
+    )
+    assert (
+        "missing_primary_source_news"
+        not in host.current_research_run.degradation_reasons
+    )

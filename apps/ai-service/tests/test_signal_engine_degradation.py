@@ -115,3 +115,52 @@ def test_precompute_quant_signal_preserves_engine_degradation(monkeypatch):
     assert "missing_funding_rate" in result.missing_optional_data
     assert "signal_factor_macd_failed" in result.degradation_reasons
     assert result.factor_failures == [factor_failure]
+
+
+def test_precompute_quant_signal_queries_derivatives_with_perp_symbol(monkeypatch):
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class FakeEngine:
+        def generate(self, **kwargs):
+            assert kwargs["funding_csv"] == "funding"
+            assert kwargs["oi_csv"] == "open interest"
+            assert kwargs["liq_csv"] == "liquidations"
+            return SignalResult(
+                symbol="ETH/USDT",
+                timestamp="2026-05-13T00:00:00Z",
+                score=SignalScore.NEUTRAL,
+                confidence=0.7,
+            )
+
+    def fake_route(method, *args, **_kwargs):
+        calls.append((method, args))
+        if method == "get_crypto_ohlcv":
+            return _OHLCV_CSV
+        if method == "get_crypto_funding_rate_history":
+            return "funding"
+        if method == "get_crypto_open_interest_history":
+            return "open interest"
+        if method == "get_crypto_liquidations":
+            return "liquidations"
+        raise RuntimeError("optional provider unavailable")
+
+    monkeypatch.setattr(
+        quant_signals, "_get_signal_engine", lambda config: FakeEngine()
+    )
+    monkeypatch.setattr(quant_signals, "route_to_vendor", fake_route)
+
+    _prompt, result = quant_signals.precompute_quant_signal(
+        {}, "ETH/USDT", "2026-05-13"
+    )
+
+    assert (
+        "get_crypto_funding_rate_history",
+        ("ETH/USDT:USDT", 60),
+    ) in calls
+    assert (
+        "get_crypto_open_interest_history",
+        ("ETH/USDT:USDT", 60),
+    ) in calls
+    assert ("get_crypto_liquidations", ("ETH/USDT:USDT",)) in calls
+    assert "missing_funding_rate" not in result.missing_optional_data
+    assert "missing_liquidations" not in result.missing_optional_data

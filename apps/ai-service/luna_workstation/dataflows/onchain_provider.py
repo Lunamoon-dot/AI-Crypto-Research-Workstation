@@ -28,7 +28,7 @@ def fetch_liquidations(symbol: str) -> str:
     signal capitulation or cascade risk.
     """
     exchange = _get_configured_exchange()
-    symbol = _normalize_symbol(symbol, exchange)
+    symbol = _derivatives_symbol(symbol, exchange)
 
     try:
         raw = exchange.fetch_liquidations(symbol)
@@ -47,16 +47,15 @@ def fetch_liquidations(symbol: str) -> str:
     total_short_liq = 0.0
     count = 0
     skipped = 0
+    latest_event = ""
 
     for liq in raw[:20]:
         side = liq.get("side", "unknown")
-        amount = float(liq.get("amount") or liq.get("contracts") or 0)
-        if amount <= 0:
+        value = _liquidation_quote_value(liq)
+        if value <= 0:
             skipped += 1
-            logger.debug("Liquidation event with zero amount, skipping: %s", liq)
+            logger.debug("Liquidation event with zero value, skipping: %s", liq)
             continue
-        price = float(liq.get("price") or 0)
-        value = amount * price if price > 0 else amount
         if side == "sell":
             total_long_liq += value
         elif side == "buy":
@@ -66,9 +65,16 @@ def fetch_liquidations(symbol: str) -> str:
                 "Unknown liquidation side '%s', treating as long liquidation", side
             )
             total_long_liq += value
+        event_time = str(liq.get("datetime") or liq.get("timestamp") or "").strip()
+        if event_time:
+            latest_event = event_time
         count += 1
 
     lines.append(f"  Liquidation events: {count}")
+    if skipped:
+        lines.append(f"  Events skipped:      {skipped}")
+    if latest_event:
+        lines.append(f"  Latest event:       {latest_event}")
     lines.append(f"  Long liquidations:  ${total_long_liq:,.0f}")
     lines.append(f"  Short liquidations: ${total_short_liq:,.0f}")
     lines.append("")
@@ -96,19 +102,24 @@ def fetch_long_short_ratio(symbol: str) -> str:
     Extreme ratios can signal overcrowding.
     """
     exchange = _get_configured_exchange()
-    symbol = _normalize_symbol(symbol, exchange)
+    symbol = _derivatives_symbol(symbol, exchange)
 
     try:
-        # Try the futures swap form
-        raw = exchange.fetch_open_interest_history(
-            symbol, timeframe="5m", limit=1, params={"type": "swap"}
+        raw = exchange.fetch_long_short_ratio_history(
+            symbol,
+            timeframe="5m",
+            limit=1,
+            params={"type": "swap"},
         )
     except Exception:
-        return (
-            f"=== {symbol} Long/Short Ratio ===\n"
-            f"Long/short ratio not available on {exchange.id}.\n"
-            f"Try Binance, Bybit, or OKX for this metric."
-        )
+        try:
+            raw = [exchange.fetch_long_short_ratio(symbol, params={"type": "swap"})]
+        except Exception:
+            return (
+                f"=== {symbol} Long/Short Ratio ===\n"
+                f"Long/short ratio not available on {exchange.id}.\n"
+                f"Try Binance, Bybit, or OKX for this metric."
+            )
 
     if not raw:
         return f"=== {symbol} Long/Short Ratio ===\nNo data available."
@@ -143,8 +154,13 @@ def fetch_long_short_ratio(symbol: str) -> str:
 
         if short_oi > 0:
             ratio = long_oi / short_oi
-            lines.append(f"  Longs:  {long_oi:,.0f}")
-            lines.append(f"  Shorts: {short_oi:,.0f}")
+            raw_ratio = latest.get("longShortRatio") or latest.get(
+                "longShortRatioValue"
+            )
+            if raw_ratio is not None:
+                ratio = float(raw_ratio)
+            lines.append(f"  Longs:  {_format_position_value(long_oi)}")
+            lines.append(f"  Shorts: {_format_position_value(short_oi)}")
             lines.append(f"  Ratio:  {ratio:.2f} (Long/Short)")
             lines.append("")
             if ratio > 2.5:
@@ -163,6 +179,50 @@ def fetch_long_short_ratio(symbol: str) -> str:
         lines.append(f"  Raw data: {latest if raw else 'none'}")
 
     return "\n".join(lines)
+
+
+def _derivatives_symbol(symbol: str, exchange) -> str:
+    normalized = _normalize_symbol(symbol, exchange)
+    if ":" in normalized or "/" not in normalized:
+        return normalized
+    quote = normalized.split("/", 1)[1]
+    candidate = f"{normalized}:{quote}"
+    return candidate if candidate in getattr(exchange, "markets", {}) else normalized
+
+
+def _liquidation_quote_value(liq: dict) -> float:
+    for key in ("quoteValue", "cost", "value", "notional", "quoteQty"):
+        value = _float_or_none(liq.get(key))
+        if value is not None and value > 0:
+            return value
+    info = liq.get("info")
+    if isinstance(info, dict):
+        for key in ("quoteValue", "quoteQty", "executedQty", "cumQuote", "notional"):
+            value = _float_or_none(info.get(key))
+            if value is not None and value > 0:
+                return value
+    amount = _float_or_none(liq.get("amount") or liq.get("contracts"))
+    price = _float_or_none(liq.get("price"))
+    if amount is None or amount <= 0:
+        return 0.0
+    return amount * price if price is not None and price > 0 else amount
+
+
+def _format_position_value(value: float) -> str:
+    if 0 <= value <= 1:
+        return f"{value:.2%}"
+    if 0 <= value <= 100:
+        return f"{value:.2f}%"
+    return f"{value:,.0f}"
+
+
+def _float_or_none(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------

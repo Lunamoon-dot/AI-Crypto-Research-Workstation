@@ -53,6 +53,7 @@ class TestRenderSetupProposal:
             action=SetupAction.BUY,
             reasoning="Strong technicals + fundamentals.",
             entry_zone="188-192",
+            confirmation_condition="Daily close above 196 with spot volume expansion",
             invalidation="Daily close below 178",
             target_zones=["205", "220"],
             position_sizing="6% of portfolio",
@@ -61,6 +62,9 @@ class TestRenderSetupProposal:
         md = render_setup_proposal(p)
         assert "**Setup Stance**: Buy" in md
         assert "**Review Zone**: 188-192" in md
+        assert (
+            "**Confirmation**: Daily close above 196 with spot volume expansion" in md
+        )
         assert "**Invalidation**: Daily close below 178" in md
         assert "**Objective Zones**: 205; 220" in md
         assert "**Conviction Context**: 6% of portfolio" in md
@@ -166,6 +170,7 @@ class TestSetupPlannerAgent:
             action=SetupAction.BUY,
             reasoning="AI capex cycle intact; institutional flows constructive.",
             entry_zone="188-192",
+            confirmation_condition="Daily close above 196",
             invalidation="Below 178",
             position_sizing="6% of portfolio",
         )
@@ -175,6 +180,7 @@ class TestSetupPlannerAgent:
         plan = result["trader_investment_plan"]
         assert "**Setup Stance**: Buy" in plan
         assert "**Review Zone**: 188-192" in plan
+        assert "**Confirmation**: Daily close above 196" in plan
         assert "FINAL SETUP STANCE: **BUY**" in plan
         # The same rendered markdown is also added to messages for downstream agents.
         assert plan in result["messages"][0].content

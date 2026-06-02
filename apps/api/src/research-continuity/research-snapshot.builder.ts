@@ -596,6 +596,26 @@ function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {
         item.supporting_evidence,
       ),
     ),
+    ...singleString(thesis?.confirmation_condition, (text) =>
+      seedItem(
+        'watchpoint',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        'confirmation_condition',
+      ),
+    ),
+    ...singleString(summary.confirmation_condition, (text) =>
+      seedItem(
+        'watchpoint',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        `${summaryPrefix}.confirmation_condition`,
+      ),
+    ),
     ...indexedResearchItems(summary.monitor_next, (item, index) =>
       seedItem(
         'watchpoint',
@@ -616,6 +636,16 @@ function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {
         thesisId,
         `payload.structured_summary.monitor_next[${index}]`,
         item.supporting_evidence,
+      ),
+    ),
+    ...singleString(payloadSummary.confirmation_condition, (text) =>
+      seedItem(
+        'watchpoint',
+        text,
+        'medium',
+        'thesis',
+        thesisId,
+        'payload.structured_summary.confirmation_condition',
       ),
     ),
   ];

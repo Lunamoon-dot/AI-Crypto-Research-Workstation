@@ -37,6 +37,7 @@ def test_report_uses_canonical_thesis_over_raw_pm_text():
                 "direction": "avoid",
                 "confidence": 0.22,
                 "entry_zone": "No new longs",
+                "confirmation_condition": "Acceptance back above $105000 with spot volume.",
                 "invalidation_level": "Close above $110000",
                 "target_zones": ["$95000"],
                 "risk_notes": ["Quant confidence is low."],
@@ -46,6 +47,7 @@ def test_report_uses_canonical_thesis_over_raw_pm_text():
                     "confidence": 0.22,
                     "action_summary": "Avoid fresh longs until data improves.",
                     "entry_zone": "No new longs",
+                    "confirmation_condition": "Acceptance back above $105000 with spot volume.",
                     "invalidation": "Close above $110000",
                     "target_zones": ["$95000"],
                     "risks": ["Quant confidence is low."],
@@ -64,6 +66,9 @@ def test_report_uses_canonical_thesis_over_raw_pm_text():
 
     assert "**Final Rating**: orange Underweight" in report
     assert "**Publication Mode**: Watch/risk memo" in report
+    assert (
+        "**Confirmation**: Acceptance back above $105000 with spot volume." in report
+    )
     assert "**Rating**: Overweight" not in report
 
 
