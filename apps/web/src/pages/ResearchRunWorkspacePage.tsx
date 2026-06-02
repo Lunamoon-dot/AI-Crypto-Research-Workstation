@@ -972,7 +972,7 @@ function ContinuityQualityRow({
         <strong>{quality.status}</strong>
       </div>
       <div>
-        <span>Score</span>
+        <span>Artifact score</span>
         <strong>{formatConfidence(quality.score)}</strong>
       </div>
       <div>
