@@ -17,7 +17,10 @@ from luna_workstation.observability import log_event
 from luna_workstation.services import JournalService
 from luna_workstation.exceptions import StaleDataError, StorageError
 from luna_workstation.signals.base import SignalResult
-from luna_workstation.signals.snapshots import build_market_snapshot, build_signal_snapshot
+from luna_workstation.signals.snapshots import (
+    build_market_snapshot,
+    build_signal_snapshot,
+)
 from luna_workstation.signals.provenance import (
     FRESHNESS_WINDOW,
     signal_result_to_domain_signals,
@@ -153,7 +156,9 @@ class JournalBridge:
                 from luna_workstation.signals.provenance import (
                     build_reliability_map_from_evaluations,
                 )
-                from luna_workstation.services.evaluation_service import EvaluationService
+                from luna_workstation.services.evaluation_service import (
+                    EvaluationService,
+                )
 
                 eval_svc = EvaluationService(config=self.config)
                 factor_report = eval_svc.build_factor_reliability()

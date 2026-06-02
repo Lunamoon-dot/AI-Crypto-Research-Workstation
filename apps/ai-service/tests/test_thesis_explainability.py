@@ -537,7 +537,9 @@ def test_no_material_news_found_does_not_cap_thesis_quality_to_insufficient():
             reason_codes=["no_material_news_found"],
         ),
     ]
-    graph.current_research_run = ResearchRun(id="run_no_material_news", symbol="BTC/USDT")
+    graph.current_research_run = ResearchRun(
+        id="run_no_material_news", symbol="BTC/USDT"
+    )
     graph.current_signals = []
 
     thesis = ResearchAgentsGraph._build_trade_thesis(
@@ -564,7 +566,9 @@ def test_no_material_news_found_does_not_cap_thesis_quality_to_insufficient():
     assert thesis.structured_summary.data_quality_label == "clean"
     assert thesis.structured_summary.data_quality >= 0.75
     assert thesis.confidence == 0.82
-    assert "no_material_news_found" in thesis.structured_summary.missing_data_reason_codes
+    assert (
+        "no_material_news_found" in thesis.structured_summary.missing_data_reason_codes
+    )
 
 
 def test_sentiment_missing_news_feed_does_not_apply_news_insufficient_cap():

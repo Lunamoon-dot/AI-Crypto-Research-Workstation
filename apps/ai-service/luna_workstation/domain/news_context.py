@@ -51,7 +51,13 @@ class NewsSource(BaseModel):
             return "aggregator"
         if self.official:
             return "official_source"
-        if self.category in {"official_project", "exchange_announcements", "security", "regulatory", "macro"}:
+        if self.category in {
+            "official_project",
+            "exchange_announcements",
+            "security",
+            "regulatory",
+            "macro",
+        }:
             return "primary_source"
         return "reputable_media"
 
@@ -99,7 +105,9 @@ class NewsItem(BaseModel):
     evidence_type: str = "reputable_media"
     supporting_urls: list[str] = Field(default_factory=list)
 
-    @field_validator("matched_assets", "catalyst_tags", "supporting_urls", mode="before")
+    @field_validator(
+        "matched_assets", "catalyst_tags", "supporting_urls", mode="before"
+    )
     @classmethod
     def _normalize_text_list(cls, value) -> list[str]:
         if value is None:
@@ -284,8 +292,7 @@ class NewsContext(BaseModel):
         secondary_items = [
             item
             for item in self.items
-            if item.evidence_type
-            in {"reputable_media", "aggregator", "search_result"}
+            if item.evidence_type in {"reputable_media", "aggregator", "search_result"}
         ]
         if not secondary_items:
             lines.append("- none")

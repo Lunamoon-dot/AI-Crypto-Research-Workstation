@@ -477,7 +477,9 @@ def _source_health(
         parsed_count=parsed_count,
         accepted_count=accepted_count,
         rejected_count=rejected_count,
-        rejection_reasons={key: value for key, value in rejection_reasons.items() if value},
+        rejection_reasons={
+            key: value for key, value in rejection_reasons.items() if value
+        },
         error_code=error_code,
         error_message=error_message,
     )
@@ -722,9 +724,8 @@ def _parse_html_list(
     for node in nodes:
         title = _clean_text(" ".join(node.css(selectors["title"] + "::text").getall()))
         href = node.css(selectors["link"] + "::attr(href)").get()
-        date_text = (
-            node.css(selectors["date"] + "::attr(datetime)").get()
-            or " ".join(node.css(selectors["date"] + "::text").getall())
+        date_text = node.css(selectors["date"] + "::attr(datetime)").get() or " ".join(
+            node.css(selectors["date"] + "::text").getall()
         )
         published_at = _parse_timestamp(date_text)
         if not title:

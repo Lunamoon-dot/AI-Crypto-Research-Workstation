@@ -57,10 +57,14 @@ def test_news_context_renders_compact_prompt_block():
     assert "Instrument: ARB/USDT" in rendered
     assert "Quality: clean (0.88)" in rendered
     assert "- default_sources: clean" in rendered
-    assert "- Arbitrum DAO proposal passed, source Arbitrum governance forum" in rendered
+    assert (
+        "- Arbitrum DAO proposal passed, source Arbitrum governance forum" in rendered
+    )
     assert "- governance: 1 articles, lead source Arbitrum governance forum" in rendered
     assert "- no regulatory primary source found" in rendered
-    assert "Do not fabricate headlines, URLs, publication dates, or catalysts." in rendered
+    assert (
+        "Do not fabricate headlines, URLs, publication dates, or catalysts." in rendered
+    )
 
 
 def test_news_context_renders_source_health_and_no_material_news():
@@ -94,5 +98,8 @@ def test_news_context_renders_source_health_and_no_material_news():
 
     assert "Materiality: no_material_news_found" in rendered
     assert "Source health:" in rendered
-    assert "coindesk: fetched/parsed, raw 10, parsed 10, accepted 0, rejected 10" in rendered
+    assert (
+        "coindesk: fetched/parsed, raw 10, parsed 10, accepted 0, rejected 10"
+        in rendered
+    )
     assert "No material news found for this instrument/window." in rendered
