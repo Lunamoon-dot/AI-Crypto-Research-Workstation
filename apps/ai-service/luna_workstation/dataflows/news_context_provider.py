@@ -495,6 +495,8 @@ def _materiality_for_items(
 ) -> NewsMateriality:
     if items:
         return NewsMateriality(status="material_news_found")
+    if _has_only_stale_window_rejections(source_health):
+        return NewsMateriality(status="unknown")
     if any(
         health.fetch_status == "fetched"
         and health.parse_status == "parsed"
@@ -503,6 +505,32 @@ def _materiality_for_items(
     ):
         return NewsMateriality(status="no_material_news_found")
     return NewsMateriality(status="unknown")
+
+
+def _has_only_stale_window_rejections(
+    source_health: list[NewsSourceHealth],
+) -> bool:
+    parsed_health = [
+        health
+        for health in source_health
+        if health.fetch_status == "fetched"
+        and health.parse_status == "parsed"
+        and health.parsed_count > 0
+    ]
+    if not parsed_health:
+        return False
+
+    parsed_count = sum(health.parsed_count for health in parsed_health)
+    accepted_count = sum(health.accepted_count for health in parsed_health)
+    stale_count = 0
+    for health in parsed_health:
+        stale_count += health.rejection_reasons.get("out_of_window", 0)
+        if any(
+            reason != "out_of_window" and count
+            for reason, count in health.rejection_reasons.items()
+        ):
+            return False
+    return accepted_count == 0 and stale_count > 0 and stale_count == parsed_count
 
 
 def _build_coverage(
@@ -559,6 +587,12 @@ def _build_quality(
             health.fetch_status == "failed" or health.parse_status == "failed"
             for health in source_health
         )
+        if _has_only_stale_window_rejections(source_health):
+            return NewsQuality(
+                status="degraded",
+                score=0.5,
+                reason_codes=["stale_news_window"],
+            )
         if materiality.status == "no_material_news_found" and not all_active_failed:
             if any_source_failed:
                 return NewsQuality(

@@ -188,6 +188,49 @@ def test_build_news_context_marks_no_material_news_when_sources_are_healthy():
     assert context.source_health[0].rejection_reasons == {"asset_mismatch": 1}
 
 
+def test_build_news_context_degrades_when_only_parsed_items_are_out_of_window():
+    config = {
+        "news_context": {
+            "enabled": True,
+            "default_sources": [
+                {
+                    "id": "coindesk",
+                    "name": "CoinDesk",
+                    "type": "rss",
+                    "url": "https://example.test/coindesk.rss",
+                    "category": "crypto_media",
+                    "trust_tier": "medium",
+                    "scope": ["ALL"],
+                }
+            ],
+        }
+    }
+    feed = """<?xml version="1.0"?>
+        <rss><channel>
+          <item>
+            <title>Bitcoin ETF flows support Bitcoin market structure</title>
+            <link>https://example.test/bitcoin-etf-flows</link>
+            <pubDate>Sun, 10 May 2026 10:00:00 GMT</pubDate>
+            <description>Bitcoin ETF flows and liquidity remain relevant for crypto traders.</description>
+          </item>
+        </channel></rss>"""
+
+    context = build_news_context(
+        symbol="BTC/USDT",
+        start_date="2026-05-25",
+        end_date="2026-06-01",
+        config=config,
+        feed_fetcher=lambda _url, _timeout: feed,
+        now_fn=lambda: "2026-06-01T13:00:00Z",
+    )
+
+    assert context.items == []
+    assert context.materiality.status == "unknown"
+    assert context.quality.status == "degraded"
+    assert context.quality.reason_codes == ["stale_news_window"]
+    assert context.source_health[0].rejection_reasons == {"out_of_window": 1}
+
+
 def test_build_news_context_keeps_insufficient_when_all_sources_fail_with_diagnostics():
     config = {
         "news_context": {

@@ -24,6 +24,10 @@ test('workspace configuration page exposes workspace news source management', ()
     new URL('../src/services/workspaces.ts', import.meta.url),
     'utf8',
   );
+  const apiClientSource = readFileSync(
+    new URL('../src/services/generated/api-client.ts', import.meta.url),
+    'utf8',
+  );
   const queryKeySource = readFileSync(
     new URL('../src/services/query-keys.ts', import.meta.url),
     'utf8',
@@ -65,7 +69,15 @@ test('workspace configuration page exposes workspace news source management', ()
   assert.equal(routesSource.includes("path: 'research/workspace'"), true);
   assert.equal(navSource.includes('Workspace Config'), true);
   assert.equal(navSource.includes('routes.researchWorkspace'), true);
-  assert.equal(serviceSource.includes('/news-sources'), true);
+  assert.equal(
+    serviceSource.includes('generatedClient(auth).listWorkspaceNewsSources(id)'),
+    true,
+  );
+  assert.equal(
+    serviceSource.includes('generatedClient(auth).updateWorkspaceNewsSources'),
+    true,
+  );
+  assert.equal(apiClientSource.includes('/news-sources'), true);
   assert.equal(queryKeySource.includes('workspaceNewsSources'), true);
   assert.equal(typeSource.includes('WorkspaceNewsSource'), true);
   assert.equal(typeSource.includes('WorkspaceNewsSourceTargetAnalyst'), true);
