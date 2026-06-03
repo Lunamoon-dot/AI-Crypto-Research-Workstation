@@ -25,9 +25,24 @@ class ResearchGraphState(TypedDict, total=False):
     signal_text: str
     setup_type: str
     past_context: str
+    latest_continuity_context: dict[str, Any] | None
     messages: list[Any]
     investment_debate_state: dict[str, Any]
     risk_debate_state: dict[str, Any]
+
+
+class PropagatorLike(Protocol):
+    """Shape expected from graph state propagators."""
+
+    def create_initial_state(
+        self,
+        company_name: str,
+        trade_date: str,
+        past_context: str = "",
+        market_type: str = "spot",
+        latest_continuity_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create the initial graph state."""
 
 
 class GraphNode(Protocol):

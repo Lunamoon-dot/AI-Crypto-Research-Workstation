@@ -328,6 +328,45 @@ export class ResearchContinuityService {
     };
   }
 
+  async buildEngineContinuityContext(
+    symbol: string,
+    workspaceId: string,
+    marketType: 'spot' | 'perp' | string,
+  ): Promise<JsonRecord | null> {
+    const normalizedSymbol = normalizeContinuitySymbol(symbol);
+    const normalizedMarketType = normalizeEngineMarketType(marketType);
+    const state = await this.journal.getResearchContinuityState(
+      normalizedSymbol,
+      workspaceId,
+    );
+    const latestEntryId = nullableString(state?.latest_entry_id);
+    if (!state || !latestEntryId) {
+      return null;
+    }
+    const latestEntry = await this.journal.getResearchContinuityEntry(
+      latestEntryId,
+      workspaceId,
+    );
+    if (!latestEntry) {
+      return null;
+    }
+    const latestRunId = nullableString(latestEntry.research_run_id);
+    const latestRun = latestRunId
+      ? await this.journal.getResearchRun(latestRunId, workspaceId)
+      : null;
+    if (!engineRunMatchesContext(latestRun, normalizedSymbol, normalizedMarketType)) {
+      return null;
+    }
+    return buildLatestContinuityContext({
+      state,
+      latestEntry,
+      latestRun,
+      marketType: normalizedMarketType,
+      workspaceId,
+      symbol: normalizedSymbol,
+    });
+  }
+
   async listSymbolEntries(
     symbol: string,
     filters: { limit?: number },
@@ -2643,6 +2682,162 @@ function isContinuityEligibleStatus(status: string): boolean {
 
 function normalizeContinuitySymbol(symbol: string): string {
   return normalizeCryptoSymbol(symbol);
+}
+
+function normalizeEngineMarketType(value: unknown): 'spot' | 'perp' {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return ['perp', 'perpetual', 'future', 'futures'].includes(normalized)
+    ? 'perp'
+    : 'spot';
+}
+
+function engineRunMatchesContext(
+  run: JsonRecord | null,
+  symbol: string,
+  marketType: 'spot' | 'perp',
+): boolean {
+  if (!run) {
+    return false;
+  }
+  const runSymbol = normalizeContinuitySymbol(String(run.symbol ?? ''));
+  const runMarketType = normalizeEngineMarketType(run.market_type);
+  return runSymbol === symbol && runMarketType === marketType;
+}
+
+function buildLatestContinuityContext(input: {
+  state: JsonRecord;
+  latestEntry: JsonRecord;
+  latestRun: JsonRecord | null;
+  marketType: 'spot' | 'perp';
+  workspaceId: string;
+  symbol: string;
+}): JsonRecord {
+  const payload = recordValue(input.state.payload);
+  const quality = stateRecordValue(input.state.data_quality, payload.data_quality);
+  const currentView = stateRecordValue(
+    input.state.current_view,
+    payload.current_view,
+  );
+  const activeItems = stateArrayValue(input.state.active_items, payload.active_items);
+  const recentResolvedItems = stateArrayValue(
+    input.state.recent_resolved_items,
+    payload.recent_resolved_items,
+  );
+  const recentInvalidatedItems = stateArrayValue(
+    input.state.recent_invalidated_items,
+    payload.recent_invalidated_items,
+  );
+  const generatedAt = nullableString(input.latestEntry.generated_at);
+  return {
+    schema_version: 'latest_continuity_context.v1',
+    workspace_id: input.workspaceId,
+    symbol: input.symbol,
+    market_type: input.marketType,
+    latest_entry_id: nullableString(input.latestEntry.id),
+    latest_run_id: nullableString(input.latestRun?.id),
+    generated_at: generatedAt,
+    staleness: continuityStaleness(generatedAt),
+    quality: {
+      status: stringValue(
+        quality.status,
+        stringValue(input.latestEntry.status, 'unknown'),
+      ),
+      score: numberOrNull(quality.score),
+      observed_evidence_coverage: numberOrNull(
+        quality.observed_evidence_coverage,
+      ),
+      warnings: compactStringArray(quality.warnings, 5),
+    },
+    prior_view: {
+      directional_bias: nullableString(currentView.directional_bias),
+      risk_posture: nullableString(currentView.risk_posture),
+      conviction: nullableString(currentView.conviction),
+      time_context: nullableString(currentView.time_context),
+    },
+    active_thesis_items: compactContinuityItems(activeItems, ['claim'], 8),
+    active_risks: compactContinuityItems(activeItems, ['risk'], 3),
+    active_watchpoints: compactContinuityItems(activeItems, ['watchpoint'], 3),
+    active_invalidations: compactContinuityItems(
+      activeItems,
+      ['invalidation'],
+      3,
+    ),
+    recent_resolved_items: compactContinuityItems(recentResolvedItems, [], 2),
+    recent_invalidated_items: compactContinuityItems(recentInvalidatedItems, [], 2),
+    summary: truncateText(stringValue(input.latestEntry.summary, ''), 800),
+  };
+}
+
+function continuityStaleness(generatedAt: string | null): JsonRecord {
+  if (!generatedAt) {
+    return { age_hours: null, is_stale: true, reason: 'missing_generated_at' };
+  }
+  const timestamp = Date.parse(generatedAt);
+  if (!Number.isFinite(timestamp)) {
+    return { age_hours: null, is_stale: true, reason: 'invalid_generated_at' };
+  }
+  const ageHours = Math.max(0, (Date.now() - timestamp) / 3_600_000);
+  return {
+    age_hours: Math.round(ageHours * 10) / 10,
+    is_stale: ageHours > 72,
+    reason: ageHours > 72 ? 'older_than_72h' : null,
+  };
+}
+
+function compactContinuityItems(
+  values: unknown[],
+  allowedTypes: string[],
+  limit: number,
+): string[] {
+  const items: string[] = [];
+  for (const value of values) {
+    const record = recordValue(value);
+    const itemType = String(record.item_type ?? record.type ?? '')
+      .trim()
+      .toLowerCase();
+    if (allowedTypes.length > 0 && !allowedTypes.includes(itemType)) {
+      continue;
+    }
+    const text = truncateText(
+      stringValue(record.text, stringValue(record.title, '')),
+      240,
+    );
+    if (text && !items.includes(text)) {
+      items.push(text);
+    }
+    if (items.length >= limit) {
+      break;
+    }
+  }
+  return items;
+}
+
+function compactStringArray(value: unknown, limit: number): string[] {
+  return arrayValue(value)
+    .map((item) => truncateText(String(item ?? '').trim(), 240))
+    .filter((item) => item.length > 0)
+    .slice(0, limit);
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stateRecordValue(primary: unknown, fallback: unknown): JsonRecord {
+  return Object.keys(recordValue(primary)).length > 0
+    ? recordValue(primary)
+    : recordValue(fallback);
+}
+
+function stateArrayValue(primary: unknown, fallback: unknown): unknown[] {
+  return Array.isArray(primary) ? primary : arrayValue(fallback);
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`
+    : normalized;
 }
 
 function normalizeLimit(value: number | undefined): number {

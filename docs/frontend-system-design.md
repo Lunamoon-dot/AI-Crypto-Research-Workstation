@@ -135,6 +135,23 @@ Use a persistent app shell:
 
 The app should feel like operational software: compact spacing, predictable navigation, dense tables, restrained color, and obvious loading/error states.
 
+## Layered Surface Model
+
+When designing new UI flows, first decide whether the interaction belongs in the
+main page or in a layered surface. Use the smallest surface that preserves
+context and does not force unnecessary navigation:
+
+- Modal / dialog: blocking surface for actions the user must resolve before continuing.
+- Popup: generic lightweight surface for short-lived contextual content; prefer a clearer term in implementation names.
+- Overlay: visual layer above the main page; use it as the underlying treatment, not as the feature name when a more specific surface applies.
+- Floating panel / floating window: non-blocking panel that can stay open while the user continues working; consider drag, minimize, and close behavior only when those controls reduce workflow friction.
+- Drawer: side surface that slides from an edge for inspectable detail, filters, or secondary actions while keeping the originating page visible.
+
+Choose inline content for simple read/edit states. Choose a drawer or floating
+panel when the user needs page context. Choose a modal only when blocking is
+intentional, such as confirmation, destructive action, required form completion,
+or permission-sensitive setup.
+
 ## Screen Designs
 
 ### Workbench

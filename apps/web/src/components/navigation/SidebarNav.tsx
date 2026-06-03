@@ -122,7 +122,7 @@ export function SidebarNav() {
       </nav>
       <div className="sidebar-footer">
         <div className="badge degraded">local MVP</div>
-        <div style={{ marginTop: 10 }} className="small muted">
+        <div className="sidebar-footer-note small muted">
           Research-only mode.
         </div>
       </div>

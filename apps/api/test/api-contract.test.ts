@@ -3048,6 +3048,104 @@ test('ResearchJobProcessor marks timed out jobs and aborts the engine process', 
   });
 });
 
+test('ResearchJobProcessor injects latest continuity context before engine run', async () => {
+  const engineRequests: EngineRunRequest[] = [];
+  const processor = new ResearchJobProcessor(
+    {
+      runInline: async (request: EngineRunRequest) => {
+        engineRequests.push(request);
+        return {
+          status: 'completed',
+          run_id: request.run_id,
+          workspace_id: request.workspace_id,
+        };
+      },
+    } as unknown as PythonEngineClient,
+    new JobLifecycleService(),
+    undefined,
+    {
+      generateForCompletedRun: async () => null,
+      buildEngineContinuityContext: async () => ({
+        schema_version: 'latest_continuity_context.v1',
+        workspace_id: 'workspace_a',
+        symbol: 'BTC/USDT',
+        market_type: 'spot',
+        latest_entry_id: 'continuity_prior',
+        latest_run_id: 'run_prior',
+        generated_at: '2026-06-02T00:11:00.000Z',
+        staleness: { age_hours: 12, is_stale: false, reason: null },
+        quality: {
+          status: 'completed',
+          score: 0.82,
+          observed_evidence_coverage: 0.7,
+          warnings: [],
+        },
+        prior_view: {
+          directional_bias: 'bullish',
+          risk_posture: 'moderate',
+          conviction: 'medium',
+          time_context: 'daily swing',
+        },
+        active_thesis_items: ['BTC holds constructive momentum.'],
+        active_risks: [],
+        active_watchpoints: [],
+        active_invalidations: [],
+        recent_resolved_items: [],
+        recent_invalidated_items: [],
+        summary: 'Prior thesis remains valid.',
+      }),
+    } as unknown as ResearchContinuityService,
+  );
+
+  await processor.process(engineRequest('run_with_continuity'), {
+    jobId: 'run_with_continuity',
+    backend: 'memory',
+    attempt: 1,
+    maxAttempts: 1,
+  });
+
+  assert.equal(engineRequests.length, 1);
+  assert.equal(
+    String(record(record(engineRequests[0].metadata).latest_continuity_context).latest_entry_id),
+    'continuity_prior',
+  );
+});
+
+test('ResearchJobProcessor leaves metadata unchanged when continuity context is unavailable', async () => {
+  const engineRequests: EngineRunRequest[] = [];
+  const processor = new ResearchJobProcessor(
+    {
+      runInline: async (request: EngineRunRequest) => {
+        engineRequests.push(request);
+        return {
+          status: 'completed',
+          run_id: request.run_id,
+          workspace_id: request.workspace_id,
+        };
+      },
+    } as unknown as PythonEngineClient,
+    new JobLifecycleService(),
+    undefined,
+    {
+      generateForCompletedRun: async () => null,
+      buildEngineContinuityContext: async () => null,
+    } as unknown as ResearchContinuityService,
+  );
+  const request = {
+    ...engineRequest('run_without_continuity'),
+    metadata: { existing: 'kept' },
+  };
+
+  await processor.process(request, {
+    jobId: 'run_without_continuity',
+    backend: 'memory',
+    attempt: 1,
+    maxAttempts: 1,
+  });
+
+  assert.deepEqual(engineRequests[0].metadata, { existing: 'kept' });
+});
+
 test('POST /jobs/:id/cancel records durable cancellation for queued jobs', async () => {
   await withEnv(
     { DATABASE_URL: undefined, JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
@@ -7395,6 +7493,143 @@ test('research continuity V1.9 exposes grouped diff summaries and reports from e
   const listEntry = list.entries[0] as unknown as Record<string, unknown>;
   assert.equal(record(listEntry.diff_summary).updated_count, 1);
   assert.equal('diff_report' in listEntry, false);
+});
+
+test('research continuity builds compact engine prior context for matching market type', async () => {
+  const { researchContinuity, journal } = buildHarness();
+  journal.researchRuns.set(key('run_prior_spot', 'workspace_a'), {
+    id: 'run_prior_spot',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    status: 'completed',
+    created_at: '2026-06-02T00:00:00.000Z',
+    completed_at: '2026-06-02T00:10:00.000Z',
+    payload: {},
+  });
+  journal.continuityStates.set(key('BTC/USDT', 'workspace_a'), {
+    id: 'state_btc',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    latest_entry_id: 'continuity_prior_spot',
+    updated_at: '2026-06-02T00:11:00.000Z',
+    current_view: {
+      directional_bias: 'bullish continuation while above prior invalidation',
+      risk_posture: 'moderate',
+      conviction: 'medium',
+      time_context: 'daily swing',
+    },
+    active_items: [
+      { item_type: 'claim', text: 'BTC momentum remains constructive above 67000.' },
+      { item_type: 'risk', text: 'ETF flow reversal could weaken the thesis.' },
+      { item_type: 'watchpoint', text: 'Watch daily close above 70000.' },
+      { item_type: 'invalidation', text: 'Invalidate below 65000 on volume.' },
+    ],
+    recent_resolved_items: [{ text: 'Funding normalized after prior squeeze.' }],
+    recent_invalidated_items: [{ text: 'Old range breakout level no longer applies.' }],
+    data_quality: {
+      status: 'completed',
+      score: 0.82,
+      observed_evidence_coverage: 0.7,
+      warnings: ['limited weekend liquidity evidence'],
+    },
+    payload: {
+      schema_version: 'research_continuity_state.v1.1',
+    },
+  });
+  journal.continuityEntries.set(key('continuity_prior_spot', 'workspace_a'), {
+    id: 'continuity_prior_spot',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_prior_spot',
+    symbol: 'BTC/USDT',
+    entry_type: 'delta',
+    status: 'completed',
+    generated_at: '2026-06-02T00:11:00.000Z',
+    summary: 'Prior thesis stayed bullish but required volume confirmation.',
+    payload: { schema_version: 'research_continuity_entry.v1.1' },
+  });
+
+  const context = await researchContinuity.buildEngineContinuityContext(
+    'BTCUSDT',
+    'workspace_a',
+    'spot',
+  );
+
+  assert.equal(context?.schema_version, 'latest_continuity_context.v1');
+  assert.equal(context?.workspace_id, 'workspace_a');
+  assert.equal(context?.symbol, 'BTC/USDT');
+  assert.equal(context?.market_type, 'spot');
+  assert.equal(context?.latest_entry_id, 'continuity_prior_spot');
+  assert.equal(context?.latest_run_id, 'run_prior_spot');
+  assert.equal(
+    String(record(context?.prior_view).directional_bias ?? ''),
+    'bullish continuation while above prior invalidation',
+  );
+  assert.deepEqual(context?.active_thesis_items, [
+    'BTC momentum remains constructive above 67000.',
+  ]);
+  assert.deepEqual(context?.active_risks, [
+    'ETF flow reversal could weaken the thesis.',
+  ]);
+  assert.deepEqual(context?.active_watchpoints, [
+    'Watch daily close above 70000.',
+  ]);
+  assert.deepEqual(context?.active_invalidations, [
+    'Invalidate below 65000 on volume.',
+  ]);
+  assert.equal(String(record(context?.quality).status ?? ''), 'completed');
+  assert.equal(context?.summary, 'Prior thesis stayed bullish but required volume confirmation.');
+});
+
+test('research continuity skips compact engine prior context when market type does not match', async () => {
+  const { researchContinuity, journal } = buildHarness();
+  journal.researchRuns.set(key('run_prior_spot_mismatch', 'workspace_a'), {
+    id: 'run_prior_spot_mismatch',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    status: 'completed',
+    created_at: '2026-06-02T00:00:00.000Z',
+    completed_at: '2026-06-02T00:10:00.000Z',
+    payload: {},
+  });
+  journal.continuityStates.set(key('BTC/USDT', 'workspace_a'), {
+    id: 'state_btc_mismatch',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    latest_entry_id: 'continuity_prior_spot_mismatch',
+    updated_at: '2026-06-02T00:11:00.000Z',
+    current_view: { directional_bias: 'bullish' },
+    active_items: [],
+    recent_resolved_items: [],
+    recent_invalidated_items: [],
+    data_quality: { status: 'completed', warnings: [] },
+    payload: {
+      schema_version: 'research_continuity_state.v1.1',
+    },
+  });
+  journal.continuityEntries.set(
+    key('continuity_prior_spot_mismatch', 'workspace_a'),
+    {
+      id: 'continuity_prior_spot_mismatch',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_prior_spot_mismatch',
+      symbol: 'BTC/USDT',
+      entry_type: 'delta',
+      status: 'completed',
+      generated_at: '2026-06-02T00:11:00.000Z',
+      summary: 'Spot prior only.',
+      payload: { schema_version: 'research_continuity_entry.v1.1' },
+    },
+  );
+
+  const context = await researchContinuity.buildEngineContinuityContext(
+    'BTCUSDT',
+    'workspace_a',
+    'perp',
+  );
+
+  assert.equal(context, null);
 });
 
 test('research continuity V1.9 handles baseline degraded skipped repair and legacy diff states', async () => {

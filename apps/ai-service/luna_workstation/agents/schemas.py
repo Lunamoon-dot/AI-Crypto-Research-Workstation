@@ -313,8 +313,9 @@ class PortfolioDecision(BaseModel):
     investment_thesis: str = Field(
         description=(
             "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "debate. If prior lessons or Research Continuity prior memory are "
+            "referenced in the prompt context, incorporate them as prior context "
+            "only; otherwise rely solely on the current analysis."
         ),
     )
     price_target: Optional[float] = Field(
@@ -388,7 +389,11 @@ class PortfolioDecision(BaseModel):
     )
     supporting_evidence: list[ResearchEvidenceItem] = Field(
         default_factory=list,
-        description="Global thesis evidence used only when an item lacks its own evidence.",
+        description=(
+            "Global thesis evidence used only when an item lacks its own evidence. "
+            "When prior continuity memory is cited, use source_artifact "
+            "'research_continuity'."
+        ),
     )
     spot_notes: str = Field(
         default="",

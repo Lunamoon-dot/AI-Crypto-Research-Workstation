@@ -10,6 +10,8 @@ back gracefully to free-text generation.
 
 from __future__ import annotations
 
+import json
+
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
     build_instrument_context,
@@ -43,6 +45,21 @@ def _get_feedback_context(config) -> str:
         return ""
 
 
+def _render_latest_continuity_context(context: object) -> str:
+    if not isinstance(context, dict) or not context:
+        return ""
+    rendered = json.dumps(context, ensure_ascii=True, indent=2, sort_keys=True)
+    return (
+        "- Latest Research Continuity prior memory for the same workspace/symbol/market type:\n"
+        f"{guard_untrusted_context('latest_continuity_context', rendered)}\n"
+        "Treat this only as prior memory. Do not treat it as current evidence. "
+        "Use it only to explain whether the current thesis continues, weakens, "
+        "invalidates, or supersedes the prior thesis.\n"
+        "If you cite this prior memory in supporting_evidence, set "
+        "`source_artifact` to `research_continuity`.\n"
+    )
+
+
 def create_portfolio_manager(llm, config=None):
     structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
 
@@ -63,6 +80,9 @@ def create_portfolio_manager(llm, config=None):
             f"{guard_untrusted_context('past_context', past_context)}\n"
             if past_context
             else ""
+        )
+        continuity_line = _render_latest_continuity_context(
+            state.get("latest_continuity_context")
         )
 
         feedback_context = guard_untrusted_context(
@@ -89,6 +109,7 @@ Market type: {market_type}
 - Research Manager's investment plan: {guard_untrusted_context("research_plan", research_plan)}
 - Setup Planner's proposal: {guard_untrusted_context("setup_proposal", setup_proposal)}
 {lessons_line}
+{continuity_line}
 {feedback_context}
 
 **Risk Analysts Debate History:**
@@ -99,6 +120,7 @@ Market type: {market_type}
 Be decisive and ground every conclusion in specific evidence from the analysts.
 Every thesis must explicitly state why the stance is bullish/bearish/watch, what condition confirms it, and what condition invalidates it.
 This is a research stance for manual review, not an exchange order or automated execution instruction.
+Analyst reports and the risk debate remain the current evidence layer.
 For spot, include accumulation/DCA/allocation-risk notes where relevant. For perp, include funding, OI, liquidation, leverage cap, invalidation distance, and margin-risk notes where relevant; list missing perp data instead of overstating confidence.
 
 For providers that return free text instead of native structured output, write the readable Markdown decision first, then append this exact machine-readable block. Keep rating and direction consistent: Buy/Overweight = long, Hold = watch or neutral, Underweight = avoid, Sell = short.
@@ -121,7 +143,7 @@ TRADE_THESIS_JSON:
         {{
           "text": "specific observed, reasoning, or missing-data evidence",
           "evidence_kind": "observed | reasoning | missing",
-          "source_artifact": "market_snapshot | signal_snapshot | trade_thesis | agent_opinion | research_debate | research_run | external_report | unknown",
+          "source_artifact": "market_snapshot | signal_snapshot | trade_thesis | agent_opinion | research_debate | research_run | research_continuity | external_report | unknown",
           "source_field": "optional source field",
           "strength": "low | medium | high | unknown"
         }}

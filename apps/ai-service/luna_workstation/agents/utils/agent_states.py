@@ -96,15 +96,17 @@ class AgentState(MessagesState):
         str,
         "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)",
     ]
+    latest_continuity_context: Annotated[
+        dict[str, Any] | None,
+        "Compact latest Research Continuity prior for same workspace/symbol/market_type; prior memory only, not current evidence",
+    ]
     quant_signal: Annotated[
         str, "Pre-computed quantitative signal (prompt block from SignalEngine)"
     ]
     market_context: Annotated[
         str, "Pre-computed market microstructure and cross-venue context"
     ]
-    news_context: Annotated[
-        str, "Pre-computed source-grounded news catalyst context"
-    ]
+    news_context: Annotated[str, "Pre-computed source-grounded news catalyst context"]
     news_context_snapshot: Annotated[
         dict[str, Any], "Normalized NewsContext snapshot for provenance"
     ]

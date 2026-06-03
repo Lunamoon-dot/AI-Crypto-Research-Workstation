@@ -29,6 +29,7 @@ ALLOWED_SOURCE_ARTIFACTS = {
     "agent_opinion",
     "research_debate",
     "research_run",
+    "research_continuity",
     "external_report",
     "unknown",
 }

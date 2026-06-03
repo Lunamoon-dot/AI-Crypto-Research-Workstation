@@ -80,28 +80,28 @@ const analystOptions = [
     label: "Market",
     description:
       "Price structure, trend regime, volatility, and deterministic signal checks.",
-    avatarSrc: "/agent-avatars/market-analyst.png",
+    Icon: Gauge,
   },
   {
     value: "news",
     label: "News",
     description:
       "Catalysts, macro context, token-specific headlines, and source freshness.",
-    avatarSrc: "/agent-avatars/news-analyst.png",
+    Icon: Radar,
   },
   {
     value: "social",
     label: "Social",
     description:
       "Narrative pressure, attention shifts, and crowd-risk evidence.",
-    avatarSrc: "/agent-avatars/social-analyst.png",
+    Icon: Brain,
   },
   {
     value: "onchain",
     label: "On-chain",
     description:
       "Wallet activity, flows, supply movement, and chain-level anomalies.",
-    avatarSrc: "/agent-avatars/onchain-analyst.png",
+    Icon: ShieldCheck,
   },
 ];
 
@@ -118,6 +118,7 @@ export function ResearchRunFormPage() {
     "social",
     "onchain",
   ]);
+  const [launchRetryReady, setLaunchRetryReady] = useState(false);
 
   const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
   const legacyMixedWorkspace = auth.isLegacyMixedWorkspace();
@@ -156,6 +157,9 @@ export function ResearchRunFormPage() {
     : validationDisabledReason;
 
   const mutation = useMutation({
+    onMutate: () => {
+      setLaunchRetryReady(false);
+    },
     mutationFn: () =>
       createResearchRun(
         researchRunRequestSchema.parse({
@@ -171,6 +175,10 @@ export function ResearchRunFormPage() {
       ),
     onSuccess: (result) => {
       navigate(routes.researchRun(result.run_id, result.job_id));
+    },
+    onError: async () => {
+      const health = await apiHealth.refetch();
+      setLaunchRetryReady(health.data?.status === "ok");
     },
   });
 
@@ -300,7 +308,7 @@ export function ResearchRunFormPage() {
                   >
                     <div className="launch-analyst-card-header">
                       <span className="analyst-module-avatar" aria-hidden>
-                        <img src={analyst.avatarSrc} alt="" loading="lazy" />
+                        <analyst.Icon size={23} strokeWidth={1.8} />
                       </span>
                       <input
                         checked={checked}
@@ -420,7 +428,9 @@ export function ResearchRunFormPage() {
                 ) : null}
                 {mutation.isError ? (
                   <div className="badge risk">
-                    {errorMessage(mutation.error)}
+                    {launchRetryReady
+                      ? "Launch failed while the API was restarting. API is ready; retry launch."
+                      : errorMessage(mutation.error)}
                   </div>
                 ) : null}
                 <button

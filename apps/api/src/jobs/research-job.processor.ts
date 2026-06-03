@@ -140,7 +140,8 @@ export class ResearchJobProcessor {
     request: EngineRunRequest,
     signal: AbortSignal,
   ): Promise<JsonRecord> {
-    const result = await this.pythonEngine.runInline(request, { signal });
+    const enrichedRequest = await this.withContinuityContext(request);
+    const result = await this.pythonEngine.runInline(enrichedRequest, { signal });
     await this.lifecycle.heartbeat(request.run_id, { phase: 'postgres_sync' });
     const sync = await this.syncRun(request, result);
     return sync
@@ -149,6 +150,32 @@ export class ResearchJobProcessor {
           postgres_sync: sync,
         } satisfies JsonRecord)
       : result;
+  }
+
+  private async withContinuityContext(
+    request: EngineRunRequest,
+  ): Promise<EngineRunRequest> {
+    const buildEngineContinuityContext =
+      this.continuity?.buildEngineContinuityContext;
+    if (typeof buildEngineContinuityContext !== 'function') {
+      return request;
+    }
+    const latest = await buildEngineContinuityContext.call(
+      this.continuity,
+      request.symbol,
+      request.workspace_id,
+      request.market_type,
+    );
+    if (!latest) {
+      return request;
+    }
+    return {
+      ...request,
+      metadata: {
+        ...(request.metadata ?? {}),
+        latest_continuity_context: latest,
+      },
+    };
   }
 
   private async syncRun(

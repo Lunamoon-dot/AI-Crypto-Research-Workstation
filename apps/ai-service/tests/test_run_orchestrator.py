@@ -150,13 +150,19 @@ def test_run_orchestrator_adds_market_context_to_initial_state(monkeypatch):
 
     class Propagator:
         def create_initial_state(
-            self, company_name, trade_date, past_context, market_type
+            self,
+            company_name,
+            trade_date,
+            past_context,
+            market_type,
+            latest_continuity_context=None,
         ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
                 "past_context": past_context,
                 "market_type": market_type,
+                "latest_continuity_context": latest_continuity_context,
                 "messages": [],
             }
 
@@ -272,13 +278,19 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
 
     class Propagator:
         def create_initial_state(
-            self, company_name, trade_date, past_context, market_type
+            self,
+            company_name,
+            trade_date,
+            past_context,
+            market_type,
+            latest_continuity_context=None,
         ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
                 "past_context": past_context,
                 "market_type": market_type,
+                "latest_continuity_context": latest_continuity_context,
                 "messages": [],
             }
 
@@ -323,3 +335,113 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
         "missing_primary_source_news"
         not in host.current_research_run.degradation_reasons
     )
+
+
+def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
+    monkeypatch,
+):
+    captured = {}
+
+    class Host:
+        config = {
+            "asset_class": "crypto",
+            "market_type": "spot",
+            "llm_provider": "test",
+            "checkpoint_enabled": False,
+            "data_vendors": {},
+            "_engine": {
+                "metadata": {
+                    "latest_continuity_context": {
+                        "schema_version": "latest_continuity_context.v1",
+                        "summary": "Prior thesis remains valid.",
+                    }
+                }
+            },
+        }
+        graph = None
+        debug = False
+        callbacks = []
+        propagator = None
+        current_research_run = None
+        current_trade_thesis = None
+        current_signals = []
+        current_agent_opinions = []
+        current_debate = None
+        curr_state = None
+        journal_bridge = None
+
+        def _start_journal_run(self):
+            pass
+
+        def _precompute_quant_signal(self, symbol, trade_date):
+            return ""
+
+        def _save_journal_quant_signals(self):
+            pass
+
+        def _save_journal_agent_research(self, final_state):
+            pass
+
+        def _complete_journal_run(self):
+            pass
+
+        def _log_state(self, trade_date, final_state):
+            pass
+
+        def _build_trade_thesis(self, final_state):
+            return SimpleNamespace(id="thesis_1")
+
+        def process_signal(self, text):
+            return "Overweight"
+
+    class Propagator:
+        def create_initial_state(
+            self,
+            company_name,
+            trade_date,
+            past_context,
+            market_type,
+            latest_continuity_context=None,
+        ):
+            return {
+                "company_of_interest": company_name,
+                "trade_date": trade_date,
+                "past_context": past_context,
+                "market_type": market_type,
+                "latest_continuity_context": latest_continuity_context,
+                "messages": [],
+            }
+
+        def get_graph_args(self, callbacks=None):
+            return {}
+
+    class Graph:
+        def invoke(self, init_state, **_args):
+            captured.update(init_state)
+            return {
+                **init_state,
+                "market_report": "",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "investment_debate_state": {},
+                "risk_debate_state": {},
+                "final_trade_decision": "**Rating**: Overweight\n\nConstructive.",
+                "final_trade_summary_json": '{"rating": "Overweight"}',
+            }
+
+    host = Host()
+    host.graph = Graph()
+    host.propagator = Propagator()
+
+    monkeypatch.setattr(
+        "luna_workstation.graph.run_orchestrator.compute_config_hash",
+        lambda _config: "hash",
+    )
+
+    ResearchRunOrchestrator().run_graph(host, "BTC/USDT", "2026-05-31")
+
+    assert captured["latest_continuity_context"] == {
+        "schema_version": "latest_continuity_context.v1",
+        "summary": "Prior thesis remains valid.",
+    }
