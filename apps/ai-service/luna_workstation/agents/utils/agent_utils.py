@@ -21,6 +21,16 @@ from luna_workstation.observability import log_event
 
 logger = logging.getLogger(__name__)
 
+DEBATE_REPORT_CONTEXT_CHARS = 2200
+DEBATE_SETUP_CONTEXT_CHARS = 2200
+DEBATE_HISTORY_CONTEXT_CHARS = 1400
+DEBATE_ARGUMENT_CONTEXT_CHARS = 1400
+DEBATE_RESPONSE_INSTRUCTION = (
+    "Keep the response under 350 words, use at most six concise points, "
+    "and do not restate every source. Prioritize the strongest evidence "
+    "and the current counterargument."
+)
+
 
 def get_language_instruction(config=None) -> str:
     """Return a prompt instruction for the configured output language.
@@ -357,6 +367,11 @@ __all__ = [
     "sanitize_ticker_for_prompt",
     "build_instrument_context",
     "guard_untrusted_context",
+    "DEBATE_REPORT_CONTEXT_CHARS",
+    "DEBATE_SETUP_CONTEXT_CHARS",
+    "DEBATE_HISTORY_CONTEXT_CHARS",
+    "DEBATE_ARGUMENT_CONTEXT_CHARS",
+    "DEBATE_RESPONSE_INSTRUCTION",
     "create_analyst",
     "create_analyst_opinion_builder",
     "render_agent_opinion",

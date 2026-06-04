@@ -16,7 +16,9 @@ from luna_workstation.domain import (
     TradeThesis,
     TradeThesisStructuredSummary,
 )
+from luna_workstation.graph.opinions import opinion_from_text
 from luna_workstation.graph.research_agents_graph import ResearchAgentsGraph
+from luna_workstation.graph.thesis_builder import extract_thesis_field
 
 
 class _ThesisMemoryService:
@@ -90,6 +92,20 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     ]
 
 
+def test_extract_thesis_field_ignores_combined_confirmation_invalidation_heading():
+    text = "\n".join(
+        [
+            "Final Research Thesis: BNB/USDT (Spot)",
+            "",
+            "Confirmation & Invalidation",
+            "Invalidation: at $700 (8.5% rally).",
+        ]
+    )
+
+    assert extract_thesis_field(text, "confirmation") is None
+    assert extract_thesis_field(text, "invalidation") == "at $700 (8.5% rally)."
+
+
 def test_graph_builds_thesis_from_structured_summary_json_first():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "BTC/USDT"
@@ -151,6 +167,37 @@ def test_graph_builds_thesis_from_structured_summary_json_first():
     )
     assert thesis.structured_summary.missing_data == ["liquidation heatmap"]
     assert "missing_liquidations" in thesis.structured_summary.missing_data_reason_codes
+
+
+def test_structured_summary_derives_decision_semantics_from_legacy_fields():
+    summary = TradeThesisStructuredSummary.model_validate(
+        {
+            "rating": "Underweight",
+            "direction": "avoid",
+            "action_summary": "Reduce exposure and avoid initiating fresh longs.",
+            "entry_zone": "",
+        }
+    )
+
+    assert summary.recommended_action == "avoid_long"
+    assert summary.market_bias == "defensive"
+    assert summary.entry_plan_status == "no_trade"
+
+
+def test_structured_summary_preserves_explicit_decision_semantics():
+    summary = TradeThesisStructuredSummary.model_validate(
+        {
+            "rating": "Hold",
+            "direction": "watch",
+            "recommended_action": "reduce_exposure",
+            "market_bias": "defensive",
+            "entry_plan_status": "no_trade",
+        }
+    )
+
+    assert summary.recommended_action == "reduce_exposure"
+    assert summary.market_bias == "defensive"
+    assert summary.entry_plan_status == "no_trade"
 
 
 def test_graph_preserves_object_first_research_evidence_contract():
@@ -576,6 +623,20 @@ def test_sentiment_missing_news_feed_does_not_apply_news_insufficient_cap():
     assert summary.data_quality > 0.34
     assert summary.data_quality_label != "insufficient_data"
     assert thesis.confidence != 0.25
+
+
+def test_social_missing_feed_caps_social_evidence_without_news_reason_code():
+    opinion = opinion_from_text(
+        "Sentiment Analyst",
+        "Quality: insufficient_data\nMissing/degraded data:\n- missing_social_feed",
+        research_run_id="run_1",
+        role="sentiment_analyst",
+        source_report_type="sentiment",
+    )
+
+    assert opinion is not None
+    assert "missing_social_feed" in opinion.reason_codes
+    assert "missing_news_feed" not in opinion.reason_codes
 
 
 def test_spot_onchain_opinion_missing_flows_remains_optional():

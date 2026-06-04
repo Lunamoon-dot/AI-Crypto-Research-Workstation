@@ -24,6 +24,7 @@ class EngineRunRequest(BaseModel):
     analysts: list[str] = Field(default_factory=lambda: ["market", "news"])
     config_profile: str | None = "default"
     exchange: str | None = None
+    output_language: str | None = None
     dry_run: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -33,6 +34,16 @@ class EngineRunRequest(BaseModel):
         clean = value.strip()
         if not clean:
             raise ValueError("must not be blank")
+        return clean
+
+    @field_validator("output_language")
+    @classmethod
+    def _output_language_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        if not clean:
+            raise ValueError("output_language must not be blank")
         return clean
 
     @field_validator("market_type", mode="before")

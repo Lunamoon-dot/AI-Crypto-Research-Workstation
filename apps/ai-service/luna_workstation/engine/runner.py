@@ -86,6 +86,7 @@ class EngineRunner:
                     "run_id": saved.id,
                     "workspace_id": request.workspace_id,
                     "market_type": request.market_type,
+                    "output_language": request.output_language,
                     "summary": result.decision,
                     "status": saved.status.value,
                     "degradation_reasons": saved.degradation_reasons,
@@ -152,6 +153,9 @@ class EngineRunner:
             overrides["news_context"] = {
                 "workspace_sources": workspace_news_sources,
             }
+        if request.output_language:
+            overrides["output_language"] = request.output_language
+            overrides["_engine"]["output_language"] = request.output_language
         if request.exchange:
             overrides["crypto_exchange"] = request.exchange
         if request.dry_run:
@@ -198,6 +202,7 @@ class EngineRunner:
                 "analysts": request.analysts,
                 "config_profile": request.config_profile,
                 "exchange": request.exchange,
+                "output_language": request.output_language,
                 "dry_run": request.dry_run,
                 "metadata": request.metadata,
                 "engine_contract": "v1",
@@ -226,6 +231,7 @@ class EngineRunner:
                 "workspace_id": request.workspace_id,
                 "dry_run": True,
                 "market_type": request.market_type,
+                "output_language": request.output_language,
                 "metadata": request.metadata,
                 "engine_contract": "v1",
             },

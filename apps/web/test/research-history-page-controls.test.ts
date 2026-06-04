@@ -40,7 +40,7 @@ test('research history filter panel does not render quick view shortcuts', () =>
   assert.equal(source.includes('function clearFilters()'), false);
 });
 
-test('research history exposes cancellation for queued runs only', () => {
+test('research history exposes cancellation for queued and running runs', () => {
   const source = readFileSync(
     new URL('../src/pages/ResearchHistoryPage.tsx', import.meta.url),
     'utf8',
@@ -49,8 +49,16 @@ test('research history exposes cancellation for queued runs only', () => {
   assert.equal(source.includes('cancelJob'), true);
   assert.equal(source.includes('useMutation'), true);
   assert.equal(source.includes('useQueryClient'), true);
-  assert.equal(source.includes('canCancelQueuedRun(run)'), true);
-  assert.equal(source.includes("run.status === 'queued'"), true);
+  assert.equal(source.includes('canCancelRun(run)'), true);
+  assert.equal(
+    source.includes("run.status === 'queued' ||") &&
+      source.includes("run.status === 'running' ||") &&
+      source.includes("run.status === 'created' ||") &&
+      source.includes("run.status === 'submitted'"),
+    true,
+  );
   assert.equal(source.includes('queryKeys.researchRunsRoot()'), true);
-  assert.equal(source.includes('Cancel queued run'), true);
+  assert.equal(source.includes('Cancel run'), true);
+  assert.equal(source.includes('Stop run'), true);
+  assert.equal(source.includes('Stop requested'), true);
 });

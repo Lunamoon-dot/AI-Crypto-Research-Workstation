@@ -71,10 +71,22 @@ export class ResearchJobProcessor {
 
     const abort = new AbortController();
     const heartbeat = this.startHeartbeat(context.jobId);
+    let abortReason: 'timeout' | 'cancelled' | null = null;
     const timeout = context.timeoutMs
-      ? setTimeout(() => abort.abort(), context.timeoutMs)
+      ? setTimeout(() => {
+          abortReason = 'timeout';
+          abort.abort();
+        }, context.timeoutMs)
       : null;
     timeout?.unref?.();
+    const cancellationWatch = this.startCancellationWatch(
+      context.jobId,
+      abort,
+      () => abortReason,
+      (reason) => {
+        abortReason = reason;
+      },
+    );
 
     try {
       const result = await this.runEngineAndSync(request, abort.signal);
@@ -96,7 +108,12 @@ export class ResearchJobProcessor {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Research engine failed.';
-      if (abort.signal.aborted) {
+      if (abort.signal.aborted && abortReason === 'cancelled') {
+        await this.lifecycle.markCancelled(
+          context.jobId,
+          'Research run was cancelled while the engine was executing.',
+        );
+      } else if (abort.signal.aborted) {
         await this.lifecycle.markTimedOut(context.jobId, {
           message: `Research engine exceeded ${context.timeoutMs}ms timeout.`,
           resultSummary: {
@@ -124,6 +141,7 @@ export class ResearchJobProcessor {
         clearTimeout(timeout);
       }
       clearInterval(heartbeat);
+      clearInterval(cancellationWatch);
     }
   }
 
@@ -136,14 +154,39 @@ export class ResearchJobProcessor {
     return heartbeat;
   }
 
+  private startCancellationWatch(
+    jobId: string,
+    abort: AbortController,
+    currentReason: () => 'timeout' | 'cancelled' | null,
+    setReason: (reason: 'cancelled') => void,
+  ): NodeJS.Timeout {
+    const watch = setInterval(() => {
+      void this.lifecycle.get(jobId).then((record) => {
+        if (
+          record?.cancellation_requested_at &&
+          !abort.signal.aborted &&
+          currentReason() === null
+        ) {
+          setReason('cancelled');
+          abort.abort();
+        }
+      });
+    }, 1000);
+    watch.unref?.();
+    return watch;
+  }
+
   private async runEngineAndSync(
     request: EngineRunRequest,
     signal: AbortSignal,
   ): Promise<JsonRecord> {
     const enrichedRequest = await this.withContinuityContext(request);
     const result = await this.pythonEngine.runInline(enrichedRequest, { signal });
+    const status = resultStatus(result);
     await this.lifecycle.heartbeat(request.run_id, { phase: 'postgres_sync' });
-    const sync = await this.syncRun(request, result);
+    const sync = await this.syncRun(request, result, {
+      publishSignals: shouldPublishSignals(status),
+    });
     return sync
       ? ({
           ...result,
@@ -181,10 +224,12 @@ export class ResearchJobProcessor {
   private async syncRun(
     request: EngineRunRequest,
     result: JsonRecord,
+    options: { publishSignals: boolean },
   ): Promise<SqliteJournalSyncResult | null> {
     return (
       (await this.sqliteSync?.syncRun(request.run_id, request.workspace_id, {
         sqlitePath: optionalString(result.journal_path),
+        publishSignals: options.publishSignals,
       })) ??
       null
     );
@@ -201,6 +246,10 @@ function resolveHeartbeatMs(): number {
 
 function resultStatus(result: JsonRecord): string {
   return typeof result.status === 'string' ? result.status : 'completed';
+}
+
+function shouldPublishSignals(status: string): boolean {
+  return ['completed', 'completed_degraded'].includes(status);
 }
 
 function stringValue(value: unknown, fallback: string): string {

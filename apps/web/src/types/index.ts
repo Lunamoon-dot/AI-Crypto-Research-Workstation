@@ -98,6 +98,7 @@ export interface ResearchRunResponse {
   status: string;
   started_at: string | null;
   completed_at: string | null;
+  cancellation_requested_at: string | null;
   thesis_id: string | null;
   decision_id: string | null;
   signal_snapshot_id: string | null;
@@ -239,6 +240,9 @@ export interface ThesisSummaryResponse {
   confidence: number | null;
   market_type: string;
   action_summary: string;
+  recommended_action: string;
+  market_bias: string;
+  entry_plan_status: string;
   confirmation_condition: string;
   entry_zone: string;
   upside_catalyst: string;
@@ -261,6 +265,17 @@ export interface ThesisResponse {
   workspace_id: string;
   research_run_id: string | null;
   symbol: string;
+  decision: string;
+  recommended_action: string;
+  recommended_action_label: string;
+  market_bias: string;
+  market_bias_label: string;
+  entry_plan_status: string;
+  entry_plan_status_label: string;
+  analysis_mode: string;
+  analysis_mode_label: string;
+  thesis_status: string;
+  thesis_status_label: string;
   direction: string;
   setup_type: string;
   confidence: number | null;
@@ -1195,6 +1210,15 @@ export interface ResearchContinuityDebugAccessResponse {
   redacted: true;
 }
 
+export interface ResearchContinuityMarkdownArtifactResponse {
+  kind: 'continuity_report';
+  label: string;
+  path: string | null;
+  exists: boolean;
+  size_bytes: number | null;
+  modified_at: string | null;
+}
+
 export type ResearchContinuityDiffGroup =
   | 'added'
   | 'updated'
@@ -1280,6 +1304,7 @@ export interface ResearchContinuityEntrySummaryResponse {
   generated_at: string | null;
   summary: string;
   thin_report: ResearchContinuityThinReport | null;
+  markdown_artifact: ResearchContinuityMarkdownArtifactResponse;
   diff_summary: ResearchContinuityDiffSummaryResponse;
   debug: ResearchContinuityDebugAccessResponse;
 }
@@ -1369,6 +1394,7 @@ export interface ResearchContinuityEntryResponse {
   writer_metadata: JsonRecord;
   payload: JsonRecord;
   thin_report?: ResearchContinuityThinReport | null;
+  markdown_artifact?: ResearchContinuityMarkdownArtifactResponse;
 }
 
 export interface ResearchContinuityStateResponse {

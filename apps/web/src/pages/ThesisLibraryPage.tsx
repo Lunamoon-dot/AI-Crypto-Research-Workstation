@@ -10,7 +10,6 @@ import {
   IdChip,
   RatingBadge,
 } from '@/components/research/badges';
-import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
@@ -39,6 +38,17 @@ export function ThesisLibraryPage() {
     });
   }, [createdDate, direction, effectiveSymbolFilter, query.data]);
   const thesisSummary = useMemo(() => summarizeTheses(theses), [theses]);
+  const thesisSummaryContent = query.isLoading ? (
+    'Loading theses'
+  ) : (
+    <div className="thesis-summary-chips" aria-label="Thesis summary">
+      <span className="badge primary">{theses.length} shown</span>
+      <span className="badge">{query.data?.length ?? 0} total</span>
+      <span className="badge constructive">{thesisSummary.bullish} bullish</span>
+      <span className="badge risk">{thesisSummary.bearish} bearish</span>
+      <span className="badge warning">{thesisSummary.watch} watch-neutral</span>
+    </div>
+  );
   const thesisFilters = (
     <div className="scenario-filter-controls thesis-panel-filters">
       <label className="scenario-filter-label">
@@ -68,7 +78,7 @@ export function ThesisLibraryPage() {
           />
         </label>
       ) : (
-        <div className="scenario-filter-label">
+        <div className="scenario-filter-label thesis-workspace-symbol-filter">
           Workspace symbol
           <span className="badge primary">{fixedWorkspaceSymbol}</span>
         </div>
@@ -95,39 +105,12 @@ export function ThesisLibraryPage() {
       <PageHeader
         title="Thesis library"
         description="Research memory with confidence, invalidation, evidence, and run links."
-        action={
-          <HeaderStats
-            stats={[
-              {
-                label: 'Theses shown',
-                meta: `${query.data?.length ?? 0} total`,
-                tone: 'primary',
-                value: query.isLoading ? '...' : theses.length,
-              },
-              {
-                label: 'Bullish',
-                tone: 'constructive',
-                value: thesisSummary.bullish,
-              },
-              {
-                label: 'Bearish',
-                tone: 'risk',
-                value: thesisSummary.bearish,
-              },
-              {
-                label: 'Watch / neutral',
-                tone: 'warning',
-                value: thesisSummary.watch,
-              },
-            ]}
-          />
-        }
       />
       <Panel
         className="thesis-list-panel"
         title="Theses"
         action={thesisFilters}
-        description={`${theses.length} shown`}
+        description={thesisSummaryContent}
       >
         {query.isLoading ? <LoadingState /> : null}
         {query.isError ? <ErrorState error={query.error} /> : null}

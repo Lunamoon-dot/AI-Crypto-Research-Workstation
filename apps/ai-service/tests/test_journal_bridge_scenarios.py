@@ -3,6 +3,7 @@ from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
 from luna_workstation.graph.journal_bridge import (
     JournalBridge,
     _parse_scenario_plan,
+    _split_list_section,
     scenarios_from_structured_plan,
 )
 
@@ -83,12 +84,21 @@ def test_journal_bridge_saves_scenarios_from_json_plan(tmp_path):
         setup_type="breakout",
         scenarios=[
             ScenarioItem(
+                scenario_name="Upside Breakout Confirmation",
+                direction="bullish risk",
+                thesis_impact="medium",
                 condition="Break above 108k with volume.",
                 expected_behavior="Continuation toward prior highs.",
+                evidence=["Volume: expanding"],
+                watch_triggers=["Break above 108k", "Volume expands"],
+                impact_on_thesis="Supports the bullish thesis if follow-through holds.",
                 probability_band="medium",
                 invalidation="Close back below 103k.",
                 risk_factors=["Crowded funding"],
                 suggested_action="review",
+                as_of="2026-05-31",
+                timeframe="1D",
+                source=["market_report"],
             ),
         ],
     )
@@ -108,12 +118,21 @@ def test_scenarios_from_structured_plan_maps_probability():
         setup_type="agent_debate",
         scenarios=[
             ScenarioItem(
+                scenario_name="Test Scenario",
+                direction="neutral",
+                thesis_impact="low",
                 condition="c",
                 expected_behavior="b",
+                evidence=["e"],
+                watch_triggers=["w"],
+                impact_on_thesis="impact",
                 probability_band="HIGH",
                 invalidation="i",
                 risk_factors=["r"],
                 suggested_action="watch",
+                as_of="2026-05-31",
+                timeframe="1D",
+                source=["test"],
             ),
         ],
     )
@@ -177,6 +196,65 @@ Intro text that should not become a scenario.
     assert rows[0].expected_market_behavior == (
         "HOLD becomes a BUY candidate after confirmation."
     )
-    assert rows[0].suggested_user_action.startswith("**Review**")
+    assert rows[0].suggested_user_action.startswith("Review")
     assert len(rows[0].condition) > 120
     assert rows[0].expected_market_behavior != rows[0].condition
+
+
+def test_parse_scenario_plan_ignores_combined_decision_card_headings():
+    text = """
+### Scenario 1: Bearish Continuation with Liquidity Sweep
+
+**Key Market Conditions and Catalysts**
+- Price has already fallen 20% from the May 30-31 spike.
+- Weekly bearish trend remains dominant.
+
+**Probability Assessment**
+- 45% - Liquidation path remains possible.
+
+**Evidence Chips & Watch Triggers**
+
+**Watch**
+- Price closes below $570 with above-average volume.
+- Open interest drops sharply, confirming liquidation cascade.
+
+**Impact on Thesis**
+- Reinforces the Underweight stance.
+
+**Action Watch:** - Do not add longs. If holding, reassess risk exposure.
+
+**Source & Timeframe**
+Source: Market Report & Investment Plan.
+Timeframe: Short-term (1-2 weeks)
+as_of: 2026-06-04
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_x")
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.scenario_name == "Bearish Continuation with Liquidity Sweep"
+    assert row.condition.startswith("Price has already fallen")
+    assert "and Catalysts" not in row.condition
+    assert row.evidence == []
+    assert row.watch_triggers == [
+        "Price closes below $570 with above-average volume.",
+        "Open interest drops sharply, confirming liquidation cascade.",
+    ]
+    assert row.suggested_user_action == (
+        "Do not add longs. If holding, reassess risk exposure."
+    )
+    assert row.source == ["Market Report & Investment Plan."]
+    assert row.timeframe == "Short-term (1-2 weeks)"
+    assert row.as_of == "2026-06-04"
+
+
+def test_split_list_section_preserves_price_commas():
+    items = _split_list_section(
+        "Price remains between $60,500 and $66,000.\nVolume declining."
+    )
+
+    assert items == [
+        "Price remains between $60,500 and $66,000.",
+        "Volume declining.",
+    ]

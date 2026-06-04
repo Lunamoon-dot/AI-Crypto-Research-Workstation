@@ -61,6 +61,7 @@ export interface EngineRunRequest {
   analysts: Array<'market' | 'news' | 'social' | 'onchain'>;
   config_profile: string;
   exchange?: string | null;
+  output_language?: string | null;
   dry_run: boolean;
   metadata: JsonRecord;
 }
@@ -75,6 +76,7 @@ export type CreateResearchRunRequest = {
   analysts: string[];
   config_profile?: string;
   exchange?: string | null;
+  output_language?: string | null;
   dry_run?: boolean;
   metadata?: JsonRecord;
 };
@@ -128,6 +130,7 @@ export interface ResearchRunResponse {
   status: string;
   started_at: string | null;
   completed_at: string | null;
+  cancellation_requested_at: string | null;
   thesis_id: string | null;
   decision_id: string | null;
   signal_snapshot_id: string | null;
@@ -243,6 +246,9 @@ export interface ThesisSummaryResponse {
   confidence: number | null;
   market_type: string;
   action_summary: string;
+  recommended_action: string;
+  market_bias: string;
+  entry_plan_status: string;
   confirmation_condition: string;
   entry_zone: string;
   upside_catalyst: string;
@@ -265,6 +271,17 @@ export interface ThesisResponse {
   workspace_id: string;
   research_run_id: string | null;
   symbol: string;
+  decision: string;
+  recommended_action: string;
+  recommended_action_label: string;
+  market_bias: string;
+  market_bias_label: string;
+  entry_plan_status: string;
+  entry_plan_status_label: string;
+  analysis_mode: string;
+  analysis_mode_label: string;
+  thesis_status: string;
+  thesis_status_label: string;
   direction: string;
   setup_type: string;
   confidence: number | null;

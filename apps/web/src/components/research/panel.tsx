@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 export function Panel({
   title,
   description,
@@ -6,7 +8,7 @@ export function Panel({
   children,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   action?: React.ReactNode;
   className?: string;
   children: React.ReactNode;

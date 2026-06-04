@@ -7,9 +7,17 @@ sample-size-gated news headline sentiment from free/accessible endpoints.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Optional
+
+from luna_workstation.domain.social_context import (
+    SocialAssetAttention,
+    SocialContext,
+    SocialMacroMood,
+    SocialQuality,
+)
 
 from .http_utils import fetch_json_with_retry
 
@@ -102,62 +110,148 @@ def fetch_crypto_fear_greed() -> str:
 
 
 def fetch_social_sentiment(symbol: str, asset_class: str = "crypto") -> str:
-    """Fetch social media metrics for a crypto pair.
+    """Fetch social retail-attention metrics for a crypto pair.
 
-    Uses CoinGecko trending endpoint.
+    Uses CoinGecko trending plus the market-wide Crypto Fear & Greed snapshot.
     """
-    cached = _cached(f"social_{symbol}")
+    base = _base_symbol(symbol).lower()
+    cached = _cached(f"social_{base}")
     if cached:
         return cached
 
-    base = symbol.split("/")[0].lower() if "/" in symbol else symbol.lower()
-    return _fetch_coingecko_trending(base)
+    try:
+        trending = _fetch_coingecko_trending()
+        fear_greed_value, fear_greed_label = _fetch_fear_greed_snapshot()
+        context = build_social_context_from_trending(
+            symbol=symbol,
+            trending=trending,
+            fear_greed_value=fear_greed_value,
+            fear_greed_label=fear_greed_label,
+        )
+        result = context.to_prompt_block()
+        _set_cache(f"social_{base}", result)
+        return result
+    except Exception:
+        result = SocialContext(
+            instrument=symbol,
+            macro_mood=None,
+            asset_attention=None,
+            quality=SocialQuality(
+                status="insufficient_data",
+                reason_codes=["missing_social_feed"],
+            ),
+        ).to_prompt_block()
+        _set_cache(f"social_{base}", result)
+        return result
 
 
-def _fetch_coingecko_trending(base: str) -> str:
-    """Fetch trending data from CoinGecko public API (no key needed)."""
-    data = fetch_json_with_retry("https://api.coingecko.com/api/v3/search/trending")
-    if data is None:
-        return f"Social Sentiment for {base.upper()}: CoinGecko API unavailable."
-
-    coins = data.get("coins", [])
+def build_social_context_from_trending(
+    *,
+    symbol: str,
+    trending: list[dict],
+    fear_greed_value: int | None = None,
+    fear_greed_label: str = "unknown",
+) -> SocialContext:
+    base = _base_symbol(symbol)
     found = None
-    position = None
-    for i, coin in enumerate(coins):
-        item = coin.get("item", {})
-        if (
-            item.get("symbol", "").lower() == base.lower()
-            or item.get("id", "").lower() == base.lower()
-        ):
+    rank = None
+    for index, coin in enumerate(trending, start=1):
+        item = coin.get("item", {}) if isinstance(coin, dict) else {}
+        if str(item.get("symbol", "")).upper() == base:
             found = item
-            position = i + 1
+            rank = index
             break
 
-    lines = [f"Social Sentiment for {base.upper()}", "=" * 40, ""]
-
-    if found:
-        lines.append(f"  CoinGecko Trending Rank: #{position}")
-        lines.append(f"  Market Cap Rank: #{found.get('market_cap_rank', 'N/A')}")
-        lines.append(
-            f"  Score: {found.get('score', 0):.0f} (higher = more social interest)"
-        )
-        lines.append("")
-        score = found.get("score", 0)
-        if score > 500:
-            lines.append("High social interest - strong retail attention.")
-        elif score > 100:
-            lines.append("Moderate social interest.")
-        else:
-            lines.append("Low social interest - flying under the radar.")
-    else:
-        lines.append("  Not in CoinGecko Top Trending (15 coins).")
-        lines.append(
-            f"  This suggests low retail attention for {base.upper()} right now."
+    macro_mood = SocialMacroMood(
+        fear_greed_value=fear_greed_value,
+        fear_greed_label=fear_greed_label,
+        risk_note=_macro_risk_note(fear_greed_value, fear_greed_label),
+    )
+    if not found:
+        return SocialContext(
+            instrument=symbol,
+            macro_mood=macro_mood,
+            asset_attention=None,
+            quality=SocialQuality(
+                status="insufficient_data",
+                reason_codes=["missing_social_feed"],
+            ),
         )
 
-    result = "\n".join(lines)
-    _set_cache(f"social_{base}", result)
-    return result
+    score = _float_or_none(found.get("score"))
+    return SocialContext(
+        instrument=symbol,
+        macro_mood=macro_mood,
+        asset_attention=SocialAssetAttention(
+            symbol=base,
+            trending_rank=rank,
+            market_cap_rank=_int_or_none(found.get("market_cap_rank")),
+            social_score=score,
+            attention_label=_attention_label(score),
+        ),
+        quality=SocialQuality(status="clean", reason_codes=[]),
+    )
+
+
+def _fetch_coingecko_trending() -> list[dict]:
+    """Fetch raw trending data from CoinGecko public API."""
+    data = fetch_json_with_retry("https://api.coingecko.com/api/v3/search/trending")
+    if data is None:
+        return []
+    return list(data.get("coins") or [])
+
+
+def _fetch_fear_greed_snapshot() -> tuple[int | None, str]:
+    text = fetch_crypto_fear_greed()
+    match = re.search(r":\s*(\d{1,3})/100\s*-\s*([A-Za-z ]+)", text)
+    value = int(match.group(1)) if match else None
+    label = match.group(2).strip() if match else "unknown"
+    lowered = text.lower()
+    for candidate in ("Extreme Greed", "Extreme Fear", "Greed", "Fear", "Neutral"):
+        if candidate.lower() in lowered:
+            label = candidate
+            break
+    return value, label
+
+
+def _base_symbol(symbol: str) -> str:
+    return str(symbol or "").strip().upper().split("/")[0].split(":")[0]
+
+
+def _attention_label(score: float | None) -> str:
+    if score is None:
+        return "unknown"
+    if score >= 75:
+        return "high"
+    if score >= 40:
+        return "moderate"
+    return "low"
+
+
+def _macro_risk_note(value: int | None, label: str) -> str:
+    text = str(label or "").lower()
+    if (value is not None and value >= 75) or "extreme greed" in text:
+        return "Market-wide crowding/correction risk is elevated."
+    if (value is not None and value <= 25) or "extreme fear" in text:
+        return (
+            "Market-wide fear is elevated; forced selling or capitulation risk may "
+            "be present."
+        )
+    return "Market-wide mood is balanced or mixed."
+
+
+def _int_or_none(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------

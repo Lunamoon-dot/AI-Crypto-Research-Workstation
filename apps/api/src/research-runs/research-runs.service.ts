@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   ServiceUnavailableException,
@@ -55,6 +56,8 @@ type JobStatus = Awaited<ReturnType<JobsService['getJobStatus']>>;
 
 @Injectable()
 export class ResearchRunsService {
+  private readonly logger = new Logger(ResearchRunsService.name);
+
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
@@ -107,63 +110,91 @@ export class ResearchRunsService {
     userId?: string,
     workspaceHeader?: string,
   ): Promise<ResearchRunQueuedResponse> {
-    const user = this.auth.resolveUser(userId);
-    const workspaceId = this.workspaces.assertRequestWorkspace(
-      dto.workspace_id,
-      workspaceHeader,
-    );
-    const permission = await this.workspaces.assertAccess(
-      user,
-      workspaceId,
-      'editor',
-    );
-    const assetClass = dto.asset_class ?? 'crypto';
-    const symbol = await this.resolveCreateSymbol(
-      workspaceId,
-      dto.symbol,
-      assetClass,
-    );
-    const workspaceNewsSources =
-      await this.workspaces.listEnabledNewsSourcesForEngine(workspaceId);
-    const request: EngineRunRequest = {
-      run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
-      workspace_id: workspaceId,
-      symbol,
-      asset_class: assetClass,
-      market_type: dto.market_type ?? 'spot',
-      analysis_date: dto.analysis_date,
-      analysts: normalizeSelectedAnalysts(dto.analysts),
-      config_profile: dto.config_profile ?? 'default',
-      exchange: normalizeOptional(dto.exchange) ?? null,
-      dry_run: dto.dry_run ?? false,
-      metadata: metadataWithWorkspaceNewsSources(
-        dto.metadata ?? {},
-        workspaceNewsSources,
-      ),
-    };
-    await this.marketDataGuard?.assertAvailable({
-      symbol: request.symbol,
-      assetClass: request.asset_class,
-      marketType: request.market_type,
-      analysisDate: request.analysis_date,
-      configProfile: request.config_profile,
-      exchange: request.exchange ?? null,
-    });
-    const job = await this.jobs.enqueueResearchRun(request);
-    return {
-      run_id: request.run_id,
-      workspace_id: request.workspace_id,
-      status:
-        job.backend === 'inline' && typeof job.result?.status === 'string'
-          ? job.result.status
-          : job.backend === 'inline'
-            ? 'submitted'
-            : 'queued',
-      job_id: job.id,
-      queue_backend: job.backend,
-      permission,
-      result: job.result,
-    };
+    const startedAt = Date.now();
+    let requestForLog: Partial<EngineRunRequest> = {};
+    let step = 'resolve_request';
+    try {
+      const user = this.auth.resolveUser(userId);
+      const workspaceId = this.workspaces.assertRequestWorkspace(
+        dto.workspace_id,
+        workspaceHeader,
+      );
+      const permission = await this.workspaces.assertAccess(
+        user,
+        workspaceId,
+        'editor',
+      );
+      const assetClass = dto.asset_class ?? 'crypto';
+      const symbol = await this.resolveCreateSymbol(
+        workspaceId,
+        dto.symbol,
+        assetClass,
+      );
+      const workspaceNewsSources =
+        await this.workspaces.listEnabledNewsSourcesForEngine(workspaceId);
+      const request: EngineRunRequest = {
+        run_id: dto.run_id ?? `run_${randomUUID().replaceAll('-', '')}`,
+        workspace_id: workspaceId,
+        symbol,
+        asset_class: assetClass,
+        market_type: dto.market_type ?? 'spot',
+        analysis_date: dto.analysis_date,
+        analysts: normalizeSelectedAnalysts(dto.analysts),
+        config_profile: dto.config_profile ?? 'default',
+        exchange: normalizeOptional(dto.exchange) ?? null,
+        output_language: normalizeOptional(dto.output_language) ?? null,
+        dry_run: dto.dry_run ?? false,
+        metadata: metadataWithWorkspaceNewsSources(
+          dto.metadata ?? {},
+          workspaceNewsSources,
+        ),
+      };
+      requestForLog = request;
+      this.logger.log(
+        `create research run accepted run_id=${request.run_id} workspace_id=${request.workspace_id} symbol=${request.symbol} market_type=${request.market_type} dry_run=${request.dry_run}`,
+      );
+
+      step = 'market_data_guard';
+      const guardStartedAt = Date.now();
+      await this.marketDataGuard?.assertAvailable({
+        symbol: request.symbol,
+        assetClass: request.asset_class,
+        marketType: request.market_type,
+        analysisDate: request.analysis_date,
+        configProfile: request.config_profile,
+        exchange: request.exchange ?? null,
+      });
+      this.logger.log(
+        `market data guard passed run_id=${request.run_id} duration_ms=${Date.now() - guardStartedAt}`,
+      );
+
+      step = 'enqueue';
+      const enqueueStartedAt = Date.now();
+      const job = await this.jobs.enqueueResearchRun(request);
+      this.logger.log(
+        `research run enqueued run_id=${request.run_id} job_id=${job.id} backend=${job.backend} duration_ms=${Date.now() - enqueueStartedAt} total_ms=${Date.now() - startedAt}`,
+      );
+      return {
+        run_id: request.run_id,
+        workspace_id: request.workspace_id,
+        status:
+          job.backend === 'inline' && typeof job.result?.status === 'string'
+            ? job.result.status
+            : job.backend === 'inline'
+              ? 'submitted'
+              : 'queued',
+        job_id: job.id,
+        queue_backend: job.backend,
+        permission,
+        result: job.result,
+      };
+    } catch (error) {
+      this.logger.error(
+        `create research run failed step=${step} run_id=${requestForLog.run_id ?? dto.run_id ?? 'unassigned'} workspace_id=${requestForLog.workspace_id ?? dto.workspace_id ?? 'unassigned'} symbol=${requestForLog.symbol ?? dto.symbol ?? 'unassigned'} total_ms=${Date.now() - startedAt}: ${errorSummary(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
   }
 
   private async resolveCreateSymbol(
@@ -338,7 +369,10 @@ export class ResearchRunsService {
           completedAt: job.completed_at ?? undefined,
         });
       }
-      return run;
+      return {
+        ...run,
+        cancellation_requested_at: job.cancellation_requested_at,
+      };
     } catch (error) {
       if (!(error instanceof NotFoundException)) {
         throw error;
@@ -643,6 +677,7 @@ function activeRunFromJob(
     status: runStatusFromJob(job),
     started_at: job.started_at,
     completed_at: job.completed_at,
+    cancellation_requested_at: job.cancellation_requested_at,
     thesis_id: null,
     decision_id: null,
     signal_snapshot_id: null,
@@ -702,6 +737,7 @@ function jobEvents(request: EngineRunRequest, job: JobStatus): JsonRecord[] {
     symbol: request.symbol,
     market_type: request.market_type,
     analysts: request.analysts,
+    output_language: request.output_language ?? null,
     backend: job.backend,
     progress: job.progress,
   };
@@ -989,6 +1025,17 @@ function canUseSqliteFallback(error: unknown): boolean {
     typeof code === 'string' &&
     ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT'].includes(code)
   );
+}
+
+function errorSummary(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${firstLine(error.message)}`;
+  }
+  return firstLine(String(error));
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/, 1)[0] ?? '';
 }
 
 function firstRow(exported: ExportedJournal, table: string): JsonRecord | null {

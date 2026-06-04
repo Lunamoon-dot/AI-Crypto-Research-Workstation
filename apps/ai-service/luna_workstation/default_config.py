@@ -80,6 +80,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "google_thinking_level": None,  # "high", "minimal", etc.
     "openai_reasoning_effort": None,  # "medium", "high", "low"
     "anthropic_effort": None,  # "high", "medium", "low"
+    "llm_runtime": {
+        "timeout_sec": 60.0,
+    },
     # LLM provider fallback: if the primary provider is circuit-broken,
     # these fallback providers are tried in order.
     "llm_fallback": {

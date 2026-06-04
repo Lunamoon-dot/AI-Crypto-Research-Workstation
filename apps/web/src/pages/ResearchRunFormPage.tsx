@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -13,6 +13,7 @@ import {
 import { createResearchRun, getApiHealth } from "@/services/research-runs";
 import { BentoGrid } from "@/components/research/bento";
 import { Panel } from "@/components/research/panel";
+import { isApiError } from "@/services/api-error";
 import { errorMessage } from "@/services/client";
 import { todayIsoDate } from "@/lib/format";
 import { routes } from "@/lib/routes";
@@ -40,37 +41,6 @@ const marketOptions: Array<{
     description:
       "Include derivatives context when the run needs leverage-sensitive signals.",
     meta: "funding aware",
-  },
-];
-
-const profileOptions = [
-  {
-    value: "default",
-    label: "Balanced review",
-    description:
-      "Best default for daily research with full evidence gathering.",
-    meta: "standard cost",
-  },
-  {
-    value: "fast",
-    label: "Fast triage",
-    description:
-      "Short pass for deciding whether a setup deserves deeper work.",
-    meta: "low latency",
-  },
-  {
-    value: "deep",
-    label: "Deep dossier",
-    description:
-      "Use when invalidation, debate, and continuity matter more than speed.",
-    meta: "max context",
-  },
-  {
-    value: "low-cost",
-    label: "Cost guard",
-    description:
-      "Conservative evidence sweep for routine watchlist maintenance.",
-    meta: "budget first",
   },
 ];
 
@@ -105,13 +75,19 @@ const analystOptions = [
   },
 ];
 
+const languageOptions = [
+  { value: "English", label: "English" },
+  { value: "Vietnamese", label: "Vietnamese" },
+];
+
 export function ResearchRunFormPage() {
   const auth = useWorkspaceStore();
   const navigate = useNavigate();
   const [symbol, setSymbol] = useState("BTC/USDT");
   const [marketType, setMarketType] = useState<MarketType>("spot");
   const [analysisDate, setAnalysisDate] = useState(todayIsoDate());
-  const [profile, setProfile] = useState("default");
+  const [profile] = useState("default");
+  const [outputLanguage, setOutputLanguage] = useState("English");
   const [analysts, setAnalysts] = useState<string[]>([
     "market",
     "news",
@@ -119,14 +95,12 @@ export function ResearchRunFormPage() {
     "onchain",
   ]);
   const [launchRetryReady, setLaunchRetryReady] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
   const legacyMixedWorkspace = auth.isLegacyMixedWorkspace();
   const normalizedSymbol = symbol.trim().toUpperCase();
   const effectiveSymbol = fixedWorkspaceSymbol ?? normalizedSymbol;
-  const selectedProfile =
-    profileOptions.find((option) => option.value === profile) ??
-    profileOptions[0];
   const selectedAnalystLabels = useMemo(
     () =>
       analystOptions
@@ -159,6 +133,7 @@ export function ResearchRunFormPage() {
   const mutation = useMutation({
     onMutate: () => {
       setLaunchRetryReady(false);
+      setConfirmOpen(false);
     },
     mutationFn: () =>
       createResearchRun(
@@ -170,17 +145,33 @@ export function ResearchRunFormPage() {
           analysis_date: analysisDate,
           analysts,
           config_profile: profile,
+          output_language: outputLanguage,
         }),
         auth,
       ),
     onSuccess: (result) => {
       navigate(routes.researchRun(result.run_id, result.job_id));
     },
-    onError: async () => {
+    onError: async (error) => {
+      if (!isTransientLaunchError(error)) {
+        setLaunchRetryReady(false);
+        return;
+      }
       const health = await apiHealth.refetch();
       setLaunchRetryReady(health.data?.status === "ok");
     },
   });
+
+  useEffect(() => {
+    if (!launchRetryReady || !mutation.isError || !apiReady) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      mutation.reset();
+      setLaunchRetryReady(false);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [apiReady, launchRetryReady, mutation]);
 
   function toggleAnalyst(value: string) {
     setAnalysts((current) =>
@@ -192,6 +183,13 @@ export function ResearchRunFormPage() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mutation.isPending || !apiReady || disabledReason) {
+      return;
+    }
+    setConfirmOpen(true);
+  }
+
+  function approveLaunch() {
     if (mutation.isPending || !apiReady || disabledReason) {
       return;
     }
@@ -207,94 +205,85 @@ export function ResearchRunFormPage() {
             title="Research target"
             description="Start with the workspace instrument and the market lens."
           >
-            <div className="launch-target-stack">
-              <div className="launch-workspace-target">
-                <span>Workspace target</span>
-                <strong>
-                  {fixedWorkspaceSymbol ??
-                    (legacyMixedWorkspace ? "Legacy mixed" : normalizedSymbol || "No symbol")}
-                </strong>
-                <small>
-                  {fixedWorkspaceSymbol
-                    ? auth.workspace?.name ?? "Fixed-symbol workspace"
-                    : legacyMixedWorkspace
-                      ? "Create or switch to a fixed-symbol workspace."
-                      : "Workspace metadata will lock this symbol after creation."}
-                </small>
-              </div>
+              <div className="launch-target-stack">
+                <div className="launch-workspace-target">
+                  <span>Workspace target</span>
+                  <strong>
+                    {fixedWorkspaceSymbol ??
+                      (legacyMixedWorkspace ? "Legacy mixed" : normalizedSymbol || "No symbol")}
+                  </strong>
+                  <small>
+                    {fixedWorkspaceSymbol
+                      ? auth.workspace?.name ?? "Fixed-symbol workspace"
+                      : legacyMixedWorkspace
+                        ? "Create or switch to a fixed-symbol workspace."
+                        : "Workspace metadata will lock this symbol after creation."}
+                  </small>
+                </div>
 
-              {!fixedWorkspaceSymbol && !legacyMixedWorkspace ? (
-                <label className="label launch-symbol-label">
-                  Symbol
+                {!fixedWorkspaceSymbol && !legacyMixedWorkspace ? (
+                  <label className="label launch-symbol-label">
+                    Symbol
+                    <input
+                      className="input launch-symbol-input"
+                      value={symbol}
+                      onChange={(event) =>
+                        setSymbol(event.target.value.toUpperCase())
+                      }
+                      placeholder="BTC/USDT"
+                      autoComplete="off"
+                      spellCheck={false}
+                      required
+                    />
+                  </label>
+                ) : null}
+
+                <div className="launch-choice-grid" aria-label="Market type">
+                  {marketOptions.map((option) => (
+                    <button
+                      aria-pressed={marketType === option.value}
+                      className={`launch-choice-card${marketType === option.value ? " active" : ""}`}
+                      key={option.value}
+                      type="button"
+                      onClick={() => setMarketType(option.value)}
+                    >
+                      <span className="launch-choice-kicker">{option.meta}</span>
+                      <strong>{option.label}</strong>
+                      <span>{option.description}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <label className="label launch-date-field">
+                  Analysis date
                   <input
-                    className="input launch-symbol-input"
-                    value={symbol}
-                    onChange={(event) =>
-                      setSymbol(event.target.value.toUpperCase())
-                    }
-                    placeholder="BTC/USDT"
-                    autoComplete="off"
-                    spellCheck={false}
+                    className="input"
+                    type="date"
+                    value={analysisDate}
+                    onChange={(event) => setAnalysisDate(event.target.value)}
                     required
                   />
                 </label>
-              ) : null}
 
-              <div className="launch-choice-grid" aria-label="Market type">
-                {marketOptions.map((option) => (
-                  <button
-                    aria-pressed={marketType === option.value}
-                    className={`launch-choice-card${marketType === option.value ? " active" : ""}`}
-                    key={option.value}
-                    type="button"
-                    onClick={() => setMarketType(option.value)}
+                <label className="label launch-language-field">
+                  Output language
+                  <select
+                    className="input"
+                    value={outputLanguage}
+                    onChange={(event) => setOutputLanguage(event.target.value)}
                   >
-                    <span className="launch-choice-kicker">{option.meta}</span>
-                    <strong>{option.label}</strong>
-                    <span>{option.description}</span>
-                  </button>
-                ))}
+                    {languageOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-
-              <label className="label launch-date-field">
-                Analysis date
-                <input
-                  className="input"
-                  type="date"
-                  value={analysisDate}
-                  onChange={(event) => setAnalysisDate(event.target.value)}
-                  required
-                />
-              </label>
-            </div>
-          </Panel>
+            </Panel>
 
           <Panel
-            className="span-5 launch-profile-panel"
-            title="Runtime profile"
-            description="Pick the tradeoff before the API creates a job."
-          >
-            <div className="launch-profile-list" aria-label="Runtime profile">
-              {profileOptions.map((option) => (
-                <button
-                  aria-pressed={profile === option.value}
-                  className={`launch-profile-card${profile === option.value ? " active" : ""}`}
-                  key={option.value}
-                  type="button"
-                  onClick={() => setProfile(option.value)}
-                >
-                  <span>
-                    <strong>{option.label}</strong>
-                    <small>{option.description}</small>
-                  </span>
-                  <span className="badge primary">{option.meta}</span>
-                </button>
-              ))}
-            </div>
-          </Panel>
-
-          <Panel
-            className="span-7 launch-analyst-panel"
+            className="span-5 launch-analyst-panel"
             title="Analyst desk"
             description="Every selected module contributes evidence before the manager synthesizes the thesis."
           >
@@ -326,63 +315,6 @@ export function ResearchRunFormPage() {
                   </label>
                 );
               })}
-            </div>
-          </Panel>
-
-          <Panel
-            className="span-5 emphasis launch-summary-panel"
-            title="Run preview"
-            description="Confirm the shape of the job before launching."
-          >
-            <div className="launch-summary-card">
-              <div className="launch-summary-symbol">
-                <span>Target</span>
-                <strong>{effectiveSymbol || "No symbol"}</strong>
-              </div>
-              <div className="launch-summary-grid">
-                <div>
-                  <span>Market</span>
-                  <strong>{marketType}</strong>
-                </div>
-                <div>
-                  <span>Profile</span>
-                  <strong>{selectedProfile.value}</strong>
-                </div>
-                <div>
-                  <span>Date</span>
-                  <strong>{analysisDate}</strong>
-                </div>
-                <div>
-                  <span>Modules</span>
-                  <strong>{analysts.length}/4</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="launch-checklist" aria-label="Pre-flight checklist">
-              <PreflightItem
-                ready={!legacyMixedWorkspace && Boolean(effectiveSymbol)}
-                label="Symbol is defined"
-              />
-              <PreflightItem
-                ready={analysts.length > 0}
-                label="At least one analyst is active"
-              />
-              <PreflightItem
-                ready={Boolean(analysisDate)}
-                label="Analysis date is locked"
-              />
-            </div>
-
-            <div className="callout launch-safety-callout">
-              <ShieldCheck aria-hidden size={16} />
-              <div>
-                <strong>Research-only boundary</strong>
-                <p>
-                  Creates a run, evidence artifacts, and thesis output. It does
-                  not execute trades.
-                </p>
-              </div>
             </div>
           </Panel>
 
@@ -448,8 +380,105 @@ export function ResearchRunFormPage() {
               </div>
             </div>
           </Panel>
+
         </BentoGrid>
       </form>
+      {confirmOpen ? (
+        <div
+          className="launch-confirm-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setConfirmOpen(false);
+            }
+          }}
+        >
+          <section
+            aria-label="Run preview"
+            aria-modal="true"
+            className="launch-confirm-dialog"
+            role="dialog"
+          >
+            <div className="launch-confirm-header">
+              <div>
+                <h2>Run preview</h2>
+                <p>Verify the job inputs one more time before the API creates a run.</p>
+              </div>
+              <span className="badge primary">second check</span>
+            </div>
+
+            <div className="launch-confirm-target">
+              <span>Target</span>
+              <strong>{effectiveSymbol || "No symbol"}</strong>
+            </div>
+
+            <div className="launch-confirm-grid">
+              <div>
+                <span>Workspace</span>
+                <strong>{auth.workspace?.name ?? auth.workspaceId}</strong>
+              </div>
+              <div>
+                <span>Market</span>
+                <strong>{marketType}</strong>
+              </div>
+              <div>
+                <span>Date</span>
+                <strong>{analysisDate}</strong>
+              </div>
+              <div>
+                <span>Analysts</span>
+                <strong>{selectedAnalystLabels.join(" / ")}</strong>
+              </div>
+              <div>
+                <span>Profile</span>
+                <strong>{profile}</strong>
+              </div>
+              <div>
+                <span>Output language</span>
+                <strong>{outputLanguage}</strong>
+              </div>
+              <div>
+                <span>Boundary</span>
+                <strong>research-only</strong>
+              </div>
+            </div>
+
+            <div className="launch-confirm-checks">
+              <PreflightItem
+                ready={!legacyMixedWorkspace && Boolean(effectiveSymbol)}
+                label="Symbol is defined"
+              />
+              <PreflightItem
+                ready={analysts.length > 0}
+                label="At least one analyst is active"
+              />
+              <PreflightItem
+                ready={Boolean(analysisDate)}
+                label="Analysis date is locked"
+              />
+            </div>
+
+            <div className="launch-confirm-actions">
+              <button
+                className="button ghost"
+                onClick={() => setConfirmOpen(false)}
+                type="button"
+              >
+                Decline
+              </button>
+              <button
+                className="button primary"
+                disabled={mutation.isPending || !apiReady || Boolean(disabledReason)}
+                onClick={approveLaunch}
+                type="button"
+              >
+                <CheckCircle2 aria-hidden size={16} />
+                {mutation.isPending ? "Submitting" : "Accept"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -464,5 +493,24 @@ function PreflightItem({ label, ready }: { label: string; ready: boolean }) {
       )}
       <span>{label}</span>
     </div>
+  );
+}
+
+function isTransientLaunchError(error: unknown): boolean {
+  if (!isApiError(error)) {
+    return false;
+  }
+  if (error.code === "network_error") {
+    return true;
+  }
+  if (error.status >= 500 && error.status <= 504) {
+    return true;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("internal server error") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch") ||
+    message.includes("timeout")
   );
 }

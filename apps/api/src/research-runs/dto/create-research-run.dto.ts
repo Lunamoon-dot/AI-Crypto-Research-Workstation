@@ -54,6 +54,12 @@ export class CreateResearchRunDto {
   exchange?: string;
 
   @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @Matches(/\S/, { message: 'output_language must not be blank' })
+  output_language?: string;
+
+  @IsOptional()
   @IsBoolean()
   dry_run?: boolean;
 

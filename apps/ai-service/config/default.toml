@@ -36,6 +36,9 @@ disabled_data_vendors = []
 # Checkpoint / resume
 checkpoint_enabled = false
 
+[llm_runtime]
+timeout_sec = 60.0
+
 [market_context]
 enabled = true
 primary_venue = "binance"

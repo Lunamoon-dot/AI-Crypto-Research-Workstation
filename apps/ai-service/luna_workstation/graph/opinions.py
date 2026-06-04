@@ -10,6 +10,7 @@ from luna_workstation.agents.aggregation import (
     detect_contradictions,
 )
 from luna_workstation.domain import AgentOpinion, AgentStance, ResearchDebate
+from luna_workstation.agents.utils.rating import parse_rating_label
 from luna_workstation.graph.node_names import OpinionSource
 from luna_workstation.signals.base import SignalResult, SignalScore
 from luna_workstation.utils.collections import dedupe
@@ -120,6 +121,7 @@ _NEWS_REASON_CODES = (
 )
 _NEWS_SOURCE_TYPES = {"news"}
 _SOCIAL_SOURCE_TYPES = {"sentiment", "social"}
+_SOCIAL_REASON_CODES = ("missing_social_feed",)
 _NEWS_CODES_RESCOPED_FOR_SOCIAL = {
     "missing_news_feed",
     "insufficient_news_evidence",
@@ -459,6 +461,11 @@ def normalize_opinion_quality(
     stance = opinion.stance
     confidence = opinion.confidence
     news_quality = _news_context_quality(text) if source_report_type == "news" else None
+    social_quality = (
+        _social_context_quality(text)
+        if source_report_type in _SOCIAL_SOURCE_TYPES
+        else None
+    )
 
     if (
         source_report_type in _SOCIAL_SOURCE_TYPES
@@ -476,6 +483,21 @@ def normalize_opinion_quality(
         elif status == "insufficient_data":
             data_quality = min(data_quality, score if score > 0 else 0.25)
             stance = AgentStance.UNCERTAIN
+            confidence = _cap_confidence(confidence, 0.25)
+            missing_data = dedupe([*missing_data, *context_codes])[:8]
+        else:
+            data_quality = min(data_quality, score if score > 0 else 0.6)
+            confidence = _cap_confidence(confidence, 0.6)
+            missing_data = dedupe([*missing_data, *context_codes])[:8]
+    elif social_quality is not None:
+        status, score, context_codes = social_quality
+        reason_codes = dedupe([*reason_codes, *context_codes])
+        if status == "clean":
+            data_quality = max(data_quality, max(score, 0.75))
+        elif status == "insufficient_data":
+            data_quality = min(data_quality, score if score > 0 else 0.25)
+            if stance_override is None:
+                stance = AgentStance.UNCERTAIN
             confidence = _cap_confidence(confidence, 0.25)
             missing_data = dedupe([*missing_data, *context_codes])[:8]
         else:
@@ -522,6 +544,14 @@ def normalize_opinion_quality(
 
 
 def _infer_stance(text: str) -> AgentStance:
+    rating = parse_rating_label(text)
+    if rating in {"Buy", "Overweight"}:
+        return AgentStance.BULLISH
+    if rating in {"Underweight", "Sell"}:
+        return AgentStance.BEARISH
+    if rating == "Hold":
+        return AgentStance.NEUTRAL
+
     lowered = text.lower()
     if _missing_data_dominates(
         text, _extract_sentences(text, terms=MISSING_DATA_TERMS, limit=5)
@@ -721,6 +751,10 @@ def _reason_codes_from_text(text: str, *, source_report_type: str) -> list[str]:
                 codes.append(code)
     elif is_social and any(code in lowered for code in _NEWS_CODES_RESCOPED_FOR_SOCIAL):
         codes.append("missing_social_feed")
+    elif is_social:
+        for code in _SOCIAL_REASON_CODES:
+            if code in lowered:
+                codes.append(code)
     if any(marker in lowered for marker in _NEWS_FEED_MISSING_MARKERS):
         codes.append("missing_news_feed" if is_news else "missing_social_feed")
     if "liquidation" in lowered and any(term in lowered for term in MISSING_DATA_TERMS):
@@ -775,6 +809,33 @@ def _news_context_quality(text: str) -> tuple[str, float, list[str]] | None:
     elif status == "degraded":
         score = 0.6
     codes = [code for code in _NEWS_REASON_CODES if code in lowered]
+    return status, score, codes
+
+
+def _social_context_quality(text: str) -> tuple[str, float, list[str]] | None:
+    lowered = (text or "").lower()
+    if "pre-computed social context" not in lowered and "missing_social_feed" not in lowered:
+        return None
+    match = _NEWS_CONTEXT_QUALITY_RE.search(text or "")
+    if not match:
+        return None
+    status = match.group("status").lower()
+    if status == "insufficient":
+        status = "insufficient_data"
+    raw_score = match.group("score")
+    score = 0.0
+    if raw_score:
+        try:
+            score = max(min(float(raw_score), 1.0), 0.0)
+        except ValueError:
+            score = 0.0
+    elif status == "clean":
+        score = 0.85
+    elif status == "degraded":
+        score = 0.6
+    elif status == "insufficient_data":
+        score = 0.25
+    codes = [code for code in _SOCIAL_REASON_CODES if code in lowered]
     return status, score, codes
 
 

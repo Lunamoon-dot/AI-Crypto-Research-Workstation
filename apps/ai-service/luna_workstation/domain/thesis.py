@@ -225,6 +225,63 @@ def _allowed_string(value: Any, allowed: set[str], fallback: str) -> str:
     return normalized if normalized in allowed else fallback
 
 
+def _machine_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _thesis_direction_value(value: ThesisDirection | str) -> str:
+    return value.value if isinstance(value, ThesisDirection) else _machine_key(value)
+
+
+def _risk_off_thesis(rating: str, direction: ThesisDirection | str) -> bool:
+    normalized_rating = _machine_key(rating)
+    normalized_direction = _thesis_direction_value(direction)
+    return (
+        normalized_rating in {"underweight", "sell"}
+        or normalized_direction in {"avoid", "short"}
+        or "bear" in normalized_direction
+    )
+
+
+def _risk_on_thesis(rating: str, direction: ThesisDirection | str) -> bool:
+    normalized_rating = _machine_key(rating)
+    normalized_direction = _thesis_direction_value(direction)
+    return (
+        normalized_rating in {"overweight", "buy"}
+        or normalized_direction == "long"
+        or "bull" in normalized_direction
+    )
+
+
+def _default_recommended_action(
+    rating: str,
+    direction: ThesisDirection | str,
+) -> str:
+    if _risk_off_thesis(rating, direction):
+        return "avoid_long"
+    if _risk_on_thesis(rating, direction):
+        return "consider_long"
+    return "watch_only"
+
+
+def _default_market_bias(rating: str, direction: ThesisDirection | str) -> str:
+    if _risk_off_thesis(rating, direction):
+        return "defensive"
+    if _risk_on_thesis(rating, direction):
+        return "bullish"
+    return "neutral"
+
+
+def _default_entry_plan_status(recommended_action: str, entry_zone: str) -> str:
+    if recommended_action == "avoid_long":
+        return "no_trade"
+    if entry_zone.strip():
+        return "conditional"
+    if recommended_action == "watch_only":
+        return "no_trade"
+    return "conditional"
+
+
 class TradeThesisStructuredSummary(BaseModel):
     """Short validated contract intended for UI clients."""
 
@@ -236,6 +293,9 @@ class TradeThesisStructuredSummary(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     market_type: str = "spot"
     action_summary: str = ""
+    recommended_action: str = ""
+    market_bias: str = ""
+    entry_plan_status: str = ""
     confirmation_condition: str = ""
     entry_zone: str = ""
     upside_catalyst: str = ""
@@ -295,6 +355,73 @@ class TradeThesisStructuredSummary(BaseModel):
             "neutral": ThesisDirection.NEUTRAL,
         }
         return aliases.get(str(value or "").strip().lower(), ThesisDirection.WATCH)
+
+    @field_validator("recommended_action", mode="before")
+    @classmethod
+    def _normalize_recommended_action(cls, value: Any) -> str:
+        aliases = {
+            "avoid": "avoid_long",
+            "avoid_long": "avoid_long",
+            "no_long": "avoid_long",
+            "stand_aside": "avoid_long",
+            "no_trade": "avoid_long",
+            "watch": "watch_only",
+            "watch_only": "watch_only",
+            "monitor": "watch_only",
+            "wait": "watch_only",
+            "reduce": "reduce_exposure",
+            "reduce_exposure": "reduce_exposure",
+            "trim": "reduce_exposure",
+            "trim_exposure": "reduce_exposure",
+            "consider_long": "consider_long",
+            "enter_long": "consider_long",
+            "long": "consider_long",
+            "buy": "consider_long",
+            "consider_short": "consider_short",
+            "enter_short": "consider_short",
+            "short": "consider_short",
+            "sell": "consider_short",
+        }
+        return aliases.get(_machine_key(value), "")
+
+    @field_validator("market_bias", mode="before")
+    @classmethod
+    def _normalize_market_bias(cls, value: Any) -> str:
+        aliases = {
+            "defensive": "defensive",
+            "risk_off": "defensive",
+            "cautious": "defensive",
+            "avoid": "defensive",
+            "bullish": "bullish",
+            "bull": "bullish",
+            "long": "bullish",
+            "risk_on": "bullish",
+            "bearish": "bearish",
+            "bear": "bearish",
+            "short": "bearish",
+            "neutral": "neutral",
+            "watch": "neutral",
+            "mixed": "neutral",
+        }
+        return aliases.get(_machine_key(value), "")
+
+    @field_validator("entry_plan_status", mode="before")
+    @classmethod
+    def _normalize_entry_plan_status(cls, value: Any) -> str:
+        aliases = {
+            "no_trade": "no_trade",
+            "no_entry": "no_trade",
+            "none": "no_trade",
+            "avoid": "no_trade",
+            "stand_aside": "no_trade",
+            "ready": "ready",
+            "actionable": "ready",
+            "active": "ready",
+            "conditional": "conditional",
+            "wait_for_confirmation": "conditional",
+            "watch": "conditional",
+        }
+        return aliases.get(_machine_key(value), "")
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -377,6 +504,22 @@ class TradeThesisStructuredSummary(BaseModel):
         if normalized in {"degraded", "partial", "low_confidence"}:
             return "degraded"
         return "clean"
+
+    @model_validator(mode="after")
+    def _derive_decision_semantics(self) -> "TradeThesisStructuredSummary":
+        if not self.recommended_action:
+            self.recommended_action = _default_recommended_action(
+                self.rating,
+                self.direction,
+            )
+        if not self.market_bias:
+            self.market_bias = _default_market_bias(self.rating, self.direction)
+        if not self.entry_plan_status:
+            self.entry_plan_status = _default_entry_plan_status(
+                self.recommended_action,
+                self.entry_zone,
+            )
+        return self
 
     @model_validator(mode="after")
     def _mirror_data_quality_to_degraded(self) -> "TradeThesisStructuredSummary":

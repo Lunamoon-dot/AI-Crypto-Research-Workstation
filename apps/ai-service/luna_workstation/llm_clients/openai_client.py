@@ -202,7 +202,7 @@ class OpenAIClient(BaseLLMClient):
         self.warn_if_unknown_model()
         llm_kwargs = {
             "model": self.model,
-            "request_timeout": 300,  # 5 min default; prevents indefinite hangs
+            "request_timeout": 60,
             "max_retries": 0,
         }
 

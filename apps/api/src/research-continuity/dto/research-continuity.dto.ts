@@ -226,6 +226,15 @@ export interface ResearchContinuityDebugAccessResponse {
   redacted: true;
 }
 
+export interface ResearchContinuityMarkdownArtifactResponse {
+  kind: 'continuity_report';
+  label: string;
+  path: string | null;
+  exists: boolean;
+  size_bytes: number | null;
+  modified_at: string | null;
+}
+
 export type ResearchContinuityDiffGroup =
   | 'added'
   | 'updated'
@@ -311,6 +320,7 @@ export interface ResearchContinuityEntrySummaryResponse {
   generated_at: string | null;
   summary: string;
   thin_report: ResearchContinuityThinReport | null;
+  markdown_artifact: ResearchContinuityMarkdownArtifactResponse;
   diff_summary: ResearchContinuityDiffSummaryResponse;
   debug: ResearchContinuityDebugAccessResponse;
 }
@@ -414,6 +424,7 @@ export interface ResearchContinuityEntryResponse {
   writer_metadata: JsonRecord;
   payload: JsonRecord;
   thin_report?: ResearchContinuityThinReport | null;
+  markdown_artifact?: ResearchContinuityMarkdownArtifactResponse;
 }
 
 export interface ResearchContinuityStateResponse {

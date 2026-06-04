@@ -132,6 +132,11 @@ class LLMOrchestrator:
         """Get provider-specific kwargs for LLM client creation."""
         kwargs: dict[str, Any] = {}
         provider = self.config.get("llm_provider", "").lower()
+        runtime_cfg = self.config.get("llm_runtime", {})
+        if isinstance(runtime_cfg, dict):
+            timeout_sec = runtime_cfg.get("timeout_sec")
+            if isinstance(timeout_sec, (int, float)) and timeout_sec > 0:
+                kwargs["timeout"] = float(timeout_sec)
 
         if provider == "google":
             thinking_level = self.config.get("google_thinking_level")

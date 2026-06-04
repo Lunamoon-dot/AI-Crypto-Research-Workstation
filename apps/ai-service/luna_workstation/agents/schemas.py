@@ -536,6 +536,26 @@ def _json_ready_items(values: list[Any]) -> list[Any]:
 class ScenarioItem(BaseModel):
     """A single conditional market scenario produced by the Scenario Planner."""
 
+    scenario_name: str = Field(
+        description=(
+            "Short decision-card title naming the scenario, not the probability. "
+            "Use names like 'Upside Short Squeeze', "
+            "'Sideways Consolidation / No Clear Edge', or "
+            "'Long Crowding Breakdown Risk'."
+        ),
+    )
+    direction: str = Field(
+        description=(
+            "Scenario direction badge: exactly one concise label such as "
+            "'bullish risk', 'bearish risk', or 'neutral'."
+        ),
+    )
+    thesis_impact: str = Field(
+        description=(
+            "Impact severity on the current thesis: 'high', 'medium', or 'low'. "
+            "Rank impact separately from probability."
+        ),
+    )
     condition: str = Field(
         description=(
             "Concrete trigger condition with specific price levels, indicator "
@@ -552,6 +572,27 @@ class ScenarioItem(BaseModel):
         description=(
             "Expected market behavior if the condition triggers. Include "
             "likely follow-through, target zones, and timeframe."
+        ),
+    )
+    evidence: list[str] = Field(
+        description=(
+            "Short evidence chips supporting why this scenario exists. Prefer "
+            "metric-style items such as 'RSI: 15.5', 'Funding: +0.0077%', "
+            "'ATR: 4.7%', 'Long/short: 2.39', or 'ETF flow: -$4.4B'. "
+            "Use only values present in the source context."
+        ),
+    )
+    watch_triggers: list[str] = Field(
+        description=(
+            "Concrete checklist triggers to monitor. Each item should be short, "
+            "observable, and action-neutral, such as 'Break below $1,650' or "
+            "'OI drops sharply'."
+        ),
+    )
+    impact_on_thesis: str = Field(
+        description=(
+            "One or two concise sentences explaining whether this scenario "
+            "supports, challenges, or invalidates the current thesis."
         ),
     )
     probability_band: str = Field(
@@ -571,8 +612,29 @@ class ScenarioItem(BaseModel):
     )
     suggested_action: str = Field(
         description=(
-            "Suggested user action for this branch: e.g. 'review long thesis', "
-            "'stand aside', 'watch', 'reduce confidence and review evidence'."
+            "One short suggested user action for this branch: e.g. "
+            "'Do not chase. Wait for confirmed accumulation.', "
+            "'Stay underweight. Wait for breakout or breakdown.', or "
+            "'Avoid longs. Prepare for downside continuation if support breaks.'"
+        ),
+    )
+    as_of: str = Field(
+        description=(
+            "Timestamp or analysis date for the evidence. Use a source timestamp "
+            "when available; otherwise use the analysis date. Do not invent one."
+        ),
+    )
+    timeframe: str = Field(
+        description=(
+            "Primary timeframe for the scenario evidence, such as '4H', '1D', "
+            "or 'not recorded' when the context does not specify it."
+        ),
+    )
+    source: list[str] = Field(
+        description=(
+            "Source names or source artifact labels behind the evidence, such as "
+            "'market_report', 'quant_signal_text', 'Binance futures', or "
+            "'ETF flow tracker'. Use only sources present in context."
         ),
     )
 
@@ -602,9 +664,21 @@ def render_scenario_plan(plan: ScenarioPlan) -> str:
     for i, s in enumerate(plan.scenarios, 1):
         lines.extend(
             [
-                f"### Scenario {i}: {s.probability_band.upper()} probability",
+                f"### Scenario {i}: {s.scenario_name}",
+                "",
+                f"**Probability**: {s.probability_band}",
+                "",
+                f"**Direction**: {s.direction}",
+                "",
+                f"**Thesis Impact**: {s.thesis_impact}",
                 "",
                 f"**Condition**: {s.condition}",
+                "",
+                f"**Evidence**: {', '.join(s.evidence) if s.evidence else 'Not recorded.'}",
+                "",
+                f"**Watch Triggers**: {', '.join(s.watch_triggers) if s.watch_triggers else 'Not recorded.'}",
+                "",
+                f"**Impact on Thesis**: {s.impact_on_thesis}",
                 "",
                 f"**Expected Behavior**: {s.expected_behavior}",
                 "",
@@ -613,6 +687,12 @@ def render_scenario_plan(plan: ScenarioPlan) -> str:
                 f"**Risk Factors**: {', '.join(s.risk_factors) if s.risk_factors else 'Manual review required.'}",
                 "",
                 f"**Suggested Action**: {s.suggested_action}",
+                "",
+                f"**As Of**: {s.as_of}",
+                "",
+                f"**Timeframe**: {s.timeframe}",
+                "",
+                f"**Source**: {', '.join(s.source) if s.source else 'Not recorded.'}",
                 "",
             ]
         )

@@ -130,6 +130,11 @@ def _ground_scenario_plan_dates(
         grounded_scenarios.append(
             scenario.model_copy(
                 update={
+                    "scenario_name": _replace_unsupported_calendar_dates(
+                        scenario.scenario_name,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
                     "condition": _replace_unsupported_calendar_dates(
                         scenario.condition,
                         evidence_text=evidence_text,
@@ -153,6 +158,37 @@ def _ground_scenario_plan_dates(
                         )
                         for risk in scenario.risk_factors
                     ],
+                    "evidence": [
+                        _replace_unsupported_calendar_dates(
+                            item,
+                            evidence_text=evidence_text,
+                            analysis_date=analysis_date,
+                        )
+                        for item in scenario.evidence
+                    ],
+                    "watch_triggers": [
+                        _replace_unsupported_calendar_dates(
+                            trigger,
+                            evidence_text=evidence_text,
+                            analysis_date=analysis_date,
+                        )
+                        for trigger in scenario.watch_triggers
+                    ],
+                    "impact_on_thesis": _replace_unsupported_calendar_dates(
+                        scenario.impact_on_thesis,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
+                    "suggested_action": _replace_unsupported_calendar_dates(
+                        scenario.suggested_action,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
+                    "as_of": _replace_unsupported_calendar_dates(
+                        scenario.as_of,
+                        evidence_text=evidence_text,
+                        analysis_date=analysis_date,
+                    ),
                 }
             )
         )
@@ -283,9 +319,10 @@ def create_scenario_planner(llm):
                 "role": "system",
                 "content": (
                     "You are a Scenario Planning Analyst. Produce conditional market "
-                    "scenarios (not trade commands). Each scenario must have concrete "
-                    "conditions, invalidation, risk factors, and a suggested user action "
-                    "such as review, watch, or stand aside — never imperative buy/sell."
+                    "scenarios (not trade commands). Each scenario must read like a "
+                    "decision card: named scenario first, concise evidence, concrete "
+                    "watch triggers, action, and impact on thesis. Never use probability "
+                    "as the scenario title, and never issue imperative buy/sell commands."
                     f"\n\n{date_grounding}"
                     f"{field_instructions}"
                 ),
@@ -297,9 +334,11 @@ def create_scenario_planner(llm):
                     f"{instrument_context}\n\n"
                     f"{date_grounding}\n\n"
                     f"{_TEMPLATE_LINE}\n\n"
-                    f"Produce exactly 3–4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
+                    f"Produce exactly 3-4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
                     f"invalidation / adverse path, neutral/wait, and (if debate shows conflict) "
-                    f"a contradiction branch.\n\n"
+                    f"a contradiction branch. Use scenario names as titles; keep summaries short; "
+                    f"express watch conditions as checklist triggers; include source, timeframe, "
+                    f"and as_of for evidence when available.\n\n"
                     "Portfolio Manager decision (truncated):\n"
                     f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
                     f"Investment plan:\n{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
@@ -340,10 +379,13 @@ future market scenarios for {company_name}. {instrument_context}
 {date_grounding}
 
 For each scenario, describe:
+- Scenario name
 - Key market conditions and catalysts
+- Evidence chips and watch triggers
 - Probability assessment
 - Impact on the investment thesis
-- Recommended response (review / watch / reassess — not buy/sell commands)
+- Recommended response (review / watch / reassess - not buy/sell commands)
+- Source, timeframe, and as_of when available
 
 {_TEMPLATE_LINE}
 

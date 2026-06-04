@@ -26,6 +26,7 @@ import {
 import { JsonView } from '@/components/research/json-view';
 import { Panel } from '@/components/research/panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
+import { formatDateTime } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import {
   THESIS_DETAIL_TABS,
@@ -133,7 +134,13 @@ export function ThesisDetailPage() {
   }
   const actionSummary =
     thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
-  const entry = thesis.entry_zone || thesis.summary.entry_zone || 'n/a';
+  const entry = thesis.entry_zone || thesis.summary.entry_zone;
+  const entryPlanIsEmpty = thesis.entry_plan_status === 'no_trade';
+  const entryPlanText =
+    entry ||
+    (entryPlanIsEmpty
+      ? 'No trade currently. This thesis does not recommend opening a new position right now.'
+      : thesis.entry_plan_status_label || 'Entry requires confirmation before action.');
   const confirmation =
     thesis.confirmation_condition ||
     thesis.summary.confirmation_condition ||
@@ -144,6 +151,11 @@ export function ThesisDetailPage() {
       : thesis.stale_or_missing_data;
   const invalidation =
     thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
+  const headerMeta = [
+    thesis.analysis_mode_label,
+    thesis.thesis_status_label,
+    thesis.created_at ? `Updated ${formatDateTime(thesis.created_at)}` : '',
+  ].filter(Boolean).join(' · ');
 
   function submitDecision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -213,57 +225,33 @@ export function ThesisDetailPage() {
           <div className="thesis-detail-tab-stack">
             <Panel
               className="thesis-brief-panel"
-              title="Thesis brief"
-              description="Decision, risk boundary, and source context"
+              title={`${thesis.symbol || 'Asset'} Thesis`}
+              description={headerMeta}
             >
               <div className="thesis-brief">
                 <div className="thesis-brief-kpis" aria-label="Thesis status summary">
-                  <ThesisBriefKpi label="Rating">
-                    <RatingBadge value={thesis.summary.rating || 'Hold'} />
+                  <ThesisBriefKpi label="Decision">
+                    <RatingBadge value={thesis.decision} />
                   </ThesisBriefKpi>
-                  <ThesisBriefKpi label="Direction">
-                    <DirectionBadge value={thesis.direction} />
+                  <ThesisBriefKpi label="Action" tone={thesisActionTone(thesis.recommended_action)}>
+                    <span className={`badge ${thesisActionTone(thesis.recommended_action)}`}>
+                      {thesis.recommended_action_label}
+                    </span>
                   </ThesisBriefKpi>
-                  <ThesisBriefKpi label="Confidence" tone="constructive">
-                    <ConfidenceBadge value={thesis.confidence} />
-                  </ThesisBriefKpi>
-                  <ThesisBriefKpi label="Target zones">
-                    <strong>{thesis.target_zones.length}</strong>
-                  </ThesisBriefKpi>
-                  <ThesisBriefKpi
-                    label="Data gaps"
-                    tone={dataGaps.length > 0 ? 'warning' : 'constructive'}
-                  >
-                    <strong>{dataGaps.length}</strong>
+                  <ThesisBriefKpi label="Bias" tone={biasTone(thesis.market_bias)}>
+                    <DirectionBadge value={thesis.market_bias_label} />
                   </ThesisBriefKpi>
                 </div>
 
                 <section className="thesis-brief-summary">
-                  <span>Action summary</span>
+                  <span>Main recommendation</span>
                   <p>{actionSummary}</p>
                 </section>
 
-                <div className="thesis-fact-grid">
-                  <ThesisFact label="Setup">{thesis.setup_type || 'n/a'}</ThesisFact>
-                  <ThesisFact label="Entry">{entry}</ThesisFact>
-                  <ThesisFact label="Data quality">
-                    <DataQualityBadge
-                      label={thesis.summary.data_quality_label}
-                      value={thesis.summary.data_quality}
-                    />
-                  </ThesisFact>
-                  <ThesisFact label="Quant confidence">
-                    <ConfidenceBadge value={thesis.quant_confidence} />
-                  </ThesisFact>
-                  <ThesisFact label="Confidence basis" wide>
-                    {thesis.confidence_source || 'n/a'}
-                  </ThesisFact>
-                  {stabilityGuard.applied === true ? (
-                    <ThesisFact label="Stability guard" wide>
-                      <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
-                    </ThesisFact>
-                  ) : null}
-                </div>
+                <section className={`thesis-entry-state${entryPlanIsEmpty ? ' empty' : ''}`}>
+                  <span>Entry plan</span>
+                  <p>{entryPlanText}</p>
+                </section>
 
                 <div className="thesis-boundary-grid">
                   <section className="thesis-boundary thesis-boundary-confirmation">
@@ -277,11 +265,17 @@ export function ThesisDetailPage() {
                 </div>
 
                 <div className="top-strip-meta thesis-brief-actions">
-                  {thesis.research_run_id ? (
-                    <span className="thesis-run-inline">
-                      <span>Run</span>
-                      <IdChip value={thesis.research_run_id} />
-                    </span>
+                  <span className="thesis-run-inline">
+                    <span>Run</span>
+                    <IdChip value={thesis.research_run_id} />
+                  </span>
+                  {thesis.id ? (
+                    <Link
+                      className="button primary"
+                      to={`${routes.watchlists}?track_thesis=${encodeURIComponent(thesis.id)}`}
+                    >
+                      Track thesis
+                    </Link>
                   ) : null}
                   {thesis.research_run_id ? (
                     <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
@@ -298,14 +292,6 @@ export function ThesisDetailPage() {
                       <Download aria-hidden size={15} />
                       {exportingBundle ? 'Exporting' : 'Export evidence'}
                     </button>
-                  ) : null}
-                  {thesis.id ? (
-                    <Link
-                      className="button primary"
-                      to={`${routes.watchlists}?track_thesis=${encodeURIComponent(thesis.id)}`}
-                    >
-                      Track this thesis
-                    </Link>
                   ) : null}
                   {thesis.id ? (
                     <Link className="button" to={routes.calibrationThesis(thesis.id)}>
@@ -342,6 +328,17 @@ export function ThesisDetailPage() {
               keyReasons={thesis.summary.key_reasons}
               risks={thesis.summary.risks}
               supportingSignalIds={thesis.supporting_signal_ids}
+            />
+            <TechnicalThesisDetails
+              confidence={thesis.confidence}
+              confidenceSource={thesis.confidence_source}
+              dataQuality={thesis.summary.data_quality}
+              dataQualityLabel={thesis.summary.data_quality_label}
+              dataGaps={dataGaps}
+              quantConfidence={thesis.quant_confidence}
+              setupType={thesis.setup_type}
+              stabilityGuard={stabilityGuard}
+              targetZones={thesis.target_zones}
             />
             {stabilityGuard.applied === true ? (
               <div className="stack small">
@@ -580,6 +577,32 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+type ThesisTone = 'default' | 'constructive' | 'warning' | 'risk';
+type ScenarioTone = 'constructive' | 'warning' | 'risk' | 'primary' | 'degraded';
+
+function thesisActionTone(action: string): ThesisTone | 'primary' {
+  if (action.includes('avoid') || action.includes('reduce') || action.includes('exit')) {
+    return 'warning';
+  }
+  if (action.includes('long') || action.includes('enter')) {
+    return 'constructive';
+  }
+  return 'primary';
+}
+
+function biasTone(bias: string): ThesisTone {
+  if (bias === 'defensive') {
+    return 'warning';
+  }
+  if (bias === 'bullish') {
+    return 'constructive';
+  }
+  if (bias === 'bearish') {
+    return 'risk';
+  }
+  return 'default';
+}
+
 function ScenarioRadarCard({
   scenario,
   index,
@@ -588,13 +611,14 @@ function ScenarioRadarCard({
   index: number;
 }) {
   const band = cleanScenarioText(scenario.probability_band) || 'scenario';
-  const bandTone = scenarioBandTone(band);
   const action = cleanScenarioText(
     scenario.suggested_user_action ||
       stringValue(scenario.payload.suggested_action) ||
       'review',
   );
   const actionParts = splitAction(action);
+  const actionToneValue = actionTone(action);
+  const actionText = actionParts.detail || actionParts.label;
   const condition = cleanScenarioText(
     scenario.condition || stringValue(scenario.payload.condition),
   ) || 'No condition recorded.';
@@ -607,35 +631,84 @@ function ScenarioRadarCard({
   const riskMap = stringList(
     scenario.payload.risk_map ?? scenario.payload.risk_factors,
   );
+  const scenarioName = scenarioDisplayName(scenario, condition, expected, action, index);
+  const summary = scenarioSummary(scenario.payload, condition, expected);
+  const direction = scenarioDirection(scenario.payload, scenarioName, condition, expected, action);
+  const directionToneValue = scenarioDirectionTone(direction);
+  const impactLabel = scenarioImpactLabel(scenario.payload, expected, riskMap);
+  const impactToneValue = scenarioImpactTone(impactLabel);
+  const evidence = scenarioEvidence(scenario.payload);
+  const watchTriggers = scenarioWatchTriggers(scenario.payload, condition, invalidation);
+  const impactOnThesis = cleanScenarioText(stringValue(scenario.payload.impact_on_thesis)) || expected;
+  const sources = scenarioSources(scenario.payload);
+  const asOf = scenarioAsOf(scenario.payload);
+  const timeframe = scenarioTimeframe(scenario.payload);
 
   return (
-    <article className={`scenario-card scenario-card-${bandTone}`}>
-      <div className="scenario-card-header">
+    <article className={`scenario-card scenario-card-${directionToneValue}`}>
+      <div className="scenario-card-header scenario-decision-header">
         <div className="scenario-title">
           <span className="scenario-index">{index + 1}</span>
-          <strong>{titleCaseBand(band)}</strong>
+          <div className="scenario-title-copy">
+            <strong>{scenarioName}</strong>
+            <span>{summary}</span>
+          </div>
         </div>
-        <span className={`badge ${bandTone}`}>{band}</span>
+        <div className="scenario-badge-row">
+          <span className={`badge ${scenarioBandTone(band)}`}>
+            {titleCaseValue(band)} probability
+          </span>
+          <span className={`badge ${directionToneValue}`}>{titleCaseValue(direction)}</span>
+          <span className={`badge ${impactToneValue}`}>
+            {titleCaseValue(impactLabel)} impact
+          </span>
+        </div>
       </div>
 
-      <p className="scenario-condition">{condition}</p>
-
-      <div className="scenario-action">
-        <span className={`badge ${actionTone(actionParts.label)}`}>
-          {actionParts.label}
-        </span>
-        {actionParts.detail ? <span>{actionParts.detail}</span> : null}
+      <div className="scenario-meta-row" aria-label="Scenario provenance">
+        <ScenarioMeta label="As of" value={asOf} />
+        <ScenarioMeta label="Timeframe" value={timeframe} />
+        <ScenarioMeta label="Source" value={sources.length > 0 ? sources.join(', ') : 'not recorded'} />
       </div>
 
-      {expected ? (
+      <div className="scenario-decision-grid">
         <div className="scenario-field">
-          <span>Expected</span>
-          <p>{expected}</p>
+          <span>Evidence</span>
+          {evidence.length > 0 ? (
+            <div className="scenario-evidence-grid">
+              {evidence.slice(0, 6).map((item) => (
+                <span className="scenario-evidence-chip" key={item}>
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="scenario-empty-line">No structured evidence recorded.</p>
+          )}
         </div>
-      ) : null}
+
+        <div className="scenario-field">
+          <span>Watch</span>
+          <ul className="scenario-watch-list">
+            {watchTriggers.slice(0, 5).map((trigger) => (
+              <li key={trigger}>{trigger}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className={`scenario-action scenario-action-${actionToneValue}`}>
+        <span className="scenario-action-label">Action</span>
+        <p>{actionText}</p>
+      </div>
+
+      <div className="scenario-field">
+        <span>Impact on thesis</span>
+        <p>{impactOnThesis || 'No thesis impact recorded.'}</p>
+      </div>
 
       {invalidation ? (
-        <div className="scenario-field">
+        <div className="scenario-field scenario-field-compact">
           <span>Invalidation</span>
           <p>{invalidation}</p>
         </div>
@@ -659,7 +732,263 @@ function ScenarioRadarCard({
   );
 }
 
-function scenarioBandTone(value: string): 'constructive' | 'warning' | 'degraded' | 'primary' {
+function ScenarioMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="scenario-meta-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function scenarioDisplayName(
+  scenario: ScenarioResponse,
+  condition: string,
+  expected: string,
+  action: string,
+  index: number,
+): string {
+  const payload = scenario.payload;
+  const explicit = cleanScenarioText(
+    stringValue(payload.scenario_name) ||
+      stringValue(payload.scenarioName) ||
+      stringValue(payload.name) ||
+      stringValue(payload.title),
+  );
+  if (explicit && !/^(low|medium|high|unknown)\s+probability$/i.test(explicit)) {
+    return explicit;
+  }
+
+  const text = [condition, expected, action].join(' ').toLowerCase();
+  if (text.includes('short squeeze')) {
+    return 'Upside Short Squeeze';
+  }
+  if (
+    text.includes('sideways') ||
+    text.includes('consolidation') ||
+    text.includes('range') ||
+    text.includes('chop') ||
+    text.includes('mixed')
+  ) {
+    return 'Sideways Consolidation / No Clear Edge';
+  }
+  if (
+    (text.includes('long') && (text.includes('crowd') || text.includes('cascade'))) ||
+    text.includes('break below') ||
+    text.includes('support fails') ||
+    text.includes('downside')
+  ) {
+    return 'Long Crowding Breakdown Risk';
+  }
+  if (text.includes('invalidation') || text.includes('invalid')) {
+    return 'Invalidation Risk';
+  }
+  if (text.includes('contradiction') || text.includes('conflict')) {
+    return 'Contradiction Risk';
+  }
+  if (
+    text.includes('break above') ||
+    text.includes('reclaim') ||
+    text.includes('upside') ||
+    text.includes('bullish') ||
+    text.includes('confirmation')
+  ) {
+    return 'Upside Confirmation';
+  }
+  return `Scenario ${index + 1}`;
+}
+
+function scenarioSummary(payload: JsonRecord, condition: string, expected: string): string {
+  const explicit = cleanScenarioText(
+    stringValue(payload.summary) || stringValue(payload.scenario_summary),
+  );
+  return limitScenarioText(explicit || condition || expected, 220);
+}
+
+function scenarioDirection(
+  payload: JsonRecord,
+  name: string,
+  condition: string,
+  expected: string,
+  action: string,
+): string {
+  const explicit = cleanScenarioText(
+    stringValue(payload.direction) || stringValue(payload.scenario_direction),
+  );
+  if (explicit) {
+    return explicit;
+  }
+
+  const text = [name, condition, expected, action].join(' ').toLowerCase();
+  if (text.includes('short squeeze')) {
+    return 'bullish risk';
+  }
+  if (
+    text.includes('bearish') ||
+    text.includes('downside') ||
+    text.includes('break below') ||
+    text.includes('support fails') ||
+    text.includes('cascade') ||
+    text.includes('avoid longs')
+  ) {
+    return 'bearish risk';
+  }
+  if (
+    text.includes('neutral') ||
+    text.includes('sideways') ||
+    text.includes('range') ||
+    text.includes('chop') ||
+    text.includes('wait')
+  ) {
+    return 'neutral';
+  }
+  if (
+    text.includes('bullish') ||
+    text.includes('upside') ||
+    text.includes('break above') ||
+    text.includes('reclaim')
+  ) {
+    return 'bullish risk';
+  }
+  return 'neutral';
+}
+
+function scenarioDirectionTone(value: string): ScenarioTone {
+  const normalized = value.toLowerCase();
+  if (normalized.includes('bear') || normalized.includes('downside')) {
+    return 'risk';
+  }
+  if (normalized.includes('bull') || normalized.includes('upside')) {
+    return 'constructive';
+  }
+  if (normalized.includes('mixed') || normalized.includes('fragile')) {
+    return 'warning';
+  }
+  return 'primary';
+}
+
+function scenarioImpactLabel(payload: JsonRecord, expected: string, risks: string[]): string {
+  const explicit = cleanScenarioText(
+    stringValue(payload.thesis_impact) ||
+      stringValue(payload.impact) ||
+      stringValue(payload.impact_level),
+  ).toLowerCase();
+  if (explicit.includes('high')) {
+    return 'high';
+  }
+  if (explicit.includes('medium') || explicit.includes('moderate')) {
+    return 'medium';
+  }
+  if (explicit.includes('low')) {
+    return 'low';
+  }
+
+  const text = [
+    stringValue(payload.impact_on_thesis),
+    expected,
+    ...risks,
+  ].join(' ').toLowerCase();
+  if (
+    text.includes('invalidates') ||
+    text.includes('invalidate') ||
+    text.includes('breakdown') ||
+    text.includes('cascade')
+  ) {
+    return 'high';
+  }
+  if (
+    text.includes('challenge') ||
+    text.includes('reduce') ||
+    text.includes('reassess') ||
+    risks.length >= 2
+  ) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function scenarioImpactTone(value: string): ScenarioTone {
+  if (value === 'high') {
+    return 'risk';
+  }
+  if (value === 'medium') {
+    return 'warning';
+  }
+  return 'primary';
+}
+
+function scenarioEvidence(payload: JsonRecord): string[] {
+  const raw =
+    payload.evidence ??
+    payload.evidence_items ??
+    payload.evidence_chips ??
+    payload.observed_evidence;
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => cleanScenarioText(item))
+      .filter((item) => item && !isScenarioSectionArtifact(item));
+  }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw as JsonRecord)
+      .map(([key, value]) => {
+        const cleanValue = cleanScenarioText(String(value));
+        return cleanValue ? `${labelFromKey(key)}: ${cleanValue}` : '';
+      })
+      .filter((item) => item && !isScenarioSectionArtifact(item));
+  }
+  const text = cleanScenarioText(raw);
+  return text && !isScenarioSectionArtifact(text) ? [text] : [];
+}
+
+function scenarioWatchTriggers(
+  payload: JsonRecord,
+  condition: string,
+  invalidation: string,
+): string[] {
+  const triggers = stringList(
+    payload.watch_triggers ??
+      payload.watchTriggers ??
+      payload.watch_conditions ??
+      payload.watch ??
+      payload.triggers,
+  );
+  const fallback = [condition, invalidation].map((item) => cleanScenarioText(item)).filter(Boolean);
+  return uniqueStrings(triggers.length > 0 ? triggers : fallback);
+}
+
+function scenarioSources(payload: JsonRecord): string[] {
+  return uniqueStrings(
+    stringList(payload.source ?? payload.sources ?? payload.source_artifacts)
+      .flatMap((item) => extractScenarioSourceLabel(item))
+      .map((item) => limitScenarioText(item, 120))
+      .filter(Boolean),
+  );
+}
+
+function scenarioAsOf(payload: JsonRecord): string {
+  return scenarioMetaValue(
+    payload.as_of ??
+      payload.asOf ??
+      payload.source_timestamp ??
+      payload.generated_at ??
+      extractScenarioMetaFromSources(payload, /\bas[_\s-]*of\s*:?\s*([^.;]+)/i),
+  );
+}
+
+function scenarioTimeframe(payload: JsonRecord): string {
+  return scenarioMetaValue(
+    payload.timeframe ??
+      payload.time_frame ??
+      payload.horizon ??
+      extractScenarioMetaFromSources(payload, /\btime\s*frame\b|\btimeframe\b/i),
+  );
+}
+
+function scenarioMetaValue(value: unknown): string {
+  return cleanScenarioText(value) || 'not recorded';
+}
+
+function scenarioBandTone(value: string): ScenarioTone {
   const normalized = value.toLowerCase();
   if (normalized.includes('high')) {
     return 'constructive';
@@ -673,35 +1002,54 @@ function scenarioBandTone(value: string): 'constructive' | 'warning' | 'degraded
   return 'primary';
 }
 
-function titleCaseBand(value: string): string {
+function titleCaseValue(value: string): string {
   const clean = value.trim();
-  return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)} probability` : 'Scenario';
+  return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)}` : 'Scenario';
 }
 
 function actionTone(value: string): 'constructive' | 'warning' | 'risk' | 'primary' {
   const normalized = value.toLowerCase();
-  if (normalized.includes('exit') || normalized.includes('reduce') || normalized.includes('avoid')) {
+  if (
+    normalized.includes('exit') ||
+    normalized.includes('reduce') ||
+    normalized.includes('avoid') ||
+    normalized.includes('do not')
+  ) {
     return 'risk';
   }
   if (normalized.includes('watch') || normalized.includes('monitor')) {
     return 'constructive';
   }
-  if (normalized.includes('reassess') || normalized.includes('review')) {
+  if (
+    normalized.includes('reassess') ||
+    normalized.includes('review') ||
+    normalized.includes('wait') ||
+    normalized.includes('underweight')
+  ) {
     return 'warning';
   }
   return 'primary';
 }
 
 function splitAction(value: string): { label: string; detail: string } {
-  const cleaned = cleanScenarioText(value);
+  const cleaned = cleanScenarioText(value)
+    .replace(
+      /^action\s+(watch|review|reassess|monitor|avoid|reduce|exit|wait)\s*[:\-\u2013\u2014]?\s*/i,
+      '$1: ',
+    )
+    .replace(
+      /^(?:suggested\s+action|recommended\s+response|recommendation|action)\s*[:\-\u2013\u2014]\s*/i,
+      '',
+    );
   const match = cleaned.match(
-    /^(watch|monitor|review|reassess|avoid|reduce|exit|stand aside|maintain|downgrade|upgrade|record|wait)\b[:,-]?\s*(.*)$/i,
+    /^(watch|monitor|review|reassess|avoid|reduce|exit|stand aside|maintain|downgrade|upgrade|record|wait|stay underweight|do not chase)\b[\s:,\-\u2013\u2014]*(.*)$/i,
   );
   if (!match) {
-    return { label: 'Review', detail: cleaned };
+    return { label: 'Action', detail: cleaned };
   }
   const label = match[1].replace(/\b\w/g, (letter) => letter.toUpperCase());
-  return { label, detail: match[2]?.trim() ?? '' };
+  const detail = cleanScenarioText(match[2]?.replace(/^[\s:,\-\u2013\u2014]+/, '') ?? '');
+  return { label, detail };
 }
 
 function cleanScenarioText(value: unknown): string {
@@ -710,6 +1058,7 @@ function cleanScenarioText(value: unknown): string {
   }
   return value
     .replace(/\*\*/g, '')
+    .replace(/`/g, '')
     .replace(/^\s*(?:\u2192|->|=>)\s*/gm, '')
     .replace(/^\s*[-*]\s+/gm, '')
     .replace(/\s+/g, ' ')
@@ -717,12 +1066,90 @@ function cleanScenarioText(value: unknown): string {
 }
 
 function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => cleanScenarioText(item))
+      .filter(Boolean);
+  }
+  const text = cleanScenarioText(value);
+  return text ? [text] : [];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function isScenarioSectionArtifact(value: string): boolean {
+  const normalized = cleanScenarioText(value)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\band\b/g, '&')
+    .replace(/[:.]+$/g, '')
+    .trim();
+  return (
+    normalized === '& timeframe' ||
+    normalized === 'timeframe' ||
+    normalized === 'source & timeframe' ||
+    normalized === 'sources & timeframe' ||
+    normalized === 'chips & watch triggers' ||
+    normalized === 'evidence chips & watch triggers' ||
+    normalized === 'chips watch triggers' ||
+    normalized.startsWith('setup_type')
+  );
+}
+
+function extractScenarioSourceLabel(value: string): string[] {
+  const cleaned = cleanScenarioText(value);
+  if (!cleaned || isScenarioSectionArtifact(cleaned)) {
     return [];
   }
+  const sourceMatch = cleaned.match(
+    /\bsource\s*:\s*(.+?)(?=\btime\s*frame\b|\btimeframe\b|\bas[_\s-]*of\b|$)/i,
+  );
+  const source = cleanScenarioText(sourceMatch?.[1] ?? cleaned)
+    .replace(/^and\s+as[_\s-]*of\s*:?\s*/i, '')
+    .replace(/\s*\bsetup_type\b.*$/i, '')
+    .trim();
+  return source && !isScenarioSectionArtifact(source) ? [source] : [];
+}
+
+function extractScenarioMetaFromSources(payload: JsonRecord, pattern: RegExp): string {
+  const sourceText = stringList(payload.source ?? payload.sources ?? payload.source_artifacts)
+    .filter((item) => !isScenarioSectionArtifact(item))
+    .join(' ');
+  if (!sourceText) {
+    return '';
+  }
+  if (pattern.source.includes('time')) {
+    const match = sourceText.match(/\btime\s*frame\b|\btimeframe\b/i);
+    if (!match || match.index === undefined) {
+      return '';
+    }
+    const tail = sourceText
+      .slice(match.index)
+      .replace(/^\s*(?:time\s*frame|timeframe)\s*:?\s*/i, '');
+    return cleanScenarioText(tail.split(/\bas[_\s-]*of\b/i)[0]);
+  }
+  const match = sourceText.match(pattern);
+  return cleanScenarioText(match?.[1] ?? '');
+}
+
+function labelFromKey(value: string): string {
   return value
-    .map((item) => cleanScenarioText(item))
-    .filter(Boolean);
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(' ');
+}
+
+function limitScenarioText(value: string, maxLength: number): string {
+  const clean = cleanScenarioText(value);
+  if (clean.length <= maxLength) {
+    return clean;
+  }
+  const clipped = clean.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(' ');
+  return `${clipped.slice(0, lastSpace > 80 ? lastSpace : maxLength).trim()}...`;
 }
 
 function ThesisFact({
@@ -749,13 +1176,70 @@ function ThesisBriefKpi({
 }: {
   children: ReactNode;
   label: string;
-  tone?: 'default' | 'constructive' | 'warning';
+  tone?: ThesisTone | 'primary';
 }) {
   return (
     <div className={`thesis-brief-kpi thesis-brief-kpi-${tone}`}>
       <span>{label}</span>
       <div className="thesis-brief-kpi-value">{children}</div>
     </div>
+  );
+}
+
+function TechnicalThesisDetails({
+  confidence,
+  confidenceSource,
+  dataGaps,
+  dataQuality,
+  dataQualityLabel,
+  quantConfidence,
+  setupType,
+  stabilityGuard,
+  targetZones,
+}: {
+  confidence: number | null;
+  confidenceSource: string;
+  dataGaps: string[];
+  dataQuality: number | null;
+  dataQualityLabel: string;
+  quantConfidence: number | null;
+  setupType: string;
+  stabilityGuard: JsonRecord;
+  targetZones: string[];
+}) {
+  return (
+    <section className="thesis-technical-details">
+      <div className="thesis-evidence-card-header">
+        <strong>Technical details</strong>
+        <span className="badge primary">audit</span>
+      </div>
+      <div className="thesis-fact-grid">
+        <ThesisFact label="Setup">{setupType || 'unspecified'}</ThesisFact>
+        <ThesisFact label="Confidence">
+          <ConfidenceBadge value={confidence} />
+        </ThesisFact>
+        <ThesisFact label="Data quality">
+          <DataQualityBadge label={dataQualityLabel} value={dataQuality} />
+        </ThesisFact>
+        <ThesisFact label="Quant confidence">
+          <ConfidenceBadge value={quantConfidence} />
+        </ThesisFact>
+        <ThesisFact label="Target zones">
+          {targetZones.length > 0 ? targetZones.join(', ') : 'None reported.'}
+        </ThesisFact>
+        <ThesisFact label="Data gaps">
+          {dataGaps.length > 0 ? dataGaps.join(', ') : 'None reported.'}
+        </ThesisFact>
+        <ThesisFact label="Confidence basis" wide>
+          {confidenceSource || 'Not recorded.'}
+        </ThesisFact>
+        {stabilityGuard.applied === true ? (
+          <ThesisFact label="Stability guard" wide>
+            <span className="badge primary">{stabilityGuardSummary(stabilityGuard)}</span>
+          </ThesisFact>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

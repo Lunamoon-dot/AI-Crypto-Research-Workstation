@@ -13,7 +13,6 @@ from luna_workstation.agents.utils.agent_utils import (
     get_indicators,
     get_multi_timeframe_analysis,
     get_news,
-    get_news_sentiment_aggregate,
     get_social_sentiment,
 )
 from luna_workstation.agents.utils.crypto_tools import (
@@ -54,17 +53,14 @@ def create_tool_nodes(config: dict) -> Dict[str, ToolNode]:
         ),
         ToolKey.SOCIAL: ToolNode(
             [
-                _with_config(get_news),
                 _with_config(get_fear_greed_index),
                 _with_config(get_social_sentiment),
-                _with_config(get_news_sentiment_aggregate),
             ]
         ),
         ToolKey.NEWS: ToolNode(
             [
                 _with_config(get_news),
                 _with_config(get_global_news),
-                _with_config(get_news_sentiment_aggregate),
             ]
         ),
         ToolKey.ONCHAIN: ToolNode(

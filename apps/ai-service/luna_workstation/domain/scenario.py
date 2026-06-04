@@ -21,12 +21,21 @@ class Scenario(BaseModel):
 
     id: str | None = None
     thesis_id: str | None = None
+    scenario_name: str = ""
+    direction: str = ""
+    thesis_impact: str = ""
     condition: str
     expected_market_behavior: str
     probability_band: ScenarioProbabilityBand = ScenarioProbabilityBand.UNKNOWN
     invalidation: str = ""
+    evidence: list[str] = Field(default_factory=list)
+    watch_triggers: list[str] = Field(default_factory=list)
+    impact_on_thesis: str = ""
     risk_map: list[str] = Field(default_factory=list)
     suggested_user_action: str = "review"
+    as_of: str = ""
+    timeframe: str = ""
+    source: list[str] = Field(default_factory=list)
     # Phase 5: template enforcement metadata
     template_metadata: dict = Field(
         default_factory=dict,

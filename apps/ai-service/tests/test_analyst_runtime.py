@@ -208,6 +208,25 @@ def test_opinion_from_text_uses_declared_confidence_only():
     assert decimal_opinion.confidence == 0.64
 
 
+def test_opinion_from_text_maps_underweight_decision_to_bearish():
+    opinion = opinion_from_text(
+        "Portfolio Manager",
+        "\n".join(
+            [
+                "**Stance**: Underweight - avoid new longs.",
+                "**Research Summary**: Avoid long until reclaim confirmation.",
+                "**Confirmation**: Daily close back above 1850 with spot volume.",
+            ]
+        ),
+        research_run_id="run_1",
+        role="portfolio_manager",
+        source_report_type="risk_debate",
+    )
+
+    assert opinion is not None
+    assert opinion.stance == AgentStance.BEARISH
+
+
 def test_news_opinion_without_primary_feed_is_uncertain_low_quality():
     opinion = opinion_from_text(
         "News Analyst",

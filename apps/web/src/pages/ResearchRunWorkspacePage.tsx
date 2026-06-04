@@ -435,6 +435,12 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   );
   const latestFailure = latestRunFailureEvent(workspace.events);
   const failureReason = latestFailure ? runFailureMessage(latestFailure) : '';
+  const failedStageLabel = workflowStageTimings.find(
+    (timing) => timing.event_state === 'failed',
+  )?.label;
+  const failureTitle = failedStageLabel
+    ? `Run failed during ${failedStageLabel}`
+    : 'Run failed';
 
   async function exportEvidenceBundle() {
     setExportingBundle(true);
@@ -504,7 +510,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
       {exportError ? <div className="badge risk">{exportError}</div> : null}
       {latestFailure ? (
         <div className="callout risk">
-          <strong>Run failed during finalization</strong>
+          <strong>{failureTitle}</strong>
           <p>{failureReason}</p>
         </div>
       ) : null}
@@ -1064,6 +1070,7 @@ function DailyDeltaPanel({
           </div>
 
           <ContinuityQualityRow entry={entry} />
+          <ContinuityMarkdownArtifactRow entry={entry} />
 
           {detailSections.length > 0 ? (
             <div className="daily-delta-section-grid">
@@ -1089,6 +1096,57 @@ function DailyDeltaPanel({
         </div>
       ) : null}
     </Panel>
+  );
+}
+
+function ContinuityMarkdownArtifactRow({
+  entry,
+}: {
+  entry: ResearchContinuityEntrySummaryResponse;
+}) {
+  const [copied, setCopied] = useState(false);
+  const artifact = entry.markdown_artifact;
+  const status = artifact?.exists
+    ? { label: 'Markdown saved', className: 'badge constructive' }
+    : { label: 'Markdown not exported', className: 'badge warning' };
+
+  async function copyPath() {
+    if (!artifact?.path) {
+      return;
+    }
+    try {
+      await navigator.clipboard?.writeText(artifact.path);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="daily-delta-artifact">
+      <div className="row">
+        <span className={status.className}>{status.label}</span>
+        <button
+          className="button"
+          disabled={!artifact?.path}
+          onClick={copyPath}
+          type="button"
+        >
+          <Clipboard aria-hidden size={15} />
+          {copied ? 'Copied' : 'Copy path'}
+        </button>
+      </div>
+      <div className="artifact-path">
+        <FileText aria-hidden size={15} />
+        <code>{artifact?.path ?? 'No continuity_report.md path resolved.'}</code>
+      </div>
+      {artifact?.exists ? (
+        <div className="small muted">
+          {formatBytes(artifact.size_bytes)} | {formatDateTime(artifact.modified_at)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1871,17 +1929,38 @@ function eventMatchesAliases(
   event: ResearchRunEventResponse,
   aliases: readonly string[],
 ): boolean {
-  const text = [
+  const identifiers = [
     event.payload.agent_name,
     event.payload.analyst_name,
     event.payload.graph_node,
     event.payload.stage,
-    event.message,
   ]
-    .filter((value): value is string => typeof value === 'string')
-    .join(' ')
-    .toLowerCase();
-  return aliases.some((alias) => text.includes(alias));
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
+  if (identifiers.length > 0) {
+    return identifiers.some((value) =>
+      aliases.some((alias) => textMatchesAlias(value, alias)),
+    );
+  }
+  return typeof event.message === 'string'
+    ? aliases.some((alias) => textMatchesAlias(event.message, alias))
+    : false;
+}
+
+function textMatchesAlias(value: string, alias: string): boolean {
+  const normalizedValue = normalizeAliasText(value);
+  const normalizedAlias = normalizeAliasText(alias);
+  if (!normalizedValue || !normalizedAlias) {
+    return false;
+  }
+  return normalizedValue === normalizedAlias || normalizedValue.includes(normalizedAlias);
+}
+
+function normalizeAliasText(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return normalized ? ` ${normalized} ` : '';
 }
 
 function pipelineStageDetail({

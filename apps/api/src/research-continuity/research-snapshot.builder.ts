@@ -357,12 +357,26 @@ function snapshotQualityWithTrackedItems(
 }
 
 function directionalBias(input: ResearchSnapshotBuildInput): string {
+  const thesisSummary = recordValue(input.thesis?.summary);
   return normalizeDirectionalBias(
-    input.debate?.consensus_stance ??
-      recordValue(input.thesis?.summary).direction ??
-      input.thesis?.direction ??
+    firstNonEmptyString(
+      thesisSummary.direction,
+      input.thesis?.direction,
+      thesisSummary.rating,
+      input.debate?.consensus_stance,
       signalBias(input.signalSnapshot),
+    ),
   );
+}
+
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = stringValue(value).trim();
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  return 'unclear';
 }
 
 function signalBias(signal: JsonRecord | null): string {

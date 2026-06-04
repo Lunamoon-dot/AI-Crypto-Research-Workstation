@@ -207,6 +207,16 @@ def validate_and_normalize_config(
             "max_workers>=1"
         )
 
+    llm_runtime = normalized.get("llm_runtime", {})
+    if not isinstance(llm_runtime, dict):
+        issues.append("llm_runtime must be a mapping")
+        llm_runtime = deepcopy(DEFAULT_CONFIG.get("llm_runtime", {}))
+    normalized["llm_runtime"] = {
+        "timeout_sec": float(llm_runtime.get("timeout_sec", 60.0)),
+    }
+    if normalized["llm_runtime"]["timeout_sec"] <= 0:
+        issues.append("llm_runtime.timeout_sec must be > 0")
+
     stale_data = normalized.get("stale_data", {})
     if not isinstance(stale_data, dict):
         issues.append("stale_data must be a mapping")
@@ -346,6 +356,7 @@ def validate_and_normalize_config(
 
     sections = RuntimeConfigSections.from_config(normalized)
     normalized["journal"] = sections.journal.model_dump()
+    normalized["llm_runtime"] = sections.llm_runtime.model_dump()
     normalized["provider_runtime"] = sections.provider_runtime.model_dump()
     normalized["stale_data"] = sections.stale_data.model_dump()
     normalized["observability"] = sections.observability.model_dump()

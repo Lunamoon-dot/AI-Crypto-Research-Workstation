@@ -11,6 +11,7 @@ back gracefully to free-text generation.
 from __future__ import annotations
 
 import json
+import re
 
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
@@ -22,10 +23,126 @@ from luna_workstation.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from luna_workstation.agents.utils.rating import normalize_rating, parse_rating_label
 from luna_workstation.agents.utils.thesis_json import (
     extract_trade_thesis_json,
     strip_trade_thesis_json_block,
 )
+from luna_workstation.exceptions import LLMOutputError
+
+
+_TEXT_LIST_SPLIT_RE = re.compile(r"[;\n\u2022]|\band\b|,(?=\s+)", re.IGNORECASE)
+
+
+def _extract_markdown_field(text: str, field: str) -> str:
+    field_label = re.escape(field)
+    pattern = (
+        rf"^\s*(?:[-*]\s*)?\*{{0,2}}{field_label}"
+        r"\s*(?:Zones?|Levels?|Prices?|Condition)?\*{0,2}"
+        r"\s*[:\-\u2013\u2014]\s*(.+?)\s*$"
+    )
+    match = re.search(pattern, text or "", re.IGNORECASE | re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_markdown_list_field(text: str, field: str) -> list[str]:
+    value = _extract_markdown_field(text, field)
+    if not value:
+        return []
+    return [part.strip() for part in _TEXT_LIST_SPLIT_RE.split(value) if part.strip()]
+
+
+def _direction_for_rating(rating: str) -> str:
+    return {
+        "Buy": "long",
+        "Overweight": "long",
+        "Hold": "watch",
+        "Underweight": "avoid",
+        "Sell": "short",
+    }.get(rating, "watch")
+
+
+def _rating_from_artifacts(*texts: str) -> str:
+    for text in texts:
+        rating = parse_rating_label(text)
+        if rating:
+            return rating
+        for field in ("Research Stance", "Setup Stance", "Stance", "Action"):
+            rating = normalize_rating(_extract_markdown_field(text, field))
+            if rating:
+                return rating
+    return "Hold"
+
+
+def _deterministic_pm_fallback(
+    *,
+    symbol: str,
+    market_type: str,
+    research_plan: str,
+    setup_proposal: str,
+    risk_history: str,
+    error: Exception,
+) -> str:
+    rating = _rating_from_artifacts(research_plan, setup_proposal, risk_history)
+    confirmation = _extract_markdown_field(
+        setup_proposal,
+        "Confirmation",
+    )
+    invalidation = _extract_markdown_field(setup_proposal, "Invalidation")
+    target_zones = _extract_markdown_list_field(
+        setup_proposal,
+        "Target",
+    ) or _extract_markdown_list_field(setup_proposal, "Objective")
+    missing_data = _extract_markdown_list_field(setup_proposal, "Missing Data")
+    missing_data.append(f"Portfolio Manager LLM unavailable: {type(error).__name__}.")
+    lines = [
+        f"**Portfolio Manager deterministic fallback: {symbol} ({market_type})**",
+        "",
+        f"**Rating**: {rating}",
+        "",
+        "**Research Summary**: Portfolio Manager LLM unavailable; "
+        "using the Research Manager stance, Setup Planner levels, and risk debate.",
+        "",
+        "**Investment Thesis**: This is a deterministic fallback assembled from "
+        "completed upstream artifacts after the Portfolio Manager model call failed.",
+    ]
+    if confirmation:
+        lines.extend(["", f"**Confirmation**: {confirmation}"])
+    if invalidation:
+        lines.extend(["", f"**Invalidation**: {invalidation}"])
+    if target_zones:
+        lines.extend(["", f"**Target Zones**: {'; '.join(target_zones)}"])
+    if missing_data:
+        lines.extend(["", f"**Missing Data**: {'; '.join(missing_data)}"])
+    return "\n".join(lines)
+
+
+def _synthesize_trade_summary_json(text: str, *, market_type: str) -> str:
+    """Build the UI summary contract when free-text fallback omits JSON."""
+    rating = parse_rating_label(text)
+    if rating is None:
+        return ""
+    payload = {
+        "rating": rating,
+        "direction": _direction_for_rating(rating),
+        "confidence": None,
+        "market_type": market_type,
+        "action_summary": _extract_markdown_field(text, "Research Summary")
+        or _extract_markdown_field(text, "Executive Summary")
+        or _extract_markdown_field(text, "Stance"),
+        "confirmation_condition": _extract_markdown_field(text, "Confirmation"),
+        "upside_catalyst": _extract_markdown_field(text, "Upside Catalyst"),
+        "invalidation": _extract_markdown_field(text, "Invalidation"),
+        "target_zones": _extract_markdown_list_field(text, "Target"),
+        "key_reasons": _extract_markdown_list_field(text, "Key Reasons"),
+        "risks": _extract_markdown_list_field(text, "Risks"),
+        "monitor_next": _extract_markdown_list_field(text, "Monitor Next"),
+        "supporting_evidence": [],
+        "spot_notes": _extract_markdown_field(text, "Spot Notes"),
+        "perp_notes": _extract_markdown_field(text, "Perp Notes"),
+        "missing_data": _extract_markdown_list_field(text, "Missing Data"),
+    }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _get_feedback_context(config) -> str:
@@ -170,17 +287,32 @@ TRADE_THESIS_JSON:
 ```
 Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing debate consensus, quant baseline, missing data, conflict, and risk; do not copy the quant confidence mechanically. Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""
 
-        rendered_trade_decision = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            prompt,
-            render_pm_decision,
-            "Portfolio Manager",
-        )
+        try:
+            rendered_trade_decision = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                prompt,
+                render_pm_decision,
+                "Portfolio Manager",
+            )
+        except LLMOutputError as exc:
+            rendered_trade_decision = _deterministic_pm_fallback(
+                symbol=str(state.get("company_of_interest") or "UNKNOWN"),
+                market_type=str(market_type),
+                research_plan=research_plan,
+                setup_proposal=setup_proposal,
+                risk_history=history,
+                error=exc,
+            )
         final_trade_summary_json = extract_trade_thesis_json(rendered_trade_decision)
+        if not final_trade_summary_json:
+            final_trade_summary_json = _synthesize_trade_summary_json(
+                rendered_trade_decision,
+                market_type=str(market_type),
+            )
         final_trade_decision = (
             strip_trade_thesis_json_block(rendered_trade_decision)
-            if final_trade_summary_json
+            if extract_trade_thesis_json(rendered_trade_decision)
             else rendered_trade_decision
         )
 

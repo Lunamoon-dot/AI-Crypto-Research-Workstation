@@ -1496,7 +1496,14 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          ORDER BY ss.captured_at DESC, ss.id DESC
          LIMIT 1
        ) snapshot_ref ON true
-       WHERE s.id = $1 AND s.workspace_id = $2`,
+       LEFT JOIN research_runs rr
+         ON rr.workspace_id = s.workspace_id
+        AND rr.id = snapshot_ref.research_run_id
+       WHERE s.id = $1 AND s.workspace_id = $2
+         AND (
+           snapshot_ref.research_run_id IS NULL OR
+           rr.status IN ('completed', 'completed_degraded')
+         )`,
       [id, workspaceId],
     );
   }
@@ -1532,7 +1539,14 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
            ORDER BY ss.captured_at DESC, ss.id DESC
            LIMIT 1
          ) snapshot_ref ON true
+         LEFT JOIN research_runs rr
+           ON rr.workspace_id = s.workspace_id
+          AND rr.id = snapshot_ref.research_run_id
          WHERE s.workspace_id = $1 AND s.symbol = $2
+           AND (
+             snapshot_ref.research_run_id IS NULL OR
+             rr.status IN ('completed', 'completed_degraded')
+           )
          ORDER BY s.observed_at DESC
          LIMIT $3`,
         [workspaceId, symbol, limit],
@@ -1563,7 +1577,14 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          ORDER BY ss.captured_at DESC, ss.id DESC
          LIMIT 1
        ) snapshot_ref ON true
+       LEFT JOIN research_runs rr
+         ON rr.workspace_id = s.workspace_id
+        AND rr.id = snapshot_ref.research_run_id
        WHERE s.workspace_id = $1
+         AND (
+           snapshot_ref.research_run_id IS NULL OR
+           rr.status IN ('completed', 'completed_degraded')
+         )
        ORDER BY s.observed_at DESC
        LIMIT $2`,
       [workspaceId, limit],
@@ -1574,11 +1595,11 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     symbol: string | undefined,
     workspaceId: string,
   ): Promise<SignalSummary> {
-    const where = ['workspace_id = $1'];
+    const where = ['s.workspace_id = $1'];
     const params: unknown[] = [workspaceId];
     if (symbol) {
       params.push(symbol);
-      where.push(`symbol = $${params.length}`);
+      where.push(`s.symbol = $${params.length}`);
     }
     const pool = this.requirePool();
     const result = await pool.query<
@@ -1602,8 +1623,23 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          )::int AS neutral
        FROM (
          SELECT LOWER(COALESCE(direction, '')) AS normalized_direction
-         FROM signals
+         FROM signals s
+         LEFT JOIN LATERAL (
+           SELECT ss.research_run_id
+           FROM signal_snapshots ss
+           WHERE ss.workspace_id = s.workspace_id
+             AND ss.payload_json->'signal_ids' ? s.id
+           ORDER BY ss.captured_at DESC, ss.id DESC
+           LIMIT 1
+         ) snapshot_ref ON true
+         LEFT JOIN research_runs rr
+           ON rr.workspace_id = s.workspace_id
+          AND rr.id = snapshot_ref.research_run_id
          WHERE ${where.join(' AND ')}
+           AND (
+             snapshot_ref.research_run_id IS NULL OR
+             rr.status IN ('completed', 'completed_degraded')
+           )
        ) scoped_signals`,
       params,
     );

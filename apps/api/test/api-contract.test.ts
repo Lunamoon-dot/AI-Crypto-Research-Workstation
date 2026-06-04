@@ -60,6 +60,10 @@ import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
 import { redactForDebug } from '../src/common/redaction';
 import { ResearchContinuityController } from '../src/research-continuity/research-continuity.controller';
+import {
+  ContinuityMarkdownExporter,
+  NoopContinuityMarkdownExporter,
+} from '../src/research-continuity/continuity-markdown.exporter';
 import { ResearchContinuityService } from '../src/research-continuity/research-continuity.service';
 import type {
   ResearchContinuityAuditRepository,
@@ -81,7 +85,12 @@ import {
   openApiDocument,
 } from '../src/contracts/openapi.generated';
 import {
+  buildResearchRunStageTimings,
   toThesisResponse,
+} from '../src/contracts/frontend-contract';
+import type {
+  ResearchRunEventResponse,
+  ResearchRunResponse,
 } from '../src/contracts/frontend-contract';
 import {
   normalizeEvidenceItems,
@@ -955,7 +964,10 @@ class FakeJournalRepository implements JournalRepository {
   ): Promise<JsonRecord | null> {
     return (
       this.signals.find(
-        (signal) => signal.id === id && signal.workspace_id === workspaceId,
+        (signal) =>
+          signal.id === id &&
+          signal.workspace_id === workspaceId &&
+          this.isSignalPublishable(signal),
       ) ?? null
     );
   }
@@ -968,6 +980,7 @@ class FakeJournalRepository implements JournalRepository {
     return this.signals
       .filter((signal) => signal.workspace_id === workspaceId)
       .filter((signal) => !symbol || signal.symbol === symbol)
+      .filter((signal) => this.isSignalPublishable(signal))
       .slice(0, limit);
   }
 
@@ -978,6 +991,7 @@ class FakeJournalRepository implements JournalRepository {
     return this.signals
       .filter((signal) => signal.workspace_id === workspaceId)
       .filter((signal) => !symbol || signal.symbol === symbol)
+      .filter((signal) => this.isSignalPublishable(signal))
       .reduce<SignalSummary>(
         (summary, signal) => {
           const direction = String(signal.direction ?? '').toLowerCase();
@@ -993,6 +1007,23 @@ class FakeJournalRepository implements JournalRepository {
         },
         { total: 0, bullish: 0, bearish: 0, neutral: 0 },
       );
+  }
+
+  private isSignalPublishable(signal: JsonRecord): boolean {
+    const runId = typeof signal.research_run_id === 'string'
+      ? signal.research_run_id
+      : undefined;
+    const workspaceId = typeof signal.workspace_id === 'string'
+      ? signal.workspace_id
+      : undefined;
+    if (!runId || !workspaceId) {
+      return true;
+    }
+    const run = this.researchRuns.get(key(runId, workspaceId));
+    if (!run) {
+      return true;
+    }
+    return ['completed', 'completed_degraded'].includes(String(run.status));
   }
 
   async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
@@ -1609,6 +1640,61 @@ class FakeResearchContinuitySettingsRepository {
   }
 }
 
+test('thesis response exposes decision brief fields from backend contract', () => {
+  const response = toThesisResponse({
+    id: 'thesis_decision_brief',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_decision_brief',
+    symbol: 'BTC/USDT',
+    direction: 'avoid',
+    setup_type: 'agent_debate',
+    confidence: 0.42,
+    created_at: '2026-06-04T08:00:00.000Z',
+    structured_summary: {
+      rating: 'Underweight',
+      action_summary:
+        'Reduce BTC/USDT spot exposure and avoid initiating new long positions.',
+    },
+  });
+
+  assert.equal(response.decision, 'Underweight');
+  assert.equal(response.recommended_action, 'avoid_long');
+  assert.equal(response.recommended_action_label, 'Avoid long');
+  assert.equal(response.market_bias, 'defensive');
+  assert.equal(response.market_bias_label, 'Defensive');
+  assert.equal(response.entry_plan_status, 'no_trade');
+  assert.equal(response.entry_plan_status_label, 'No trade');
+  assert.equal(response.analysis_mode, 'ai_assisted');
+  assert.equal(response.analysis_mode_label, 'AI assisted analysis');
+  assert.equal(response.thesis_status, 'draft');
+  assert.equal(response.thesis_status_label, 'Draft');
+});
+
+test('thesis response prioritizes ai-service decision semantic fields', () => {
+  const response = toThesisResponse({
+    id: 'thesis_explicit_decision_brief',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_explicit_decision_brief',
+    symbol: 'ETH/USDT',
+    direction: 'watch',
+    structured_summary: {
+      rating: 'Hold',
+      direction: 'watch',
+      recommended_action: 'reduce_exposure',
+      market_bias: 'defensive',
+      entry_plan_status: 'no_trade',
+    },
+  });
+
+  assert.equal(response.decision, 'Hold');
+  assert.equal(response.recommended_action, 'reduce_exposure');
+  assert.equal(response.recommended_action_label, 'Reduce exposure');
+  assert.equal(response.market_bias, 'defensive');
+  assert.equal(response.market_bias_label, 'Defensive');
+  assert.equal(response.entry_plan_status, 'no_trade');
+  assert.equal(response.entry_plan_status_label, 'No trade');
+});
+
 test('POST /research-runs rejects x-workspace-id mismatches', async () => {
   const { researchRuns } = buildHarness();
 
@@ -1980,6 +2066,7 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
           analysis_date: '2026-05-12',
           analysts: ['market', 'news'],
           exchange: 'binance',
+          output_language: 'Vietnamese',
           dry_run: true,
           metadata: { source: 'contract-test' },
         },
@@ -2002,12 +2089,32 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
           analysts: ['market', 'news'],
           config_profile: 'default',
           exchange: 'binance',
+          output_language: 'Vietnamese',
           dry_run: true,
           metadata: { source: 'contract-test' },
         },
       ]);
     },
   );
+});
+
+test('research run creation forwards output language to engine request', async () => {
+  const { jobs, researchRuns } = buildHarness();
+
+  const response = await researchRuns.create(
+    {
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      analysis_date: '2026-05-12',
+      analysts: ['market'],
+      output_language: 'Vietnamese',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const request = await jobs.getJobRequest(response.job_id);
+
+  assert.equal(request?.output_language, 'Vietnamese');
 });
 
 test('POST /research-runs injects enabled workspace news sources into engine metadata', async () => {
@@ -2495,6 +2602,18 @@ test('CreateResearchRunDto rejects invalid boundary payloads', async () => {
   assert.deepEqual(dto.metadata, { source: 'api-contract-test' });
 });
 
+test('create research run dto accepts optional output language', async () => {
+  const dto = await validateCreateResearchRun({
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    analysis_date: '2026-05-12',
+    analysts: ['market'],
+    output_language: 'Vietnamese',
+  });
+
+  assert.equal(dto.output_language, 'Vietnamese');
+});
+
 test('OpenAPI contract exposes the worker engine request fields', () => {
   const engineProperties =
     openApiDocument.components.schemas.EngineRunRequest.properties;
@@ -2591,6 +2710,13 @@ test('OpenAPI contract exposes the worker engine request fields', () => {
     'continuity' in
       openApiDocument.components.schemas.OperationsHealthResponse.properties,
   );
+});
+
+test('openapi create research run schema exposes output language', () => {
+  const schema = openApiDocument.components.schemas.CreateResearchRunRequest;
+
+  assert.equal(schema.properties.output_language.type, 'string');
+  assert.equal(schema.properties.output_language.minLength, 1);
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -2945,12 +3071,14 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
       queueJobId: 'job_processor_sync',
       maxAttempts: 2,
     });
-    let syncOptions: { sqlitePath?: string } | undefined;
+    let syncOptions:
+      | { sqlitePath?: string; publishSignals?: boolean }
+      | undefined;
     const sqliteSync = {
       syncRun: async (
         runId: string,
         workspaceId: string,
-        options?: { sqlitePath?: string },
+        options?: { sqlitePath?: string; publishSignals?: boolean },
       ) => {
         syncOptions = options;
         return {
@@ -2984,10 +3112,85 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
 
     assert.equal(result.postgres_sync && typeof result.postgres_sync, 'object');
     assert.equal(syncOptions?.sqlitePath, '/tmp/engine-written-research.sqlite');
+    assert.equal(syncOptions?.publishSignals, true);
     assert.equal(status?.status, 'completed');
     assert.equal(status?.attempts, 1);
     assert.equal(status?.heartbeat_at !== null, true);
     assert.deepEqual(status?.result_summary, result);
+    await lifecycle.onModuleDestroy();
+  });
+});
+
+test('ResearchJobProcessor does not publish signal artifacts from failed runs', async () => {
+  await withEnv({ DATABASE_URL: undefined }, async () => {
+    const lifecycle = new JobLifecycleService();
+    const request = engineRequest('run_processor_failed_sync');
+    await lifecycle.create({
+      id: 'job_processor_failed_sync',
+      request,
+      backend: 'bullmq',
+      queueName: 'research-runs',
+      queueJobId: 'job_processor_failed_sync',
+      maxAttempts: 1,
+    });
+    let syncOptions:
+      | { sqlitePath?: string; publishSignals?: boolean }
+      | undefined;
+    const sqliteSync = {
+      syncRun: async (
+        runId: string,
+        workspaceId: string,
+        options?: { sqlitePath?: string; publishSignals?: boolean },
+      ) => {
+        syncOptions = options;
+        return {
+          run_id: runId,
+          workspace_id: workspaceId,
+          sqlite_path: options?.sqlitePath ?? '/tmp/research.sqlite',
+          tables: {
+            research_runs: 1,
+            run_events: 4,
+            llm_calls: 2,
+            signals: 0,
+            signal_snapshots: 0,
+          },
+        };
+      },
+    } as unknown as SqliteJournalSyncService;
+    const processor = new ResearchJobProcessor(
+      {
+        runInline: async (engineRequest: EngineRunRequest) => ({
+          status: 'failed',
+          run_id: engineRequest.run_id,
+          workspace_id: engineRequest.workspace_id,
+          error_type: 'APITimeoutError',
+          error: 'Request timed out.',
+          journal_path: '/tmp/failed-research.sqlite',
+        }),
+      } as unknown as PythonEngineClient,
+      lifecycle,
+      sqliteSync,
+    );
+
+    const result = await processor.process(request, {
+      jobId: 'job_processor_failed_sync',
+      backend: 'bullmq',
+      attempt: 1,
+      maxAttempts: 1,
+    });
+    const status = await lifecycle.get('run_processor_failed_sync');
+
+    assert.equal(syncOptions?.sqlitePath, '/tmp/failed-research.sqlite');
+    assert.equal(syncOptions?.publishSignals, false);
+    assert.equal(status?.status, 'failed');
+    assert.equal(status?.error_code, 'APITimeoutError');
+    assert.deepEqual(record(result.postgres_sync).tables, {
+      research_runs: 1,
+      run_events: 4,
+      llm_calls: 2,
+      signals: 0,
+      signal_snapshots: 0,
+    });
     await lifecycle.onModuleDestroy();
   });
 });
@@ -3044,6 +3247,65 @@ test('ResearchJobProcessor marks timed out jobs and aborts the engine process', 
     assert.equal(status?.status, 'timed_out');
     assert.equal(status?.error_code, 'job_timed_out');
     assert.equal(status?.timeout_at !== null, true);
+    await lifecycle.onModuleDestroy();
+  });
+});
+
+test('ResearchJobProcessor aborts and marks running jobs cancelled when cancellation is requested', async () => {
+  await withEnv({ DATABASE_URL: undefined }, async () => {
+    const lifecycle = new JobLifecycleService();
+    const request = engineRequest('run_processor_cancelled');
+    await lifecycle.create({
+      id: 'job_processor_cancelled',
+      request,
+      backend: 'bullmq',
+      queueName: 'research-runs',
+      queueJobId: 'job_processor_cancelled',
+      maxAttempts: 1,
+    });
+    const processor = new ResearchJobProcessor(
+      {
+        runInline: async (
+          _request: EngineRunRequest,
+          options?: { signal?: AbortSignal },
+        ) =>
+          new Promise<JsonRecord>((_resolve, reject) => {
+            const holdOpen = setTimeout(() => {
+              reject(new Error('cancellation test did not abort'));
+            }, 5000);
+            options?.signal?.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(holdOpen);
+                reject(new Error('aborted by cancellation'));
+              },
+              { once: true },
+            );
+          }),
+      } as unknown as PythonEngineClient,
+      lifecycle,
+    );
+
+    const processing = processor.process(request, {
+      jobId: 'job_processor_cancelled',
+      backend: 'bullmq',
+      attempt: 1,
+      maxAttempts: 1,
+      timeoutMs: 10000,
+    });
+    await delay(25);
+    await lifecycle.requestCancellation('job_processor_cancelled');
+
+    await assert.rejects(
+      () => processing,
+      (error) =>
+        error instanceof Error && error.message === 'aborted by cancellation',
+    );
+    const status = await lifecycle.get('job_processor_cancelled');
+
+    assert.equal(status?.status, 'cancelled');
+    assert.equal(status?.error_code, 'job_cancelled');
+    assert.equal(status?.cancellation_requested_at !== null, true);
     await lifecycle.onModuleDestroy();
   });
 });
@@ -3775,6 +4037,57 @@ test('read APIs scope research runs and signals to the request workspace', async
     bearish: 1,
     neutral: 0,
   });
+});
+
+test('signals APIs hide signals from failed research runs', async () => {
+  const { journal, signals } = buildHarness();
+  journal.researchRuns.set(key('run_completed_signals', 'workspace_a'), {
+    id: 'run_completed_signals',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    status: 'completed',
+  });
+  journal.researchRuns.set(key('run_failed_signals', 'workspace_a'), {
+    id: 'run_failed_signals',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    status: 'failed',
+  });
+  journal.signals.push(
+    {
+      id: 'sig_completed',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_completed_signals',
+      symbol: 'ETH/USDT',
+      signal_type: 'regime',
+      direction: 'bullish',
+    },
+    {
+      id: 'sig_failed',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_failed_signals',
+      symbol: 'ETH/USDT',
+      signal_type: 'macd',
+      direction: 'bearish',
+    },
+  );
+
+  const listed = await signals.list('ETH', 50, 'user_1', 'workspace_a');
+
+  assert.deepEqual(
+    listed.map((signal) => signal.id),
+    ['sig_completed'],
+  );
+  assert.deepEqual(await signals.count('ETH', 'user_1', 'workspace_a'), {
+    total: 1,
+    bullish: 1,
+    bearish: 0,
+    neutral: 0,
+  });
+  await assert.rejects(
+    () => signals.get('sig_failed', 'user_1', 'workspace_a'),
+    isException(NotFoundException),
+  );
 });
 
 test('GET /signals/:id returns provenance and raw evidence detail', async () => {
@@ -7217,7 +7530,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   );
   assert.equal(runEntry?.id, delta.entry.id);
   assert.equal(state.state?.latest_entry_id, delta.entry.id);
-  assert.equal(state.state?.current_view.directional_bias, 'cautious_bullish');
+  assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(entries.entries.length, 2);
   assert.deepEqual(
     records(rawDelta.sections).map((section) => section.title),
@@ -7493,6 +7806,51 @@ test('research continuity V1.9 exposes grouped diff summaries and reports from e
   const listEntry = list.entries[0] as unknown as Record<string, unknown>;
   assert.equal(record(listEntry.diff_summary).updated_count, 1);
   assert.equal('diff_report' in listEntry, false);
+});
+
+test('research continuity exports a markdown artifact for generated entries', async () => {
+  const resultsDir = await mkdtemp(join(tmpdir(), 'lunacrypto-continuity-'));
+  await withEnv({ TRADINGAGENTS_RESULTS_DIR: resultsDir }, async () => {
+    const { audit, journal, settings, auth, workspaces } = buildHarness();
+    const researchContinuity = new ResearchContinuityService(
+      journal,
+      audit,
+      settings,
+      auth,
+      workspaces,
+    );
+    researchContinuity.setMarkdownExporterForTest(
+      new ContinuityMarkdownExporter(),
+    );
+    seedContinuityRun(journal, {
+      runId: 'run_btc_export',
+      thesisId: 'thesis_btc_export',
+      debateId: 'debate_btc_export',
+      marketSnapshotId: 'market_btc_export',
+      signalSnapshotId: 'signal_btc_export',
+      stance: 'neutral',
+      thesisDirection: 'neutral',
+      risks: ['Funding is becoming crowded.'],
+      monitorNext: ['Watch whether spot demand follows the breakout.'],
+    });
+
+    const result = await researchContinuity.generateForRun(
+      'run_btc_export',
+      {},
+      'user_1',
+      'workspace_a',
+    );
+
+    assert.equal(result.entry.markdown_artifact.exists, true);
+    assert.match(
+      result.entry.markdown_artifact.path ?? '',
+      /BTC-USDT[\\/]+2026-05-12[\\/]continuity_report\.md$/,
+    );
+    const markdown = readFileSync(result.entry.markdown_artifact.path ?? '', 'utf8');
+    assert.match(markdown, /^# Research Continuity Report/m);
+    assert.match(markdown, /## Current View/);
+    assert.match(markdown, /## Data Quality/);
+  });
 });
 
 test('research continuity builds compact engine prior context for matching market type', async () => {
@@ -8914,6 +9272,40 @@ test('research continuity skips insufficient runs and constrains degraded state 
   assert.equal(state.state?.latest_entry_id, degraded.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity current view uses final thesis direction over debate stance', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_conflicting_debate',
+    thesisId: 'thesis_conflicting_debate',
+    debateId: 'debate_conflicting_debate',
+    marketSnapshotId: 'market_conflicting_debate',
+    signalSnapshotId: 'signal_conflicting_debate',
+    stance: 'bearish',
+    thesisDirection: 'long',
+  });
+
+  const result = await researchContinuity.generateForRun(
+    'run_conflicting_debate',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const currentView = result.entry.thin_report?.sections.find(
+    (section) => section.id === 'current_view',
+  );
+
+  assert.equal(state.state?.current_view.directional_bias, 'bullish');
+  assert.ok(
+    currentView?.items.some((item) => item.includes('Directional bias: bullish')),
+  );
+  assert.equal(JSON.stringify(result.entry).includes('Directional bias: bearish'), false);
 });
 
 test('research continuity falls back to historical entry context when state is missing', async () => {
@@ -10524,6 +10916,76 @@ test('research workspace derives stage timings from run events', async () => {
   ]);
 });
 
+test('research workspace keeps parallel analyst timing sources distinct', () => {
+  const run: ResearchRunResponse = {
+    id: 'run_parallel_timing',
+    run_id: 'run_parallel_timing',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    asset_class: 'crypto',
+    market_type: 'perp',
+    timeframe: null,
+    status: 'completed',
+    started_at: null,
+    completed_at: null,
+    cancellation_requested_at: null,
+    thesis_id: null,
+    decision_id: null,
+    signal_snapshot_id: null,
+    market_snapshot_id: null,
+    degradation_reasons: [],
+    missing_core_data: [],
+    missing_optional_data: [],
+  };
+  const events: ResearchRunEventResponse[] = [
+    {
+      id: 'run_started',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_parallel_timing',
+      thesis_id: null,
+      event_type: 'run.started',
+      created_at: '2026-05-12T00:00:00.000Z',
+      message: 'started',
+      payload: { analysts: ['market', 'news', 'social', 'onchain'] },
+    },
+    analystTimingEvent('market_start', 'agent.node.started', '2026-05-12T00:00:01.000Z', 'Market Analyst'),
+    analystTimingEvent('market_done', 'agent.node.completed', '2026-05-12T00:00:27.000Z', 'Market Analyst'),
+    analystTimingEvent('news_start', 'agent.node.started', '2026-05-12T00:00:02.000Z', 'News Analyst'),
+    analystTimingEvent('news_done', 'agent.node.completed', '2026-05-12T00:00:19.000Z', 'News Analyst'),
+    analystTimingEvent('social_start', 'agent.node.started', '2026-05-12T00:00:03.000Z', 'Social Analyst'),
+    analystTimingEvent('social_done', 'agent.node.completed', '2026-05-12T00:00:13.000Z', 'Social Analyst'),
+    analystTimingEvent('onchain_start', 'agent.node.started', '2026-05-12T00:00:04.000Z', 'Onchain Analyst'),
+    analystTimingEvent('onchain_done', 'agent.node.completed', '2026-05-12T00:00:18.000Z', 'Onchain Analyst'),
+  ];
+
+  const timings = buildResearchRunStageTimings(run, events);
+  const sourceIds = (stageKey: string) =>
+    timings.find((stage) => stage.stage_key === stageKey)?.source_event_ids;
+
+  assert.deepEqual(sourceIds('market'), ['market_start', 'market_done']);
+  assert.deepEqual(sourceIds('news'), ['news_start', 'news_done']);
+  assert.deepEqual(sourceIds('social'), ['social_start', 'social_done']);
+  assert.deepEqual(sourceIds('onchain'), ['onchain_start', 'onchain_done']);
+});
+
+function analystTimingEvent(
+  id: string,
+  eventType: 'agent.node.started' | 'agent.node.completed',
+  createdAt: string,
+  graphNode: string,
+): ResearchRunEventResponse {
+  return {
+    id,
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_parallel_timing',
+    thesis_id: null,
+    event_type: eventType,
+    created_at: createdAt,
+    message: 'parallel analyst updated',
+    payload: { graph_node: graphNode },
+  };
+}
+
 test('research workspace derives spot branch timing from setup planner completion', async () => {
   const { journal, researchRuns } = buildHarness();
   journal.researchRuns.set(key('run_spot_branch_timing', 'workspace_a'), {
@@ -11275,9 +11737,13 @@ function buildHarness() {
     auth,
     workspaces,
   );
+  researchContinuity.setMarkdownExporterForTest(
+    new NoopContinuityMarkdownExporter(),
+  );
   const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
   return {
     audit,
+    auth,
     journal,
     settings,
     workspaces,

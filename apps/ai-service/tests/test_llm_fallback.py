@@ -170,6 +170,61 @@ class TestRetryableErrorDetection:
 
 
 class TestConfigLoaderFallbackDefaults:
+    def test_primary_llms_receive_llm_runtime_timeout(self):
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
+
+        seen_timeouts = []
+
+        def _fake_create(provider, model, **kwargs):
+            seen_timeouts.append(kwargs.get("timeout"))
+            return _FakeLLMClient(provider, model)
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_runtime": {"timeout_sec": 60.0},
+            "llm_fallback": {"enabled": False, "fallback_providers": []},
+        }
+        orch = LLMOrchestrator(config)
+
+        with patch(
+            "luna_workstation.llm_clients.orchestrator.create_llm_client",
+            side_effect=_fake_create,
+        ):
+            orch.create_primary_llms()
+
+        assert seen_timeouts == [60.0, 60.0]
+
+    def test_fallback_llms_receive_llm_runtime_timeout(self):
+        from luna_workstation.llm_clients.orchestrator import LLMOrchestrator
+
+        seen_timeouts = []
+
+        def _fake_create(provider, model, **kwargs):
+            seen_timeouts.append(kwargs.get("timeout"))
+            return _FakeLLMClient(provider, model)
+
+        config = {
+            "llm_provider": "deepseek",
+            "deep_think_llm": "deepseek-chat",
+            "quick_think_llm": "deepseek-chat",
+            "llm_runtime": {"timeout_sec": 60.0},
+            "llm_fallback": {
+                "enabled": True,
+                "fallback_providers": ["openai"],
+            },
+        }
+        orch = LLMOrchestrator(config)
+
+        with patch(
+            "luna_workstation.llm_clients.orchestrator.create_llm_client_with_keys",
+            side_effect=_fake_create,
+        ):
+            orch.ensure_fallback_llms()
+
+        assert seen_timeouts == [60.0, 60.0]
+
     def test_fallback_providers_are_valid(self):
         loader = ConfigLoader()
         config = loader.load(fail_fast=False)

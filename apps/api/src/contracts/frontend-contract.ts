@@ -28,6 +28,7 @@ export interface ResearchRunResponse {
   status: string;
   started_at: string | null;
   completed_at: string | null;
+  cancellation_requested_at: string | null;
   thesis_id: string | null;
   decision_id: string | null;
   signal_snapshot_id: string | null;
@@ -167,6 +168,9 @@ export interface ThesisSummaryResponse {
   confidence: number | null;
   market_type: string;
   action_summary: string;
+  recommended_action: string;
+  market_bias: string;
+  entry_plan_status: string;
   confirmation_condition: string;
   entry_zone: string;
   upside_catalyst: string;
@@ -189,6 +193,17 @@ export interface ThesisResponse {
   workspace_id: string;
   research_run_id: string | null;
   symbol: string;
+  decision: string;
+  recommended_action: string;
+  recommended_action_label: string;
+  market_bias: string;
+  market_bias_label: string;
+  entry_plan_status: string;
+  entry_plan_status_label: string;
+  analysis_mode: string;
+  analysis_mode_label: string;
+  thesis_status: string;
+  thesis_status_label: string;
   direction: string;
   setup_type: string;
   confidence: number | null;
@@ -1101,6 +1116,7 @@ export function toResearchRunResponse(run: JsonRecord): ResearchRunResponse {
     status: stringValue(run.status, 'unknown'),
     started_at: nullableString(run.started_at),
     completed_at: nullableString(run.completed_at),
+    cancellation_requested_at: nullableString(run.cancellation_requested_at),
     thesis_id: nullableString(run.thesis_id),
     decision_id: nullableString(run.decision_id),
     signal_snapshot_id: nullableString(run.signal_snapshot_id),
@@ -1365,17 +1381,38 @@ function eventMatchesStageAliases(
   event: ResearchRunEventResponse,
   aliases: readonly string[],
 ): boolean {
-  const text = [
+  const identifiers = [
     event.payload.agent_name,
     event.payload.analyst_name,
     event.payload.graph_node,
     event.payload.stage,
-    event.message,
   ]
-    .filter((value): value is string => typeof value === 'string')
-    .join(' ')
-    .toLowerCase();
-  return aliases.some((alias) => text.includes(alias));
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
+  if (identifiers.length > 0) {
+    return identifiers.some((value) =>
+      aliases.some((alias) => textMatchesAlias(value, alias)),
+    );
+  }
+  return typeof event.message === 'string'
+    ? aliases.some((alias) => textMatchesAlias(event.message, alias))
+    : false;
+}
+
+function textMatchesAlias(value: string, alias: string): boolean {
+  const normalizedValue = normalizeAliasText(value);
+  const normalizedAlias = normalizeAliasText(alias);
+  if (!normalizedValue || !normalizedAlias) {
+    return false;
+  }
+  return normalizedValue === normalizedAlias || normalizedValue.includes(normalizedAlias);
+}
+
+function normalizeAliasText(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return normalized ? ` ${normalized} ` : '';
 }
 
 function normalizeStageMarketType(value: string): 'spot' | 'perp' {
@@ -1565,11 +1602,35 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     summaryResponse.rating,
     summaryResponse.direction,
   );
+  const decisionBrief = normalizeThesisDecisionBrief({
+    direction,
+    entryPlanStatus: summaryResponse.entry_plan_status,
+    entryZone,
+    marketBias: summaryResponse.market_bias,
+    rating: summaryResponse.rating,
+    recommendedAction: summaryResponse.recommended_action,
+    researchRunId: nullableString(thesis.research_run_id),
+    status: stringValue(thesis.status),
+  });
+  summaryResponse.recommended_action = decisionBrief.recommended_action;
+  summaryResponse.market_bias = decisionBrief.market_bias;
+  summaryResponse.entry_plan_status = decisionBrief.entry_plan_status;
   return {
     id: nullableString(thesis.id),
     workspace_id: stringValue(thesis.workspace_id, 'local'),
     research_run_id: nullableString(thesis.research_run_id),
     symbol: stringValue(thesis.symbol),
+    decision: decisionBrief.decision,
+    recommended_action: decisionBrief.recommended_action,
+    recommended_action_label: decisionBrief.recommended_action_label,
+    market_bias: decisionBrief.market_bias,
+    market_bias_label: decisionBrief.market_bias_label,
+    entry_plan_status: decisionBrief.entry_plan_status,
+    entry_plan_status_label: decisionBrief.entry_plan_status_label,
+    analysis_mode: decisionBrief.analysis_mode,
+    analysis_mode_label: decisionBrief.analysis_mode_label,
+    thesis_status: decisionBrief.thesis_status,
+    thesis_status_label: decisionBrief.thesis_status_label,
     direction,
     setup_type: stringValue(thesis.setup_type, 'unspecified'),
     confidence: nullableNumber(thesis.confidence),
@@ -2091,6 +2152,9 @@ function toThesisSummaryResponse(
     confidence: nullableNumber(summary.confidence),
     market_type: stringValue(summary.market_type, 'spot'),
     action_summary: stringValue(summary.action_summary),
+    recommended_action: stringValue(summary.recommended_action),
+    market_bias: stringValue(summary.market_bias),
+    entry_plan_status: stringValue(summary.entry_plan_status),
     confirmation_condition: confirmationCondition,
     entry_zone: entryZone,
     upside_catalyst: stringValue(summary.upside_catalyst),
@@ -2437,4 +2501,197 @@ function directionForRating(rating: string, fallback: string): string {
     return fallback === 'neutral' ? 'neutral' : 'watch';
   }
   return fallback || 'watch';
+}
+
+function normalizeThesisDecisionBrief({
+  direction,
+  entryPlanStatus,
+  entryZone,
+  marketBias,
+  rating,
+  recommendedAction,
+  researchRunId,
+  status,
+}: {
+  direction: string;
+  entryPlanStatus: string;
+  entryZone: string;
+  marketBias: string;
+  rating: string;
+  recommendedAction: string;
+  researchRunId: string | null;
+  status: string;
+}): Pick<
+  ThesisResponse,
+  | 'decision'
+  | 'recommended_action'
+  | 'recommended_action_label'
+  | 'market_bias'
+  | 'market_bias_label'
+  | 'entry_plan_status'
+  | 'entry_plan_status_label'
+  | 'analysis_mode'
+  | 'analysis_mode_label'
+  | 'thesis_status'
+  | 'thesis_status_label'
+> {
+  const normalizedRating = machineKey(rating);
+  const normalizedDirection = machineKey(direction);
+  const riskOff =
+    normalizedRating === 'underweight' ||
+    normalizedRating === 'sell' ||
+    ['avoid', 'short'].includes(normalizedDirection) ||
+    normalizedDirection.includes('bear');
+  const riskOn =
+    normalizedRating === 'overweight' ||
+    normalizedRating === 'buy' ||
+    normalizedDirection === 'long' ||
+    normalizedDirection.includes('bull');
+  const action =
+    normalizeRecommendedAction(recommendedAction) ??
+    (riskOff
+      ? (['avoid_long', 'Avoid long'] as const)
+      : riskOn
+        ? (['consider_long', 'Consider long'] as const)
+        : (['watch_only', 'Watch only'] as const));
+  const bias =
+    normalizeMarketBias(marketBias) ??
+    (riskOff
+      ? (['defensive', 'Defensive'] as const)
+      : riskOn
+        ? (['bullish', 'Bullish'] as const)
+        : (['neutral', 'Neutral'] as const));
+  const entryPlan =
+    normalizeEntryPlanStatus(entryPlanStatus) ??
+    defaultEntryPlanStatus(action[0], entryZone);
+  const analysisMode = researchRunId
+    ? ['ai_assisted', 'AI assisted analysis']
+    : ['manual', 'Manual analysis'];
+  const thesisStatus = normalizeThesisStatus(status);
+  return {
+    decision: rating || 'Hold',
+    recommended_action: action[0],
+    recommended_action_label: action[1],
+    market_bias: bias[0],
+    market_bias_label: bias[1],
+    entry_plan_status: entryPlan[0],
+    entry_plan_status_label: entryPlan[1],
+    analysis_mode: analysisMode[0],
+    analysis_mode_label: analysisMode[1],
+    thesis_status: thesisStatus[0],
+    thesis_status_label: thesisStatus[1],
+  };
+}
+
+function machineKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+function normalizeRecommendedAction(value: string): readonly [string, string] | null {
+  switch (machineKey(value)) {
+    case 'avoid':
+    case 'avoid_long':
+    case 'no_long':
+    case 'stand_aside':
+    case 'no_trade':
+      return ['avoid_long', 'Avoid long'];
+    case 'watch':
+    case 'watch_only':
+    case 'monitor':
+    case 'wait':
+      return ['watch_only', 'Watch only'];
+    case 'reduce':
+    case 'reduce_exposure':
+    case 'trim':
+    case 'trim_exposure':
+      return ['reduce_exposure', 'Reduce exposure'];
+    case 'consider_long':
+    case 'enter_long':
+    case 'long':
+    case 'buy':
+      return ['consider_long', 'Consider long'];
+    case 'consider_short':
+    case 'enter_short':
+    case 'short':
+    case 'sell':
+      return ['consider_short', 'Consider short'];
+    default:
+      return null;
+  }
+}
+
+function normalizeMarketBias(value: string): readonly [string, string] | null {
+  switch (machineKey(value)) {
+    case 'defensive':
+    case 'risk_off':
+    case 'cautious':
+    case 'avoid':
+      return ['defensive', 'Defensive'];
+    case 'bullish':
+    case 'bull':
+    case 'long':
+    case 'risk_on':
+      return ['bullish', 'Bullish'];
+    case 'bearish':
+    case 'bear':
+    case 'short':
+      return ['bearish', 'Bearish'];
+    case 'neutral':
+    case 'watch':
+    case 'mixed':
+      return ['neutral', 'Neutral'];
+    default:
+      return null;
+  }
+}
+
+function normalizeEntryPlanStatus(value: string): readonly [string, string] | null {
+  switch (machineKey(value)) {
+    case 'no_trade':
+    case 'no_entry':
+    case 'none':
+    case 'avoid':
+    case 'stand_aside':
+      return ['no_trade', 'No trade'];
+    case 'ready':
+    case 'actionable':
+    case 'active':
+      return ['ready', 'Ready'];
+    case 'conditional':
+    case 'wait_for_confirmation':
+    case 'watch':
+      return ['conditional', 'Conditional'];
+    default:
+      return null;
+  }
+}
+
+function defaultEntryPlanStatus(
+  recommendedAction: string,
+  entryZone: string,
+): readonly [string, string] {
+  if (recommendedAction === 'avoid_long') {
+    return ['no_trade', 'No trade'];
+  }
+  if (entryZone.trim()) {
+    return ['conditional', 'Conditional'];
+  }
+  if (recommendedAction === 'watch_only') {
+    return ['no_trade', 'No trade'];
+  }
+  return ['conditional', 'Conditional'];
+}
+
+function normalizeThesisStatus(status: string): [string, string] {
+  const normalized = status.trim().toLowerCase();
+  if (['tracked', 'watched', 'watching'].includes(normalized)) {
+    return ['tracked', 'Tracked'];
+  }
+  if (['accepted', 'reviewed'].includes(normalized)) {
+    return ['reviewed', 'Reviewed'];
+  }
+  if (['rejected', 'invalidated'].includes(normalized)) {
+    return ['closed', 'Closed'];
+  }
+  return ['draft', 'Draft'];
 }

@@ -1,4 +1,11 @@
-from luna_workstation.agents.utils.agent_utils import guard_untrusted_context
+from luna_workstation.agents.utils.agent_utils import (
+    DEBATE_ARGUMENT_CONTEXT_CHARS,
+    DEBATE_HISTORY_CONTEXT_CHARS,
+    DEBATE_REPORT_CONTEXT_CHARS,
+    DEBATE_RESPONSE_INSTRUCTION,
+    DEBATE_SETUP_CONTEXT_CHARS,
+    guard_untrusted_context,
+)
 
 
 def create_neutral_debator(llm):
@@ -23,17 +30,18 @@ def create_neutral_debator(llm):
 
         prompt = f"""As the Neutral Risk Analyst, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the Setup Planner's proposal. You prioritize a well-rounded approach, evaluating the upsides and downsides while factoring in broader market trends, potential economic shifts, and diversification strategies. Here is the setup proposal:
 
-{guard_untrusted_context("setup_proposal", setup_proposal)}
+{guard_untrusted_context("setup_proposal", setup_proposal, max_chars=DEBATE_SETUP_CONTEXT_CHARS)}
 
 Your task is to challenge both the Aggressive and Conservative Analysts, pointing out where each perspective may be overly optimistic or overly cautious. Use insights from the following data sources to support a moderate, sustainable adjustment to the setup proposal:
 
-Market Research Report: {guard_untrusted_context("market_report", market_research_report)}
-Social Media Sentiment Report: {guard_untrusted_context("sentiment_report", sentiment_report)}
-Latest World Affairs Report: {guard_untrusted_context("news_report", news_report)}
-Company Fundamentals Report: {guard_untrusted_context("fundamentals_report", fundamentals_report)}
-Here is the current conversation history: {guard_untrusted_context("risk_history", history)} Here is the last response from the aggressive analyst: {guard_untrusted_context("last_aggressive_argument", current_aggressive_response)} Here is the last response from the conservative analyst: {guard_untrusted_context("last_conservative_argument", current_conservative_response)}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
+Market Research Report: {guard_untrusted_context("market_report", market_research_report, max_chars=DEBATE_REPORT_CONTEXT_CHARS)}
+Social Media Sentiment Report: {guard_untrusted_context("sentiment_report", sentiment_report, max_chars=DEBATE_REPORT_CONTEXT_CHARS)}
+Latest World Affairs Report: {guard_untrusted_context("news_report", news_report, max_chars=DEBATE_REPORT_CONTEXT_CHARS)}
+Company Fundamentals Report: {guard_untrusted_context("fundamentals_report", fundamentals_report, max_chars=DEBATE_REPORT_CONTEXT_CHARS)}
+Here is the current conversation history: {guard_untrusted_context("risk_history", history, max_chars=DEBATE_HISTORY_CONTEXT_CHARS)} Here is the last response from the aggressive analyst: {guard_untrusted_context("last_aggressive_argument", current_aggressive_response, max_chars=DEBATE_ARGUMENT_CONTEXT_CHARS)} Here is the last response from the conservative analyst: {guard_untrusted_context("last_conservative_argument", current_conservative_response, max_chars=DEBATE_ARGUMENT_CONTEXT_CHARS)}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
 
-Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Challenge each of their points to illustrate why a moderate risk strategy might offer the best of both worlds, providing growth potential while safeguarding against extreme volatility. Focus on debating rather than simply presenting data, aiming to show that a balanced view can lead to the most reliable outcomes. Output conversationally as if you are speaking without any special formatting."""
+Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Challenge each of their points to illustrate why a moderate risk strategy might offer the best of both worlds, providing growth potential while safeguarding against extreme volatility. Focus on debating rather than simply presenting data, aiming to show that a balanced view can lead to the most reliable outcomes. Output conversationally as if you are speaking without any special formatting.
+{DEBATE_RESPONSE_INSTRUCTION}"""
 
         response = llm.invoke(prompt)
 

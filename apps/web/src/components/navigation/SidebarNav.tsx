@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, UserCircle } from 'lucide-react';
+import { WorkspaceSwitcher } from '@/components/navigation/WorkspaceSwitcher';
 import {
   isNavItemActive,
   mobileNavItems,
@@ -121,9 +122,11 @@ export function SidebarNav() {
         })}
       </nav>
       <div className="sidebar-footer">
-        <div className="badge degraded">local MVP</div>
-        <div className="sidebar-footer-note small muted">
-          Research-only mode.
+        <div className="sidebar-footer-actions">
+          <WorkspaceSwitcher fixedOnly={pathname.startsWith('/research-continuity')} />
+          <button className="button icon ghost" aria-label="Account" type="button">
+            <UserCircle aria-hidden size={16} />
+          </button>
         </div>
       </div>
     </aside>

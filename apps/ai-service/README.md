@@ -191,6 +191,21 @@ export CRYPTOPANIC_API_TOKEN=...
 
 You can also create a local `.env` file.
 
+### Output Language
+
+The AI service default output language is configured with `output_language` in
+`config/default.toml` and can be overridden locally in `config/local.toml`:
+
+```toml
+output_language = "Vietnamese"
+```
+
+Operators can also set `TRADINGAGENTS_OUTPUT_LANGUAGE=Vietnamese`. The web/API
+research launch flow may send a per-run `output_language`; that request-level
+value takes precedence over default and local config. Internal agent debate
+remains English to preserve reasoning quality, while analyst reports and final
+decision output use the selected language.
+
 ## CLI Usage
 
 Launch the interactive research workflow:

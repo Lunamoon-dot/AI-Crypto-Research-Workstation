@@ -308,6 +308,71 @@ class TestBudgetTracker:
             "scenario_planner",
         ]
 
+    def test_portfolio_manager_uses_quick_llm_for_final_synthesis(self, monkeypatch):
+        quick_llm = object()
+        deep_llm = object()
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.quick_thinking_llm = quick_llm
+        setup.deep_thinking_llm = deep_llm
+        setup.tool_nodes = {
+            definition.tool_key: object()
+            for definition in graph_setup_module.ANALYST_DEFINITIONS
+        }
+        setup.conditional_logic = SimpleNamespace(
+            should_continue_debate=lambda _state: (
+                graph_setup_module.DebateNode.RESEARCH_MANAGER
+            ),
+            should_continue_risk_analysis=lambda _state: (
+                graph_setup_module.PipelineNode.PORTFOLIO_MANAGER
+            ),
+        )
+        setup.config = {}
+        setup.budget_tracker = None
+        setup.llm_orchestrator = None
+        captured = {}
+
+        def node_factory(*_args, **_kwargs):
+            return lambda state: state
+
+        monkeypatch.setattr(graph_setup_module, "create_market_analyst", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bull_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_bear_researcher", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_research_manager", node_factory)
+        monkeypatch.setattr(graph_setup_module, "create_setup_planner", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_aggressive_debator", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_neutral_debator", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module, "create_conservative_debator", node_factory
+        )
+        monkeypatch.setattr(graph_setup_module, "create_scenario_planner", node_factory)
+        monkeypatch.setattr(
+            graph_setup_module,
+            "make_analyst_runner",
+            lambda *_args, **_kwargs: lambda state: state,
+        )
+        monkeypatch.setattr(
+            graph_setup_module,
+            "create_analyst_opinion_builder",
+            lambda **_kwargs: lambda state: state,
+        )
+
+        def portfolio_manager_factory(llm, **_kwargs):
+            captured["portfolio_manager_llm"] = llm
+            return lambda state: state
+
+        monkeypatch.setattr(
+            graph_setup_module,
+            "create_portfolio_manager",
+            portfolio_manager_factory,
+        )
+
+        setup._budgeted_node = lambda node_fn, _stage, **_ctx: node_fn
+        setup.setup_graph(["market"])
+
+        assert captured["portfolio_manager_llm"] is quick_llm
+
     def test_parallel_analysts_join_before_debate(self, monkeypatch):
         setup = GraphSetup.__new__(GraphSetup)
         setup.quick_thinking_llm = object()

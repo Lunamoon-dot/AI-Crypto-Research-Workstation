@@ -45,6 +45,7 @@ _ENV_CONFIG_MAP: dict[str, str | tuple[str, ...]] = {
     "TRADINGAGENTS_LLM_PROVIDER": "llm_provider",
     "TRADINGAGENTS_DEEP_THINK_LLM": "deep_think_llm",
     "TRADINGAGENTS_QUICK_THINK_LLM": "quick_think_llm",
+    "TRADINGAGENTS_LLM_TIMEOUT_SEC": ("llm_runtime", "timeout_sec"),
     "TRADINGAGENTS_BACKEND_URL": "backend_url",
     "TRADINGAGENTS_RUNTIME_ENVIRONMENT": "runtime_environment",
     "TRADINGAGENTS_ASSET_CLASS": "asset_class",

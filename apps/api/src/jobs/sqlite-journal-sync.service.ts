@@ -17,6 +17,7 @@ export interface SqliteJournalSyncResult {
 
 export interface SqliteJournalSyncOptions {
   sqlitePath?: string;
+  publishSignals?: boolean;
 }
 
 interface SyncContext {
@@ -257,6 +258,8 @@ const SYNC_TABLES: TableSyncConfig[] = [
   },
 ];
 
+const SIGNAL_ARTIFACT_TABLES = new Set(['signals', 'signal_snapshots']);
+
 @Injectable()
 export class SqliteJournalSyncService implements OnModuleDestroy {
   private readonly pool?: Pool;
@@ -299,7 +302,7 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
       const counts: Record<string, number> = {};
       const context = { runId, workspaceId };
       for (const config of SYNC_TABLES) {
-        const rows = exported[config.table] ?? [];
+        const rows = rowsForSync(config, exported[config.table] ?? [], options);
         counts[config.table] = rows.length;
         for (const row of rows) {
           await upsertRow(client, config, row, context);
@@ -347,6 +350,23 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
     }
     return exported;
   }
+}
+
+function rowsForSync(
+  config: TableSyncConfig,
+  rows: SqliteRow[],
+  options: SqliteJournalSyncOptions,
+): SqliteRow[] {
+  if (options.publishSignals !== false) {
+    return rows;
+  }
+  if (SIGNAL_ARTIFACT_TABLES.has(config.table)) {
+    return [];
+  }
+  if (config.table === 'research_runs') {
+    return rows.map((row) => ({ ...row, signal_snapshot_id: null }));
+  }
+  return rows;
 }
 
 async function exportSqliteRun(

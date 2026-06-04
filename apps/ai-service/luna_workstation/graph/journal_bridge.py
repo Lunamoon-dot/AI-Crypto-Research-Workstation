@@ -567,12 +567,21 @@ def scenarios_from_structured_plan(
             Scenario(
                 id=str(uuid.uuid4()),
                 thesis_id=thesis_id,
+                scenario_name=item.scenario_name,
+                direction=item.direction,
+                thesis_impact=item.thesis_impact,
                 condition=item.condition,
                 expected_market_behavior=item.expected_behavior,
                 probability_band=band,
                 invalidation=item.invalidation,
+                evidence=(item.evidence or [])[:12],
+                watch_triggers=(item.watch_triggers or [])[:12],
+                impact_on_thesis=item.impact_on_thesis,
                 risk_map=(item.risk_factors or [])[:16],
                 suggested_user_action=item.suggested_action or "review",
+                as_of=item.as_of,
+                timeframe=item.timeframe,
+                source=(item.source or [])[:8],
             )
         )
     return out
@@ -618,10 +627,28 @@ def _parse_scenario_plan(
         behavior = _extract_markdown_section(block, _BEHAVIOR_SECTION_PATTERN)
         prob_raw = _extract_markdown_section(block, _PROBABILITY_SECTION_PATTERN)
         invalidation = _extract_markdown_section(block, _INVALIDATION_SECTION_PATTERN)
+        evidence_raw = _extract_markdown_section(block, _EVIDENCE_SECTION_PATTERN)
+        watch_raw = _extract_markdown_section(block, _WATCH_SECTION_PATTERN)
+        impact = _extract_markdown_section(block, _IMPACT_SECTION_PATTERN)
         risk_raw = _extract_markdown_section(block, _RISK_SECTION_PATTERN)
         action = _extract_markdown_section(block, _ACTION_SECTION_PATTERN)
+        as_of = _extract_markdown_section(block, _AS_OF_SECTION_PATTERN)
+        timeframe = _extract_markdown_section(block, _TIMEFRAME_SECTION_PATTERN)
+        source_raw = _extract_markdown_section(block, _SOURCE_SECTION_PATTERN)
 
-        if not any((condition, behavior, prob_raw, invalidation, risk_raw, action)):
+        if not any(
+            (
+                condition,
+                behavior,
+                prob_raw,
+                invalidation,
+                evidence_raw,
+                watch_raw,
+                impact,
+                risk_raw,
+                action,
+            )
+        ):
             continue
 
         # Map probability text to band
@@ -645,22 +672,24 @@ def _parse_scenario_plan(
                 elif any(w in prob_lower for w in ("low", "unlikely", "remote")):
                     prob_band = ScenarioProbabilityBand.LOW
 
-        # Split risk text into list items
-        risk_items: list[str] = []
-        if risk_raw:
-            risk_items = [
-                r.strip() for r in _re.split(r"[,;•\n]", risk_raw) if r.strip()
-            ]
+        risk_items = _split_list_section(risk_raw)
 
         scenario = Scenario(
             id=str(uuid.uuid4()),
             thesis_id=thesis_id,
+            scenario_name=_extract_scenario_heading_name(block),
             condition=condition or _clean_section_text(block),
-            expected_market_behavior=behavior or "",
+            expected_market_behavior=behavior or impact or "",
             probability_band=prob_band,
             invalidation=invalidation or "",
+            evidence=_split_list_section(evidence_raw)[:12],
+            watch_triggers=_split_list_section(watch_raw)[:12],
+            impact_on_thesis=impact or "",
             risk_map=risk_items[:8],
             suggested_user_action=action or "review",
+            as_of=as_of or "",
+            timeframe=timeframe or "",
+            source=_split_list_section(source_raw)[:8],
         )
         scenarios.append(scenario)
 
@@ -678,18 +707,33 @@ def _extract_section(text: str, field_pattern: str) -> str | None:
 
 _DASH_PATTERN = r"[:\-\u2013\u2014]"
 _CONDITION_SECTION_PATTERN = (
-    r"condition|key\s+market\s+conditions?(?:\s*&\s*catalysts?)?|"
-    r"market\s+conditions?|catalysts?|trigger"
+    r"key\s+market\s+conditions?(?:\s*(?:&|and)\s*catalysts?)?|"
+    r"market\s+conditions?|catalysts?|condition|trigger"
 )
 _BEHAVIOR_SECTION_PATTERN = (
     r"expected\s+behavior|behavior|expected|outcome|price\s+action|"
-    r"market\s+move|impact\s+on\s+investment\s+thesis|impact"
+    r"market\s+move"
 )
 _PROBABILITY_SECTION_PATTERN = r"probability\s+assessment|probability|likelihood|odds"
 _INVALIDATION_SECTION_PATTERN = r"invalidation|invalid|negate|counter"
+_EVIDENCE_SECTION_PATTERN = r"observed\s+evidence|evidence\s+(?:chips?|items?)|evidence"
+_WATCH_SECTION_PATTERN = r"watch\s+triggers?|watch\s+conditions?|triggers?|watch|monitor"
+_IMPACT_SECTION_PATTERN = (
+    r"impact\s+on\s+(?:investment\s+)?thesis|impact\s+on\s+thesis|thesis\s+impact"
+)
 _RISK_SECTION_PATTERN = r"risk\s+factors?|risk\s+map|risk"
 _ACTION_SECTION_PATTERN = (
-    r"recommended\s+response|suggested\s+action|action|recommend|response"
+    r"recommended\s+response|suggested\s+action|action\s+watch|"
+    r"action\s+review|action|recommend|response"
+)
+_AS_OF_SECTION_PATTERN = r"as\s+of|as_of|evidence\s+as\s+of"
+_TIMEFRAME_SECTION_PATTERN = r"timeframe|time\s+frame|horizon"
+_SOURCE_SECTION_PATTERN = r"source\s+artifacts?|sources?|source"
+_COMBINED_DECISION_SECTION_PATTERN = (
+    r"evidence\s+chips?\s*(?:&|and)\s*watch\s+triggers?"
+)
+_PROVENANCE_SECTION_PATTERN = (
+    r"source\s*(?:&|and)\s*time\s*frame|source\s*(?:&|and)\s*as_of"
 )
 _ANY_SECTION_PATTERN = "|".join(
     (
@@ -697,8 +741,16 @@ _ANY_SECTION_PATTERN = "|".join(
         _BEHAVIOR_SECTION_PATTERN,
         _PROBABILITY_SECTION_PATTERN,
         _INVALIDATION_SECTION_PATTERN,
+        _EVIDENCE_SECTION_PATTERN,
+        _WATCH_SECTION_PATTERN,
+        _IMPACT_SECTION_PATTERN,
         _RISK_SECTION_PATTERN,
         _ACTION_SECTION_PATTERN,
+        _AS_OF_SECTION_PATTERN,
+        _TIMEFRAME_SECTION_PATTERN,
+        _SOURCE_SECTION_PATTERN,
+        _COMBINED_DECISION_SECTION_PATTERN,
+        _PROVENANCE_SECTION_PATTERN,
     )
 )
 _SCENARIO_HEADING_PATTERN = (
@@ -754,22 +806,47 @@ def _clean_section_text(text: str) -> str:
         line = raw_line.strip()
         if not line or line == "---":
             continue
+        line = line.replace("**", "").replace("__", "").replace("`", "")
         line = _re.sub(r"^\s*(?:[-*]|\d+[\.\)])\s+", "", line)
         line = _re.sub(r"\s{2,}", " ", line)
         lines.append(line)
     return "\n".join(lines).strip()
 
 
+def _extract_scenario_heading_name(text: str) -> str:
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    match = _re.match(
+        rf"\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+        rf"\s*{_DASH_PATTERN}\s*(?P<name>.+?)\*{{0,2}}\s*$",
+        first_line,
+        _re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    return _clean_section_text(match.group("name"))
+
+
+def _split_list_section(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [
+        _clean_section_text(item)
+        for item in _re.split(r"[;\u2022\n]", raw)
+        if _clean_section_text(item)
+    ]
+
+
 def _extract_markdown_section(text: str, field_pattern: str) -> str | None:
     """Extract a named markdown subsection from scenario text."""
 
+    section_label = _section_label_pattern(field_pattern)
+    any_section_label = _section_label_pattern(_ANY_SECTION_PATTERN)
     pattern = (
         rf"(?:^|\n)\s*(?:#{{1,6}}\s*)?(?:[-*]\s*)?"
-        rf"(?:\*{{0,2}})?(?:{field_pattern})(?:\*{{0,2}})?"
-        rf"\s*(?:{_DASH_PATTERN})?\s*"
+        rf"{section_label}"
         rf"(?P<body>.*?)"
         rf"(?=\n\s*(?:#{{1,6}}\s*)?(?:[-*]\s*)?(?:\*{{0,2}})?"
-        rf"(?:{_ANY_SECTION_PATTERN})(?:\*{{0,2}})?\s*(?:{_DASH_PATTERN})?"
+        rf"{any_section_label}"
         rf"|\n\s*---|\Z)"
     )
     match = _re.search(pattern, text, _re.IGNORECASE | _re.DOTALL)
@@ -777,6 +854,14 @@ def _extract_markdown_section(text: str, field_pattern: str) -> str | None:
         return None
     body = _clean_section_text(match.group("body"))
     return body or None
+
+
+def _section_label_pattern(field_pattern: str) -> str:
+    return (
+        rf"(?:\*{{0,2}})?(?:{field_pattern})(?:\*{{0,2}})?"
+        rf"(?=[ \t]*(?:{_DASH_PATTERN}|\n|\Z))"
+        rf"[ \t]*(?:{_DASH_PATTERN})?[ \t]*(?:\n[ \t]*)?"
+    )
 
 
 _re = __import__("re")

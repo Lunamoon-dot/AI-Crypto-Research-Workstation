@@ -24,6 +24,12 @@ import {
   RESEARCH_CONTINUITY_THIN_REPORT_VERSION,
 } from './continuity-report.renderer';
 import {
+  ContinuityMarkdownArtifact,
+  ContinuityMarkdownExportPort,
+  ContinuityMarkdownExporter,
+  emptyContinuityMarkdownArtifact,
+} from './continuity-markdown.exporter';
+import {
   buildDiffReport,
   buildDiffSummary,
 } from './continuity-diff-report.presenter';
@@ -131,6 +137,8 @@ export class ResearchContinuityService {
   private readonly deltaEngine = new ContinuityDeltaEngine();
   private readonly stateProjector = new ContinuityStateProjector();
   private readonly reportRenderer = new ContinuityReportRenderer();
+  private markdownExporter: ContinuityMarkdownExportPort =
+    new ContinuityMarkdownExporter();
 
   constructor(
     @Inject(JOURNAL_REPOSITORY)
@@ -142,6 +150,10 @@ export class ResearchContinuityService {
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
+
+  setMarkdownExporterForTest(exporter: ContinuityMarkdownExportPort): void {
+    this.markdownExporter = exporter;
+  }
 
   async getRunContinuity(
     runId: string,
@@ -1495,31 +1507,36 @@ export class ResearchContinuityService {
       events,
       generatedAt,
     });
-    const entry = await this.journal.saveResearchContinuityEntry(
-      {
-        id: `continuity_${safeId(runId)}_${randomUUID().replaceAll('-', '')}`,
-        workspace_id: workspaceId,
-        symbol,
-        research_run_id: runId,
-        current_snapshot_id: snapshot.id,
-        previous_entry_id: previousEntryId,
-        entry_type: entryType,
-        status: entryType === 'degraded' ? 'degraded' : 'completed',
-        generated_at: generatedAt,
-        summary: report.summary,
-        sections: report.sections,
-        events,
-        snapshot_quality: quality,
-        source_run_ids: [runId, previousRunId].filter(
-          (id): id is string => Boolean(id),
-        ),
-        writer_metadata: report.writerMetadata,
-        payload: payloadWithThinReport({
+    const entryDraft: JsonRecord = {
+      id: `continuity_${safeId(runId)}_${randomUUID().replaceAll('-', '')}`,
+      workspace_id: workspaceId,
+      symbol,
+      research_run_id: runId,
+      current_snapshot_id: snapshot.id,
+      previous_entry_id: previousEntryId,
+      entry_type: entryType,
+      status: entryType === 'degraded' ? 'degraded' : 'completed',
+      generated_at: generatedAt,
+      summary: report.summary,
+      sections: report.sections,
+      events,
+      snapshot_quality: quality,
+      source_run_ids: [runId, previousRunId].filter(
+        (id): id is string => Boolean(id),
+      ),
+      writer_metadata: report.writerMetadata,
+      payload: payloadWithThinReport(
+        {
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           deterministic: true,
-        }, report.thinReport),
-      },
+        },
+        report.thinReport,
+      ),
+    };
+    const markdownArtifact = await this.exportMarkdownArtifact(entryDraft, run);
+    const entry = await this.journal.saveResearchContinuityEntry(
+      entryWithMarkdownArtifact(entryDraft, markdownArtifact),
       workspaceId,
     );
     const nextState = this.stateProjector.project(
@@ -1570,31 +1587,53 @@ export class ResearchContinuityService {
       skippedReason: input.reason,
       generatedAt,
     });
-    return this.journal.saveResearchContinuityEntry(
-      {
-        id: `continuity_${safeId(runId)}_${randomUUID().replaceAll('-', '')}`,
-        workspace_id: input.workspaceId,
-        symbol: input.symbol,
-        research_run_id: runId,
-        current_snapshot_id: null,
-        previous_entry_id: input.previousEntryId,
-        entry_type: 'skipped',
-        status: 'skipped',
-        generated_at: generatedAt,
-        summary: report.summary,
-        sections: report.sections,
-        events,
-        snapshot_quality: quality,
-        source_run_ids: [runId],
-        writer_metadata: report.writerMetadata,
-        payload: payloadWithThinReport({
+    const entryDraft: JsonRecord = {
+      id: `continuity_${safeId(runId)}_${randomUUID().replaceAll('-', '')}`,
+      workspace_id: input.workspaceId,
+      symbol: input.symbol,
+      research_run_id: runId,
+      current_snapshot_id: null,
+      previous_entry_id: input.previousEntryId,
+      entry_type: 'skipped',
+      status: 'skipped',
+      generated_at: generatedAt,
+      summary: report.summary,
+      sections: report.sections,
+      events,
+      snapshot_quality: quality,
+      source_run_ids: [runId],
+      writer_metadata: report.writerMetadata,
+      payload: payloadWithThinReport(
+        {
           schema_version: 'research_continuity_entry.v1.1',
           evidence_contract_version: 'research_evidence.v1.2',
           skip_reason: input.reason,
-        }, report.thinReport),
-      },
+        },
+        report.thinReport,
+      ),
+    };
+    const markdownArtifact = await this.exportMarkdownArtifact(
+      entryDraft,
+      input.run,
+    );
+    return this.journal.saveResearchContinuityEntry(
+      entryWithMarkdownArtifact(entryDraft, markdownArtifact),
       input.workspaceId,
     );
+  }
+
+  private async exportMarkdownArtifact(
+    entry: JsonRecord,
+    run: JsonRecord,
+  ): Promise<ContinuityMarkdownArtifact> {
+    try {
+      return await this.markdownExporter.export({ entry, run });
+    } catch (error) {
+      return {
+        ...emptyContinuityMarkdownArtifact(),
+        error: error instanceof Error ? error.message : 'Markdown export failed.',
+      } as ContinuityMarkdownArtifact;
+    }
   }
 
   private async loadArtifacts(
@@ -2330,6 +2369,7 @@ function toLegacyEntryResponse(entry: JsonRecord): ResearchContinuityEntryRespon
         sections,
         snapshotQuality,
       }),
+    markdown_artifact: markdownArtifactFromEntry(entry),
   };
 }
 
@@ -2357,6 +2397,7 @@ function toEntrySummaryResponse(
         sections,
         snapshotQuality,
       }),
+    markdown_artifact: markdownArtifactFromEntry(entry),
     diff_summary: buildDiffSummary(entry),
     debug: buildDebugAccess(id, canViewDebug),
   };
@@ -3007,6 +3048,44 @@ function payloadWithThinReport(
       ...recordValue(payload.report_views),
       thin: thinReport,
     },
+  };
+}
+
+function entryWithMarkdownArtifact(
+  entry: JsonRecord,
+  markdownArtifact: ContinuityMarkdownArtifact,
+): JsonRecord {
+  return {
+    ...entry,
+    markdown_artifact: markdownArtifact,
+    writer_metadata: {
+      ...recordValue(entry.writer_metadata),
+      markdown_artifact: markdownArtifact,
+    },
+    payload: {
+      ...recordValue(entry.payload),
+      markdown_artifact: markdownArtifact,
+    },
+  };
+}
+
+function markdownArtifactFromEntry(entry: JsonRecord): ContinuityMarkdownArtifact {
+  const payload = continuityEntryPayload(entry);
+  const artifact = recordValue(
+    entry.markdown_artifact ??
+      recordValue(entry.writer_metadata).markdown_artifact ??
+      payload.markdown_artifact,
+  );
+  if (stringValue(artifact.kind) !== 'continuity_report') {
+    return emptyContinuityMarkdownArtifact();
+  }
+  return {
+    kind: 'continuity_report',
+    label: stringValue(artifact.label, 'Continuity report'),
+    path: nullableString(artifact.path),
+    exists: booleanValue(artifact.exists, false),
+    size_bytes: numberOrNull(artifact.size_bytes),
+    modified_at: nullableString(artifact.modified_at),
   };
 }
 

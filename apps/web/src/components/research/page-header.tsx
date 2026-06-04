@@ -1,8 +1,9 @@
-export function PageHeader({
-  action,
-}: {
+export function PageHeader(_props: {
   action?: React.ReactNode;
+  description?: React.ReactNode;
+  eyebrow?: React.ReactNode;
+  title?: React.ReactNode;
   [key: string]: unknown;
 }) {
-  return action ? <div className="page-header page-header-actions">{action}</div> : null;
+  return null;
 }

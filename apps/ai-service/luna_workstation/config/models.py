@@ -22,6 +22,10 @@ class ProviderRuntimeConfig(BaseModel):
     max_workers: int = 8
 
 
+class LLMRuntimeConfig(BaseModel):
+    timeout_sec: float = 60.0
+
+
 class StaleDataConfig(BaseModel):
     mode: str = "warn"
     max_age_hours: float = 24.0
@@ -53,6 +57,7 @@ class LLMFallbackConfig(BaseModel):
 
 class RuntimeConfigSections(BaseModel):
     journal: JournalConfig = Field(default_factory=JournalConfig)
+    llm_runtime: LLMRuntimeConfig = Field(default_factory=LLMRuntimeConfig)
     provider_runtime: ProviderRuntimeConfig = Field(
         default_factory=ProviderRuntimeConfig
     )
@@ -67,6 +72,9 @@ class RuntimeConfigSections(BaseModel):
     def from_config(cls, config: dict[str, Any]) -> "RuntimeConfigSections":
         return cls(
             journal=JournalConfig.model_validate(config.get("journal", {}) or {}),
+            llm_runtime=LLMRuntimeConfig.model_validate(
+                config.get("llm_runtime", {}) or {}
+            ),
             provider_runtime=ProviderRuntimeConfig.model_validate(
                 config.get("provider_runtime", {}) or {}
             ),

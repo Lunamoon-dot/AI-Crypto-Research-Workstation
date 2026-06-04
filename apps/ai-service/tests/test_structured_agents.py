@@ -8,9 +8,13 @@ decision-making agents share the same shape.
 """
 
 from unittest.mock import MagicMock
+import json
 
 import pytest
 
+from luna_workstation.agents.managers.portfolio_manager import (
+    create_portfolio_manager,
+)
 from luna_workstation.agents.managers.research_manager import create_research_manager
 from luna_workstation.agents.schemas import (
     MarketType,
@@ -129,6 +133,92 @@ class TestRenderResearchPlan:
             )
             md = render_research_plan(p)
             assert f"**Research Stance**: {rating.value}" in md
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Manager agent: structured fallback repair
+# ---------------------------------------------------------------------------
+
+
+def _make_pm_state():
+    return {
+        "company_of_interest": "ETH/USDT",
+        "market_type": "spot",
+        "investment_plan": "**Research Stance**: Underweight\nAvoid fresh longs.",
+        "trader_investment_plan": (
+            "**Setup Stance**: Underweight\n"
+            "**Confirmation**: Daily close back above 1850 with spot volume.\n"
+            "**Invalidation**: Daily close below 1715.\n"
+            "**Objective Zones**: 1650; 1580."
+        ),
+        "risk_debate_state": {
+            "history": "Conservative and neutral analysts prefer avoiding new longs.",
+            "aggressive_history": "",
+            "conservative_history": "",
+            "neutral_history": "",
+            "current_aggressive_response": "",
+            "current_conservative_response": "",
+            "current_neutral_response": "",
+            "count": 1,
+        },
+    }
+
+
+@pytest.mark.unit
+class TestPortfolioManagerAgent:
+    def test_free_text_fallback_synthesizes_summary_json(self):
+        plain_response = "\n".join(
+            [
+                "**Portfolio Manager's Final Research Thesis: ETH/USDT (Spot)**",
+                "**Stance**: Underweight - avoid new longs.",
+                "**Research Summary**: Avoid long until reclaim confirmation.",
+                "**Confirmation**: Daily close back above 1850 with spot volume.",
+                "**Invalidation**: Daily close below 1715.",
+                "**Target Zones**: 1650; 1580.",
+                "**Missing Data**: liquidation heatmap.",
+            ]
+        )
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.return_value = MagicMock(content=plain_response)
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert result["final_trade_decision"] == plain_response
+        assert payload["rating"] == "Underweight"
+        assert payload["direction"] == "avoid"
+        assert payload["market_type"] == "spot"
+        assert (
+            payload["confirmation_condition"]
+            == "Daily close back above 1850 with spot volume."
+        )
+        assert payload["invalidation"] == "Daily close below 1715."
+        assert payload["target_zones"] == ["1650", "1580."]
+
+    def test_llm_failure_falls_back_to_prior_artifacts(self):
+        structured = MagicMock()
+        structured.invoke.side_effect = TimeoutError("provider timed out")
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+        llm.invoke.side_effect = TimeoutError("provider timed out")
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert "**Rating**: Underweight" in result["final_trade_decision"]
+        assert "deterministic fallback" in result["final_trade_decision"]
+        assert payload["rating"] == "Underweight"
+        assert payload["direction"] == "avoid"
+        assert (
+            payload["confirmation_condition"]
+            == "Daily close back above 1850 with spot volume."
+        )
+        assert payload["invalidation"] == "Daily close below 1715."
 
 
 # ---------------------------------------------------------------------------
@@ -312,12 +402,21 @@ def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
             setup_type="agent_debate",
             scenarios=[
                 ScenarioItem(
+                    scenario_name="Watch Zone Reclaim",
+                    direction="neutral",
+                    thesis_impact="medium",
                     condition="If price reclaims the review zone with fresh volume.",
                     expected_behavior="Momentum improves after confirmation.",
+                    evidence=["Price: review zone", "Volume: fresh"],
+                    watch_triggers=["Price reclaims the review zone", "Volume expands"],
+                    impact_on_thesis="Challenges wait mode only after confirmation.",
                     probability_band="medium",
                     invalidation="Invalid if price loses the review zone.",
                     risk_factors=["Manual review required."],
                     suggested_action="watch",
+                    as_of="2026-05-31",
+                    timeframe="1D",
+                    source=["market_report"],
                 )
             ],
         )
@@ -367,12 +466,21 @@ class TestScenarioPlannerAgent:
                 setup_type="agent_debate",
                 scenarios=[
                     ScenarioItem(
+                        scenario_name="Unsupported Date Retest",
+                        direction="neutral",
+                        thesis_impact="medium",
                         condition="If price retests the May 30 breakout level ($643).",
                         expected_behavior="May 30 support should hold before upside.",
+                        evidence=["May 30 level: not sourced."],
+                        watch_triggers=["Retest the May 30 breakout level"],
+                        impact_on_thesis="May 30 reference should be grounded before upgrading.",
                         probability_band="medium",
                         invalidation="Invalid below the May 30 low.",
                         risk_factors=["May 30 level was not sourced."],
                         suggested_action="watch",
+                        as_of="May 30",
+                        timeframe="1D",
+                        source=["market_report"],
                     )
                 ],
             ),

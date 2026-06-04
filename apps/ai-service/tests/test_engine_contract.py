@@ -31,6 +31,7 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
             "analysis_date": "2026-05-12",
             "analysts": ["market", "news", "social", "onchain"],
             "config_profile": "default",
+            "output_language": "Vietnamese",
             "dry_run": True,
             "exchange": "binance",
             "metadata": {"source": "contract-test"},
@@ -65,8 +66,65 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
     assert [event.event_type for event in events] == ["run.started", "run.completed"]
     assert events[0].payload["market_type"] == "spot"
     assert events[0].payload["exchange"] == "binance"
+    assert events[0].payload["output_language"] == "Vietnamese"
     assert events[0].payload["metadata"] == {"source": "contract-test"}
+    assert events[1].payload["output_language"] == "Vietnamese"
     assert events[1].payload["metadata"] == {"source": "contract-test"}
+
+
+def test_engine_request_accepts_output_language_override():
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_language_contract",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market"],
+            "output_language": " Vietnamese ",
+        }
+    )
+
+    assert request.output_language == "Vietnamese"
+
+
+def test_engine_request_rejects_blank_output_language():
+    try:
+        EngineRunRequest.model_validate(
+            {
+                "run_id": "run_blank_language",
+                "workspace_id": "workspace_1",
+                "symbol": "BTC/USDT",
+                "asset_class": "crypto",
+                "analysis_date": "2026-05-12",
+                "analysts": ["market"],
+                "output_language": "   ",
+            }
+        )
+    except ValueError as exc:
+        assert "output_language must not be blank" in str(exc)
+    else:
+        raise AssertionError("blank output_language should fail validation")
+
+
+def test_engine_runner_maps_output_language_to_config_overrides():
+    loader = _CapturingConfigLoader()
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_language_override",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market"],
+            "output_language": "Vietnamese",
+        }
+    )
+
+    config = EngineRunner(config_loader=loader)._load_config(request)
+
+    assert config["output_language"] == "Vietnamese"
+    assert config["_engine"]["output_language"] == "Vietnamese"
 
 
 def test_engine_request_accepts_perp_market_type():

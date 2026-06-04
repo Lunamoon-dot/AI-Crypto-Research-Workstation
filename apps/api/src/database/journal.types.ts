@@ -147,6 +147,7 @@ export interface EngineRunRequest {
   analysts: string[];
   config_profile: string;
   exchange?: string | null;
+  output_language?: string | null;
   dry_run: boolean;
   metadata: JsonRecord;
 }

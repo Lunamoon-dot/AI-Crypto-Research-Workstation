@@ -179,7 +179,7 @@ class GraphSetup:
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
         portfolio_manager_node = create_portfolio_manager(
-            self.deep_thinking_llm, config=self.config
+            self.quick_thinking_llm, config=self.config
         )
 
         scenario_planner_node = create_scenario_planner(self.quick_thinking_llm)

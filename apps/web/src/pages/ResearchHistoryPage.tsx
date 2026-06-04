@@ -9,6 +9,7 @@ import {
   FileText,
   FlaskConical,
   History,
+  Square,
 } from 'lucide-react';
 import { cancelJob, listResearchRuns } from '@/services/research-runs';
 import { queryKeys } from '@/services/query-keys';
@@ -28,24 +29,12 @@ import {
 } from '@/pages/research-history-filters';
 import type { ResearchRunResponse } from '@/types';
 
-const statusOptions = [
-  { value: '', label: 'All statuses' },
-  { value: 'queued', label: 'Queued' },
-  { value: 'running', label: 'Running' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'cancelled', label: 'Cancelled' },
-  { value: 'timed_out', label: 'Timed out' },
-];
-
 export function ResearchHistoryPage() {
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
   const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
   const [startedDate, setStartedDate] = useState('');
   const [symbol, setSymbol] = useState('');
-  const [status, setStatus] = useState('');
-  const [search, setSearch] = useState('');
   const effectiveSymbolFilter = fixedWorkspaceSymbol ?? symbol;
   const query = useQuery({
     queryKey: queryKeys.researchRuns({
@@ -70,14 +59,50 @@ export function ResearchHistoryPage() {
 
   const runs = useMemo(() => {
     return filterResearchRunsByHistoryFilters(query.data ?? [], {
-      search,
+      search: '',
       startedDate,
-      status,
+      status: '',
       symbol: effectiveSymbolFilter,
     });
-  }, [effectiveSymbolFilter, query.data, search, startedDate, status]);
+  }, [effectiveSymbolFilter, query.data, startedDate]);
 
   const metrics = useMemo(() => summarizeRuns(query.data ?? []), [query.data]);
+  const historyFilters = (
+    <div className="scenario-filter-controls research-history-panel-filters">
+      <label className="scenario-filter-label">
+        Date
+        <div className="history-date-filter-row">
+          <input
+            className="input"
+            type="date"
+            value={startedDate}
+            onChange={(event) => setStartedDate(event.target.value)}
+          />
+          <button
+            className="button ghost history-date-all-button"
+            onClick={() => setStartedDate('')}
+            type="button"
+          >All</button>
+        </div>
+      </label>
+      {!fixedWorkspaceSymbol ? (
+        <label className="scenario-filter-label">
+          Symbol
+          <input
+            className="input"
+            placeholder="BTC, ETH, SOL"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value)}
+          />
+        </label>
+      ) : (
+        <div className="scenario-filter-label research-history-workspace-symbol-filter">
+          Workspace symbol
+          <span className="badge primary">{fixedWorkspaceSymbol}</span>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <main className="page">
@@ -122,70 +147,11 @@ export function ResearchHistoryPage() {
       />
 
       <BentoGrid>
-        <Panel className="span-12" title="Filters">
-          <div className="form-grid research-history-filter-grid">
-            <label className="label">
-              Date
-              <div className="history-date-filter-row">
-                <input
-                  className="input"
-                  type="date"
-                  value={startedDate}
-                  onChange={(event) => setStartedDate(event.target.value)}
-                />
-                <button
-                  className="button ghost history-date-all-button"
-                  onClick={() => setStartedDate('')}
-                  type="button"
-                >All</button>
-              </div>
-            </label>
-            {!fixedWorkspaceSymbol ? (
-              <label className="label">
-                Symbol
-                <input
-                  className="input"
-                  placeholder="BTC, ETH, SOL"
-                  value={symbol}
-                  onChange={(event) => setSymbol(event.target.value)}
-                />
-              </label>
-            ) : (
-              <div className="label">
-                Workspace symbol
-                <span className="badge primary">{fixedWorkspaceSymbol}</span>
-              </div>
-            )}
-            <label className="label">
-              Status
-              <select
-                className="select"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                {statusOptions.map((option) => (
-                  <option key={option.value || 'all'} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="label">
-              Search
-              <input
-                className="input"
-                placeholder="Run id, thesis id, timeframe"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </label>
-          </div>
-        </Panel>
-
         <Panel
-          className="span-12"
+          className="span-12 research-history-results-panel"
           title="Run results"
           description={`${runs.length} shown`}
+          action={historyFilters}
         >
           {query.isLoading ? <LoadingState /> : null}
           {query.isError ? <ErrorState error={query.error} /> : null}
@@ -215,6 +181,9 @@ export function ResearchHistoryPage() {
                     const cancelPending =
                       cancelQueuedMutation.isPending &&
                       cancelQueuedMutation.variables === runId;
+                    const stopRequested = Boolean(
+                      run.cancellation_requested_at,
+                    );
                     const cancelError =
                       cancelQueuedMutation.isError &&
                       cancelQueuedMutation.variables === runId
@@ -258,16 +227,26 @@ export function ResearchHistoryPage() {
                               <FlaskConical aria-hidden size={15} />
                               Open run
                             </Link>
-                            {canCancelQueuedRun(run) ? (
+                            {canCancelRun(run) ? (
                               <button
-                                aria-label={`Cancel queued run ${runId}`}
+                                aria-label={`Cancel run ${runId}`}
                                 className="button risk"
-                                disabled={cancelPending}
+                                disabled={cancelPending || stopRequested}
                                 onClick={() => cancelQueuedMutation.mutate(runId)}
                                 type="button"
                               >
-                                <Ban aria-hidden size={15} />
-                                {cancelPending ? 'Cancelling' : 'Cancel queued'}
+                                {run.status === 'running' ? (
+                                  <Square aria-hidden size={15} />
+                                ) : (
+                                  <Ban aria-hidden size={15} />
+                                )}
+                                {cancelPending
+                                  ? 'Stopping'
+                                  : stopRequested
+                                    ? 'Stop requested'
+                                    : run.status === 'running'
+                                      ? 'Stop run'
+                                      : 'Cancel queued'}
                               </button>
                             ) : null}
                             {run.thesis_id ? (
@@ -345,6 +324,12 @@ function isActiveRun(status: string | null | undefined): boolean {
   return status === 'queued' || status === 'running' || status === 'created';
 }
 
-function canCancelQueuedRun(run: ResearchRunResponse): boolean {
-  return run.status === 'queued' && Boolean(run.run_id ?? run.id);
+function canCancelRun(run: ResearchRunResponse): boolean {
+  return (
+    (run.status === 'queued' ||
+      run.status === 'running' ||
+      run.status === 'created' ||
+      run.status === 'submitted') &&
+    Boolean(run.run_id ?? run.id)
+  );
 }

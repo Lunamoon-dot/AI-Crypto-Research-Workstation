@@ -135,12 +135,14 @@ _NOISY_MACHINE_REASON_CODES = {
 
 
 def extract_thesis_field(text: str, field: str) -> str | None:
+    field_label = re.escape(field)
     pattern = (
-        rf"(\*{{0,2}}{field}\s*(?:Zones?|Levels?|Prices?)?\*{{0,2}}\s*:?\s*)"
-        r"(.+?)(?:\n|$)"
+        rf"^\s*(?:[-*]\s*)?\*{{0,2}}{field_label}"
+        r"\s*(?:Zones?|Levels?|Prices?|Condition)?\*{0,2}"
+        r"\s*[:\-\u2013\u2014]\s*(.+?)\s*$"
     )
-    match = re.search(pattern, text, re.IGNORECASE)
-    return match.group(2).strip() if match else None
+    match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+    return match.group(1).strip() if match else None
 
 
 def extract_thesis_list_field(text: str, field: str) -> list[str]:

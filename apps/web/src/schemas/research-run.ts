@@ -14,6 +14,7 @@ export const researchRunRequestSchema = z.object({
     .pipe(z.array(analystSchema).min(1, 'Select at least one analyst.')),
   config_profile: z.string().trim().min(1).default('default'),
   exchange: z.string().trim().min(1).optional(),
+  output_language: z.string().trim().min(1).optional(),
   dry_run: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });

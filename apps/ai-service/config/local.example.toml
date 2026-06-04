@@ -7,8 +7,15 @@
 # quick_think_llm = "gpt-5-mini"
 # deep_think_llm = "gpt-5"
 
+# Optional report language override for all local CLI/engine runs.
+# Per-run API requests can still override this value.
+# output_language = "Vietnamese"
+
 runtime_environment = "local"
 disabled_data_vendors = []
+
+[llm_runtime]
+timeout_sec = 60.0
 
 [config_validation]
 mode = "warn"

@@ -10,6 +10,17 @@ def test_social_prompt_keeps_fear_greed_macro_only_and_samples_weak():
     assert "missing_news_feed" in _SOCIAL_SYSTEM_CONTENT
 
 
+def test_social_prompt_forbids_news_influencer_and_standalone_trade_signal():
+    assert "market-wide crypto mood" in _SOCIAL_SYSTEM_CONTENT
+    assert "asset-specific retail attention" in _SOCIAL_SYSTEM_CONTENT
+    assert "Do not cite news" in _SOCIAL_SYSTEM_CONTENT
+    assert "founder" in _SOCIAL_SYSTEM_CONTENT
+    assert "KOL" in _SOCIAL_SYSTEM_CONTENT
+    assert "Do not convert social attention alone into BUY/SELL" in (
+        _SOCIAL_SYSTEM_CONTENT
+    )
+
+
 def test_onchain_prompt_forbids_proxy_overclaiming():
     assert "CCXT/CoinGecko proxies" in _ONCHAIN_SYSTEM_CONTENT
     assert "not true network transaction NVT" in _ONCHAIN_SYSTEM_CONTENT
