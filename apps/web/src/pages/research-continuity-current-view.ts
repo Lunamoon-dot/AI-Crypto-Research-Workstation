@@ -12,10 +12,19 @@ export interface ContinuitySnapshotView {
   latestRunId: string | null;
   latestEntryId: string | null;
   activeItemCount: number;
+  activeScenarioCount: number;
   capturedItemCount: number;
   memoryKind: 'active' | 'captured' | 'empty';
   memoryLabel: string;
   updatedAt: string | null;
+}
+
+export interface ActiveScenarioBranchView {
+  key: string;
+  branchType: string;
+  probabilityBand: string;
+  condition: string;
+  occurrenceCount: number;
 }
 
 export interface CapturedContinuityMemoryGroup {
@@ -56,7 +65,12 @@ export function buildContinuitySnapshotView({
   > | null;
   state: Pick<
     ResearchContinuityStateResponse,
-    'active_items' | 'current_view' | 'latest_entry_id' | 'latest_run_id' | 'updated_at'
+    | 'active_items'
+    | 'active_scenarios'
+    | 'current_view'
+    | 'latest_entry_id'
+    | 'latest_run_id'
+    | 'updated_at'
   > | null;
 }): ContinuitySnapshotView | null {
   const fallbackView = currentViewFromThinReport(latestEntry?.thin_report ?? null);
@@ -64,14 +78,19 @@ export function buildContinuitySnapshotView({
     return null;
   }
   const stateView = recordValue(state?.current_view);
-  const activeItemCount = state?.active_items.length ?? 0;
+  const activeItemCount = records(state?.active_items).length;
+  const activeScenarioCount = records(state?.active_scenarios).length;
   const capturedItemCount =
     activeItemCount > 0 ? 0 : numberValue(latestEntry?.diff_summary.added_count);
   const memoryKind =
-    activeItemCount > 0 ? 'active' : capturedItemCount > 0 ? 'captured' : 'empty';
+    activeItemCount + activeScenarioCount > 0
+      ? 'active'
+      : capturedItemCount > 0
+        ? 'captured'
+        : 'empty';
   const memoryLabel =
     memoryKind === 'active'
-      ? `${activeItemCount} active`
+      ? `${activeItemCount + activeScenarioCount} active`
       : memoryKind === 'captured'
         ? `${capturedItemCount} captured`
         : '0 active';
@@ -93,11 +112,26 @@ export function buildContinuitySnapshotView({
     latestRunId: state?.latest_run_id ?? latestEntry?.research_run_id ?? null,
     latestEntryId: state?.latest_entry_id ?? latestEntry?.id ?? null,
     activeItemCount,
+    activeScenarioCount,
     capturedItemCount,
     memoryKind,
     memoryLabel,
     updatedAt: state?.updated_at ?? latestEntry?.generated_at ?? null,
   };
+}
+
+export function buildActiveScenarioBranchViews(
+  state: Pick<ResearchContinuityStateResponse, 'active_scenarios'> | null,
+): ActiveScenarioBranchView[] {
+  return records(state?.active_scenarios)
+    .map((scenario, index) => ({
+      key: stringValue(scenario.scenario_key, `scenario-${index + 1}`),
+      branchType: stringValue(scenario.branch_type, 'scenario'),
+      probabilityBand: stringValue(scenario.probability_band, 'unknown'),
+      condition: stringValue(scenario.condition, 'Scenario condition unavailable.'),
+      occurrenceCount: numberValue(scenario.occurrence_count) || 1,
+    }))
+    .filter((scenario) => scenario.condition);
 }
 
 export function buildCapturedContinuityMemoryGroups(
@@ -178,6 +212,15 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+    : [];
 }
 
 function stringValue(value: unknown, fallback: string): string {

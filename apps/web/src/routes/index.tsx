@@ -8,6 +8,7 @@ import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
 import { ScenarioMonitorPage } from '@/pages/ScenarioMonitorPage';
 import { ResearchContinuityEntryDetailPage } from '@/pages/ResearchContinuityEntryDetailPage';
 import { ResearchContinuityPage } from '@/pages/ResearchContinuityPage';
+import { ResearchChatPage } from '@/pages/ResearchChatPage';
 import { ResearchRunFormPage } from '@/pages/ResearchRunFormPage';
 import { ResearchHistoryPage } from '@/pages/ResearchHistoryPage';
 import { ResearchRunWorkspacePage } from '@/pages/ResearchRunWorkspacePage';
@@ -20,6 +21,7 @@ import { WorkbenchPage } from '@/pages/WorkbenchPage';
 import { WorkspaceConfigurationPage } from '@/pages/WorkspaceConfigurationPage';
 
 export const router = createBrowserRouter([
+  { path: 'research-chat', element: <ResearchChatPage /> },
   {
     element: <MainLayout />,
     children: [

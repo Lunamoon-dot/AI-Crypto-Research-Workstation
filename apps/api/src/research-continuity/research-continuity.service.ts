@@ -1643,6 +1643,7 @@ export class ResearchContinuityService {
     debate: JsonRecord | null;
     agentOpinions: JsonRecord[];
     thesis: JsonRecord | null;
+    scenarios: JsonRecord[];
     marketSnapshot: JsonRecord | null;
     signalSnapshot: JsonRecord | null;
   }> {
@@ -1667,10 +1668,14 @@ export class ResearchContinuityService {
     const agentOpinions = debateId
       ? await this.journal.listAgentOpinions(debateId, workspaceId)
       : [];
+    const scenarios = thesisId
+      ? await this.journal.listScenarios(thesisId, workspaceId)
+      : [];
     return {
       debate,
       agentOpinions,
       thesis,
+      scenarios,
       marketSnapshot,
       signalSnapshot,
     };
@@ -2311,8 +2316,11 @@ function stateFromEntryAndSnapshot(
     latest_run_id: nullableString(entry.research_run_id),
     current_view: recordValue(snapshot.symbol_view),
     active_items: arrayRecords(snapshot.tracked_items),
+    active_scenarios: arrayRecords(snapshot.scenario_branches),
     recent_resolved_items: [],
     recent_invalidated_items: [],
+    recent_resolved_scenarios: [],
+    recent_invalidated_scenarios: [],
     data_quality: recordValue(snapshot.data_quality ?? entry.snapshot_quality),
     updated_at: nullableString(entry.generated_at),
     payload: continuityEntryPayload(entry),
@@ -2680,8 +2688,11 @@ function toStateResponse(state: JsonRecord): ResearchContinuityStateResponse {
     latest_run_id: nullableString(state.latest_run_id),
     current_view: recordValue(state.current_view),
     active_items: arrayRecords(state.active_items),
+    active_scenarios: arrayRecords(state.active_scenarios),
     recent_resolved_items: arrayRecords(state.recent_resolved_items),
     recent_invalidated_items: arrayRecords(state.recent_invalidated_items),
+    recent_resolved_scenarios: arrayRecords(state.recent_resolved_scenarios),
+    recent_invalidated_scenarios: arrayRecords(state.recent_invalidated_scenarios),
     data_quality: recordValue(state.data_quality),
     updated_at: nullableString(state.updated_at),
   };
@@ -2696,6 +2707,7 @@ export function toSnapshotResponse(snapshot: JsonRecord): ResearchSnapshotRespon
     captured_at: nullableString(snapshot.captured_at),
     time_context: stringValue(snapshot.time_context, 'unspecified'),
     symbol_view: recordValue(snapshot.symbol_view),
+    scenario_branches: arrayRecords(snapshot.scenario_branches),
     tracked_items: arrayRecords(snapshot.tracked_items),
     data_quality: recordValue(snapshot.data_quality),
     source_artifacts: recordValue(snapshot.source_artifacts),
@@ -2760,6 +2772,10 @@ function buildLatestContinuityContext(input: {
     payload.current_view,
   );
   const activeItems = stateArrayValue(input.state.active_items, payload.active_items);
+  const activeScenarios = stateArrayValue(
+    input.state.active_scenarios,
+    payload.active_scenarios,
+  );
   const recentResolvedItems = stateArrayValue(
     input.state.recent_resolved_items,
     payload.recent_resolved_items,
@@ -2803,10 +2819,27 @@ function buildLatestContinuityContext(input: {
       ['invalidation'],
       3,
     ),
+    active_scenarios: compactScenarioBranches(activeScenarios, 5),
     recent_resolved_items: compactContinuityItems(recentResolvedItems, [], 2),
     recent_invalidated_items: compactContinuityItems(recentInvalidatedItems, [], 2),
     summary: truncateText(stringValue(input.latestEntry.summary, ''), 800),
   };
+}
+
+function compactScenarioBranches(values: unknown[], limit: number): JsonRecord[] {
+  return values
+    .map((value) => {
+      const record = recordValue(value);
+      return {
+        scenario_key: nullableString(record.scenario_key),
+        branch_type: nullableString(record.branch_type),
+        probability_band: nullableString(record.probability_band),
+        condition: truncateText(stringValue(record.condition), 220),
+        invalidation: truncateText(stringValue(record.invalidation), 220),
+      };
+    })
+    .filter((scenario) => scenario.scenario_key || scenario.condition)
+    .slice(0, limit);
 }
 
 function continuityStaleness(generatedAt: string | null): JsonRecord {
@@ -2909,6 +2942,7 @@ function normalizeTimelineItemType(
       'watchpoint',
       'level',
       'invalidation',
+      'scenario',
       'view',
       'quality',
       'unknown',

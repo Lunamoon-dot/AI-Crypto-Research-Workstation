@@ -260,6 +260,61 @@ test('continuity timeline renders legacy section rows without creating lifecycle
   assert.equal(response.lifecycle_items.length, 0);
 });
 
+test('continuity timeline treats scenario events as lifecycle items', () => {
+  const response = buildContinuityTimeline({
+    symbol: 'BTC/USDT',
+    workspaceId: 'workspace_a',
+    entryLimit: 10,
+    fetchedEntryCount: 1,
+    generatedAt: '2026-05-30T00:00:00.000Z',
+    entries: [
+      {
+        id: 'continuity_scenario',
+        workspace_id: 'workspace_a',
+        symbol: 'BTC/USDT',
+        research_run_id: 'run_scenario',
+        entry_type: 'delta',
+        status: 'completed',
+        generated_at: '2026-05-30T00:00:00.000Z',
+        events: [
+          {
+            event_type: 'scenario_probability_changed',
+            item_key:
+              'thesis_scenario_bridge:confirmation:if-btc-reclaims-108k-on-acceptance',
+            severity: 'medium',
+            previous_text: 'confirmation (low) If BTC reclaims 108k on acceptance',
+            current_text: 'confirmation (high) If BTC reclaims 108k on acceptance',
+            from: {
+              scenario_key:
+                'thesis_scenario_bridge:confirmation:if-btc-reclaims-108k-on-acceptance',
+              probability_band: 'low',
+            },
+            to: {
+              scenario_key:
+                'thesis_scenario_bridge:confirmation:if-btc-reclaims-108k-on-acceptance',
+              scenario_id: 'scenario_bridge_1',
+              probability_band: 'high',
+              condition: 'If BTC reclaims 108k on acceptance',
+            },
+            source: {
+              source_artifact: 'scenario',
+              source_id: 'scenario_bridge_1',
+              source_field: 'probability_band',
+            },
+          },
+        ],
+        snapshot_quality: { status: 'clean', score: 1 },
+        payload: { schema_version: 'research_continuity_entry.v1.1' },
+      },
+    ],
+  });
+
+  assert.equal(response.lifecycle_items.length, 1);
+  assert.equal(response.lifecycle_items[0]?.item_type, 'scenario');
+  assert.equal(response.lifecycle_items[0]?.status, 'updated');
+  assert.equal(response.timeline_events[0]?.source_artifact, 'scenario');
+});
+
 test('continuity timeline maps terminal statuses and returns stable empty ledgers', () => {
   const response = buildContinuityTimeline({
     entries: [

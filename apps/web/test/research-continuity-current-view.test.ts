@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildActiveScenarioBranchViews,
   buildCapturedContinuityMemoryGroups,
   buildContinuitySnapshotView,
 } from '../src/pages/research-continuity-current-view.ts';
@@ -76,6 +77,7 @@ test('continuity snapshot prefers projected state values over latest entry fallb
         time_context: 'daily_context',
       },
       active_items: [{ item_key: 'risk_1' }],
+      active_scenarios: [],
       updated_at: '2026-05-31T07:00:00.000Z',
     },
   });
@@ -91,6 +93,43 @@ test('continuity snapshot prefers projected state values over latest entry fallb
   assert.equal(snapshot?.memoryLabel, '1 active');
   assert.equal(snapshot?.memoryKind, 'active');
   assert.equal(snapshot?.updatedAt, '2026-05-31T07:00:00.000Z');
+});
+
+test('continuity snapshot counts active scenario branches as active memory', () => {
+  const state = {
+    latest_run_id: 'run_state',
+    latest_entry_id: 'entry_state',
+    current_view: {},
+    active_items: [],
+    active_scenarios: [
+      {
+        scenario_key: 'thesis_1:confirmation:if-btc-reclaims-108k-on-acceptance',
+        branch_type: 'confirmation',
+        probability_band: 'high',
+        condition: 'If BTC reclaims 108k on acceptance',
+        occurrence_count: 2,
+      },
+    ],
+    updated_at: '2026-05-31T07:00:00.000Z',
+  };
+  const snapshot = buildContinuitySnapshotView({
+    latestEntry: null,
+    state,
+  });
+
+  assert.equal(snapshot?.activeItemCount, 0);
+  assert.equal(snapshot?.activeScenarioCount, 1);
+  assert.equal(snapshot?.memoryKind, 'active');
+  assert.equal(snapshot?.memoryLabel, '1 active');
+  assert.deepEqual(buildActiveScenarioBranchViews(state), [
+    {
+      key: 'thesis_1:confirmation:if-btc-reclaims-108k-on-acceptance',
+      branchType: 'confirmation',
+      probabilityBand: 'high',
+      condition: 'If BTC reclaims 108k on acceptance',
+      occurrenceCount: 2,
+    },
+  ]);
 });
 
 test('captured continuity memory groups expose latest degraded entry items', () => {

@@ -200,6 +200,9 @@ function buildThinReport(
       'level_updated',
       'invalidation_added',
       'invalidation_updated',
+      'scenario_added',
+      'scenario_probability_changed',
+      'scenario_invalidated',
       'data_quality_changed',
       'agent_conflict_changed',
     ]),
@@ -228,6 +231,7 @@ function buildThinReport(
       'risk_resolved',
       'watchpoint_resolved',
       'level_invalidated',
+      'scenario_invalidated',
     ]),
     evidenceHealthItems: evidenceHealthItems(quality),
   });
@@ -352,6 +356,8 @@ function summaryText(input: {
       'risk_updated',
       'watchpoint_added',
       'watchpoint_updated',
+      'scenario_added',
+      'scenario_probability_changed',
     ].includes(stringValue(event.event_type)),
   ).length;
   return changed > 0

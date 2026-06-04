@@ -249,6 +249,57 @@ as_of: 2026-06-04
     assert row.as_of == "2026-06-04"
 
 
+def test_parse_scenario_plan_handles_vietnamese_fallback_markdown():
+    text = """
+### Kịch bản 1: Phá vỡ tăng được xác nhận
+
+**Điều kiện thị trường**
+- BTC đóng cửa trên 108k với khối lượng cải thiện.
+- Funding không tăng quá nóng.
+
+**Xác suất**
+- Trung bình - cần xác nhận thêm từ thanh khoản.
+
+**Tác động lên luận điểm**
+- Làm suy yếu quan điểm tránh mua mới và buộc xem xét lại.
+
+**Hành động đề xuất**
+- Review - chạy lại phân tích nếu đóng cửa ngày giữ trên 108k.
+
+**Rủi ro**
+- Breakout giả nếu giá quay lại dưới 105k.
+
+**Nguồn**
+- market_report
+
+---
+
+### Kịch bản 2: Vô hiệu xu hướng hồi phục
+
+**Điều kiện thị trường**
+- Giá mất vùng 103k và OI giảm nhanh.
+
+**Xác suất**
+- Thấp - chỉ kích hoạt nếu áp lực bán mở rộng.
+
+**Tác động lên luận điểm**
+- Củng cố trạng thái underweight.
+
+**Hành động đề xuất**
+- Watch - không tăng rủi ro cho đến khi có cân bằng mới.
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_vi")
+
+    assert len(rows) == 2
+    assert rows[0].scenario_name == "Phá vỡ tăng được xác nhận"
+    assert rows[0].condition.startswith("BTC đóng cửa trên 108k")
+    assert rows[0].probability_band.value == "medium"
+    assert rows[0].suggested_user_action.startswith("Review")
+    assert rows[0].risk_map == ["Breakout giả nếu giá quay lại dưới 105k."]
+    assert rows[1].probability_band.value == "low"
+
+
 def test_split_list_section_preserves_price_commas():
     items = _split_list_section(
         "Price remains between $60,500 and $66,000.\nVolume declining."

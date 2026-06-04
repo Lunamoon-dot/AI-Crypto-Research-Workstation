@@ -37,6 +37,10 @@ const EVENT_STATUSES: Record<string, ResearchContinuityLifecycleStatus> = {
   watchpoint_updated: 'updated',
   level_updated: 'updated',
   invalidation_updated: 'invalidated',
+  scenario_added: 'active',
+  scenario_probability_changed: 'updated',
+  scenario_invalidated: 'invalidated',
+  scenario_carried: 'context',
   view_changed: 'updated',
   risk_resolved: 'resolved',
   watchpoint_resolved: 'resolved',
@@ -69,6 +73,9 @@ const OCCURRENCE_EVENT_TYPES = new Set([
   'watchpoint_updated',
   'level_updated',
   'invalidation_updated',
+  'scenario_added',
+  'scenario_probability_changed',
+  'scenario_carried',
   'claim_reinforced',
   'risk_reinforced',
   'watchpoint_carried',
@@ -465,6 +472,9 @@ function itemTypeFor(
   if (eventType === 'data_quality_changed') {
     return 'quality';
   }
+  if (eventType.startsWith('scenario_')) {
+    return 'scenario';
+  }
   const from = recordValue(event.from);
   const to = recordValue(event.to);
   const explicit = stringValue(to.type ?? from.type);
@@ -569,6 +579,8 @@ function severityFor(
     eventType.startsWith('risk_') ||
     eventType.startsWith('invalidation_') ||
     eventType === 'level_invalidated' ||
+    eventType === 'scenario_probability_changed' ||
+    eventType === 'scenario_invalidated' ||
     eventType === 'data_quality_changed'
   ) {
     severity = severity === 'critical' ? 'critical' : 'warning';
@@ -747,6 +759,9 @@ function legacyItemTypeForTitle(
   if (normalized.includes('invalidation')) {
     return 'invalidation';
   }
+  if (normalized.includes('scenario')) {
+    return 'scenario';
+  }
   if (normalized.includes('claim')) {
     return 'claim';
   }
@@ -803,6 +818,7 @@ function isLifecycleItemType(
     'watchpoint',
     'level',
     'invalidation',
+    'scenario',
     'view',
     'quality',
     'unknown',

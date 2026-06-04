@@ -1438,11 +1438,11 @@ function resolvePipelineStageState({
   }
 
   const failed = latestMatchingEvent(events, stage, 'agent.node.failed');
-  if (failed || runFailed) {
+  if (failed) {
     return {
       label: 'failed',
       badgeClass: 'badge risk',
-      detail: failed?.message || 'No output before failure',
+      detail: failed.message || 'No output before failure',
     };
   }
 
@@ -1457,6 +1457,14 @@ function resolvePipelineStageState({
 
   const running = latestStartedStageEvent(events, stage);
   if (running) {
+    if (runFailed) {
+      return {
+        label: 'missing',
+        badgeClass: 'badge warning',
+        detail: 'Interrupted before completion',
+      };
+    }
+
     return {
       label: 'running',
       badgeClass: 'badge primary',
@@ -1469,6 +1477,14 @@ function resolvePipelineStageState({
       label: 'missing',
       badgeClass: 'badge warning',
       detail: 'Persisted without generation event',
+    };
+  }
+
+  if (runFailed) {
+    return {
+      label: 'missing',
+      badgeClass: 'badge warning',
+      detail: 'Not reached before run failed',
     };
   }
 

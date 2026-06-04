@@ -259,6 +259,7 @@ export type ResearchContinuityDiffItemType =
   | 'watchpoint'
   | 'level'
   | 'invalidation'
+  | 'scenario'
   | 'view'
   | 'quality'
   | 'unknown';
@@ -400,6 +401,7 @@ export interface ResearchSnapshotResponse {
   captured_at: string | null;
   time_context: string;
   symbol_view: JsonRecord;
+  scenario_branches: JsonRecord[];
   tracked_items: JsonRecord[];
   data_quality: JsonRecord;
   source_artifacts: JsonRecord;
@@ -436,8 +438,11 @@ export interface ResearchContinuityStateResponse {
   latest_run_id: string | null;
   current_view: JsonRecord;
   active_items: JsonRecord[];
+  active_scenarios: JsonRecord[];
   recent_resolved_items: JsonRecord[];
   recent_invalidated_items: JsonRecord[];
+  recent_resolved_scenarios: JsonRecord[];
+  recent_invalidated_scenarios: JsonRecord[];
   data_quality: JsonRecord;
   updated_at: string | null;
 }
@@ -464,6 +469,7 @@ export type ResearchContinuityLifecycleItemType =
   | 'watchpoint'
   | 'level'
   | 'invalidation'
+  | 'scenario'
   | 'view'
   | 'quality'
   | 'unknown';

@@ -24,6 +24,9 @@ export class ContinuityDeltaEngine {
       for (const item of arrayRecords(snapshot.tracked_items)) {
         events.push(itemAddedEvent(item));
       }
+      for (const scenario of arrayRecords(snapshot.scenario_branches)) {
+        events.push(scenarioAddedEvent(scenario));
+      }
       return events;
     }
 
@@ -90,6 +93,13 @@ export class ContinuityDeltaEngine {
       events.push(itemResolvedEvent(item));
     }
 
+    events.push(
+      ...scenarioEvents(
+        arrayRecords(previousState.active_scenarios),
+        arrayRecords(snapshot.scenario_branches),
+      ),
+    );
+
     const previousQuality = recordValue(previousState.data_quality);
     const currentQuality = recordValue(snapshot.data_quality);
     if (
@@ -111,6 +121,102 @@ export class ContinuityDeltaEngine {
     }
     return events;
   }
+}
+
+function scenarioEvents(
+  previousScenarios: JsonRecord[],
+  currentScenarios: JsonRecord[],
+): JsonRecord[] {
+  const events: JsonRecord[] = [];
+  const previousByKey = byScenarioKey(previousScenarios);
+  const currentKeys = new Set<string>();
+  for (const scenario of currentScenarios) {
+    const key = stringValue(scenario.scenario_key);
+    if (key) {
+      currentKeys.add(key);
+    }
+    const previous = key ? previousByKey.get(key) : undefined;
+    if (!previous) {
+      events.push(scenarioAddedEvent(scenario));
+      continue;
+    }
+    const previousBand = stringValue(previous.probability_band, 'unknown');
+    const currentBand = stringValue(scenario.probability_band, 'unknown');
+    if (previousBand !== currentBand) {
+      events.push({
+        event_type: 'scenario_probability_changed',
+        severity: 'medium',
+        from: previous,
+        to: scenario,
+        item_key: key,
+        previous_text: scenarioText(previous),
+        current_text: scenarioText(scenario),
+        source: scenarioSourcePayload(scenario, 'probability_band'),
+        reason: `Scenario probability changed from ${previousBand} to ${currentBand}.`,
+      });
+      continue;
+    }
+    events.push({
+      event_type: 'scenario_carried',
+      severity: 'low',
+      from: previous,
+      to: scenario,
+      item_key: key,
+      current_text: scenarioText(scenario),
+      source: scenarioSourcePayload(scenario, null),
+      reason: `Scenario branch carried forward: ${scenarioText(scenario)}`,
+    });
+  }
+  for (const scenario of previousScenarios) {
+    const key = stringValue(scenario.scenario_key);
+    if (key && currentKeys.has(key)) {
+      continue;
+    }
+    events.push({
+      event_type: 'scenario_invalidated',
+      severity: 'medium',
+      from: scenario,
+      to: null,
+      item_key: key,
+      previous_text: scenarioText(scenario),
+      source: scenarioSourcePayload(scenario, null),
+      reason: `Scenario branch no longer active: ${scenarioText(scenario)}`,
+    });
+  }
+  return events;
+}
+
+function scenarioAddedEvent(scenario: JsonRecord): JsonRecord {
+  return {
+    event_type: 'scenario_added',
+    severity: 'low',
+    from: null,
+    to: scenario,
+    item_key: stringValue(scenario.scenario_key),
+    current_text: scenarioText(scenario),
+    reason: `Scenario branch added: ${scenarioText(scenario)}`,
+    source: scenarioSourcePayload(scenario, null),
+  };
+}
+
+function scenarioText(scenario: JsonRecord): string {
+  const condition = stringValue(scenario.condition);
+  const band = stringValue(scenario.probability_band);
+  const branchType = stringValue(scenario.branch_type, 'scenario');
+  return [branchType, band ? `(${band})` : '', condition]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function scenarioSourcePayload(
+  scenario: JsonRecord,
+  sourceField: string | null,
+): JsonRecord {
+  return {
+    source_artifact: 'scenario',
+    source_id: scenario.scenario_id ?? scenario.source_id ?? null,
+    source_field: sourceField,
+  };
 }
 
 function findPreviousItem(
@@ -328,6 +434,17 @@ function byItemKey(items: JsonRecord[]): Map<string, JsonRecord> {
   const result = new Map<string, JsonRecord>();
   for (const item of items) {
     const key = stringValue(item.item_key);
+    if (key) {
+      result.set(key, item);
+    }
+  }
+  return result;
+}
+
+function byScenarioKey(items: JsonRecord[]): Map<string, JsonRecord> {
+  const result = new Map<string, JsonRecord>();
+  for (const item of items) {
+    const key = stringValue(item.scenario_key);
     if (key) {
       result.set(key, item);
     }

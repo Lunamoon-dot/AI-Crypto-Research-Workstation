@@ -31,6 +31,11 @@ test('research continuity lifecycle helpers count filter select and label timeli
         status: 'resolved',
         timeline_event_ids: ['event_4'],
       },
+      {
+        stable_item_key: 'scenario_1',
+        status: 'updated',
+        timeline_event_ids: ['event_5'],
+      },
     ],
     timeline_events: [
       {
@@ -57,12 +62,18 @@ test('research continuity lifecycle helpers count filter select and label timeli
         item_type: 'watchpoint',
         status: 'resolved',
       },
+      {
+        id: 'event_5',
+        stable_item_key: 'scenario_1',
+        item_type: 'scenario',
+        status: 'updated',
+      },
     ],
   };
 
   assert.deepEqual(lifecycleStatusCounts(timeline), {
     active: 1,
-    updated: 0,
+    updated: 1,
     resolved: 1,
     weakened: 1,
     invalidated: 0,
@@ -73,6 +84,13 @@ test('research continuity lifecycle helpers count filter select and label timeli
       status: 'active',
     }).map((event) => event.id),
     ['event_1'],
+  );
+  assert.deepEqual(
+    filterLifecycleTimelineEvents(timeline.timeline_events, {
+      itemType: 'scenario',
+      status: 'updated',
+    }).map((event) => event.id),
+    ['event_5'],
   );
   assert.deepEqual(
     selectedLifecycleTimelineEvents(timeline, 'risk_1').map((event) => event.id),

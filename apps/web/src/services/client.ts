@@ -19,6 +19,8 @@ const api = axios.create({
   },
 });
 
+export const API_BASE_URL = env.apiBaseUrl;
+
 export async function apiRequest<T>(
   path: string,
   options: ApiOptions,
@@ -41,7 +43,7 @@ export async function apiRequest<T>(
   }
 }
 
-async function authHeaders(auth: WorkspaceRequestContext) {
+export async function authHeaders(auth: WorkspaceRequestContext) {
   if (auth.mode === 'local') {
     return auth.getLocalHeaders();
   }

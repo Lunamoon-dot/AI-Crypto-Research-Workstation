@@ -458,6 +458,30 @@ class TestScenarioPlannerAgent:
         assert "Do not attach a specific calendar date" in prompt_text
         assert "prior breakout/support/resistance level" in prompt_text
 
+    def test_prompt_honors_output_language_config(self):
+        captured = {}
+        llm = _structured_scenario_llm(captured)
+        scenario_planner = create_scenario_planner(
+            llm, config={"output_language": "Vietnamese"}
+        )
+
+        scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-04",
+                "investment_plan": "Wait for a confirmed reclaim.",
+                "final_trade_decision": "Watch the reclaim trigger.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        prompt_text = "\n".join(message["content"] for message in captured["prompt"])
+        assert "Write your entire response in Vietnamese" in prompt_text
+
     def test_structured_output_replaces_unsupported_calendar_dates(self):
         captured = {}
         llm = _structured_scenario_llm(

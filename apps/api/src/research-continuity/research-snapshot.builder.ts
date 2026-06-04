@@ -13,6 +13,7 @@ export interface ResearchSnapshotBuildInput {
   debate: JsonRecord | null;
   agentOpinions: JsonRecord[];
   thesis: JsonRecord | null;
+  scenarios: JsonRecord[];
   marketSnapshot: JsonRecord | null;
   signalSnapshot: JsonRecord | null;
 }
@@ -162,6 +163,7 @@ export class ResearchSnapshotBuilder {
       time_context: timeContext,
     };
     const evidence = evidenceItems(input);
+    const scenarioBranches = buildScenarioBranches(input.scenarios, input.thesis);
     const trackedItems = dedupeTrackedItems(
       [
         ...riskItems(input.thesis, input.agentOpinions),
@@ -169,6 +171,7 @@ export class ResearchSnapshotBuilder {
         ...invalidationItems(input.thesis, input.agentOpinions),
         ...levelItems(input.thesis),
         ...claimItems(input.thesis),
+        ...scenarioTrackedItems(scenarioBranches),
       ].map((seed) => trackedItem(seed, evidence)),
     );
     const quality = snapshotQualityWithTrackedItems(baseQuality, trackedItems);
@@ -178,6 +181,9 @@ export class ResearchSnapshotBuilder {
         .map((opinion) => nullableString(opinion.id))
         .filter((id): id is string => Boolean(id)),
       thesis_id: nullableString(input.thesis?.id ?? input.run.thesis_id),
+      scenario_ids: scenarioBranches
+        .map((scenario) => nullableString(scenario.scenario_id))
+        .filter((id): id is string => Boolean(id)),
       market_snapshot_id: nullableString(
         input.marketSnapshot?.id ?? input.run.market_snapshot_id,
       ),
@@ -193,11 +199,12 @@ export class ResearchSnapshotBuilder {
       captured_at: capturedAt,
       time_context: timeContext,
       symbol_view: symbolView,
+      scenario_branches: scenarioBranches,
       tracked_items: trackedItems,
       data_quality: quality,
       source_artifacts: sourceArtifacts,
       payload: {
-        schema_version: 'research_snapshot.v1.1',
+        schema_version: 'research_snapshot.v1.2',
         evidence_contract_version: 'research_evidence.v1.2',
         run_status: stringValue(input.run.status, 'unknown'),
         market: input.marketSnapshot
@@ -268,6 +275,179 @@ function snapshotQuality(input: ResearchSnapshotBuildInput): JsonRecord {
     skipped,
     can_update_top_level_view: !skipped && roundedScore >= 0.65,
   };
+}
+
+function buildScenarioBranches(
+  scenarios: JsonRecord[],
+  thesis: JsonRecord | null,
+): JsonRecord[] {
+  return scenarios
+    .map((scenario) => scenarioBranch(scenario, thesis))
+    .filter((scenario) => stringValue(scenario.condition) || stringValue(scenario.expected_behavior));
+}
+
+function scenarioBranch(scenario: JsonRecord, thesis: JsonRecord | null): JsonRecord {
+  const payload = recordValue(scenario.payload ?? scenario.payload_json);
+  const thesisId = nullableString(scenario.thesis_id ?? thesis?.id);
+  const scenarioId = nullableString(scenario.id);
+  const branchType = scenarioBranchType(scenario);
+  const condition = firstOptionalString(
+    scenario.condition,
+    payload.condition,
+    payload.trigger,
+  );
+  const expectedBehavior = firstOptionalString(
+    scenario.expected_behavior,
+    payload.expected_behavior,
+    payload.expected_market_behavior,
+  );
+  const probabilityBand = normalizeProbabilityBand(
+    scenario.probability_band ?? payload.probability_band,
+  );
+  const invalidation = firstOptionalString(
+    scenario.invalidation,
+    payload.invalidation,
+    payload.invalidation_condition,
+  );
+  const riskFactors = uniqueStrings([
+    ...stringList(scenario.risk_map),
+    ...stringList(payload.risk_map),
+    ...stringList(payload.risk_factors),
+  ]);
+  const suggestedAction = firstOptionalString(
+    scenario.suggested_user_action,
+    payload.suggested_user_action,
+    payload.suggested_action,
+  );
+  return {
+    scenario_key: stableScenarioKey({
+      thesisId,
+      branchType,
+      condition,
+      scenarioId,
+    }),
+    thesis_id: thesisId,
+    scenario_id: scenarioId,
+    branch_type: branchType,
+    condition,
+    expected_behavior: expectedBehavior,
+    probability_band: probabilityBand,
+    invalidation,
+    risk_factors: riskFactors,
+    suggested_action: suggestedAction,
+    source_artifact: 'scenario',
+    source_id: scenarioId,
+  };
+}
+
+function scenarioTrackedItems(branches: JsonRecord[]): TrackedItemSeed[] {
+  return branches.flatMap((branch) => {
+    const metadata = {
+      scenario_key: stringValue(branch.scenario_key),
+      branch_type: stringValue(branch.branch_type),
+      thesis_id: nullableString(branch.thesis_id),
+    };
+    const scenarioId = nullableString(branch.scenario_id);
+    const seeds: TrackedItemSeed[] = [];
+    for (const condition of singleString(branch.condition, (text) =>
+      seedItem(
+        'watchpoint',
+        text,
+        'medium',
+        'scenario',
+        scenarioId,
+        'condition',
+      ),
+    )) {
+      seeds.push({ ...condition, attributes: metadata });
+    }
+    for (const invalidation of singleString(branch.invalidation, (text) =>
+      seedItem(
+        'invalidation',
+        text,
+        'high',
+        'scenario',
+        scenarioId,
+        'invalidation',
+      ),
+    )) {
+      seeds.push({ ...invalidation, attributes: metadata });
+    }
+    for (const risk of indexedStrings(branch.risk_factors, (text, index) =>
+      seedItem(
+        'risk',
+        text,
+        'medium',
+        'scenario',
+        scenarioId,
+        `risk_factors[${index}]`,
+      ),
+    )) {
+      seeds.push({ ...risk, attributes: metadata });
+    }
+    for (const claim of singleString(branch.expected_behavior, (text) =>
+      seedItem(
+        'claim',
+        text,
+        'medium',
+        'scenario',
+        scenarioId,
+        'expected_behavior',
+      ),
+    )) {
+      seeds.push({ ...claim, attributes: metadata });
+    }
+    return seeds;
+  });
+}
+
+function stableScenarioKey(input: {
+  thesisId: string | null;
+  branchType: string;
+  condition: string;
+  scenarioId: string | null;
+}): string {
+  if (input.scenarioId) {
+    return `scenario:${input.scenarioId}`;
+  }
+  const conditionSlug = slugValue(input.condition);
+  if (input.thesisId && conditionSlug) {
+    return `${input.thesisId}:${input.branchType}:${conditionSlug}`;
+  }
+  return `scenario:${input.branchType}:${hashKey(input.condition || input.branchType)}`;
+}
+
+function scenarioBranchType(scenario: JsonRecord): string {
+  const payload = recordValue(scenario.payload ?? scenario.payload_json);
+  const normalized = normalizedText(
+    stringValue(
+      scenario.branch_type ??
+        payload.branch_type ??
+        payload.scenario_type ??
+        payload.direction ??
+        'branch',
+    ),
+  ).replace(/[^a-z0-9_]+/g, '_');
+  return normalized || 'branch';
+}
+
+function normalizeProbabilityBand(
+  value: unknown,
+): 'low' | 'medium' | 'high' | 'watch' | 'unknown' {
+  const normalized = normalizedText(stringValue(value));
+  if (['low', 'medium', 'high', 'watch'].includes(normalized)) {
+    return normalized as 'low' | 'medium' | 'high' | 'watch';
+  }
+  if (['med', 'mid', 'moderate'].includes(normalized)) {
+    return 'medium';
+  }
+  if (['elevated', 'likely', 'strong'].includes(normalized)) {
+    return 'high';
+  }
+  if (['unlikely', 'weak'].includes(normalized)) {
+    return 'low';
+  }
+  return 'unknown';
 }
 
 function snapshotQualityWithTrackedItems(
@@ -377,6 +557,16 @@ function firstNonEmptyString(...values: unknown[]): string {
     }
   }
   return 'unclear';
+}
+
+function firstOptionalString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = stringValue(value).trim();
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  return '';
 }
 
 function signalBias(signal: JsonRecord | null): string {
@@ -893,6 +1083,13 @@ function legacyItemKey(type: TrackedItemType, text: string): string {
 
 function normalizedText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function slugValue(value: string): string {
+  return normalizedText(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96);
 }
 
 function safeId(value: string): string {

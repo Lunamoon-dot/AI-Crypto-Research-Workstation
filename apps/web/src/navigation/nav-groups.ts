@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  Bot,
   ClipboardList,
   FlaskConical,
   Gauge,
@@ -47,6 +48,14 @@ export const navGroups: NavigationGroup[] = [
         title: 'Daily operating view',
         href: routes.workbench,
         icon: Radar,
+        mobile: true,
+      },
+      {
+        id: 'research-chat',
+        label: 'RAG Chat',
+        title: 'Structured research chat',
+        href: routes.researchChat,
+        icon: Bot,
         mobile: true,
       },
       {

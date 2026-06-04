@@ -182,7 +182,9 @@ class GraphSetup:
             self.quick_thinking_llm, config=self.config
         )
 
-        scenario_planner_node = create_scenario_planner(self.quick_thinking_llm)
+        scenario_planner_node = create_scenario_planner(
+            self.quick_thinking_llm, config=self.config
+        )
 
         # -- Build workflow ---------------------------------------------------
         workflow = StateGraph(AgentState)

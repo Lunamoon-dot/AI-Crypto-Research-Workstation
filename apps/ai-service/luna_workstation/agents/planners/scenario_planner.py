@@ -17,6 +17,7 @@ from langchain_core.messages import AIMessage
 from luna_workstation.agents.schemas import ScenarioPlan, render_scenario_plan
 from luna_workstation.agents.utils.agent_utils import (
     build_instrument_context,
+    get_language_instruction,
     guard_untrusted_context,
 )
 from luna_workstation.agents.utils.structured import bind_structured
@@ -257,7 +258,7 @@ def _template_field_instructions(
     return "\n".join(lines)
 
 
-def create_scenario_planner(llm):
+def create_scenario_planner(llm, config=None):
     """Create a scenario planner that emits a structured ``ScenarioPlan`` when supported.
 
     **Phase 5 enforcement**: Before calling the LLM, the planner validates
@@ -292,6 +293,7 @@ def create_scenario_planner(llm):
         )
         source_evidence = _source_evidence_text(state, research_reports)
         date_grounding = _date_grounding_instruction(analysis_date)
+        language_instruction = get_language_instruction(config=config or {})
 
         # --- Phase 5: pre-LLM template field validation ---
         requested_setup = state.get("setup_type")
@@ -323,6 +325,7 @@ def create_scenario_planner(llm):
                     "decision card: named scenario first, concise evidence, concrete "
                     "watch triggers, action, and impact on thesis. Never use probability "
                     "as the scenario title, and never issue imperative buy/sell commands."
+                    f"{language_instruction}"
                     f"\n\n{date_grounding}"
                     f"{field_instructions}"
                 ),
@@ -386,6 +389,9 @@ For each scenario, describe:
 - Impact on the investment thesis
 - Recommended response (review / watch / reassess - not buy/sell commands)
 - Source, timeframe, and as_of when available
+{language_instruction}
+Keep the section labels above exactly in English for persistence parsing; write
+the scenario names and field content in the requested output language.
 
 {_TEMPLATE_LINE}
 

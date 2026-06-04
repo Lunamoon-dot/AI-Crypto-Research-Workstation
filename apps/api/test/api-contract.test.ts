@@ -7808,6 +7808,123 @@ test('research continuity V1.9 exposes grouped diff summaries and reports from e
   assert.equal('diff_report' in listEntry, false);
 });
 
+test('research continuity tracks scenario branches across snapshots and deltas', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_scenario_bridge_1',
+    thesisId: 'thesis_scenario_bridge',
+    debateId: 'debate_scenario_bridge_1',
+    marketSnapshotId: 'market_scenario_bridge_1',
+    signalSnapshotId: 'signal_scenario_bridge_1',
+    stance: 'bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is becoming crowded.'],
+    monitorNext: ['Watch whether BTC accepts above 108k.'],
+  });
+  journal.scenarios.set(key('thesis_scenario_bridge', 'workspace_a'), [
+    {
+      id: 'scenario_bridge_1',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_bridge',
+      condition: 'If BTC reclaims 108k on acceptance',
+      expected_behavior: 'Momentum continuation toward prior highs',
+      probability_band: 'low',
+      invalidation: 'Loses 104k after reclaim',
+      risk_map: ['crowded funding'],
+      suggested_user_action: 'watch confirmation',
+      payload: { branch_type: 'confirmation' },
+    },
+  ]);
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_scenario_bridge_1',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const baselineSnapshot = await journal.getResearchSnapshotByRun(
+    'run_scenario_bridge_1',
+    'workspace_a',
+  );
+  assert.equal(records(baselineSnapshot?.scenario_branches).length, 1);
+  assert.equal(
+    record(records(baselineSnapshot?.scenario_branches)[0]).scenario_key,
+    'scenario:scenario_bridge_1',
+  );
+  assert.equal(
+    records(baselineSnapshot?.tracked_items).some(
+      (item) =>
+        record(item.attributes).scenario_key ===
+        'scenario:scenario_bridge_1',
+    ),
+    true,
+  );
+  assert.equal(
+    records(record(baseline.entry.diff_report).changed_items).some(
+      (item) => item.event_type === 'scenario_added' && item.item_type === 'scenario',
+    ),
+    true,
+  );
+
+  seedContinuityRun(journal, {
+    runId: 'run_scenario_bridge_2',
+    thesisId: 'thesis_scenario_bridge',
+    debateId: 'debate_scenario_bridge_2',
+    marketSnapshotId: 'market_scenario_bridge_2',
+    signalSnapshotId: 'signal_scenario_bridge_2',
+    stance: 'bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is becoming crowded.'],
+    monitorNext: ['Watch whether BTC accepts above 108k.'],
+  });
+  journal.scenarios.set(key('thesis_scenario_bridge', 'workspace_a'), [
+    {
+      id: 'scenario_bridge_1',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_bridge',
+      condition: 'If BTC reclaims 108k and holds acceptance',
+      expected_behavior: 'Momentum continuation toward prior highs',
+      probability_band: 'high',
+      invalidation: 'Loses 104k after reclaim',
+      risk_map: ['crowded funding'],
+      suggested_user_action: 'watch confirmation',
+      payload: { branch_type: 'confirmation' },
+    },
+  ]);
+
+  const delta = await researchContinuity.generateForRun(
+    'run_scenario_bridge_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const stateRecord = record(state.state);
+  const activeScenario = record(records(stateRecord.active_scenarios)[0]);
+  assert.equal(records(stateRecord.active_scenarios).length, 1);
+  assert.equal(activeScenario.scenario_id, 'scenario_bridge_1');
+  assert.equal(activeScenario.scenario_key, 'scenario:scenario_bridge_1');
+  assert.equal(
+    activeScenario.condition,
+    'If BTC reclaims 108k and holds acceptance',
+  );
+  assert.equal(activeScenario.probability_band, 'high');
+
+  const changedItems = records(record(delta.entry.diff_report).changed_items);
+  assert.equal(
+    changedItems.some(
+      (item) =>
+        item.event_type === 'scenario_probability_changed' &&
+        item.item_type === 'scenario',
+    ),
+    true,
+  );
+});
+
 test('research continuity exports a markdown artifact for generated entries', async () => {
   const resultsDir = await mkdtemp(join(tmpdir(), 'lunacrypto-continuity-'));
   await withEnv({ TRADINGAGENTS_RESULTS_DIR: resultsDir }, async () => {
@@ -7883,6 +8000,15 @@ test('research continuity builds compact engine prior context for matching marke
       { item_type: 'watchpoint', text: 'Watch daily close above 70000.' },
       { item_type: 'invalidation', text: 'Invalidate below 65000 on volume.' },
     ],
+    active_scenarios: [
+      {
+        scenario_key: 'thesis_prior:confirmation:daily-close-above-70000',
+        branch_type: 'confirmation',
+        probability_band: 'medium',
+        condition: 'Daily close above 70000 keeps continuation scenario active.',
+        invalidation: 'Lose 65000 on volume.',
+      },
+    ],
     recent_resolved_items: [{ text: 'Funding normalized after prior squeeze.' }],
     recent_invalidated_items: [{ text: 'Old range breakout level no longer applies.' }],
     data_quality: {
@@ -7934,6 +8060,15 @@ test('research continuity builds compact engine prior context for matching marke
   ]);
   assert.deepEqual(context?.active_invalidations, [
     'Invalidate below 65000 on volume.',
+  ]);
+  assert.deepEqual(context?.active_scenarios, [
+    {
+      scenario_key: 'thesis_prior:confirmation:daily-close-above-70000',
+      branch_type: 'confirmation',
+      probability_band: 'medium',
+      condition: 'Daily close above 70000 keeps continuation scenario active.',
+      invalidation: 'Lose 65000 on volume.',
+    },
   ]);
   assert.equal(String(record(context?.quality).status ?? ''), 'completed');
   assert.equal(context?.summary, 'Prior thesis stayed bullish but required volume confirmation.');
@@ -8283,6 +8418,25 @@ test('research continuity V2.0 timeline endpoint scopes and filters lifecycle wi
       },
       reason: 'Spot demand remains supportive.',
     },
+    {
+      event_type: 'scenario_probability_changed',
+      item_key: 'scenario_timeline',
+      from: {
+        scenario_key: 'scenario_timeline',
+        probability_band: 'low',
+      },
+      to: {
+        scenario_key: 'scenario_timeline',
+        scenario_id: 'scenario_timeline',
+        condition: 'BTC accepts above the prior high.',
+        probability_band: 'high',
+      },
+      source: {
+        source_artifact: 'scenario',
+        source_id: 'scenario_timeline',
+        source_field: 'probability_band',
+      },
+    },
   ]);
   seedEntry(
     'entry_timeline_other_workspace',
@@ -8348,6 +8502,22 @@ test('research continuity V2.0 timeline endpoint scopes and filters lifecycle wi
   assert.ok(
     activeRisks.timeline_events.every(
       (event) => event.item_type === 'risk' && event.status === 'active',
+    ),
+  );
+
+  const updatedScenarios = await researchContinuityController.getSymbolTimeline(
+    'BTC/USDT',
+    '10',
+    'scenario',
+    'updated',
+    'false',
+    'viewer_1',
+    'workspace_a',
+  );
+  assert.ok(updatedScenarios.timeline_events.length > 0);
+  assert.ok(
+    updatedScenarios.timeline_events.every(
+      (event) => event.item_type === 'scenario' && event.status === 'updated',
     ),
   );
 

@@ -10,6 +10,7 @@ import { JournalModule } from './journal/journal.module';
 import { MarketDataModule } from './market-data/market-data.module';
 import { OperationsModule } from './operations/operations.module';
 import { PerformanceModule } from './performance/performance.module';
+import { ResearchChatModule } from './research-chat/research-chat.module';
 import { ResearchContinuityModule } from './research-continuity/research-continuity.module';
 import { ResearchRunsModule } from './research-runs/research-runs.module';
 import { ScenariosModule } from './scenarios/scenarios.module';
@@ -28,6 +29,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WorkspacesModule,
     DatabaseModule,
     JobsModule,
+    ResearchChatModule,
     ResearchContinuityModule,
     ResearchRunsModule,
     JournalModule,

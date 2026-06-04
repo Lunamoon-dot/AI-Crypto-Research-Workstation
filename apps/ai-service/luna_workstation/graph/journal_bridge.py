@@ -17,7 +17,10 @@ from luna_workstation.observability import log_event
 from luna_workstation.services import JournalService
 from luna_workstation.exceptions import StaleDataError, StorageError
 from luna_workstation.signals.base import SignalResult
-from luna_workstation.signals.snapshots import build_market_snapshot, build_signal_snapshot
+from luna_workstation.signals.snapshots import (
+    build_market_snapshot,
+    build_signal_snapshot,
+)
 from luna_workstation.signals.provenance import (
     FRESHNESS_WINDOW,
     signal_result_to_domain_signals,
@@ -153,7 +156,9 @@ class JournalBridge:
                 from luna_workstation.signals.provenance import (
                     build_reliability_map_from_evaluations,
                 )
-                from luna_workstation.services.evaluation_service import EvaluationService
+                from luna_workstation.services.evaluation_service import (
+                    EvaluationService,
+                )
 
                 eval_svc = EvaluationService(config=self.config)
                 factor_report = eval_svc.build_factor_reliability()
@@ -665,11 +670,45 @@ def _parse_scenario_plan(
                     prob_band = ScenarioProbabilityBand.LOW
             else:
                 prob_lower = prob_raw.lower()
-                if any(w in prob_lower for w in ("high", "likely", "probable")):
+                if any(
+                    w in prob_lower
+                    for w in (
+                        "high",
+                        "likely",
+                        "probable",
+                        "cao",
+                        "khả năng cao",
+                        "kha nang cao",
+                    )
+                ):
                     prob_band = ScenarioProbabilityBand.HIGH
-                elif any(w in prob_lower for w in ("medium", "moderate", "possible")):
+                elif any(
+                    w in prob_lower
+                    for w in (
+                        "medium",
+                        "moderate",
+                        "possible",
+                        "trung bình",
+                        "trung binh",
+                        "vừa phải",
+                        "vua phai",
+                        "có thể",
+                        "co the",
+                    )
+                ):
                     prob_band = ScenarioProbabilityBand.MEDIUM
-                elif any(w in prob_lower for w in ("low", "unlikely", "remote")):
+                elif any(
+                    w in prob_lower
+                    for w in (
+                        "low",
+                        "unlikely",
+                        "remote",
+                        "thấp",
+                        "thap",
+                        "ít khả năng",
+                        "it kha nang",
+                    )
+                ):
                     prob_band = ScenarioProbabilityBand.LOW
 
         risk_items = _split_list_section(risk_raw)
@@ -708,27 +747,51 @@ def _extract_section(text: str, field_pattern: str) -> str | None:
 _DASH_PATTERN = r"[:\-\u2013\u2014]"
 _CONDITION_SECTION_PATTERN = (
     r"key\s+market\s+conditions?(?:\s*(?:&|and)\s*catalysts?)?|"
-    r"market\s+conditions?|catalysts?|condition|trigger"
+    r"market\s+conditions?|catalysts?|condition|trigger|"
+    r"điều\s+kiện(?:\s+thị\s+trường)?|dieu\s+kien(?:\s+thi\s+truong)?|"
+    r"chất\s+xúc\s+tác|chat\s+xuc\s+tac"
 )
 _BEHAVIOR_SECTION_PATTERN = (
     r"expected\s+behavior|behavior|expected|outcome|price\s+action|"
-    r"market\s+move"
+    r"market\s+move|hành\s+vi\s+dự\s+kiến|hanh\s+vi\s+du\s+kien|"
+    r"diễn\s+biến\s+dự\s+kiến|dien\s+bien\s+du\s+kien|kết\s+quả|ket\s+qua"
 )
-_PROBABILITY_SECTION_PATTERN = r"probability\s+assessment|probability|likelihood|odds"
-_INVALIDATION_SECTION_PATTERN = r"invalidation|invalid|negate|counter"
-_EVIDENCE_SECTION_PATTERN = r"observed\s+evidence|evidence\s+(?:chips?|items?)|evidence"
-_WATCH_SECTION_PATTERN = r"watch\s+triggers?|watch\s+conditions?|triggers?|watch|monitor"
+_PROBABILITY_SECTION_PATTERN = (
+    r"probability\s+assessment|probability|likelihood|odds|"
+    r"xác\s+suất|xac\s+suat|khả\s+năng|kha\s+nang"
+)
+_INVALIDATION_SECTION_PATTERN = (
+    r"invalidation|invalid|negate|counter|"
+    r"vô\s+hiệu|vo\s+hieu|điểm\s+vô\s+hiệu|diem\s+vo\s+hieu|phủ\s+định|phu\s+dinh"
+)
+_EVIDENCE_SECTION_PATTERN = (
+    r"observed\s+evidence|evidence\s+(?:chips?|items?)|evidence|"
+    r"bằng\s+chứng|bang\s+chung|dữ\s+liệu\s+hỗ\s+trợ|du\s+lieu\s+ho\s+tro"
+)
+_WATCH_SECTION_PATTERN = (
+    r"watch\s+triggers?|watch\s+conditions?|triggers?|watch|monitor|"
+    r"điều\s+kiện\s+theo\s+dõi|dieu\s+kien\s+theo\s+doi|"
+    r"tín\s+hiệu\s+theo\s+dõi|tin\s+hieu\s+theo\s+doi|theo\s+dõi|theo\s+doi"
+)
 _IMPACT_SECTION_PATTERN = (
-    r"impact\s+on\s+(?:investment\s+)?thesis|impact\s+on\s+thesis|thesis\s+impact"
+    r"impact\s+on\s+(?:investment\s+)?thesis|impact\s+on\s+thesis|thesis\s+impact|"
+    r"tác\s+động\s+(?:lên|đến)\s+luận\s+điểm|tac\s+dong\s+(?:len|den)\s+luan\s+diem|"
+    r"ảnh\s+hưởng\s+(?:lên|đến)\s+luận\s+điểm|anh\s+huong\s+(?:len|den)\s+luan\s+diem"
 )
-_RISK_SECTION_PATTERN = r"risk\s+factors?|risk\s+map|risk"
+_RISK_SECTION_PATTERN = r"risk\s+factors?|risk\s+map|risk|rủi\s+ro|rui\s+ro"
 _ACTION_SECTION_PATTERN = (
     r"recommended\s+response|suggested\s+action|action\s+watch|"
-    r"action\s+review|action|recommend|response"
+    r"action\s+review|action|recommend|response|"
+    r"hành\s+động\s+đề\s+xuất|hanh\s+dong\s+de\s+xuat|"
+    r"phản\s+ứng\s+khuyến\s+nghị|phan\s+ung\s+khuyen\s+nghi|hành\s+động|hanh\s+dong"
 )
-_AS_OF_SECTION_PATTERN = r"as\s+of|as_of|evidence\s+as\s+of"
-_TIMEFRAME_SECTION_PATTERN = r"timeframe|time\s+frame|horizon"
-_SOURCE_SECTION_PATTERN = r"source\s+artifacts?|sources?|source"
+_AS_OF_SECTION_PATTERN = (
+    r"as\s+of|as_of|evidence\s+as\s+of|tại\s+thời\s+điểm|tai\s+thoi\s+diem"
+)
+_TIMEFRAME_SECTION_PATTERN = (
+    r"timeframe|time\s+frame|horizon|khung\s+thời\s+gian|khung\s+thoi\s+gian"
+)
+_SOURCE_SECTION_PATTERN = r"source\s+artifacts?|sources?|source|nguồn|nguon"
 _COMBINED_DECISION_SECTION_PATTERN = (
     r"evidence\s+chips?\s*(?:&|and)\s*watch\s+triggers?"
 )
@@ -754,7 +817,7 @@ _ANY_SECTION_PATTERN = "|".join(
     )
 )
 _SCENARIO_HEADING_PATTERN = (
-    rf"^\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+    rf"^\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?(?:Scenario|Kịch\s+bản|Kich\s+ban)\s*(?:\d+|[A-Z])?"
     rf"\s*{_DASH_PATTERN}\s*.*$"
 )
 
@@ -773,6 +836,8 @@ def _split_scenario_blocks(text: str) -> list[str]:
         matches = list(
             _re.finditer(
                 rf"^\s*\d+[\.\)]\s+(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+                rf"\s*{_DASH_PATTERN}?\s*.*$"
+                rf"|^\s*\d+[\.\)]\s+(?:\*{{0,2}})?(?:Kịch\s+bản|Kich\s+ban)\s*(?:\d+|[A-Z])?"
                 rf"\s*{_DASH_PATTERN}?\s*.*$",
                 text,
                 _re.IGNORECASE | _re.MULTILINE,
@@ -816,7 +881,7 @@ def _clean_section_text(text: str) -> str:
 def _extract_scenario_heading_name(text: str) -> str:
     first_line = text.strip().splitlines()[0] if text.strip() else ""
     match = _re.match(
-        rf"\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?Scenario\s*(?:\d+|[A-Z])?"
+        rf"\s*(?:#{{1,6}}\s*)?(?:\*{{0,2}})?(?:Scenario|Kịch\s+bản|Kich\s+ban)\s*(?:\d+|[A-Z])?"
         rf"\s*{_DASH_PATTERN}\s*(?P<name>.+?)\*{{0,2}}\s*$",
         first_line,
         _re.IGNORECASE,

@@ -42,6 +42,10 @@ const EVENT_GROUPS: Record<string, ResearchContinuityDiffGroup> = {
   watchpoint_updated: 'updated',
   level_updated: 'updated',
   invalidation_updated: 'updated',
+  scenario_added: 'added',
+  scenario_probability_changed: 'updated',
+  scenario_invalidated: 'removed_resolved',
+  scenario_carried: 'context',
   view_changed: 'updated',
   risk_resolved: 'removed_resolved',
   watchpoint_resolved: 'removed_resolved',
@@ -221,6 +225,9 @@ function itemTypeFor(
   if (eventType === 'data_quality_changed') {
     return 'quality';
   }
+  if (eventType.startsWith('scenario_')) {
+    return 'scenario';
+  }
   const explicitType = stringValue(
     recordValue(event.to).type ?? recordValue(event.from).type,
   );
@@ -240,6 +247,8 @@ function severityFor(
     eventType.startsWith('risk_') ||
     eventType.startsWith('invalidation_') ||
     eventType === 'level_invalidated' ||
+    eventType === 'scenario_probability_changed' ||
+    eventType === 'scenario_invalidated' ||
     eventType === 'data_quality_changed'
   ) {
     severity = atLeastWarning(severity);

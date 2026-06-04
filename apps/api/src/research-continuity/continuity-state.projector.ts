@@ -21,6 +21,9 @@ export class ContinuityStateProjector {
     const activeItems = canUpdateItems
       ? lifecycleItems(previousState, snapshot, entry, events)
       : arrayRecords(previousState?.active_items);
+    const activeScenarios = canUpdateItems
+      ? lifecycleScenarios(previousState, snapshot, entry, events)
+      : arrayRecords(previousState?.active_scenarios);
     const resolved = events
       .filter((event) =>
         ['risk_resolved', 'watchpoint_resolved', 'claim_weakened'].includes(
@@ -31,6 +34,10 @@ export class ContinuityStateProjector {
       .filter((item) => Object.keys(item).length > 0);
     const invalidated = events
       .filter((event) => stringValue(event.event_type) === 'level_invalidated')
+      .map((event) => recordValue(event.from))
+      .filter((item) => Object.keys(item).length > 0);
+    const invalidatedScenarios = events
+      .filter((event) => stringValue(event.event_type) === 'scenario_invalidated')
       .map((event) => recordValue(event.from))
       .filter((item) => Object.keys(item).length > 0);
     return {
@@ -44,10 +51,18 @@ export class ContinuityStateProjector {
       latest_run_id: nullableString(entry.research_run_id),
       current_view: currentView,
       active_items: activeItems,
+      active_scenarios: activeScenarios,
       recent_resolved_items: [...resolved, ...arrayRecords(previousState?.recent_resolved_items)].slice(0, 20),
       recent_invalidated_items: [
         ...invalidated,
         ...arrayRecords(previousState?.recent_invalidated_items),
+      ].slice(0, 20),
+      recent_resolved_scenarios: arrayRecords(
+        previousState?.recent_resolved_scenarios,
+      ).slice(0, 20),
+      recent_invalidated_scenarios: [
+        ...invalidatedScenarios,
+        ...arrayRecords(previousState?.recent_invalidated_scenarios),
       ].slice(0, 20),
       data_quality: quality,
       updated_at: stringValue(entry.generated_at, new Date().toISOString()),
@@ -58,6 +73,63 @@ export class ContinuityStateProjector {
       },
     };
   }
+}
+
+function lifecycleScenarios(
+  previousState: JsonRecord | null,
+  snapshot: JsonRecord,
+  entry: JsonRecord,
+  events: JsonRecord[],
+): JsonRecord[] {
+  const scenarios = arrayRecords(snapshot.scenario_branches);
+  const capturedAt = stringValue(
+    snapshot.captured_at ?? entry.generated_at,
+    new Date().toISOString(),
+  );
+  const currentRunId = stringValue(
+    snapshot.research_run_id ?? entry.research_run_id,
+  );
+  return scenarios.map((scenario) => {
+    const matchedPrevious = matchedPreviousScenario(scenario, events);
+    const previousOccurrence = numberValue(matchedPrevious?.occurrence_count);
+    const firstSeenAt =
+      matchedPrevious
+        ? (nullableString(matchedPrevious.first_seen_at) ??
+          nullableString(previousState?.updated_at) ??
+          capturedAt)
+        : capturedAt;
+    const firstSeenRunId =
+      matchedPrevious
+        ? (nullableString(matchedPrevious.first_seen_run_id) ??
+          nullableString(previousState?.latest_run_id) ??
+          currentRunId)
+        : currentRunId;
+    return {
+      ...scenario,
+      status: 'active',
+      first_seen_at: firstSeenAt,
+      first_seen_run_id: firstSeenRunId,
+      last_seen_at: capturedAt,
+      last_seen_run_id: currentRunId,
+      occurrence_count: matchedPrevious ? Math.max(previousOccurrence, 1) + 1 : 1,
+    };
+  });
+}
+
+function matchedPreviousScenario(
+  scenario: JsonRecord,
+  events: JsonRecord[],
+): JsonRecord | null {
+  const scenarioKey = stringValue(scenario.scenario_key);
+  const match = events.find((event) => {
+    const eventType = stringValue(event.event_type);
+    if (!eventType.startsWith('scenario_')) {
+      return false;
+    }
+    return stringValue(event.item_key) === scenarioKey;
+  });
+  const previous = recordValue(match?.from);
+  return Object.keys(previous).length > 0 ? previous : null;
 }
 
 function lifecycleItems(

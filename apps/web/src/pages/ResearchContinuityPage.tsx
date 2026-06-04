@@ -44,6 +44,7 @@ import {
   windowedLifecycleLabel,
 } from './research-continuity-lifecycle';
 import {
+  buildActiveScenarioBranchViews,
   buildCapturedContinuityMemoryGroups,
   buildContinuitySnapshotView,
 } from './research-continuity-current-view';
@@ -78,7 +79,7 @@ import type {
 const ITEM_TYPES = ['claim', 'risk', 'watchpoint', 'invalidation', 'level'] as const;
 const LIFECYCLE_ITEM_TYPE_OPTIONS: Array<
   ResearchContinuityLifecycleItemType | 'all'
-> = ['all', 'claim', 'risk', 'watchpoint', 'level', 'invalidation'];
+> = ['all', 'claim', 'risk', 'watchpoint', 'level', 'invalidation', 'scenario'];
 const REPAIR_CASE_TYPES: ResearchContinuityRepairCaseType[] = [
   'missing_continuity',
   'skipped_or_degraded',
@@ -823,7 +824,8 @@ function ActiveItems({
   state: ResearchContinuityStateResponse | null;
 }) {
   const items = records(state?.active_items);
-  if (items.length === 0) {
+  const scenarios = buildActiveScenarioBranchViews(state);
+  if (items.length === 0 && scenarios.length === 0) {
     const snapshot = buildContinuitySnapshotView({ state, latestEntry });
     const capturedGroups = buildCapturedContinuityMemoryGroups(latestEntry);
     if (snapshot?.memoryKind === 'captured' && capturedGroups.length > 0) {
@@ -866,6 +868,31 @@ function ActiveItems({
   }
   return (
     <div className="continuity-active-items">
+      {scenarios.length > 0 ? (
+        <section className="continuity-item-group">
+          <div className="continuity-item-group-header">
+            <div>
+              <strong>Scenario branches</strong>
+              <span>Conditional thesis paths carried in continuity</span>
+            </div>
+            <span className="badge">{scenarios.length}</span>
+          </div>
+          {scenarios.slice(0, 6).map((scenario) => (
+            <article className="continuity-active-item" key={scenario.key}>
+              <div className="continuity-active-item-main">
+                <div className="continuity-active-item-meta">
+                  <span className="badge primary">{scenario.probabilityBand}</span>
+                  <span className="badge">{scenario.branchType}</span>
+                </div>
+                <p>{scenario.condition}</p>
+              </div>
+              <div className="continuity-active-item-side">
+                <span className="small muted">{scenario.occurrenceCount} seen</span>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
       {ITEM_TYPES.map((type) => {
         const group = items.filter((item) => item.type === type);
         if (group.length === 0) {
@@ -1856,6 +1883,9 @@ function EvidenceLines({ value }: { value: unknown }) {
 }
 
 function typeLabel(value: string): string {
+  if (value === 'scenario') {
+    return 'Scenarios';
+  }
   return value.charAt(0).toUpperCase() + value.slice(1) + 's';
 }
 
@@ -1871,6 +1901,8 @@ function typeDescription(value: string): string {
       return 'Conditions that break the thesis';
     case 'level':
       return 'Key levels and boundaries';
+    case 'scenario':
+      return 'Conditional thesis branches';
     default:
       return 'Tracked continuity items';
   }
