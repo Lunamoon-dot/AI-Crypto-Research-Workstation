@@ -390,6 +390,21 @@ class TestResearchManagerAgent:
         result = rm(_make_rm_state())
         assert result["investment_plan"] == plain_response
 
+    def test_llm_failure_falls_back_to_debate_artifacts(self):
+        structured = MagicMock()
+        structured.invoke.side_effect = TimeoutError("provider timed out")
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+        llm.invoke.side_effect = TimeoutError("provider timed out")
+
+        rm = create_research_manager(llm)
+        result = rm(_make_rm_state())
+
+        assert "**Research Manager deterministic fallback: NVDA**" in result["investment_plan"]
+        assert "**Research Stance**: Hold" in result["investment_plan"]
+        assert "Bull and bear arguments here." in result["investment_plan"]
+        assert result["investment_debate_state"]["current_response"] == result["investment_plan"]
+
 
 # ---------------------------------------------------------------------------
 # Scenario Planner agent: prompt grounding

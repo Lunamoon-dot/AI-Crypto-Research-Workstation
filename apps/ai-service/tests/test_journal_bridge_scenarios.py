@@ -249,6 +249,27 @@ as_of: 2026-06-04
     assert row.as_of == "2026-06-04"
 
 
+def test_parse_scenario_plan_extracts_source_timeframe_as_of_from_legacy_action():
+    text = """
+### Scenario 1: Breakout reclaim
+
+**Condition**: BNB/USDT reclaims 620 on a daily close.
+**Expected Behavior**: Continuation toward 650.
+**Probability**: Medium
+**Evidence**: RSI recovered from oversold.
+**Watch Triggers**: Daily close above 620.
+**Suggested Action**: Watch for confirmation. Source, timeframe, and as_of: Quant market report dated 2026-06-05, Weekly.
+"""
+
+    scenarios = _parse_scenario_plan(text, "thesis_1")
+
+    assert len(scenarios) == 1
+    assert scenarios[0].suggested_user_action == "Watch for confirmation."
+    assert scenarios[0].as_of == "2026-06-05"
+    assert scenarios[0].timeframe == "Weekly"
+    assert scenarios[0].source == ["Quant market report dated 2026-06-05, Weekly"]
+
+
 def test_parse_scenario_plan_handles_vietnamese_fallback_markdown():
     text = """
 ### Kịch bản 1: Phá vỡ tăng được xác nhận

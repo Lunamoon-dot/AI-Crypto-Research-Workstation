@@ -39,6 +39,7 @@ import type {
   AttentionQueueResponse,
   BriefResponse,
   ResearchRunResponse,
+  ScenarioResponse,
   SignalResponse,
   ThesisResponse,
   WatchlistResponse,
@@ -244,6 +245,10 @@ export function WorkbenchPage() {
             isLoading={watchlists.isLoading}
             watchlists={watchlists.data ?? []}
           />
+          <ActiveScenariosRail
+            isLoading={attention.isLoading}
+            scenarios={attention.data?.active_scenarios ?? []}
+          />
           <Panel
             className="workbench-command-rail"
             title="Command context"
@@ -276,6 +281,44 @@ export function WorkbenchPage() {
         </BentoGrid>
       </div>
     </main>
+  );
+}
+
+function ActiveScenariosRail({
+  isLoading,
+  scenarios,
+}: {
+  isLoading: boolean;
+  scenarios: ScenarioResponse[];
+}) {
+  return (
+    <Panel
+      className="workbench-active-scenarios"
+      title="Active scenarios"
+      description="Top evaluated scenario triggers."
+    >
+      {isLoading ? <LoadingState label="Loading scenarios..." /> : null}
+      {!isLoading && scenarios.length === 0 ? (
+        <EmptyState label="No active scenarios." />
+      ) : null}
+      {scenarios.length ? (
+        <div className="stack">
+          {scenarios.slice(0, 5).map((scenario) => (
+            <Link
+              className="attention-item compact"
+              key={scenario.id ?? scenario.condition}
+              to={routes.thesis(scenario.thesis_id)}
+            >
+              <div className="attention-item-top">
+                <strong>{scenario.scenario_name || scenario.condition}</strong>
+                <span className="badge">{scenario.status.replaceAll('_', ' ')}</span>
+              </div>
+              <p>{scenario.status_reason || scenario.condition}</p>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 

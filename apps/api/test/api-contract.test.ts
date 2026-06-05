@@ -7832,7 +7832,12 @@ test('research continuity tracks scenario branches across snapshots and deltas',
       invalidation: 'Loses 104k after reclaim',
       risk_map: ['crowded funding'],
       suggested_user_action: 'watch confirmation',
-      payload: { branch_type: 'confirmation' },
+      payload: {
+        branch_type: 'confirmation',
+        trigger_spec: { type: 'price_above', level: 620 },
+        status: 'watching',
+        distance_to_trigger: 0.04,
+      },
     },
   ]);
 
@@ -7851,6 +7856,11 @@ test('research continuity tracks scenario branches across snapshots and deltas',
     record(records(baselineSnapshot?.scenario_branches)[0]).scenario_key,
     'scenario:scenario_bridge_1',
   );
+  assert.equal(record(records(baselineSnapshot?.scenario_branches)[0]).status, 'watching');
+  assert.deepEqual(record(record(records(baselineSnapshot?.scenario_branches)[0]).trigger_spec), {
+    type: 'price_above',
+    level: 620,
+  });
   assert.equal(
     records(baselineSnapshot?.tracked_items).some(
       (item) =>
@@ -11424,6 +11434,111 @@ test('scenario monitor combines scenarios with price and alert context', async (
   assert.match(monitor.items[0]?.trigger_summary ?? '', /latest price 171/);
 });
 
+test('scenario response exposes normalized decision and provenance fields', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_scenario_fields', 'workspace_a'), {
+    id: 'thesis_scenario_fields',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB breakout.',
+  });
+  journal.scenarios.set(key('thesis_scenario_fields', 'workspace_a'), [
+    {
+      id: 'scenario_fields',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_fields',
+      scenario_name: 'Breakout confirmation',
+      direction: 'bullish',
+      thesis_impact: 'strengthens thesis',
+      condition: 'Daily close above 620 confirms continuation.',
+      expected_market_behavior: 'Continuation toward the next target zone.',
+      probability_band: 'medium',
+      invalidation: 'Invalid if price closes below 580.',
+      evidence: ['Price reclaimed 600 with rising volume.'],
+      watch_triggers: ['Daily close above 620'],
+      impact_on_thesis: 'Raises conviction if confirmed.',
+      risk_map: ['False breakout risk'],
+      suggested_user_action: 'Watch for close confirmation.',
+      as_of: '2026-06-05',
+      timeframe: '1D',
+      source: ['market_report', 'quant_signal_text'],
+      payload: {
+        condition: 'legacy condition should not win',
+        source: ['legacy_source'],
+      },
+    },
+  ]);
+
+  const scenarios = await theses.scenarios(
+    'thesis_scenario_fields',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(scenarios[0]?.scenario_name, 'Breakout confirmation');
+  assert.equal(scenarios[0]?.direction, 'bullish');
+  assert.equal(scenarios[0]?.thesis_impact, 'strengthens thesis');
+  assert.equal(scenarios[0]?.condition, 'Daily close above 620 confirms continuation.');
+  assert.deepEqual(scenarios[0]?.evidence, ['Price reclaimed 600 with rising volume.']);
+  assert.deepEqual(scenarios[0]?.watch_triggers, ['Daily close above 620']);
+  assert.equal(scenarios[0]?.impact_on_thesis, 'Raises conviction if confirmed.');
+  assert.deepEqual(scenarios[0]?.risk_map, ['False breakout risk']);
+  assert.equal(scenarios[0]?.as_of, '2026-06-05');
+  assert.equal(scenarios[0]?.timeframe, '1D');
+  assert.deepEqual(scenarios[0]?.source, ['market_report', 'quant_signal_text']);
+});
+
+test('scenario monitor evaluates trigger distance and lifecycle status', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_eval', 'workspace_a'), {
+    id: 'thesis_eval',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    direction: 'long',
+    confidence: 0.61,
+    created_at: '2026-06-05T00:00:00.000Z',
+    thesis_text: 'Watch BNB breakout.',
+  });
+  journal.scenarios.set(key('thesis_eval', 'workspace_a'), [
+    {
+      id: 'scenario_eval',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_eval',
+      scenario_name: 'Breakout reclaim',
+      probability_band: 'medium',
+      suggested_user_action: 'watch',
+      condition: 'BNB/USDT reclaims 620 on a daily close.',
+      payload: {
+        trigger_spec: {
+          type: 'price_above',
+          level: 620,
+          timeframe: '1D',
+        },
+      },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_eval', 'workspace_a'), {
+    id: 'snap_bnb_eval',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    captured_at: '2026-06-05T00:00:00.000Z',
+    current_price: 612,
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.status, 'near_trigger');
+  assert.equal(monitor.items[0]?.scenario.status, 'near_trigger');
+  assert.equal(monitor.items[0]?.scenario.distance_to_trigger, 0.0129);
+  assert.match(monitor.items[0]?.scenario.status_reason ?? '', /1.29% below 620/);
+  assert.equal(monitor.items[0]?.scenario.trigger_spec?.type, 'price_above');
+});
+
 test('alert scheduler status and manual run are workspace scoped', async () => {
   const { journal, watchlists } = buildHarness();
   journal.watchlists.push({
@@ -11685,6 +11800,40 @@ test('workbench attention is workspace scoped and capped', async () => {
   assert.ok(
     response.items.every((item) => item.source_id !== 'alert_other_workspace'),
   );
+});
+
+test('workbench attention includes active scenarios ordered by monitor urgency', async () => {
+  const { journal, workbench } = buildHarness();
+  journal.theses.set(key('thesis_workbench_scenario', 'workspace_a'), {
+    id: 'thesis_workbench_scenario',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB levels.',
+  });
+  journal.scenarios.set(key('thesis_workbench_scenario', 'workspace_a'), [
+    {
+      id: 'scenario_workbench_near',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_workbench_scenario',
+      scenario_name: 'Breakout near',
+      condition: 'BNB/USDT reclaims 620.',
+      suggested_user_action: 'watch',
+      payload: { trigger_spec: { type: 'price_above', level: 620 } },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_workbench_bnb', 'workspace_a'), {
+    id: 'snap_workbench_bnb',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 612,
+    captured_at: '2026-06-05T00:00:00.000Z',
+    source: 'test',
+  });
+
+  const response = await workbench.attention(10, 'user_1', 'workspace_a');
+
+  assert.equal(response.active_scenarios[0]?.id, 'scenario_workbench_near');
+  assert.equal(response.active_scenarios[0]?.status, 'near_trigger');
 });
 
 const createResearchRunMetadata: ArgumentMetadata = {

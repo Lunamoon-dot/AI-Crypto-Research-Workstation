@@ -11,6 +11,30 @@ from luna_workstation.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from luna_workstation.exceptions import LLMOutputError
+
+
+def _deterministic_research_plan_fallback(
+    *,
+    symbol: str,
+    debate_history: str,
+    error: Exception,
+) -> str:
+    history = (debate_history or "No debate history was recorded.").strip()
+    return "\n".join(
+        [
+            f"**Research Manager deterministic fallback: {symbol}**",
+            "",
+            "**Research Stance**: Hold",
+            "",
+            "**Rationale**: Research Manager LLM unavailable; preserving a "
+            "neutral stance instead of failing the run. Existing debate history: "
+            f"{history}",
+            "",
+            "**Review Focus**: Continue with manual review and treat the Research "
+            f"Manager memo as degraded. Failure type: {type(error).__name__}.",
+        ]
+    )
 
 
 def create_research_manager(llm):
@@ -46,13 +70,20 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
 **Debate History:**
 {guard_untrusted_context("investment_debate_history", history)}"""
 
-        investment_plan = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            prompt,
-            render_research_plan,
-            "Research Manager",
-        )
+        try:
+            investment_plan = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                prompt,
+                render_research_plan,
+                "Research Manager",
+            )
+        except LLMOutputError as exc:
+            investment_plan = _deterministic_research_plan_fallback(
+                symbol=str(state.get("company_of_interest") or "UNKNOWN"),
+                debate_history=history,
+                error=exc,
+            )
 
         new_investment_debate_state = {
             "judge_decision": investment_plan,

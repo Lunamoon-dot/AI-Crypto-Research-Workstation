@@ -335,6 +335,11 @@ function scenarioBranch(scenario: JsonRecord, thesis: JsonRecord | null): JsonRe
     invalidation,
     risk_factors: riskFactors,
     suggested_action: suggestedAction,
+    status: stringValue(scenario.status ?? payload.status, 'watching'),
+    status_reason: stringValue(scenario.status_reason ?? payload.status_reason),
+    distance_to_trigger: nullableNumber(scenario.distance_to_trigger ?? payload.distance_to_trigger),
+    last_evaluated_at: nullableString(scenario.last_evaluated_at ?? payload.last_evaluated_at),
+    trigger_spec: recordValue(scenario.trigger_spec ?? payload.trigger_spec),
     source_artifact: 'scenario',
     source_id: scenarioId,
   };

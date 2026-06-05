@@ -91,10 +91,13 @@ test('scenario radar strips parser heading artifacts from decision cards', () =>
     'utf8',
   );
 
+  assert.equal(source.includes("from './scenario-view-model'"), true);
+  assert.equal(source.includes('scenarioDetailViewModel'), true);
+  assert.equal(source.includes('payload.as_of ??'), false);
   assert.equal(source.includes('function isScenarioSectionArtifact'), true);
   assert.equal(source.includes('chips & watch triggers'), true);
   assert.equal(source.includes('source & timeframe'), true);
   assert.equal(source.includes('function extractScenarioSourceLabel'), true);
-  assert.equal(source.includes('actionParts.detail || actionParts.label'), true);
+  assert.equal(source.includes('vm.actionDetail || vm.actionLabel'), true);
   assert.equal(source.includes('Action Watch'), false);
 });

@@ -19,11 +19,16 @@ export class ResearchChatTools {
 
   async retrieveStructuredResearch(
     workspaceId: string,
-    symbol: string,
+    symbol: string | null,
     message: string,
+    options: { allowWorkspaceFallback?: boolean } = {},
   ): Promise<ResearchChatToolResult> {
     const intent = this.retriever.detectIntent(message);
-    const context = await this.retriever.retrieveLatest(symbol, workspaceId);
+    const context = await this.retriever.retrieveLatest(
+      symbol,
+      workspaceId,
+      options,
+    );
     return {
       intent,
       context,

@@ -6,6 +6,8 @@ import {
   buildResearchChatSources,
 } from './research-chat-context.builder';
 import { ResearchChatRetriever } from './research-chat-retriever';
+import { resolveResearchChatSymbol } from './research-chat-symbol-resolver';
+import { resolveResearchChatWorkspace } from './research-chat-workspace-resolver';
 import type {
   ResearchChatAskDto,
   ResearchChatAskResponse,
@@ -27,8 +29,21 @@ export class ResearchChatService {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    const scope = resolveResearchChatSymbol(dto.message, dto.symbol);
+    const retrievalWorkspaceId = await resolveResearchChatWorkspace(
+      this.workspaces,
+      user,
+      workspaceId,
+      scope.symbol,
+    );
     const intent = this.retriever.detectIntent(dto.message);
-    const context = await this.retriever.retrieveLatest(dto.symbol, workspaceId);
+    const context = await this.retriever.retrieveLatest(
+      scope.symbol,
+      retrievalWorkspaceId,
+      {
+        allowWorkspaceFallback: !scope.explicitSymbol,
+      },
+    );
     return {
       answer: buildResearchChatAnswer(intent, context),
       intent,

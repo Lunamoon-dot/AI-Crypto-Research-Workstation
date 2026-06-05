@@ -174,7 +174,7 @@ def test_engine_request_keeps_only_graph_analyst_lanes():
     assert request.analysts == ["market", "social"]
 
 
-def test_engine_runner_maps_metadata_news_sources_to_news_context_overrides():
+def test_engine_runner_maps_metadata_news_and_social_sources_to_context_overrides():
     loader = _CapturingConfigLoader()
     request = EngineRunRequest.model_validate(
         {
@@ -229,7 +229,15 @@ def test_engine_runner_maps_metadata_news_sources_to_news_context_overrides():
             "trust_tier": "user_trusted",
             "target_analysts": ["news"],
             "scope": ["BTC"],
-        }
+        },
+        {
+            "id": "sentiment_forums",
+            "name": "Sentiment Forums",
+            "type": "rss",
+            "url": "https://example.com/social.xml",
+            "category": "crypto_media",
+            "target_analysts": ["social"],
+        },
     ]
     assert config["_engine"]["metadata"] == request.metadata
 

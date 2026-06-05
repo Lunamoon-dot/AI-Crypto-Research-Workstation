@@ -1428,7 +1428,7 @@ function resolvePipelineStageState({
   if (
     stageHasReadyOpinion(stage.key, opinionCount) ||
     debateReady ||
-    hasStageReadyArtifact(stage.key, signal, scenarioCount)
+    hasStageReadyArtifact(stage.key, signal, scenarioCount, thesisReady)
   ) {
     return {
       label: 'completed',
@@ -1459,8 +1459,8 @@ function resolvePipelineStageState({
   if (running) {
     if (runFailed) {
       return {
-        label: 'missing',
-        badgeClass: 'badge warning',
+        label: 'failed',
+        badgeClass: 'badge risk',
         detail: 'Interrupted before completion',
       };
     }
@@ -1469,14 +1469,6 @@ function resolvePipelineStageState({
       label: 'running',
       badgeClass: 'badge primary',
       detail: 'Running',
-    };
-  }
-
-  if (stage.key === 'thesis' && thesisReady) {
-    return {
-      label: 'missing',
-      badgeClass: 'badge warning',
-      detail: 'Persisted without generation event',
     };
   }
 
@@ -1694,12 +1686,16 @@ function hasStageReadyArtifact(
   stageKey: string,
   signal: SignalSnapshotResponse | null,
   scenarioCount: number,
+  thesisReady: boolean,
 ): boolean {
   if (stageKey === 'quant') {
     return Boolean(signal);
   }
   if (stageKey === 'scenario_planner') {
     return scenarioCount > 0;
+  }
+  if (stageKey === 'thesis') {
+    return thesisReady;
   }
   return false;
 }

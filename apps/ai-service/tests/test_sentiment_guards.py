@@ -124,3 +124,64 @@ def test_fetch_social_sentiment_renders_context_without_news_language(monkeypatc
     assert "Scope: market-wide crypto mood, not coin-specific sentiment" in rendered
     assert "Asset attention: high" in rendered
     assert "missing_news_feed" not in rendered
+
+
+def test_fetch_social_sentiment_includes_coin_specific_workspace_mood(monkeypatch):
+    monkeypatch.setattr(
+        "luna_workstation.dataflows.sentiment_provider._fetch_coingecko_trending",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "luna_workstation.dataflows.sentiment_provider._fetch_fear_greed_snapshot",
+        lambda: (52, "Neutral"),
+    )
+
+    def fake_fetcher(url: str, timeout: float) -> str:
+        assert url == "https://example.com/arb-social.xml"
+        return """<?xml version="1.0"?>
+<rss><channel>
+  <item>
+    <title>Arbitrum community bullish after ARB governance proposal</title>
+    <link>https://example.com/1</link>
+    <pubDate>Tue, 02 Jun 2026 00:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>ARB holders expect strong ecosystem growth</title>
+    <link>https://example.com/2</link>
+    <pubDate>Tue, 02 Jun 2026 01:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>ARB liquidity risk remains weak on smaller venues</title>
+    <link>https://example.com/3</link>
+    <pubDate>Tue, 02 Jun 2026 02:00:00 GMT</pubDate>
+  </item>
+</channel></rss>"""
+
+    rendered = fetch_social_sentiment(
+        "ARB/USDT",
+        "crypto",
+        config={
+            "news_context": {
+                "workspace_sources": [
+                    {
+                        "id": "arb_social",
+                        "name": "ARB Social",
+                        "type": "rss",
+                        "url": "https://example.com/arb-social.xml",
+                        "category": "community_social",
+                        "target_analysts": ["social"],
+                        "scope": ["ARB"],
+                    }
+                ]
+            },
+            "_engine": {"workspace_id": "desk-1"},
+        },
+        feed_fetcher=fake_fetcher,
+    )
+
+    assert "Asset attention: unavailable" in rendered
+    assert "Asset-specific social mood:" in rendered
+    assert "- Coin mood: bullish" in rendered
+    assert "- Mentions analyzed: 3" in rendered
+    assert "low_social_sample" not in rendered
+    assert "Missing/degraded data:\n- none" in rendered

@@ -153,7 +153,7 @@ test('research chat answers continuity diff questions with structured sources', 
   );
 });
 
-test('research chat falls back to latest workspace thesis when symbol has no exact artifacts', async () => {
+test('research chat keeps requested symbol when it has no exact artifacts', async () => {
   const journal = new ResearchChatFakeJournal();
   journal.theses.push({
     id: 'thesis_eth',
@@ -192,8 +192,138 @@ test('research chat falls back to latest workspace thesis when symbol has no exa
     'workspace_a',
   );
 
+  assert.equal(response.context.symbol, 'BTC/USDT');
+  assert.doesNotMatch(response.answer, /ETH remains range-bound/);
+  assert.equal(response.sources.length, 0);
+});
+
+test('research chat can answer global latest request across workspace artifacts', async () => {
+  const journal = new ResearchChatFakeJournal();
+  journal.theses.push(
+    {
+      id: 'thesis_btc',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_btc',
+      symbol: 'BTC/USDT',
+      direction: 'long',
+      confidence: 0.68,
+      created_at: '2026-06-04T08:00:00.000Z',
+      thesis_text: 'BTC constructive while spot demand holds.',
+    },
+    {
+      id: 'thesis_eth',
+      workspace_id: 'workspace_a',
+      research_run_id: 'run_eth',
+      symbol: 'ETH/USDT',
+      direction: 'watch',
+      confidence: 0.61,
+      created_at: '2026-06-04T09:00:00.000Z',
+      thesis_text: 'ETH remains range-bound while flows are mixed.',
+    },
+  );
+  journal.researchRuns.push(
+    {
+      id: 'run_btc',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      status: 'completed',
+      completed_at: '2026-06-04T08:05:00.000Z',
+      thesis_id: 'thesis_btc',
+    },
+    {
+      id: 'run_eth',
+      workspace_id: 'workspace_a',
+      symbol: 'ETH/USDT',
+      status: 'completed',
+      completed_at: '2026-06-04T09:05:00.000Z',
+      thesis_id: 'thesis_eth',
+    },
+  );
+
+  const auth = new AuthService();
+  const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'workspace_a', role: 'viewer' },
+  ]);
+  const retriever = new ResearchChatRetriever(journal as unknown as JournalRepository);
+  const service = new ResearchChatService(retriever, auth, workspaces);
+
+  const response = await service.ask(
+    {
+      message: 'What is the current thesis?',
+      scope: 'latest',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.context.symbol, 'global');
+  assert.deepEqual(response.context.workspace_inventory?.symbols, [
+    'BTC/USDT',
+    'ETH/USDT',
+  ]);
+  assert.match(response.answer, /2 thesis record/);
+  assert.match(response.answer, /BTC\/USDT/);
+  assert.match(response.answer, /ETH\/USDT/);
+  assert.ok(response.sources.some((source) => source.id === 'thesis_eth'));
+  assert.ok(response.sources.some((source) => source.id === 'thesis_btc'));
+});
+
+test('research chat routes explicit symbol questions to matching fixed workspace', async () => {
+  const journal = new ResearchChatFakeJournal();
+  journal.theses.push({
+    id: 'thesis_eth',
+    workspace_id: 'workspace_eth',
+    research_run_id: 'run_eth',
+    symbol: 'ETH/USDT',
+    direction: 'avoid',
+    confidence: 0.35,
+    created_at: '2026-06-04T09:00:00.000Z',
+    thesis_text: 'ETH latest thesis is underweight while distribution risk persists.',
+  });
+  journal.researchRuns.push({
+    id: 'run_eth',
+    workspace_id: 'workspace_eth',
+    symbol: 'ETH/USDT',
+    status: 'completed',
+    completed_at: '2026-06-04T09:05:00.000Z',
+    thesis_id: 'thesis_eth',
+  });
+
+  const auth = new AuthService();
+  const workspaces = new WorkspacesService();
+  workspaces.setWorkspaceMetadataForTest([
+    {
+      id: 'workspace_eth',
+      name: 'eth workspace',
+      scope_type: 'fixed_symbol',
+      symbol: 'ETH/USDT',
+      market_type: 'spot',
+      default_timeframe: null,
+      archived: false,
+      created_at: '2026-06-04T00:00:00.000Z',
+      updated_at: '2026-06-04T00:00:00.000Z',
+    },
+  ]);
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'local', role: 'viewer' },
+    { user_id: 'user_1', workspace_id: 'workspace_eth', role: 'viewer' },
+  ]);
+  const retriever = new ResearchChatRetriever(journal as unknown as JournalRepository);
+  const service = new ResearchChatService(retriever, auth, workspaces);
+
+  const response = await service.ask(
+    {
+      message: 'What is the latest ETH thesis?',
+      scope: 'latest',
+    },
+    'user_1',
+    'local',
+  );
+
   assert.equal(response.context.symbol, 'ETH/USDT');
-  assert.match(response.answer, /ETH remains range-bound/);
+  assert.equal(response.context.latest_thesis?.id, 'thesis_eth');
+  assert.match(response.answer, /ETH latest thesis/);
   assert.ok(response.sources.some((source) => source.id === 'thesis_eth'));
 });
 

@@ -14,9 +14,12 @@ import {
   AttentionSourceType,
   BriefResponse,
   NotificationResponse,
+  ScenarioResponse,
   toBriefResponse,
+  toScenarioResponse,
   WorkbenchAttentionResponse,
 } from '../contracts/frontend-contract';
+import { evaluateScenario } from '../scenarios/scenario-evaluator';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 
 const CANDIDATE_LIMIT = 50;
@@ -104,6 +107,12 @@ export class WorkbenchService {
       theses.slice(0, SCENARIO_THESIS_LIMIT),
       workspaceId,
     );
+    const activeScenarios = await this.activeScenariosForTheses(
+      theses.slice(0, SCENARIO_THESIS_LIMIT),
+      scenariosByThesis,
+      workspaceId,
+      now.toISOString(),
+    );
     const latestBrief = briefs[0] ? toBriefResponse(briefs[0]) : null;
     const briefActionDrafts = latestBrief
       ? buildBriefActionDrafts(latestBrief)
@@ -136,6 +145,7 @@ export class WorkbenchService {
       item_count: items.length,
       unresolved_count: items.filter((item) => item.status !== 'read').length,
       latest_brief: latestBrief,
+      active_scenarios: activeScenarios,
       brief_actions: briefActions,
       queues: queueItems(items),
       items,
@@ -168,6 +178,50 @@ export class WorkbenchService {
         (row): row is readonly [string, JsonRecord[]] => row !== null,
       ),
     );
+  }
+
+  private async activeScenariosForTheses(
+    theses: JsonRecord[],
+    scenariosByThesis: Map<string, JsonRecord[]>,
+    workspaceId: string,
+    nowIso: string,
+  ): Promise<ScenarioResponse[]> {
+    const snapshots = new Map<string, JsonRecord | null>();
+    const evaluated: ScenarioResponse[] = [];
+    for (const thesis of theses) {
+      const thesisId = nullableString(thesis.id);
+      const symbol = stringValue(thesis.symbol);
+      if (!thesisId || !symbol) {
+        continue;
+      }
+      if (!snapshots.has(symbol)) {
+        snapshots.set(symbol, await this.journal.getLatestMarketSnapshot(symbol, workspaceId));
+      }
+      const snapshot = snapshots.get(symbol) ?? null;
+      for (const scenario of scenariosByThesis.get(thesisId) ?? []) {
+        const payload = recordValue(scenario.payload ?? scenario.payload_json);
+        const evaluation = evaluateScenario(scenario, snapshot, nowIso);
+        evaluated.push(toScenarioResponse({
+          ...scenario,
+          status: evaluation.status,
+          status_reason: evaluation.status_reason,
+          distance_to_trigger: evaluation.distance_to_trigger,
+          last_evaluated_at: evaluation.last_evaluated_at,
+          trigger_spec: evaluation.trigger_spec,
+          payload: {
+            ...payload,
+            status: evaluation.status,
+            status_reason: evaluation.status_reason,
+            distance_to_trigger: evaluation.distance_to_trigger,
+            last_evaluated_at: evaluation.last_evaluated_at,
+            trigger_spec: evaluation.trigger_spec,
+          },
+        }));
+      }
+    }
+    return evaluated
+      .sort((left, right) => activeScenarioUrgency(right) - activeScenarioUrgency(left))
+      .slice(0, 5);
   }
 
   private async resolveWorkspace(
@@ -958,6 +1012,16 @@ function scenarioUrgency(scenario: JsonRecord): number {
     (actionText.includes('exit') || actionText.includes('hedge') ? 20 : 0) +
     riskCount * 4
   );
+}
+
+function activeScenarioUrgency(scenario: ScenarioResponse): number {
+  const status = scenario.status;
+  if (status === 'alerting') return 100;
+  if (status === 'triggered') return 90;
+  if (status === 'near_trigger') return 80;
+  if (status === 'needs_review') return 60;
+  if (status === 'stale') return 50;
+  return 10;
 }
 
 function isActionableScenario(scenario: JsonRecord): boolean {

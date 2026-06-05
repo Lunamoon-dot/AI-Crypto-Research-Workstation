@@ -238,6 +238,39 @@ class TestBudgetTracker:
             }
         ]
 
+    def test_scenario_planner_budgeted_node_can_fail_open(self, monkeypatch):
+        setup = GraphSetup.__new__(GraphSetup)
+        setup.budget_tracker = None
+        events = []
+
+        def record_event(_logger, event, **fields):
+            events.append((event, fields))
+
+        monkeypatch.setattr(graph_setup_module, "log_event", record_event)
+
+        def node(_state):
+            raise RuntimeError("planner timed out")
+
+        wrapped = setup._budgeted_node(
+            node,
+            "scenario_planner",
+            fail_open=True,
+            graph_node=str(graph_setup_module.PipelineNode.SCENARIO_PLANNER),
+        )
+
+        assert wrapped({"ok": True}) == {
+            "scenario_plan": "",
+            "scenario_plan_json": "",
+        }
+        assert [event for event, _fields in events] == [
+            "agent_node_started",
+            "agent_node_failed",
+        ]
+        failed = events[1][1]
+        assert failed["stage"] == "scenario_planner"
+        assert failed["status"] == "failed"
+        assert failed["error_type"] == "RuntimeError"
+
     def test_real_graph_setup_wraps_all_pipeline_stages(self, monkeypatch):
         setup = GraphSetup.__new__(GraphSetup)
         setup.quick_thinking_llm = object()

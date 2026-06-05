@@ -10,16 +10,26 @@ import logging
 import re
 import threading
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from luna_workstation.domain.social_context import (
     SocialAssetAttention,
+    SocialAssetMood,
     SocialContext,
     SocialMacroMood,
     SocialQuality,
 )
 
+from .config import get_config
 from .http_utils import fetch_json_with_retry
+from .news_context_provider import (
+    _fetch_url,
+    _match_asset,
+    _parse_feed,
+    _source_applies_to_symbol,
+    _source_from_raw,
+    asset_profile_for_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +38,9 @@ _cache: dict[str, tuple[float, str]] = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL = 120  # seconds
 MIN_HEADLINES_FOR_DIRECTIONAL_NEWS_SENTIMENT = 10
+MIN_SOCIAL_MOOD_MENTIONS = 3
+
+FeedFetcher = Callable[[str, float], str]
 
 
 def _cached(key: str) -> Optional[str]:
@@ -109,13 +122,23 @@ def fetch_crypto_fear_greed() -> str:
 # ---------------------------------------------------------------------------
 
 
-def fetch_social_sentiment(symbol: str, asset_class: str = "crypto") -> str:
+def fetch_social_sentiment(
+    symbol: str,
+    asset_class: str = "crypto",
+    *,
+    config: dict[str, Any] | None = None,
+    feed_fetcher: FeedFetcher | None = None,
+) -> str:
     """Fetch social retail-attention metrics for a crypto pair.
 
     Uses CoinGecko trending plus the market-wide Crypto Fear & Greed snapshot.
     """
+    del asset_class
+    resolved_config = _resolve_config(config)
+    social_sources = _social_sources_for_symbol(symbol, resolved_config)
     base = _base_symbol(symbol).lower()
-    cached = _cached(f"social_{base}")
+    cache_key = f"social_{base}"
+    cached = None if social_sources else _cached(cache_key)
     if cached:
         return cached
 
@@ -128,8 +151,20 @@ def fetch_social_sentiment(symbol: str, asset_class: str = "crypto") -> str:
             fear_greed_value=fear_greed_value,
             fear_greed_label=fear_greed_label,
         )
+        context = context.model_copy(
+            update={
+                "asset_mood": build_asset_social_mood(
+                    symbol=symbol,
+                    sources=social_sources,
+                    config=resolved_config,
+                    feed_fetcher=feed_fetcher,
+                )
+            }
+        )
+        context = context.model_copy(update={"quality": _social_quality(context)})
         result = context.to_prompt_block()
-        _set_cache(f"social_{base}", result)
+        if not social_sources:
+            _set_cache(cache_key, result)
         return result
     except Exception:
         result = SocialContext(
@@ -141,7 +176,8 @@ def fetch_social_sentiment(symbol: str, asset_class: str = "crypto") -> str:
                 reason_codes=["missing_social_feed"],
             ),
         ).to_prompt_block()
-        _set_cache(f"social_{base}", result)
+        if not social_sources:
+            _set_cache(cache_key, result)
         return result
 
 
@@ -191,6 +227,157 @@ def build_social_context_from_trending(
         ),
         quality=SocialQuality(status="clean", reason_codes=[]),
     )
+
+
+def build_asset_social_mood(
+    *,
+    symbol: str,
+    sources: list[Any],
+    config: dict[str, Any],
+    feed_fetcher: FeedFetcher | None = None,
+) -> SocialAssetMood | None:
+    if not sources:
+        return None
+    fetcher = feed_fetcher or _fetch_url
+    profile = asset_profile_for_symbol(symbol, config)
+    bullish = 0
+    bearish = 0
+    mentions = 0
+    source_hits: set[str] = set()
+    for source in sources:
+        if str(source.type).lower() not in {"rss", "atom"}:
+            continue
+        try:
+            entries = _parse_feed(fetcher(source.url, 8.0), source, fetched_at="")
+        except Exception:
+            continue
+        for entry in entries:
+            if not _social_entry_matches(source, profile, entry):
+                continue
+            mentions += 1
+            source_hits.add(source.id)
+            polarity = _social_polarity(entry["title"], entry.get("summary"))
+            if polarity > 0:
+                bullish += 1
+            elif polarity < 0:
+                bearish += 1
+    if mentions == 0:
+        return None
+    mood_score = (bullish - bearish) / mentions
+    return SocialAssetMood(
+        symbol=_base_symbol(symbol),
+        mood_label=_mood_label(mood_score),
+        mood_score=round(mood_score, 2),
+        mention_count=mentions,
+        bullish_count=bullish,
+        bearish_count=bearish,
+        source_count=len(source_hits),
+        sample_status=(
+            "sufficient"
+            if mentions >= MIN_SOCIAL_MOOD_MENTIONS
+            else "low_sample"
+        ),
+    )
+
+
+def _resolve_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    if config is not None:
+        return config
+    try:
+        return get_config()
+    except RuntimeError:
+        return {}
+
+
+def _social_sources_for_symbol(symbol: str, config: dict[str, Any]) -> list[Any]:
+    policy = dict(config.get("news_context", {}) or {})
+    raw_sources = policy.get("workspace_sources") or []
+    workspace_id = str(
+        (config.get("_engine") or {}).get("workspace_id")
+        or config.get("workspace_id")
+        or "local"
+    )
+    sources = []
+    for raw in raw_sources:
+        source = _source_from_raw(raw, workspace_id=workspace_id)
+        if (
+            source is not None
+            and "social" in source.target_analysts
+            and _source_applies_to_symbol(source, _base_symbol(symbol))
+        ):
+            sources.append(source)
+    return sources
+
+
+def _social_entry_matches(source: Any, profile: Any, entry: dict[str, Any]) -> bool:
+    if _match_asset(profile, entry["title"], entry.get("summary"), entry["url"]):
+        return True
+    scoped_symbols = {str(item).strip().upper() for item in source.scope}
+    if profile.symbol.upper() not in scoped_symbols:
+        return False
+    text = f"{entry['title']} {entry.get('summary') or ''}".upper()
+    pattern = r"(?<![A-Z0-9])" + re.escape(profile.symbol.upper()) + r"(?![A-Z0-9])"
+    return re.search(pattern, text) is not None
+
+
+def _social_quality(context: SocialContext) -> SocialQuality:
+    reason_codes: list[str] = []
+    if context.asset_mood is not None:
+        if context.asset_mood.sample_status == "low_sample":
+            reason_codes.append("low_social_sample")
+        status = "degraded" if reason_codes else "clean"
+        return SocialQuality(status=status, reason_codes=reason_codes)
+    if context.asset_attention is not None:
+        return SocialQuality(status="clean", reason_codes=[])
+    return SocialQuality(
+        status="insufficient_data",
+        reason_codes=["missing_social_feed"],
+    )
+
+
+def _social_polarity(title: str, summary: str | None) -> int:
+    text = f"{title} {summary or ''}".lower()
+    bullish_words = (
+        "bullish",
+        "rally",
+        "growth",
+        "strong",
+        "breakout",
+        "accumulation",
+        "support",
+        "adoption",
+        "upgrade",
+        "proposal",
+    )
+    bearish_words = (
+        "bearish",
+        "risk",
+        "weak",
+        "selloff",
+        "dump",
+        "exploit",
+        "hack",
+        "unlock",
+        "outflow",
+        "fear",
+    )
+    bull = any(word in text for word in bullish_words)
+    bear = any(word in text for word in bearish_words)
+    if bull and not bear:
+        return 1
+    if bear and not bull:
+        return -1
+    return 0
+
+
+def _mood_label(score: float) -> str:
+    if score >= 0.25:
+        return "bullish"
+    if score <= -0.25:
+        return "bearish"
+    if score == 0:
+        return "neutral"
+    return "mixed"
 
 
 def _fetch_coingecko_trending() -> list[dict]:
