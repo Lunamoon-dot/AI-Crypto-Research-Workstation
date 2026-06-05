@@ -41,7 +41,6 @@ interface AgentChatMessage {
 interface AgentChatSession {
   id: string;
   title: string;
-  symbol: string;
   updatedAt: string;
   messages: AgentChatMessage[];
 }
@@ -54,22 +53,12 @@ interface StoredChatState {
 const CHAT_SESSIONS_KEY = 'luna.research-chat.sessions.v1';
 const ACTIVE_SESSION_KEY = 'luna.research-chat.active-session.v1';
 
-const PROMPTS = [
-  'What is the current BTC thesis?',
-  'How is today thesis different from the previous run?',
-  'What new risks appeared?',
-  'Which scenarios are active?',
-  'Why did bias or conviction change?',
-];
-
 export function ResearchChatPage() {
   const auth = useWorkspaceStore();
-  const fixedWorkspaceSymbol = auth.fixedWorkspaceSymbol();
-  const initialState = useMemo(() => loadStoredChatState(fixedWorkspaceSymbol ?? 'BTC/USDT'), [fixedWorkspaceSymbol]);
+  const initialState = useMemo(() => loadStoredChatState(), []);
   const [sessions, setSessions] = useState<AgentChatSession[]>(initialState.sessions);
   const [activeSessionId, setActiveSessionId] = useState(initialState.activeSessionId);
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
-  const [symbol, setSymbol] = useState(activeSession?.symbol ?? fixedWorkspaceSymbol ?? 'BTC/USDT');
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<ResearchChatRunMode>('agent');
   const [useRag, setUseRag] = useState(true);
@@ -78,7 +67,6 @@ export function ResearchChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const effectiveSymbol = (fixedWorkspaceSymbol ?? symbol.trim()) || 'BTC/USDT';
 
   useEffect(() => {
     window.localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions.slice(0, 30)));
@@ -107,6 +95,7 @@ export function ResearchChatPage() {
     }
 
     const assistantId = crypto.randomUUID();
+    const followUpSymbol = latestScopedSymbol(activeSession);
     setStreamError(null);
     setDraft('');
     setSessions((current) =>
@@ -118,7 +107,6 @@ export function ResearchChatPage() {
         return {
           ...session,
           title: isFirstUserMessage ? titleFromPrompt(prompt) : session.title,
-          symbol: effectiveSymbol,
           updatedAt: new Date().toISOString(),
           messages: [
             ...session.messages,
@@ -147,7 +135,7 @@ export function ResearchChatPage() {
 
     void streamResearchChat(
       {
-        symbol: effectiveSymbol,
+        ...(followUpSymbol ? { symbol: followUpSymbol } : {}),
         message: prompt,
         scope: 'latest',
         mode,
@@ -237,10 +225,9 @@ export function ResearchChatPage() {
   }
 
   function startNewChat() {
-    const session = createSession(effectiveSymbol);
+    const session = createSession();
     setSessions((current) => [session, ...current]);
     setActiveSessionId(session.id);
-    setSymbol(session.symbol);
     setDraft('');
     setStreamError(null);
   }
@@ -250,7 +237,6 @@ export function ResearchChatPage() {
       return;
     }
     setActiveSessionId(session.id);
-    setSymbol(session.symbol);
     setStreamError(null);
   }
 
@@ -320,41 +306,6 @@ export function ResearchChatPage() {
       </aside>
 
       <section className="research-chat-shell" aria-label="Luna research agent chat">
-        <header className="research-chat-header">
-          <div className="research-chat-brand">
-            <span className="research-chat-mark">
-              <Bot aria-hidden size={18} />
-            </span>
-            <div>
-              <h1>Luna Research Agent</h1>
-              <p>Structured RAG + memory for crypto research</p>
-            </div>
-          </div>
-          <div className="research-chat-model-pill">
-            luna-agent
-            <span>streaming</span>
-          </div>
-          <div className="research-chat-header-actions">
-            <label className="research-chat-symbol">
-              <span>Symbol</span>
-              <input
-                disabled={Boolean(fixedWorkspaceSymbol) || isStreaming}
-                onChange={(event) => setSymbol(event.target.value)}
-                value={effectiveSymbol}
-              />
-            </label>
-            <button
-              aria-label="Start new chat"
-              className="research-chat-reset"
-              onClick={startNewChat}
-              type="button"
-            >
-              <Plus aria-hidden size={16} />
-              <span>New chat</span>
-            </button>
-          </div>
-        </header>
-
         <div className="research-chat-thread">
           {(activeSession?.messages ?? []).map((message) => (
             <MessageBubble key={message.id} message={message} />
@@ -364,13 +315,6 @@ export function ResearchChatPage() {
         </div>
 
         <footer className="research-chat-composer-wrap">
-          <div className="research-chat-prompts" aria-label="Suggested questions">
-            {PROMPTS.map((prompt) => (
-              <button key={prompt} onClick={() => setDraft(prompt)} type="button">
-                {prompt}
-              </button>
-            ))}
-          </div>
           <div className="research-chat-agent-controls">
             <div className="research-chat-segmented" aria-label="Run mode">
               <button className={mode === 'agent' ? 'active' : ''} onClick={() => setMode('agent')} type="button">
@@ -394,7 +338,7 @@ export function ResearchChatPage() {
               aria-label="Message"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
-              placeholder={`Ask Luna about ${effectiveSymbol} research...`}
+              placeholder="Ask Luna about crypto research..."
               rows={1}
               value={draft}
             />
@@ -530,18 +474,17 @@ function eventLabel(event: ResearchChatAgentEvent): string {
   }
 }
 
-function createSession(symbol: string): AgentChatSession {
+function createSession(): AgentChatSession {
   return {
     id: crypto.randomUUID(),
     title: 'New crypto research chat',
-    symbol,
     updatedAt: new Date().toISOString(),
     messages: [
       {
         id: crypto.randomUUID(),
         role: 'assistant',
         content:
-          'Ask me about thesis, continuity diff, active scenarios, risks, bias, conviction, or what data is missing. I use Luna structured research artifacts and memory in this V0.',
+          'Ask me about any crypto thesis, continuity diff, active scenarios, risks, bias, conviction, or what data is missing. I use Luna structured research artifacts and memory in this V0.',
         status: 'done',
         events: [],
         sources: [],
@@ -551,8 +494,8 @@ function createSession(symbol: string): AgentChatSession {
   };
 }
 
-function loadStoredChatState(defaultSymbol: string): StoredChatState {
-  const fallback = createSession(defaultSymbol);
+function loadStoredChatState(): StoredChatState {
+  const fallback = createSession();
   try {
     const raw = window.localStorage.getItem(CHAT_SESSIONS_KEY);
     const activeSessionId = window.localStorage.getItem(ACTIVE_SESSION_KEY);
@@ -583,7 +526,6 @@ function isStoredSession(value: unknown): value is AgentChatSession {
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.title === 'string' &&
-    typeof candidate.symbol === 'string' &&
     typeof candidate.updatedAt === 'string' &&
     Array.isArray(candidate.messages)
   );
@@ -591,4 +533,22 @@ function isStoredSession(value: unknown): value is AgentChatSession {
 
 function titleFromPrompt(prompt: string): string {
   return prompt.length > 48 ? `${prompt.slice(0, 45).trimEnd()}...` : prompt;
+}
+
+function latestScopedSymbol(session: AgentChatSession | undefined): string | null {
+  if (!session) {
+    return null;
+  }
+  for (const message of [...session.messages].reverse()) {
+    if (message.role !== 'assistant') {
+      continue;
+    }
+    for (const event of [...(message.events ?? [])].reverse()) {
+      const symbol = event.context?.symbol;
+      if (symbol && symbol !== 'global') {
+        return symbol;
+      }
+    }
+  }
+  return null;
 }

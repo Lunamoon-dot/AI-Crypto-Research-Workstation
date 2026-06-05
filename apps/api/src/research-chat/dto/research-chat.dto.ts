@@ -26,9 +26,10 @@ export type ResearchChatSourceType =
   | 'signal_snapshot';
 
 export class ResearchChatAskDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  symbol!: string;
+  symbol?: string;
 
   @IsString()
   @MinLength(1)
@@ -88,6 +89,24 @@ export interface ResearchChatContextPackResponse {
   latest_alerts: JsonRecord[];
   market_snapshot: JsonRecord | null;
   signal_snapshot: JsonRecord | null;
+  workspace_inventory?: {
+    symbols: string[];
+    thesis_count: number;
+    run_count: number;
+    completed_run_count: number;
+    alert_count: number;
+    scenario_count: number;
+    market_snapshot_count: number;
+    signal_snapshot_count: number;
+  };
+  global_artifacts?: {
+    latest_theses: JsonRecord[];
+    recent_runs: JsonRecord[];
+    latest_alerts: JsonRecord[];
+    active_scenarios: JsonRecord[];
+    market_snapshots: JsonRecord[];
+    signal_snapshots: JsonRecord[];
+  };
 }
 
 export interface ResearchChatAskResponse {

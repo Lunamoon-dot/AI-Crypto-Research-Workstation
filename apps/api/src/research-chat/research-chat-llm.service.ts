@@ -28,24 +28,29 @@ interface LlmConfig {
   model: string;
 }
 
+export class ResearchChatLlmUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResearchChatLlmUnavailableError';
+  }
+}
+
 @Injectable()
 export class ResearchChatLlmService {
   async synthesize(input: ResearchChatSynthesisInput): Promise<string> {
-    const modelAnswer = await this.tryProvider(input);
-    if (modelAnswer) {
-      return modelAnswer;
-    }
-    return fallbackSynthesis(input);
-  }
-
-  private async tryProvider(
-    input: ResearchChatSynthesisInput,
-  ): Promise<string | null> {
     const config = resolveLlmConfig();
     if (!config) {
-      return null;
+      throw new ResearchChatLlmUnavailableError(
+        'Research chat LLM is not configured. Set RESEARCH_CHAT_LLM_PROVIDER and RESEARCH_CHAT_LLM_MODEL, plus the matching provider API key.',
+      );
     }
+    return this.callProvider(input, config);
+  }
 
+  private async callProvider(
+    input: ResearchChatSynthesisInput,
+    config: LlmConfig,
+  ): Promise<string> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
@@ -61,7 +66,7 @@ export class ResearchChatLlmService {
           messages: [
             {
               role: 'system',
-              content: systemPrompt(),
+              content: systemPrompt(config),
             },
             {
               role: 'user',
@@ -78,12 +83,27 @@ export class ResearchChatLlmService {
         signal: controller.signal,
       });
       if (!response.ok) {
-        return null;
+        throw new ResearchChatLlmUnavailableError(
+          `Research chat LLM request failed for ${config.provider}/${config.model}: HTTP ${response.status}.`,
+        );
       }
       const payload = (await response.json()) as ChatCompletionResponse;
-      return normalizeAnswer(payload.choices?.[0]?.message?.content);
-    } catch {
-      return null;
+      const answer = normalizeAnswer(payload.choices?.[0]?.message?.content);
+      if (!answer) {
+        throw new ResearchChatLlmUnavailableError(
+          `Research chat LLM returned an empty answer for ${config.provider}/${config.model}.`,
+        );
+      }
+      return answer;
+    } catch (error) {
+      if (error instanceof ResearchChatLlmUnavailableError) {
+        throw error;
+      }
+      throw new ResearchChatLlmUnavailableError(
+        `Research chat LLM request failed for ${config.provider}/${config.model}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -139,69 +159,20 @@ function resolveLlmConfig(): LlmConfig | null {
   return null;
 }
 
-function systemPrompt(): string {
+function systemPrompt(config: LlmConfig): string {
   return [
-    'You are Luna Crypto Research Agent, a read-only crypto research analyst.',
+    `You are Luna Crypto Research Agent, backed by provider ${config.provider} and model ${config.model}.`,
+    'If the user asks what model, provider, or AI is being used, answer that directly and do not include market research.',
     'Answer in the same language as the user.',
+    'Be concise by default: answer in 2-4 short sentences unless the user asks for detail.',
+    'For greetings or small talk, respond naturally in one short sentence and do not mention missing artifacts, model details, or research status unless asked.',
     'Use only the provided Luna structured artifacts and memories.',
+    'Do not include thesis, scenario, risk, or market analysis unless the user asks a research question.',
     'Do not claim live market access unless a provided market snapshot supports it.',
     'Do not place trades, edit theses, launch research runs, or give guaranteed-profit claims.',
-    'When sources are empty, say which artifact types are missing and do not invent citations.',
+    'When the user asks a research question and sources are empty, say which artifact types are missing and do not invent citations.',
     'Prefer this structure when useful: Stance, What changed, Evidence, Risks / invalidation, Scenarios, Confidence.',
   ].join(' ');
-}
-
-function fallbackSynthesis(input: ResearchChatSynthesisInput): string {
-  if (input.sources.length === 0) {
-    return [
-      `${input.symbol}: I can chat, but Luna does not have enough saved research artifacts to cite yet.`,
-      'Missing likely data: latest thesis, continuity state, continuity entries, active scenarios, recent research runs, market snapshot, or signal snapshot.',
-      'Run or import a completed research workflow first, then ask me to compare thesis, risks, scenarios, bias, or conviction.',
-    ].join('\n\n');
-  }
-
-  const currentView = asRecord(input.context.continuity_state?.current_view);
-  const thesis = input.context.latest_thesis;
-  const entries = input.context.recent_continuity_entries;
-  const scenarios = input.context.active_scenarios;
-  const risks = collectRisks(input.context);
-  const memories = input.memories.map((memory) => memory.content).slice(0, 3);
-
-  return [
-    `Stance:\n${input.symbol} is grounded in the latest Luna artifacts. ${firstText(
-      thesis?.thesis_text,
-      thesis?.decision,
-      asRecord(thesis?.summary).action_summary,
-      'No explicit thesis text was found.',
-    )}`,
-    `What changed:\n${firstText(
-      entries[0]?.summary,
-      'No continuity delta was available for the latest run.',
-    )}`,
-    `Evidence:\n${input.sources
-      .slice(0, 6)
-      .map((source) => `- ${source.label} (${source.type}:${source.id})`)
-      .join('\n')}`,
-    `Risks / invalidation:\n${
-      risks.length ? risks.slice(0, 5).map((risk) => `- ${risk}`).join('\n') : '- No structured risks were found.'
-    }`,
-    `Scenarios:\n${
-      scenarios.length
-        ? scenarios
-            .slice(0, 5)
-            .map((scenario) => `- ${firstText(scenario.condition, scenario.expected_behavior, 'Scenario without condition')}`)
-            .join('\n')
-        : '- No active scenario is attached to the latest thesis.'
-    }`,
-    `Confidence:\nBias ${firstText(
-      currentView.directional_bias,
-      thesis?.direction,
-      'unknown',
-    )}; conviction ${firstText(currentView.conviction, thesis?.confidence, 'unknown')}.`,
-    memories.length ? `Memory used:\n${memories.map((memory) => `- ${memory}`).join('\n')}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
 }
 
 function compactContext(
@@ -212,18 +183,19 @@ function compactContext(
     recent_continuity_entries: context.recent_continuity_entries.slice(0, 5),
     active_scenarios: context.active_scenarios.slice(0, 5),
     latest_alerts: context.latest_alerts.slice(0, 5),
+    ...(context.global_artifacts
+      ? {
+          global_artifacts: {
+          latest_theses: context.global_artifacts.latest_theses.slice(0, 5),
+          recent_runs: context.global_artifacts.recent_runs.slice(0, 8),
+          latest_alerts: context.global_artifacts.latest_alerts.slice(0, 5),
+          active_scenarios: context.global_artifacts.active_scenarios.slice(0, 5),
+          market_snapshots: context.global_artifacts.market_snapshots.slice(0, 5),
+          signal_snapshots: context.global_artifacts.signal_snapshots.slice(0, 5),
+          },
+        }
+      : {}),
   };
-}
-
-function collectRisks(context: ResearchChatContextPackResponse): string[] {
-  const summary = asRecord(context.latest_thesis?.summary);
-  const thesisRisks = stringList(context.latest_thesis?.risks).concat(
-    stringList(summary.risks),
-  );
-  const stateRisks = records(context.continuity_state?.active_items)
-    .filter((item) => ['risk', 'risks'].includes(String(item.type ?? item.item_type)))
-    .map((item) => firstText(item.text, item.current_text, item.title));
-  return [...new Set([...thesisRisks, ...stateRisks].filter(Boolean))];
 }
 
 function normalizeAnswer(value: unknown): string | null {
@@ -232,41 +204,4 @@ function normalizeAnswer(value: unknown): string | null {
   }
   const answer = value.trim();
   return answer ? answer : null;
-}
-
-function firstText(...values: unknown[]): string {
-  for (const value of values) {
-    if (value === null || value === undefined || value === '') {
-      continue;
-    }
-    const text = String(value).replace(/\s+/g, ' ').trim();
-    if (text) {
-      return text;
-    }
-  }
-  return '';
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function records(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is Record<string, unknown> =>
-          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
-      )
-    : [];
-}
-
-function stringList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => (item === null || item === undefined ? '' : String(item)))
-      .filter(Boolean);
-  }
-  return value === null || value === undefined || value === '' ? [] : [String(value)];
 }

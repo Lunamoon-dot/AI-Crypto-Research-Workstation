@@ -14,6 +14,7 @@ import {
   toThesisResponse,
 } from '../contracts/frontend-contract';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { evaluateScenario } from './scenario-evaluator';
 
 @Injectable()
 export class ScenariosService {
@@ -60,7 +61,7 @@ export class ScenariosService {
       }
     }
 
-    const limited = items.slice(0, options.limit);
+    const limited = items.sort(compareScenarioUrgency).slice(0, options.limit);
     return {
       workspace_id: workspaceId,
       generated_at: new Date().toISOString(),
@@ -88,45 +89,59 @@ function buildScenarioMonitorItem(
   latestAlert: JsonRecord | null,
 ): ScenarioMonitorItemResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
-  const action = stringValue(scenario.suggested_user_action ?? payload.suggested_user_action, 'review');
-  const probability = stringValue(scenario.probability_band ?? payload.probability_band);
-  const status = scenarioStatus(action, probability, snapshot, latestAlert);
+  const evaluation = evaluateScenario(scenario, snapshot, new Date().toISOString());
+  const evaluatedScenario = {
+    ...scenario,
+    status: evaluation.status,
+    status_reason: evaluation.status_reason,
+    distance_to_trigger: evaluation.distance_to_trigger,
+    last_evaluated_at: evaluation.last_evaluated_at,
+    trigger_spec: evaluation.trigger_spec,
+    payload: {
+      ...payload,
+      status: evaluation.status,
+      status_reason: evaluation.status_reason,
+      distance_to_trigger: evaluation.distance_to_trigger,
+      last_evaluated_at: evaluation.last_evaluated_at,
+      trigger_spec: evaluation.trigger_spec,
+    },
+  };
+  const status = latestAlert && !latestAlert.read_at
+    ? 'alerting'
+    : evaluation.status;
   const currentPrice = snapshot ? numberValue(snapshot.current_price) : null;
   const condition = stringValue(scenario.condition ?? payload.condition);
   return {
     status,
-    status_reason: statusReason(status, latestAlert, snapshot),
+    status_reason: status === 'alerting'
+      ? statusReason(status, latestAlert, snapshot)
+      : evaluation.status_reason,
     trigger_summary: currentPrice === null
       ? condition
       : `${condition}${condition ? ' | ' : ''}latest price ${formatNumber(currentPrice)}`,
-    risk_count: stringList(scenario.risk_map ?? payload.risk_map).length,
-    scenario: toScenarioResponse(scenario),
+    risk_count: stringList(scenario.risk_map ?? payload.risk_map ?? payload.risk_factors).length,
+    scenario: toScenarioResponse(evaluatedScenario),
     thesis: toThesisResponse(thesis),
     latest_market_snapshot: snapshot ? toMarketSnapshotResponse(snapshot) : null,
     latest_alert: latestAlert ? toAlertResponse(latestAlert) : null,
   };
 }
 
-function scenarioStatus(
-  action: string,
-  probability: string,
-  snapshot: JsonRecord | null,
-  latestAlert: JsonRecord | null,
-): string {
-  if (latestAlert && !latestAlert.read_at) {
-    return 'alerting';
-  }
-  if (!snapshot) {
-    return 'missing_price';
-  }
-  const normalizedAction = action.toLowerCase();
-  if (normalizedAction.includes('exit') || normalizedAction.includes('reduce')) {
-    return 'action_required';
-  }
-  if (probability.toLowerCase().includes('high')) {
-    return 'high_attention';
-  }
-  return 'watching';
+function compareScenarioUrgency(
+  left: ScenarioMonitorItemResponse,
+  right: ScenarioMonitorItemResponse,
+): number {
+  return scenarioUrgency(right) - scenarioUrgency(left);
+}
+
+function scenarioUrgency(item: ScenarioMonitorItemResponse): number {
+  const status = item.status;
+  if (status === 'alerting') return 100;
+  if (status === 'triggered') return 90;
+  if (status === 'near_trigger') return 80;
+  if (status === 'needs_review') return 60;
+  if (status === 'stale') return 50;
+  return 10;
 }
 
 function statusReason(

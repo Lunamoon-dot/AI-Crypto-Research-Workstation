@@ -340,7 +340,7 @@ def _metadata_workspace_news_sources(metadata: dict[str, Any]) -> list[dict[str,
         if (
             not isinstance(raw, dict)
             or raw.get("enabled") is False
-            or not _metadata_source_targets_news(raw)
+            or not _metadata_source_targets_supported_analyst(raw)
         ):
             continue
         source = {
@@ -363,7 +363,7 @@ def _metadata_workspace_news_sources(metadata: dict[str, Any]) -> list[dict[str,
     return sources
 
 
-def _metadata_source_targets_news(source: dict[str, Any]) -> bool:
+def _metadata_source_targets_supported_analyst(source: dict[str, Any]) -> bool:
     raw_targets = source.get("target_analysts")
     if raw_targets is None:
         return True
@@ -371,4 +371,5 @@ def _metadata_source_targets_news(source: dict[str, Any]) -> bool:
         raw_targets = raw_targets.split(",")
     if not isinstance(raw_targets, list):
         return False
-    return "news" in {str(target).strip().lower() for target in raw_targets}
+    targets = {str(target).strip().lower() for target in raw_targets}
+    return bool(targets & {"news", "social"})

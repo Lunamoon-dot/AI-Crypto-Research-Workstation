@@ -640,6 +640,9 @@ def _parse_scenario_plan(
         as_of = _extract_markdown_section(block, _AS_OF_SECTION_PATTERN)
         timeframe = _extract_markdown_section(block, _TIMEFRAME_SECTION_PATTERN)
         source_raw = _extract_markdown_section(block, _SOURCE_SECTION_PATTERN)
+        clean_action, legacy_as_of, legacy_source, legacy_timeframe = (
+            _extract_legacy_source_timeframe_as_of(action)
+        )
 
         if not any(
             (
@@ -725,14 +728,35 @@ def _parse_scenario_plan(
             watch_triggers=_split_list_section(watch_raw)[:12],
             impact_on_thesis=impact or "",
             risk_map=risk_items[:8],
-            suggested_user_action=action or "review",
-            as_of=as_of or "",
-            timeframe=timeframe or "",
-            source=_split_list_section(source_raw)[:8],
+            suggested_user_action=clean_action or "review",
+            as_of=as_of or legacy_as_of or "",
+            timeframe=timeframe or legacy_timeframe or "",
+            source=(_split_list_section(source_raw) or legacy_source)[:8],
         )
         scenarios.append(scenario)
 
     return scenarios
+
+
+def _extract_legacy_source_timeframe_as_of(text: str) -> tuple[str, str, list[str], str]:
+    raw = str(text or "").strip()
+    match = _re.search(
+        r"\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*(.+)$",
+        raw,
+        _re.IGNORECASE,
+    )
+    if not match:
+        return raw, "", [], ""
+    source_text = match.group(1).strip().rstrip(".")
+    cleaned = raw[: match.start()].strip()
+    date_match = _re.search(r"\b(\d{4}-\d{2}-\d{2})\b", source_text)
+    timeframe_match = _re.search(
+        r"\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b",
+        source_text,
+        _re.IGNORECASE,
+    )
+    timeframe = timeframe_match.group(1) if timeframe_match else ""
+    return cleaned, date_match.group(1) if date_match else "", [source_text], timeframe
 
 
 def _extract_section(text: str, field_pattern: str) -> str | None:

@@ -12,6 +12,7 @@ import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
+import { scenarioMonitorViewModel } from './scenario-view-model';
 import type { ScenarioMonitorItemResponse } from '@/types';
 
 type Tone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
@@ -49,6 +50,10 @@ export function ScenarioMonitorPage() {
         >
           <option value="">All</option>
           <option value="alerting">Alerting</option>
+          <option value="triggered">Triggered</option>
+          <option value="near_trigger">Near trigger</option>
+          <option value="needs_review">Needs review</option>
+          <option value="stale">Stale</option>
           <option value="action_required">Action required</option>
           <option value="high_attention">High attention</option>
           <option value="missing_price">Missing price</option>
@@ -121,13 +126,11 @@ export function ScenarioMonitorPage() {
 }
 
 function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
-  const condition =
-    cleanScenarioText(item.scenario.condition || item.trigger_summary) ||
-    'No trigger condition recorded.';
-  const actionParts = splitAction(item.scenario.suggested_user_action || 'review');
-  const actionToneValue = actionTone(actionParts.label);
-  const expected = cleanScenarioText(item.scenario.expected_behavior);
-  const statusReason = cleanScenarioText(item.status_reason);
+  const vm = scenarioMonitorViewModel(item.scenario);
+  const condition = vm.condition;
+  const actionToneValue = vm.actionTone;
+  const expected = vm.expected;
+  const statusReason = cleanScenarioText(item.status_reason || vm.statusReason);
   const probability = cleanScenarioText(item.scenario.probability_band) || 'n/a';
   const market = item.latest_market_snapshot;
   const alert = item.latest_alert;
@@ -160,9 +163,9 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
 
       <div className={`scenario-action scenario-monitor-action scenario-action-${actionToneValue}`}>
         <span className={`badge ${actionToneValue}`}>
-          {actionParts.label}
+          {vm.actionLabel}
         </span>
-        <span>{actionParts.detail || 'Review scenario context.'}</span>
+        <span>{vm.actionDetail || 'Review scenario context.'}</span>
       </div>
 
       {expected ? (
@@ -196,6 +199,7 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
         <div className="scenario-monitor-fact">
           <span>Status reason</span>
           <p>{statusReason || 'Scenario is monitored with latest persisted market context.'}</p>
+          <p className="small muted">Distance {vm.distanceLabel}</p>
         </div>
       </div>
     </article>
@@ -203,23 +207,26 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
 }
 
 function statusBadgeClass(status: string): string {
-  if (status === 'alerting' || status === 'action_required') {
+  if (status === 'alerting' || status === 'action_required' || status === 'triggered') {
     return 'badge warning scenario-status-badge';
   }
-  if (status === 'missing_price') {
+  if (status === 'missing_price' || status === 'stale' || status === 'needs_review') {
     return 'badge degraded scenario-status-badge';
   }
   return 'badge primary scenario-status-badge';
 }
 
 function statusTone(status: string): Tone {
-  if (status === 'alerting' || status === 'action_required') {
+  if (status === 'alerting' || status === 'action_required' || status === 'triggered') {
     return 'warning';
+  }
+  if (status === 'near_trigger') {
+    return 'constructive';
   }
   if (status === 'high_attention') {
     return 'risk';
   }
-  if (status === 'missing_price') {
+  if (status === 'missing_price' || status === 'stale' || status === 'needs_review') {
     return 'degraded';
   }
   return 'primary';
@@ -231,32 +238,6 @@ function statusLabel(status: string): string {
     .filter(Boolean)
     .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
     .join(' ') || 'Unknown';
-}
-
-function actionTone(value: string): 'constructive' | 'warning' | 'risk' | 'primary' {
-  const normalized = value.toLowerCase();
-  if (normalized.includes('exit') || normalized.includes('reduce') || normalized.includes('avoid')) {
-    return 'risk';
-  }
-  if (normalized.includes('watch') || normalized.includes('monitor') || normalized.includes('hold')) {
-    return 'constructive';
-  }
-  if (normalized.includes('reassess') || normalized.includes('wait')) {
-    return 'warning';
-  }
-  return 'primary';
-}
-
-function splitAction(value: string): { label: string; detail: string } {
-  const cleaned = cleanScenarioText(value);
-  const match = cleaned.match(
-    /^(watch|monitor|review|reassess|avoid|reduce|exit|stand aside|maintain|downgrade|upgrade|record|wait|hold)\b[:,-]?\s*(.*)$/i,
-  );
-  if (!match) {
-    return { label: 'Review', detail: cleaned };
-  }
-  const label = match[1].replace(/\b\w/g, (letter) => letter.toUpperCase());
-  return { label, detail: match[2]?.trim() ?? '' };
 }
 
 function cleanScenarioText(value: unknown): string {

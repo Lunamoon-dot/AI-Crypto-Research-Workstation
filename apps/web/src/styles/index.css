@@ -7134,7 +7134,7 @@ a {
 
 .research-chat-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   width: min(100%, 1080px);
   height: 100vh;
   min-height: 0;
@@ -7142,29 +7142,6 @@ a {
   overflow: hidden;
 }
 
-.research-chat-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid rgba(63, 63, 70, 0.62);
-  background: rgba(8, 10, 15, 0.62);
-  padding: 16px 20px;
-  backdrop-filter: blur(16px);
-}
-
-.research-chat-brand {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-}
-
-.research-chat-mark,
 .chat-message-avatar {
   display: inline-flex;
   flex: 0 0 auto;
@@ -7176,98 +7153,22 @@ a {
   color: var(--foreground);
 }
 
-.research-chat-mark {
-  width: 36px;
-  height: 36px;
-}
-
-.research-chat-brand h1 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 780;
-  line-height: 1.15;
-}
-
-.research-chat-brand p {
-  margin: 3px 0 0;
-  color: var(--muted-2);
-  font-size: 12px;
-}
-
-.research-chat-model-pill {
-  position: absolute;
-  left: 50%;
-  top: 20px;
-  transform: translateX(-50%);
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 760;
-}
-
-.research-chat-model-pill span {
-  margin-left: 8px;
-  color: var(--muted-2);
-  font-weight: 620;
-}
-
-.research-chat-symbol {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted-2);
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.research-chat-header-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.research-chat-symbol input {
-  width: 118px;
-  border: 1px solid rgba(63, 63, 70, 0.8);
-  border-radius: 8px;
-  background: rgba(11, 13, 18, 0.82);
-  color: var(--foreground);
-  font: inherit;
-  padding: 8px 10px;
-}
-
-.research-chat-reset {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 36px;
-  border: 1px solid rgba(63, 63, 70, 0.8);
-  border-radius: 8px;
-  background: rgba(24, 24, 27, 0.58);
-  color: var(--foreground);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 760;
-  padding: 0 11px;
-  white-space: nowrap;
-}
-
-.research-chat-reset:hover {
-  border-color: rgba(148, 163, 184, 0.5);
-  background: rgba(31, 36, 44, 0.78);
-}
-
 .research-chat-thread {
-  display: grid;
-  align-content: end;
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   min-height: 0;
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 34px 24px 34px;
+  scrollbar-gutter: stable;
+}
+
+.research-chat-thread::before {
+  content: "";
+  flex: 0 0 auto;
+  margin-top: auto;
 }
 
 .chat-message {
@@ -7350,15 +7251,13 @@ a {
   gap: 8px;
 }
 
-.chat-answer-badges,
-.research-chat-prompts {
+.chat-answer-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.chat-answer-badges span,
-.research-chat-prompts button {
+.chat-answer-badges span {
   border: 1px solid rgba(63, 63, 70, 0.72);
   border-radius: 999px;
   background: rgba(11, 13, 18, 0.48);
@@ -7482,10 +7381,6 @@ a {
   backdrop-filter: blur(16px);
 }
 
-.research-chat-prompts {
-  justify-content: center;
-}
-
 .research-chat-agent-controls {
   display: flex;
   flex-wrap: wrap;
@@ -7529,20 +7424,6 @@ a {
 .research-chat-segmented button.active {
   background: rgba(87, 227, 214, 0.16);
   color: #67e8dc;
-}
-
-.research-chat-prompts button {
-  cursor: pointer;
-  transition:
-    border-color 140ms ease,
-    color 140ms ease,
-    background 140ms ease;
-}
-
-.research-chat-prompts button:hover {
-  border-color: rgba(148, 163, 184, 0.5);
-  background: rgba(24, 24, 27, 0.72);
-  color: var(--foreground);
 }
 
 .research-chat-composer {
@@ -7660,46 +7541,12 @@ a {
     width: 100%;
   }
 
-  .research-chat-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .research-chat-model-pill {
-    position: static;
-    transform: none;
-  }
-
-  .research-chat-symbol {
-    justify-content: space-between;
-  }
-
-  .research-chat-header-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .research-chat-symbol input {
-    width: 150px;
-  }
-
   .research-chat-thread {
     padding: 24px 14px 18px;
   }
 
   .research-chat-composer-wrap {
     padding: 12px;
-  }
-
-  .research-chat-prompts {
-    justify-content: flex-start;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 2px;
-  }
-
-  .research-chat-prompts button {
-    flex: 0 0 auto;
   }
 
   .chat-message,

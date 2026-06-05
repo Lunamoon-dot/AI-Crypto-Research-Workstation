@@ -34,6 +34,7 @@ import {
   setThesisDetailTabParam,
   type ThesisDetailTab,
 } from './thesis-detail-tabs';
+import { scenarioDetailViewModel } from './scenario-view-model';
 import type {
   JsonRecord,
   ScenarioResponse,
@@ -610,39 +611,28 @@ function ScenarioRadarCard({
   scenario: ScenarioResponse;
   index: number;
 }) {
+  const vm = scenarioDetailViewModel(scenario, index);
   const band = cleanScenarioText(scenario.probability_band) || 'scenario';
-  const action = cleanScenarioText(
-    scenario.suggested_user_action ||
-      stringValue(scenario.payload.suggested_action) ||
-      'review',
-  );
-  const actionParts = splitAction(action);
-  const actionToneValue = actionTone(action);
-  const actionText = actionParts.detail || actionParts.label;
-  const condition = cleanScenarioText(
-    scenario.condition || stringValue(scenario.payload.condition),
-  ) || 'No condition recorded.';
-  const expected = cleanScenarioText(
-    scenario.expected_behavior ||
-      stringValue(scenario.payload.expected_market_behavior) ||
-      stringValue(scenario.payload.expected_behavior),
-  );
-  const invalidation = cleanScenarioText(stringValue(scenario.payload.invalidation));
-  const riskMap = stringList(
-    scenario.payload.risk_map ?? scenario.payload.risk_factors,
-  );
-  const scenarioName = scenarioDisplayName(scenario, condition, expected, action, index);
+  const action = [vm.actionLabel, vm.actionDetail].filter(Boolean).join(': ');
+  const actionToneValue = vm.actionTone;
+  const actionText = vm.actionDetail || vm.actionLabel;
+  const condition = vm.condition;
+  const expected = vm.expected;
+  const invalidation = cleanScenarioText(scenario.invalidation || stringValue(scenario.payload.invalidation));
+  const riskMap = vm.riskMap.length > 0
+    ? vm.riskMap
+    : stringList(scenario.payload.risk_map ?? scenario.payload.risk_factors);
+  const scenarioName = vm.title || scenarioDisplayName(scenario, condition, expected, action, index);
   const summary = scenarioSummary(scenario.payload, condition, expected);
   const direction = scenarioDirection(scenario.payload, scenarioName, condition, expected, action);
   const directionToneValue = scenarioDirectionTone(direction);
   const impactLabel = scenarioImpactLabel(scenario.payload, expected, riskMap);
   const impactToneValue = scenarioImpactTone(impactLabel);
-  const evidence = scenarioEvidence(scenario.payload);
-  const watchTriggers = scenarioWatchTriggers(scenario.payload, condition, invalidation);
-  const impactOnThesis = cleanScenarioText(stringValue(scenario.payload.impact_on_thesis)) || expected;
-  const sources = scenarioSources(scenario.payload);
-  const asOf = scenarioAsOf(scenario.payload);
-  const timeframe = scenarioTimeframe(scenario.payload);
+  const evidence = vm.evidence.length > 0 ? vm.evidence : scenarioEvidence(scenario.payload);
+  const watchTriggers = vm.watchTriggers.length > 0
+    ? vm.watchTriggers
+    : scenarioWatchTriggers(scenario.payload, condition, invalidation);
+  const impactOnThesis = vm.impactOnThesis || expected;
 
   return (
     <article className={`scenario-card scenario-card-${directionToneValue}`}>
@@ -666,9 +656,9 @@ function ScenarioRadarCard({
       </div>
 
       <div className="scenario-meta-row" aria-label="Scenario provenance">
-        <ScenarioMeta label="As of" value={asOf} />
-        <ScenarioMeta label="Timeframe" value={timeframe} />
-        <ScenarioMeta label="Source" value={sources.length > 0 ? sources.join(', ') : 'not recorded'} />
+        <ScenarioMeta label="As of" value={vm.asOf} />
+        <ScenarioMeta label="Timeframe" value={vm.timeframe} />
+        <ScenarioMeta label="Source" value={vm.source} />
       </div>
 
       <div className="scenario-decision-grid">
@@ -966,22 +956,24 @@ function scenarioSources(payload: JsonRecord): string[] {
 }
 
 function scenarioAsOf(payload: JsonRecord): string {
-  return scenarioMetaValue(
-    payload.as_of ??
-      payload.asOf ??
-      payload.source_timestamp ??
-      payload.generated_at ??
-      extractScenarioMetaFromSources(payload, /\bas[_\s-]*of\s*:?\s*([^.;]+)/i),
-  );
+  const value = [
+    payload.as_of,
+    payload.asOf,
+    payload.source_timestamp,
+    payload.generated_at,
+    extractScenarioMetaFromSources(payload, /\bas[_\s-]*of\s*:?\s*([^.;]+)/i),
+  ].find((item) => cleanScenarioText(item));
+  return scenarioMetaValue(value);
 }
 
 function scenarioTimeframe(payload: JsonRecord): string {
-  return scenarioMetaValue(
-    payload.timeframe ??
-      payload.time_frame ??
-      payload.horizon ??
-      extractScenarioMetaFromSources(payload, /\btime\s*frame\b|\btimeframe\b/i),
-  );
+  const value = [
+    payload.timeframe,
+    payload.time_frame,
+    payload.horizon,
+    extractScenarioMetaFromSources(payload, /\btime\s*frame\b|\btimeframe\b/i),
+  ].find((item) => cleanScenarioText(item));
+  return scenarioMetaValue(value);
 }
 
 function scenarioMetaValue(value: unknown): string {

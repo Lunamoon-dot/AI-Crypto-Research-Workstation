@@ -9,6 +9,7 @@ export function buildResearchChatSources(
   context: ResearchChatContextPackResponse,
 ): ResearchChatSourceResponse[] {
   const sources: ResearchChatSourceResponse[] = [];
+  const globalArtifacts = getGlobalArtifacts(context);
   addSource(sources, 'thesis', context.latest_thesis, 'Latest thesis');
   addSource(sources, 'research_run', context.latest_run, 'Latest research run');
   addSource(sources, 'research_run', context.previous_run, 'Previous research run');
@@ -24,6 +25,44 @@ export function buildResearchChatSources(
   }
   addSource(sources, 'market_snapshot', context.market_snapshot, 'Market snapshot');
   addSource(sources, 'signal_snapshot', context.signal_snapshot, 'Signal snapshot');
+  for (const thesis of globalArtifacts.latest_theses.slice(0, 5)) {
+    addSource(
+      sources,
+      'thesis',
+      thesis,
+      sourceLabel('Latest workspace thesis', thesis),
+    );
+  }
+  for (const run of globalArtifacts.recent_runs.slice(0, 5)) {
+    addSource(
+      sources,
+      'research_run',
+      run,
+      sourceLabel('Recent workspace run', run),
+    );
+  }
+  for (const scenario of globalArtifacts.active_scenarios.slice(0, 5)) {
+    addSource(sources, 'scenario', scenario, 'Workspace scenario');
+  }
+  for (const alert of globalArtifacts.latest_alerts.slice(0, 5)) {
+    addSource(sources, 'alert', alert, sourceLabel('Workspace alert', alert));
+  }
+  for (const snapshot of globalArtifacts.market_snapshots.slice(0, 5)) {
+    addSource(
+      sources,
+      'market_snapshot',
+      snapshot,
+      sourceLabel('Workspace market snapshot', snapshot),
+    );
+  }
+  for (const snapshot of globalArtifacts.signal_snapshots.slice(0, 5)) {
+    addSource(
+      sources,
+      'signal_snapshot',
+      snapshot,
+      sourceLabel('Workspace signal snapshot', snapshot),
+    );
+  }
   return dedupeSources(sources);
 }
 
@@ -31,13 +70,17 @@ export function buildResearchChatAnswer(
   intent: ResearchChatIntent,
   context: ResearchChatContextPackResponse,
 ): string {
-  if (!context.latest_thesis && !context.continuity_state) {
+  if (!hasAnyResearchArtifact(context)) {
     return [
-      `${context.symbol}: I do not have a saved thesis or continuity state to cite yet.`,
+      `${context.symbol}: I do not have saved Luna research artifacts to cite yet.`,
       'The research artifact tables are empty for this workspace, so this structured-RAG chat has no source material yet.',
-      'Run a completed research job or import existing artifacts for this workspace and symbol, then ask again.',
+      'Run a completed research job or import existing artifacts for this workspace, then ask again.',
       'For V0 I can answer from structured artifacts only: thesis, continuity entries, active scenarios, alerts, market snapshots, and signal snapshots.',
     ].join(' ');
+  }
+
+  if (context.symbol === 'global') {
+    return globalAnswer(intent, context);
   }
 
   switch (intent) {
@@ -54,6 +97,56 @@ export function buildResearchChatAnswer(
     default:
       return generalAnswer(context);
   }
+}
+
+function globalAnswer(
+  intent: ResearchChatIntent,
+  context: ResearchChatContextPackResponse,
+): string {
+  const inventory = getWorkspaceInventory(context);
+  const globalArtifacts = getGlobalArtifacts(context);
+  const thesisRows = globalArtifacts.latest_theses.slice(0, 5);
+  const runRows = globalArtifacts.recent_runs.slice(0, 5);
+  const thesisText = thesisRows
+    .map((thesis) =>
+      [
+        stringValue(thesis.symbol, 'unknown symbol'),
+        firstText(thesis.thesis_text, thesis.decision, recordValue(thesis.summary).action_summary),
+      ]
+        .filter(Boolean)
+        .join(': '),
+    )
+    .filter(Boolean);
+  const runText = runRows
+    .map((run) =>
+      [
+        stringValue(run.symbol, 'unknown symbol'),
+        stringValue(run.status, 'unknown status'),
+        stringValue(run.completed_at ?? run.started_at),
+      ]
+        .filter(Boolean)
+        .join(' / '),
+    )
+    .filter(Boolean);
+
+  if (intent === 'thesis') {
+    return [
+      `Global workspace view: I found ${inventory.thesis_count} thesis record(s) across ${inventory.symbols.length} symbol(s).`,
+      listSentence('Latest theses', thesisText),
+      listSentence('Symbols covered', inventory.symbols.slice(0, 8)),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return [
+    `I can access Luna structured research data for this workspace: ${inventory.thesis_count} thesis record(s), ${inventory.run_count} research run(s), ${inventory.alert_count} alert(s), ${inventory.scenario_count} scenario record(s), ${inventory.market_snapshot_count} market snapshot(s), and ${inventory.signal_snapshot_count} signal snapshot(s).`,
+    listSentence('Symbols covered', inventory.symbols.slice(0, 8)),
+    listSentence('Recent runs', runText),
+    listSentence('Latest thesis snippets', thesisText.slice(0, 3)),
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function thesisAnswer(context: ResearchChatContextPackResponse): string {
@@ -178,6 +271,63 @@ function addSource(
   }
   const sourceRecord = record ?? {};
   sources.push({ type, id, label, excerpt: sourceExcerpt(type, sourceRecord) });
+}
+
+function sourceLabel(prefix: string, record: JsonRecord): string {
+  const symbol = nullableString(record.symbol);
+  return symbol ? `${prefix} (${symbol})` : prefix;
+}
+
+function hasAnyResearchArtifact(context: ResearchChatContextPackResponse): boolean {
+  const inventory = getWorkspaceInventory(context);
+  return Boolean(
+    context.latest_thesis ||
+      context.latest_run ||
+      context.continuity_state ||
+      context.market_snapshot ||
+      context.signal_snapshot ||
+      context.recent_continuity_entries.length ||
+      context.active_scenarios.length ||
+      context.latest_alerts.length ||
+      inventory.thesis_count ||
+      inventory.run_count ||
+      inventory.alert_count ||
+      inventory.scenario_count ||
+      inventory.market_snapshot_count ||
+      inventory.signal_snapshot_count,
+  );
+}
+
+function getWorkspaceInventory(
+  context: ResearchChatContextPackResponse,
+): NonNullable<ResearchChatContextPackResponse['workspace_inventory']> {
+  return (
+    context.workspace_inventory ?? {
+      symbols: [],
+      thesis_count: 0,
+      run_count: 0,
+      completed_run_count: 0,
+      alert_count: 0,
+      scenario_count: 0,
+      market_snapshot_count: 0,
+      signal_snapshot_count: 0,
+    }
+  );
+}
+
+function getGlobalArtifacts(
+  context: ResearchChatContextPackResponse,
+): NonNullable<ResearchChatContextPackResponse['global_artifacts']> {
+  return (
+    context.global_artifacts ?? {
+      latest_theses: [],
+      recent_runs: [],
+      latest_alerts: [],
+      active_scenarios: [],
+      market_snapshots: [],
+      signal_snapshots: [],
+    }
+  );
 }
 
 function dedupeSources(

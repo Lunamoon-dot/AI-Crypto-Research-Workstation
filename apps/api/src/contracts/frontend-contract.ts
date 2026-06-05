@@ -229,10 +229,26 @@ export interface ScenarioResponse {
   id: string | null;
   workspace_id: string;
   thesis_id: string;
+  scenario_name: string;
+  direction: string;
+  thesis_impact: string;
   probability_band: string;
   suggested_user_action: string;
   condition: string;
   expected_behavior: string;
+  invalidation: string;
+  evidence: string[];
+  watch_triggers: string[];
+  impact_on_thesis: string;
+  risk_map: string[];
+  as_of: string;
+  timeframe: string;
+  source: string[];
+  status: string;
+  status_reason: string;
+  distance_to_trigger: number | null;
+  last_evaluated_at: string | null;
+  trigger_spec: JsonRecord | null;
   payload: JsonRecord;
 }
 
@@ -1070,6 +1086,7 @@ export interface WorkbenchAttentionResponse {
   item_count: number;
   unresolved_count: number;
   latest_brief: BriefResponse | null;
+  active_scenarios: ScenarioResponse[];
   brief_actions: AttentionItemResponse[];
   queues: AttentionQueueResponse[];
   items: AttentionItemResponse[];
@@ -1656,19 +1673,47 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
 
 export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
+  const legacyMeta = legacyScenarioMeta(payload, scenario);
   return {
     id: nullableString(scenario.id),
     workspace_id: stringValue(scenario.workspace_id, 'local'),
     thesis_id: stringValue(scenario.thesis_id),
-    probability_band: stringValue(scenario.probability_band),
-    suggested_user_action: stringValue(scenario.suggested_user_action),
-    condition: stringValue(scenario.condition ?? payload.condition),
-    expected_behavior: stringValue(
-      scenario.expected_behavior ??
-        scenario.expected_market_behavior ??
-        payload.expected_behavior ??
-        payload.expected_market_behavior,
+    scenario_name: firstScenarioString(scenario.scenario_name, payload.scenario_name, payload.scenarioName),
+    direction: firstScenarioString(scenario.direction, payload.direction, payload.scenario_direction),
+    thesis_impact: firstScenarioString(scenario.thesis_impact, payload.thesis_impact),
+    probability_band: firstScenarioString(scenario.probability_band, payload.probability_band),
+    suggested_user_action: cleanScenarioAction(
+      firstScenarioString(scenario.suggested_user_action, payload.suggested_user_action, payload.suggested_action),
     ),
+    condition: cleanScenarioBlock(
+      firstScenarioString(scenario.condition, payload.condition),
+    ),
+    expected_behavior: cleanScenarioBlock(
+      firstScenarioString(
+        scenario.expected_behavior,
+        scenario.expected_market_behavior,
+        payload.expected_behavior,
+        payload.expected_market_behavior,
+      ),
+    ),
+    invalidation: firstScenarioString(scenario.invalidation, payload.invalidation),
+    evidence: firstScenarioStringList(scenario.evidence, payload.evidence, payload.evidence_items),
+    watch_triggers: firstScenarioStringList(
+      scenario.watch_triggers,
+      payload.watch_triggers,
+      payload.watchTriggers,
+      payload.watch,
+    ),
+    impact_on_thesis: firstScenarioString(scenario.impact_on_thesis, payload.impact_on_thesis),
+    risk_map: firstScenarioStringList(scenario.risk_map, payload.risk_map, payload.risk_factors),
+    as_of: firstScenarioString(scenario.as_of, payload.as_of, payload.asOf, payload.source_timestamp, legacyMeta.as_of),
+    timeframe: firstScenarioString(scenario.timeframe, payload.timeframe, payload.time_frame, payload.horizon, legacyMeta.timeframe),
+    source: firstScenarioStringList(scenario.source, payload.source, payload.sources, payload.source_artifacts, legacyMeta.source),
+    status: firstScenarioString(scenario.status, payload.status, 'watching'),
+    status_reason: firstScenarioString(scenario.status_reason, payload.status_reason),
+    distance_to_trigger: nullableNumber(scenario.distance_to_trigger ?? payload.distance_to_trigger),
+    last_evaluated_at: nullableString(scenario.last_evaluated_at ?? payload.last_evaluated_at),
+    trigger_spec: nullableRecord(scenario.trigger_spec ?? payload.trigger_spec),
     payload,
   };
 }
@@ -2464,6 +2509,76 @@ function firstStringList(...values: unknown[]): string[] {
     }
   }
   return [];
+}
+
+function firstScenarioString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = stringValue(value).trim();
+    if (text && !isScenarioNotRecorded(text)) {
+      return text;
+    }
+  }
+  return '';
+}
+
+function firstScenarioStringList(...values: unknown[]): string[] {
+  for (const value of values) {
+    const items = stringList(value)
+      .map((item) => item.trim())
+      .filter((item) => item && !isScenarioNotRecorded(item));
+    if (items.length > 0) {
+      return [...new Set(items)];
+    }
+  }
+  return [];
+}
+
+function isScenarioNotRecorded(value: string): boolean {
+  return ['not recorded', 'n/a', 'none', 'unknown'].includes(value.trim().toLowerCase());
+}
+
+function cleanScenarioBlock(value: string): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  const scenarioHeader = text.match(/^(?:#{1,6}\s*)?Scenario\s+\d+\s*:\s*(.+)$/i);
+  return (scenarioHeader?.[1] ?? text).slice(0, 500);
+}
+
+function cleanScenarioAction(value: string): string {
+  return value
+    .replace(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*.+$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function legacyScenarioMeta(
+  payload: JsonRecord,
+  scenario: JsonRecord,
+): { as_of: string; timeframe: string; source: string[] } {
+  const text = [
+    scenario.suggested_user_action,
+    payload.suggested_user_action,
+    payload.suggested_action,
+    scenario.condition,
+    payload.condition,
+  ]
+    .map((item) => stringValue(item))
+    .filter(Boolean)
+    .join(' ');
+  const match = text.match(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*(.+)$/i);
+  if (!match) {
+    return { as_of: '', timeframe: '', source: [] };
+  }
+  const raw = match[1].trim();
+  return {
+    as_of: raw.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? '',
+    timeframe: raw.match(/\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b/i)?.[1] ?? '',
+    source: raw ? [raw.replace(/[.;]\s*$/, '')] : [],
+  };
+}
+
+function nullableRecord(value: unknown): JsonRecord | null {
+  const record = recordValue(value);
+  return Object.keys(record).length > 0 ? record : null;
 }
 
 function booleanValue(value: unknown, fallback = false): boolean {

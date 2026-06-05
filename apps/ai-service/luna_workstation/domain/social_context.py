@@ -20,6 +20,17 @@ class SocialAssetAttention(BaseModel):
     source: str = "coingecko_trending"
 
 
+class SocialAssetMood(BaseModel):
+    symbol: str
+    mood_label: str = "unknown"
+    mood_score: float | None = None
+    mention_count: int = 0
+    bullish_count: int = 0
+    bearish_count: int = 0
+    source_count: int = 0
+    sample_status: str = "insufficient"
+
+
 class SocialQuality(BaseModel):
     status: str = "insufficient_data"
     reason_codes: list[str] = Field(default_factory=list)
@@ -39,6 +50,7 @@ class SocialContext(BaseModel):
     instrument: str
     macro_mood: SocialMacroMood | None = None
     asset_attention: SocialAssetAttention | None = None
+    asset_mood: SocialAssetMood | None = None
     quality: SocialQuality = Field(default_factory=SocialQuality)
 
     def to_prompt_block(self) -> str:
@@ -79,6 +91,26 @@ class SocialContext(BaseModel):
                 ]
             )
 
+        lines.extend(["", "Asset-specific social mood:"])
+        if self.asset_mood is None:
+            lines.append("- Coin mood: unavailable")
+        else:
+            score = (
+                "unknown"
+                if self.asset_mood.mood_score is None
+                else f"{self.asset_mood.mood_score:.2f}"
+            )
+            lines.extend(
+                [
+                    f"- Coin mood: {self.asset_mood.mood_label} ({score})",
+                    f"- Mentions analyzed: {self.asset_mood.mention_count}",
+                    f"- Bullish mentions: {self.asset_mood.bullish_count}",
+                    f"- Bearish mentions: {self.asset_mood.bearish_count}",
+                    f"- Sources covered: {self.asset_mood.source_count}",
+                    f"- Sample status: {self.asset_mood.sample_status}",
+                ]
+            )
+
         lines.extend(["", "Missing/degraded data:"])
         if not self.quality.reason_codes:
             lines.append("- none")
@@ -92,6 +124,7 @@ class SocialContext(BaseModel):
                 "Rules for analyst:",
                 "- Treat Fear & Greed as macro context only.",
                 "- Treat CoinGecko trending/social score as retail attention only.",
+                "- Treat coin-specific mood as source-scoped social evidence.",
                 (
                     "- Do not cite news, official posts, founder posts, KOL posts, "
                     "Telegram, Reddit, Discord, or YouTube evidence unless a future "

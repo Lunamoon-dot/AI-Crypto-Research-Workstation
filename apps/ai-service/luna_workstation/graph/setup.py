@@ -302,6 +302,7 @@ class GraphSetup:
             self._budgeted_node(
                 scenario_planner_node,
                 "scenario_planner",
+                fail_open=True,
                 graph_node=str(PipelineNode.SCENARIO_PLANNER),
             ),
         )
@@ -360,7 +361,14 @@ class GraphSetup:
 
         return workflow
 
-    def _budgeted_node(self, node_fn: Callable[[dict], dict], stage: str, **ctx):
+    def _budgeted_node(
+        self,
+        node_fn: Callable[[dict], dict],
+        stage: str,
+        *,
+        fail_open: bool = False,
+        **ctx,
+    ):
         tracker = self.budget_tracker
 
         def _run(state: dict) -> dict:
@@ -413,6 +421,8 @@ class GraphSetup:
                     error=str(exc)[:500],
                     **event_ctx,
                 )
+                if fail_open:
+                    return {"scenario_plan": "", "scenario_plan_json": ""}
                 raise
 
         return _run

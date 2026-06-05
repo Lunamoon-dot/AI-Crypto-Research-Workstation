@@ -307,10 +307,26 @@ export interface ScenarioResponse {
   id: string | null;
   workspace_id: string;
   thesis_id: string;
+  scenario_name: string;
+  direction: string;
+  thesis_impact: string;
   probability_band: string;
   suggested_user_action: string;
   condition: string;
   expected_behavior: string;
+  invalidation: string;
+  evidence: string[];
+  watch_triggers: string[];
+  impact_on_thesis: string;
+  risk_map: string[];
+  as_of: string;
+  timeframe: string;
+  source: string[];
+  status: string;
+  status_reason: string;
+  distance_to_trigger: number | null;
+  last_evaluated_at: string | null;
+  trigger_spec: JsonRecord | null;
   payload: JsonRecord;
 }
 
