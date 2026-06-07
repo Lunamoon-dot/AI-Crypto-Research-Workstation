@@ -20,6 +20,7 @@ import {
   WorkbenchAttentionResponse,
 } from '../contracts/frontend-contract';
 import { evaluateScenario } from '../scenarios/scenario-evaluator';
+import { evaluateScenarioRuntimeDecision } from '../scenarios/scenario-runtime-evaluator';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 
 const CANDIDATE_LIMIT = 50;
@@ -201,6 +202,11 @@ export class WorkbenchService {
       for (const scenario of scenariosByThesis.get(thesisId) ?? []) {
         const payload = recordValue(scenario.payload ?? scenario.payload_json);
         const evaluation = evaluateScenario(scenario, snapshot, nowIso);
+        const runtimeDecision = evaluateScenarioRuntimeDecision(
+          scenario,
+          snapshot,
+          nowIso,
+        );
         evaluated.push(toScenarioResponse({
           ...scenario,
           status: evaluation.status,
@@ -208,6 +214,8 @@ export class WorkbenchService {
           distance_to_trigger: evaluation.distance_to_trigger,
           last_evaluated_at: evaluation.last_evaluated_at,
           trigger_spec: evaluation.trigger_spec,
+          decision_playbook: recordValue(payload.decision_playbook),
+          runtime_decision: runtimeDecision,
           payload: {
             ...payload,
             status: evaluation.status,
@@ -215,6 +223,7 @@ export class WorkbenchService {
             distance_to_trigger: evaluation.distance_to_trigger,
             last_evaluated_at: evaluation.last_evaluated_at,
             trigger_spec: evaluation.trigger_spec,
+            runtime_decision: runtimeDecision,
           },
         }));
       }
@@ -1015,6 +1024,12 @@ function scenarioUrgency(scenario: JsonRecord): number {
 }
 
 function activeScenarioUrgency(scenario: ScenarioResponse): number {
+  const action = scenario.runtime_decision.recommended_action;
+  if (action === 'entry_long_now' || action === 'entry_short_now') return 100;
+  if (action === 'consider_long' || action === 'consider_short') return 85;
+  if (scenario.runtime_decision.trigger_status === 'triggered') return 80;
+  if (scenario.runtime_decision.trigger_status === 'near_trigger') return 70;
+  if (scenario.runtime_decision.validity_status === 'expired') return 50;
   const status = scenario.status;
   if (status === 'alerting') return 100;
   if (status === 'triggered') return 90;

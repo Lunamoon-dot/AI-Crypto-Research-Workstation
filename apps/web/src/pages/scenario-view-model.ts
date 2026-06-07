@@ -19,6 +19,11 @@ export interface ScenarioViewModel {
   status: string;
   statusReason: string;
   distanceLabel: string;
+  runtimeAction: string;
+  triggerStatus: string;
+  validityStatus: string;
+  runtimeReason: string;
+  blockingReasons: string[];
 }
 
 export function scenarioMonitorViewModel(scenario: ScenarioResponse): ScenarioViewModel {
@@ -31,15 +36,21 @@ export function scenarioDetailViewModel(scenario: ScenarioResponse, index: numbe
 
 function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: string): ScenarioViewModel {
   const action = splitAction(scenario.suggested_user_action || 'review');
+  const hasRuntimeDecision =
+    scenario.runtime_decision.playbook_source !== 'missing' &&
+    !scenario.runtime_decision.blocking_reasons.includes('runtime_decision_missing');
+  const runtimeAction = hasRuntimeDecision
+    ? actionLabel(scenario.runtime_decision.recommended_action)
+    : '';
   return {
     title: cleanText(scenario.scenario_name) || cleanText(scenario.condition).slice(0, 90) || fallbackTitle,
     condition: cleanText(scenario.condition) || 'No trigger condition recorded.',
     expected: cleanText(scenario.expected_behavior),
     evidence: cleanList(scenario.evidence),
     watchTriggers: cleanList(scenario.watch_triggers),
-    actionLabel: action.label,
+    actionLabel: runtimeAction || action.label,
     actionDetail: action.detail,
-    actionTone: actionTone(action.label),
+    actionTone: actionTone(runtimeAction || action.label),
     impactOnThesis: cleanText(scenario.impact_on_thesis),
     riskMap: cleanList(scenario.risk_map),
     asOf: cleanText(scenario.as_of) || 'not recorded',
@@ -51,6 +62,19 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
       typeof scenario.distance_to_trigger === 'number'
         ? `${(scenario.distance_to_trigger * 100).toFixed(2)}%`
         : 'n/a',
+    runtimeAction,
+    triggerStatus: hasRuntimeDecision
+      ? statusLabel(scenario.runtime_decision.trigger_status)
+      : '',
+    validityStatus: hasRuntimeDecision
+      ? statusLabel(scenario.runtime_decision.validity_status)
+      : '',
+    runtimeReason: hasRuntimeDecision
+      ? cleanText(scenario.runtime_decision.status_reason)
+      : '',
+    blockingReasons: hasRuntimeDecision
+      ? scenario.runtime_decision.blocking_reasons.map(cleanText).filter(Boolean)
+      : [],
   };
 }
 
@@ -92,4 +116,14 @@ function cleanText(value: unknown): string {
     .replace(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*.+$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function actionLabel(value: string): string {
+  return value
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function statusLabel(value: string): string {
+  return value.replaceAll('_', ' ');
 }

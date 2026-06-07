@@ -12,3 +12,14 @@ test('scenario monitor uses normalized scenario view model', () => {
   assert.equal(source.includes('scenarioMonitorViewModel'), true);
   assert.equal(source.includes('item.scenario.condition || item.trigger_summary'), false);
 });
+
+test('scenario monitor renders runtime decision fields', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ScenarioMonitorPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('vm.runtimeAction'), true);
+  assert.equal(source.includes('vm.triggerStatus'), true);
+  assert.equal(source.includes('vm.validityStatus'), true);
+});

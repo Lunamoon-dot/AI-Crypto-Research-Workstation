@@ -625,6 +625,7 @@ function LifecycleEventRow({
 }) {
   const before = nonDuplicateTimelineText(event.before, event.title);
   const after = nonDuplicateTimelineText(event.after, event.title);
+  const reason = nonDuplicateTimelineText(event.reason, event.title);
   return (
     <article className="lifecycle-event-row">
       <div className="lifecycle-event-date">
@@ -648,8 +649,14 @@ function LifecycleEventRow({
           ) : null}
         </div>
         <p className="lifecycle-event-title">{event.title}</p>
-        {before || after ? (
+        {reason || before || after ? (
           <div className="lifecycle-event-diff">
+            {reason ? (
+              <div className="lifecycle-diff-line">
+                <span>Reason</span>
+                <strong>{reason}</strong>
+              </div>
+            ) : null}
             {before ? (
               <div className="lifecycle-diff-line">
                 <span>Before</span>

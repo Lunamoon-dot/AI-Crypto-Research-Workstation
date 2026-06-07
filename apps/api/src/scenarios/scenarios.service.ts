@@ -15,6 +15,7 @@ import {
 } from '../contracts/frontend-contract';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { evaluateScenario } from './scenario-evaluator';
+import { evaluateScenarioRuntimeDecision } from './scenario-runtime-evaluator';
 
 @Injectable()
 export class ScenariosService {
@@ -89,7 +90,13 @@ function buildScenarioMonitorItem(
   latestAlert: JsonRecord | null,
 ): ScenarioMonitorItemResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
-  const evaluation = evaluateScenario(scenario, snapshot, new Date().toISOString());
+  const nowIso = new Date().toISOString();
+  const evaluation = evaluateScenario(scenario, snapshot, nowIso);
+  const runtimeDecision = evaluateScenarioRuntimeDecision(
+    scenario,
+    snapshot,
+    nowIso,
+  );
   const evaluatedScenario = {
     ...scenario,
     status: evaluation.status,
@@ -97,6 +104,8 @@ function buildScenarioMonitorItem(
     distance_to_trigger: evaluation.distance_to_trigger,
     last_evaluated_at: evaluation.last_evaluated_at,
     trigger_spec: evaluation.trigger_spec,
+    decision_playbook: recordValue(payload.decision_playbook),
+    runtime_decision: runtimeDecision,
     payload: {
       ...payload,
       status: evaluation.status,
@@ -104,18 +113,19 @@ function buildScenarioMonitorItem(
       distance_to_trigger: evaluation.distance_to_trigger,
       last_evaluated_at: evaluation.last_evaluated_at,
       trigger_spec: evaluation.trigger_spec,
+      runtime_decision: runtimeDecision,
     },
   };
   const status = latestAlert && !latestAlert.read_at
     ? 'alerting'
-    : evaluation.status;
+    : runtimeDecision.trigger_status;
   const currentPrice = snapshot ? numberValue(snapshot.current_price) : null;
   const condition = stringValue(scenario.condition ?? payload.condition);
   return {
     status,
     status_reason: status === 'alerting'
       ? statusReason(status, latestAlert, snapshot)
-      : evaluation.status_reason,
+      : runtimeDecision.status_reason,
     trigger_summary: currentPrice === null
       ? condition
       : `${condition}${condition ? ' | ' : ''}latest price ${formatNumber(currentPrice)}`,
@@ -137,6 +147,9 @@ function compareScenarioUrgency(
 function scenarioUrgency(item: ScenarioMonitorItemResponse): number {
   const status = item.status;
   if (status === 'alerting') return 100;
+  const action = item.scenario.runtime_decision.recommended_action;
+  if (action === 'entry_long_now' || action === 'entry_short_now') return 95;
+  if (action === 'consider_long' || action === 'consider_short') return 85;
   if (status === 'triggered') return 90;
   if (status === 'near_trigger') return 80;
   if (status === 'needs_review') return 60;
