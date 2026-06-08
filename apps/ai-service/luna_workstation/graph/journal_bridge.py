@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 
 from luna_workstation.domain import (
     AgentOpinion,
@@ -566,8 +567,13 @@ def scenarios_from_structured_plan(
     import uuid
 
     out: list[Scenario] = []
-    for item in plan.scenarios:
+    for item in plan.scenarios[:4]:
         band = _probability_band_from_label(item.probability_band)
+        as_of, timeframe, source = _normalize_scenario_provenance(
+            item.as_of,
+            item.timeframe,
+            item.source,
+        )
         out.append(
             Scenario(
                 id=str(uuid.uuid4()),
@@ -584,9 +590,9 @@ def scenarios_from_structured_plan(
                 impact_on_thesis=item.impact_on_thesis,
                 risk_map=(item.risk_factors or [])[:16],
                 suggested_user_action=item.suggested_action or "review",
-                as_of=item.as_of,
-                timeframe=item.timeframe,
-                source=(item.source or [])[:8],
+                as_of=as_of,
+                timeframe=timeframe,
+                source=source[:8],
             )
         )
     return out
@@ -729,13 +735,53 @@ def _parse_scenario_plan(
             impact_on_thesis=impact or "",
             risk_map=risk_items[:8],
             suggested_user_action=clean_action or "review",
-            as_of=as_of or legacy_as_of or "",
-            timeframe=timeframe or legacy_timeframe or "",
-            source=(_split_list_section(source_raw) or legacy_source)[:8],
+            **_scenario_provenance_kwargs(
+                as_of or legacy_as_of or "",
+                timeframe or legacy_timeframe or "",
+                _split_list_section(source_raw) or legacy_source,
+            ),
         )
         scenarios.append(scenario)
 
     return scenarios
+
+
+def _scenario_provenance_kwargs(
+    as_of: str,
+    timeframe: str,
+    source: list[str],
+) -> dict[str, object]:
+    normalized_as_of, normalized_timeframe, normalized_source = (
+        _normalize_scenario_provenance(as_of, timeframe, source)
+    )
+    return {
+        "as_of": normalized_as_of,
+        "timeframe": normalized_timeframe,
+        "source": normalized_source[:8],
+    }
+
+
+def _normalize_scenario_provenance(
+    as_of: str,
+    timeframe: str,
+    source: list[str],
+) -> tuple[str, str, list[str]]:
+    cleaned_as_of = str(as_of or "").strip()
+    cleaned_timeframe = str(timeframe or "").strip()
+    cleaned_source = [str(item or "").strip() for item in source if str(item or "").strip()]
+
+    if not cleaned_as_of and cleaned_timeframe:
+        match = _AS_OF_IN_TIMEFRAME_RE.search(cleaned_timeframe)
+        if match:
+            cleaned_as_of = match.group(1)
+            cleaned_timeframe = _AS_OF_IN_TIMEFRAME_RE.sub("", cleaned_timeframe)
+            cleaned_timeframe = cleaned_timeframe.strip(" -–—().")
+    if not cleaned_as_of:
+        source_text = " ".join(cleaned_source)
+        match = _DATE_IN_TEXT_RE.search(source_text)
+        if match:
+            cleaned_as_of = match.group(1)
+    return cleaned_as_of, cleaned_timeframe, cleaned_source
 
 
 def _extract_legacy_source_timeframe_as_of(text: str) -> tuple[str, str, list[str], str]:
@@ -769,6 +815,11 @@ def _extract_section(text: str, field_pattern: str) -> str | None:
 
 
 _DASH_PATTERN = r"[:\-\u2013\u2014]"
+_DATE_IN_TEXT_RE = _re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_AS_OF_IN_TIMEFRAME_RE = _re.compile(
+    r"\(?\s*as[_\s-]*of\s*:\s*(\d{4}-\d{2}-\d{2})\s*\)?\.?",
+    _re.IGNORECASE,
+)
 _CONDITION_SECTION_PATTERN = (
     r"key\s+market\s+conditions?(?:\s*(?:&|and)\s*catalysts?)?|"
     r"market\s+conditions?|catalysts?|condition|trigger|"

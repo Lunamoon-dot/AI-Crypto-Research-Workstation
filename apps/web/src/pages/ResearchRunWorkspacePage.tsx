@@ -525,7 +525,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         <Panel
           className="span-12 emphasis research-pipeline-panel"
           title="Research assembly line"
-          description="Analyst fan-out, debate, risk checks, and final synthesis for this dossier"
+          description="Analyst fan-out, debate, scenario planning, risk checks, and final thesis synthesis"
         >
           <WorkflowVisualization
             marketType={marketType}
@@ -1705,7 +1705,7 @@ function readyDetailForStage(stageKey: string): string {
     return 'Signal snapshot persisted';
   }
   if (stageKey === 'scenario_planner') {
-    return 'Scenarios persisted';
+    return 'Scenario map persisted (max 4)';
   }
   if (stageKey === 'thesis') {
     return 'Thesis generated';

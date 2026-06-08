@@ -29,6 +29,7 @@ _TEMPLATE_LINE = (
     "setup_type must be one of: breakout, range_reversion, funding_squeeze, "
     "news_event, macro_event, trend_pullback, liquidity_sweep, or agent_debate."
 )
+_MAX_STRUCTURED_SCENARIOS = 4
 
 _DATE_REFERENCE_RE = re.compile(
     r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -36,6 +37,10 @@ _DATE_REFERENCE_RE = re.compile(
     r"Dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?\b"
     r"|\b\d{4}-\d{2}-\d{2}\b"
     r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
+    re.IGNORECASE,
+)
+_TIMEFRAME_REFERENCE_RE = re.compile(
+    r"\b(1m|5m|15m|1h|4h|1d|1w|1M|daily|weekly|monthly)\b",
     re.IGNORECASE,
 )
 
@@ -193,7 +198,77 @@ def _ground_scenario_plan_dates(
                 }
             )
         )
-    return plan.model_copy(update={"scenarios": grounded_scenarios})
+    return plan.model_copy(
+        update={"scenarios": grounded_scenarios[:_MAX_STRUCTURED_SCENARIOS]}
+    )
+
+
+def _normalize_timeframe_label(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "daily": "1D",
+        "1d": "1D",
+        "weekly": "1W",
+        "1w": "1W",
+        "monthly": "1M",
+        "1m": "1M",
+        "4h": "4H",
+        "1h": "1H",
+        "15m": "15m",
+        "5m": "5m",
+        "1m_lower": "1m",
+    }
+    if normalized == "1m":
+        return "1m"
+    return aliases.get(normalized, str(value or "").strip())
+
+
+def _extract_context_timeframe(*parts: str) -> str:
+    text = "\n".join(str(part or "") for part in parts if part).strip()
+    if not text:
+        return ""
+    match = _TIMEFRAME_REFERENCE_RE.search(text)
+    if not match:
+        return ""
+    return _normalize_timeframe_label(match.group(1))
+
+
+def _default_scenario_sources(research_reports: dict[str, str]) -> list[str]:
+    labels = [name for name, value in research_reports.items() if str(value or "").strip()]
+    return labels[:3]
+
+
+def _enrich_scenario_plan_provenance(
+    plan: ScenarioPlan,
+    *,
+    analysis_date: str,
+    research_reports: dict[str, str],
+    state: dict,
+) -> ScenarioPlan:
+    fallback_as_of = str(analysis_date or "").strip()
+    fallback_timeframe = _extract_context_timeframe(
+        state.get("quant_signal_text", ""),
+        state.get("signal_text", ""),
+        *research_reports.values(),
+        state.get("investment_plan", ""),
+        state.get("final_trade_decision", ""),
+    )
+    fallback_sources = _default_scenario_sources(research_reports)
+
+    enriched = []
+    for scenario in plan.scenarios:
+        sources = [item.strip() for item in scenario.source if str(item or "").strip()]
+        enriched.append(
+            scenario.model_copy(
+                update={
+                    "as_of": str(scenario.as_of or "").strip() or fallback_as_of,
+                    "timeframe": str(scenario.timeframe or "").strip()
+                    or fallback_timeframe,
+                    "source": sources or fallback_sources,
+                }
+            )
+        )
+    return plan.model_copy(update={"scenarios": enriched[:_MAX_STRUCTURED_SCENARIOS]})
 
 
 def _date_grounding_instruction(analysis_date: str) -> str:
@@ -357,6 +432,12 @@ def create_scenario_planner(llm, config=None):
                     plan,
                     evidence_text=source_evidence,
                     analysis_date=analysis_date,
+                )
+                plan = _enrich_scenario_plan_provenance(
+                    plan,
+                    analysis_date=analysis_date,
+                    research_reports=research_reports,
+                    state=state,
                 )
                 markdown = render_scenario_plan(plan)
                 return {

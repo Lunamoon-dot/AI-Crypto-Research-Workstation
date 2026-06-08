@@ -106,6 +106,135 @@ def test_extract_thesis_field_ignores_combined_confirmation_invalidation_heading
     assert extract_thesis_field(text, "invalidation") == "at $700 (8.5% rally)."
 
 
+def test_extract_thesis_field_reads_vietnamese_multiline_review_sections():
+    text = "\n".join(
+        [
+            "Final Research Thesis: BNB/USDT (Spot)",
+            "",
+            "**Dieu kien xac nhan luan diem bear (khi nao Underweight co hieu luc?)**",
+            "- Gia dong cua duoi $550 xac nhan xu huong giam sau hon.",
+            "- Long/Short van duy tri tren 2.0 va khoi luong ban tiep tuc cao.",
+            "",
+            "**Dieu kien lam suy yeu luan diem (khi nao can xem xet lai?)**",
+            "- Gia dong cua tren $600 voi khoi luong tang dot bien.",
+            "- Xuat hien chat xuc tac tich cuc.",
+            "",
+            "### Rui ro chinh",
+            "- Short squeeze risk.",
+        ]
+    )
+
+    assert extract_thesis_field(text, "confirmation") == (
+        "Gia dong cua duoi $550 xac nhan xu huong giam sau hon.; "
+        "Long/Short van duy tri tren 2.0 va khoi luong ban tiep tuc cao."
+    )
+    assert extract_thesis_field(text, "invalidation") == (
+        "Gia dong cua tren $600 voi khoi luong tang dot bien.; "
+        "Xuat hien chat xuc tac tich cuc."
+    )
+
+    accented_text = "\n".join(
+        [
+            "**Điều kiện xác nhận luận điểm bear**",
+            "- Giá đóng cửa dưới $550 xác nhận xu hướng giảm.",
+            "",
+            "**Điều kiện làm suy yếu luận điểm**",
+            "- Giá đóng cửa trên $600 với khối lượng tăng.",
+        ]
+    )
+    assert extract_thesis_field(accented_text, "confirmation") == (
+        "Giá đóng cửa dưới $550 xác nhận xu hướng giảm."
+    )
+    assert extract_thesis_field(accented_text, "invalidation") == (
+        "Giá đóng cửa trên $600 với khối lượng tăng."
+    )
+
+
+
+def test_extract_thesis_field_reads_vietnamese_inline_review_sections():
+    text = "\n".join(
+        [
+            "**Xac nhan luan diem:** Daily close above $96,000 with volume.",
+            "",
+            "**Dieu kien vo hieu:** Close above $98,500 with strong buy volume.",
+        ]
+    )
+
+    assert (
+        extract_thesis_field(text, "confirmation")
+        == "Daily close above $96,000 with volume."
+    )
+    assert (
+        extract_thesis_field(text, "invalidation")
+        == "Close above $98,500 with strong buy volume."
+    )
+
+
+def test_graph_builds_thesis_from_generic_fenced_json_summary():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BTC/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.5)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_1",
+        symbol="BTC/USDT",
+        workspace_id="workspace_1",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BTC/USDT",
+            "final_trade_decision": """
+            **Stance: Underweight**
+
+            **Xac nhan luan diem:** Sideway weak until reversal confirms.
+
+            ```json
+            {
+              "rating": "Underweight",
+              "direction": "avoid",
+              "confidence": 0.65,
+              "market_type": "spot",
+              "action_summary": "Avoid new longs.",
+              "confirmation_condition": "Daily close above $96,000 with volume.",
+              "invalidation": "Close above $98,500 with strong buy volume.",
+              "key_reasons": [
+                {
+                  "text": "Trend remains bearish.",
+                  "supporting_evidence": [
+                    {
+                      "text": "Signal engine trend is bearish.",
+                      "evidence_kind": "observed",
+                      "source_artifact": "research_plan",
+                      "source_field": "trend",
+                      "strength": "high"
+                    }
+                  ]
+                }
+              ]
+            }
+            ```
+            """,
+        },
+    )
+
+    assert thesis.confirmation_condition == "Daily close above $96,000 with volume."
+    assert thesis.invalidation == "Close above $98,500 with strong buy volume."
+    assert thesis.structured_summary.confirmation_condition == (
+        "Daily close above $96,000 with volume."
+    )
+    assert thesis.structured_summary.invalidation == (
+        "Close above $98,500 with strong buy volume."
+    )
+    assert "confirmation_condition_missing_from_structured_summary" not in (
+        thesis.structured_summary.degradation_reasons
+    )
+
+
 def test_graph_builds_thesis_from_structured_summary_json_first():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "BTC/USDT"

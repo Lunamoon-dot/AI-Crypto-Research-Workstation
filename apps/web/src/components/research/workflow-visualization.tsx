@@ -53,7 +53,7 @@ export function WorkflowVisualization({
       <div className="workflow-org-header">
         <div>
           <strong>Agent workflow</strong>
-          <p className="small muted">Signal fan-out, analyst lanes, and sequential manager stages</p>
+          <p className="small muted">Signal fan-out, analyst lanes, and sequential research stages</p>
         </div>
         <div className="top-strip-meta">
           <span className="badge degraded">{marketType}</span>
@@ -304,6 +304,9 @@ function nodeKicker(
   }
   if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
     return 'market branch';
+  }
+  if (stage.key === 'scenario_planner') {
+    return 'scenario agent';
   }
   return 'sequential agent';
 }

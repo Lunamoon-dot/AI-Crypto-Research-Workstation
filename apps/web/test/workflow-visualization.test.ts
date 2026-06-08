@@ -24,3 +24,18 @@ test('research workflow only marks explicitly failed nodes as failed', () => {
   assert.equal(source.includes('Interrupted before completion'), true);
   assert.equal(source.includes('Not reached before run failed'), true);
 });
+
+test('research workflow surfaces scenario planner scope', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ResearchRunWorkspacePage.tsx', import.meta.url),
+    'utf8',
+  );
+  const workflowSource = readFileSync(
+    new URL('../src/components/research/workflow-visualization.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes('scenario planning'), true);
+  assert.equal(pageSource.includes('Scenario map persisted (max 4)'), true);
+  assert.equal(workflowSource.includes("return 'scenario agent'"), true);
+});

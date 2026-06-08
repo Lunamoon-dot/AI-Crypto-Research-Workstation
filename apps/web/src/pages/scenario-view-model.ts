@@ -23,6 +23,7 @@ export interface ScenarioViewModel {
   triggerStatus: string;
   validityStatus: string;
   runtimeReason: string;
+  runtimeSource: string;
   blockingReasons: string[];
 }
 
@@ -71,6 +72,9 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
       : '',
     runtimeReason: hasRuntimeDecision
       ? cleanText(scenario.runtime_decision.status_reason)
+      : '',
+    runtimeSource: hasRuntimeDecision
+      ? playbookSourceLabel(scenario.runtime_decision.playbook_source)
       : '',
     blockingReasons: hasRuntimeDecision
       ? scenario.runtime_decision.blocking_reasons.map(cleanText).filter(Boolean)
@@ -126,4 +130,14 @@ function actionLabel(value: string): string {
 
 function statusLabel(value: string): string {
   return value.replaceAll('_', ' ');
+}
+
+function playbookSourceLabel(value: string): string {
+  if (value === 'llm') {
+    return 'Rule evaluator / LLM playbook';
+  }
+  if (value === 'derived_v1') {
+    return 'Rule evaluator / derived playbook';
+  }
+  return 'No runtime playbook';
 }

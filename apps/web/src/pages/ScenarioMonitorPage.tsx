@@ -182,6 +182,11 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
 
       <div className="scenario-monitor-facts">
         <div className="scenario-monitor-fact">
+          <span>Runtime decision</span>
+          <p>{vm.runtimeAction || vm.actionLabel}</p>
+          <p className="small muted">{vm.runtimeSource || 'No runtime decision'}</p>
+        </div>
+        <div className="scenario-monitor-fact">
           <span>Market</span>
           <p>
             <strong>{formatNumber(market?.current_price)}</strong>
