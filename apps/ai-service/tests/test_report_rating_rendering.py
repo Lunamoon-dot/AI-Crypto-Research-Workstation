@@ -105,3 +105,22 @@ def test_report_flags_stale_upside_reference_below_current_price():
 
     assert "breakout level $638 is below current price $682" in report
     assert "recent high $638 is below current price $682" in report
+
+
+def test_report_flags_vietnamese_price_trigger_already_crossed():
+    report = ReportGenerator({}).generate_complete_report(
+        {
+            "company_of_interest": "ETH/USDT",
+            "trade_date": "2026-06-08",
+            "quant_signal": "=== Quant Bias: ETH/USDT ===\nPrice: $1,647.71",
+            "final_trade_decision": (
+                "Giá tiếp tục giảm dưới $3,000 với volume xác nhận."
+            ),
+            "trader_investment_plan": "",
+            "scenario_plan": "",
+        },
+        include_charts=False,
+    )
+
+    assert "Price-Level Sanity Checks" in report
+    assert "price-only below $3,000 has already occurred" in report

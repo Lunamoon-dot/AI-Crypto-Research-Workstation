@@ -17,7 +17,7 @@ import {
   JournalRepository,
   JsonRecord,
 } from '../database/journal.types';
-import { JobsService } from '../jobs/jobs.service';
+import { EnqueuedJob, JobsService } from '../jobs/jobs.service';
 import { AuthService } from '../auth/auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import {
@@ -39,6 +39,7 @@ import {
   toSignalDetailResponse,
   toSignalSnapshotResponse,
   toThesisResponse,
+  WorkspacePermissionDto,
 } from '../contracts/frontend-contract';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 import {
@@ -150,6 +151,17 @@ export class ResearchRunsService {
         ),
       };
       requestForLog = request;
+      if (dto.run_id) {
+        const existingJob = await this.jobs.findExistingResearchRunJob(
+          request.run_id,
+        );
+        if (existingJob) {
+          this.logger.log(
+            `create research run idempotent hit run_id=${request.run_id} workspace_id=${request.workspace_id} job_id=${existingJob.id} backend=${existingJob.backend}`,
+          );
+          return queuedResponseFromJob(request, existingJob, permission);
+        }
+      }
       this.logger.log(
         `create research run accepted run_id=${request.run_id} workspace_id=${request.workspace_id} symbol=${request.symbol} market_type=${request.market_type} dry_run=${request.dry_run}`,
       );
@@ -174,20 +186,7 @@ export class ResearchRunsService {
       this.logger.log(
         `research run enqueued run_id=${request.run_id} job_id=${job.id} backend=${job.backend} duration_ms=${Date.now() - enqueueStartedAt} total_ms=${Date.now() - startedAt}`,
       );
-      return {
-        run_id: request.run_id,
-        workspace_id: request.workspace_id,
-        status:
-          job.backend === 'inline' && typeof job.result?.status === 'string'
-            ? job.result.status
-            : job.backend === 'inline'
-              ? 'submitted'
-              : 'queued',
-        job_id: job.id,
-        queue_backend: job.backend,
-        permission,
-        result: job.result,
-      };
+      return queuedResponseFromJob(request, job, permission);
     } catch (error) {
       this.logger.error(
         `create research run failed step=${step} run_id=${requestForLog.run_id ?? dto.run_id ?? 'unassigned'} workspace_id=${requestForLog.workspace_id ?? dto.workspace_id ?? 'unassigned'} symbol=${requestForLog.symbol ?? dto.symbol ?? 'unassigned'} total_ms=${Date.now() - startedAt}: ${errorSummary(error)}`,
@@ -685,6 +684,27 @@ function activeRunFromJob(
     degradation_reasons: job.error_code ? [job.error_code] : [],
     missing_core_data: [],
     missing_optional_data: [],
+  };
+}
+
+function queuedResponseFromJob(
+  request: EngineRunRequest,
+  job: EnqueuedJob,
+  permission: WorkspacePermissionDto,
+): ResearchRunQueuedResponse {
+  return {
+    run_id: request.run_id,
+    workspace_id: request.workspace_id,
+    status:
+      typeof job.result?.status === 'string'
+        ? job.result.status
+        : job.backend === 'inline'
+          ? 'submitted'
+          : 'queued',
+    job_id: job.id,
+    queue_backend: job.backend,
+    permission,
+    result: job.result,
   };
 }
 

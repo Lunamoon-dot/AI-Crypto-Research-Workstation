@@ -19,6 +19,7 @@ from luna_workstation.agents.managers.research_manager import create_research_ma
 from luna_workstation.agents.schemas import (
     MarketType,
     PortfolioRating,
+    PortfolioDecision,
     ResearchPlan,
     ScenarioItem,
     ScenarioPlan,
@@ -144,6 +145,7 @@ def _make_pm_state():
     return {
         "company_of_interest": "ETH/USDT",
         "market_type": "spot",
+        "quant_signal": "=== Quant Bias: ETH/USDT ===\nPrice: $1,647.71",
         "investment_plan": "**Research Stance**: Underweight\nAvoid fresh longs.",
         "trader_investment_plan": (
             "**Setup Stance**: Underweight\n"
@@ -220,6 +222,38 @@ class TestPortfolioManagerAgent:
         )
         assert payload["invalidation"] == "Daily close below 1715."
 
+    def test_prompt_includes_current_price_context(self):
+        captured = {}
+        structured = MagicMock()
+        structured.invoke.side_effect = lambda prompt: (
+            captured.__setitem__("prompt", prompt)
+            or PortfolioDecision(
+                rating=PortfolioRating.UNDERWEIGHT,
+                executive_summary="Avoid fresh longs.",
+                investment_thesis="Live-price anchored thesis.",
+                confidence=0.2,
+                market_type=MarketType.SPOT,
+                action_summary="Avoid fresh longs.",
+                confirmation_condition="Watch for live-price anchored confirmation.",
+                invalidation="Live-price anchored invalidation.",
+                key_reasons=[],
+                risks=[],
+                monitor_next=[],
+                supporting_evidence=[],
+                spot_notes="",
+                perp_notes="",
+                missing_data=[],
+            )
+        )
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        portfolio_manager(_make_pm_state())
+
+        assert "$1,647.71" in captured["prompt"]
+        assert "Do not assume price levels" in captured["prompt"]
+
 
 # ---------------------------------------------------------------------------
 # Setup Planner agent: structured happy path + fallback
@@ -230,6 +264,7 @@ def _make_setup_state(market_type: str = "spot"):
     return {
         "company_of_interest": "NVDA",
         "market_type": market_type,
+        "quant_signal": "=== Quant Bias: NVDA ===\nPrice: $682.00",
         "investment_plan": "**Research Stance**: Buy\n**Rationale**: ...\n**Review Focus**: ...",
     }
 
@@ -294,6 +329,16 @@ class TestSetupPlannerAgent:
         prompt = captured["prompt"]
         assert any("Market type: perp" in m["content"] for m in prompt)
         assert any("funding" in m["content"] for m in prompt)
+
+    def test_prompt_includes_current_price_context(self):
+        captured = {}
+        llm = _structured_setup_llm(captured)
+        setup_planner = create_setup_planner(llm)
+        setup_planner(_make_setup_state())
+        prompt = captured["prompt"]
+        user_text = "\n".join(m["content"] for m in prompt)
+        assert "$682" in user_text
+        assert "Do not assume price levels" in user_text
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (

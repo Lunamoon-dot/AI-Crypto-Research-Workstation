@@ -173,6 +173,31 @@ def test_scenarios_from_structured_plan_extracts_as_of_from_timeframe():
     assert rows[0].source == ["Market report ngay 2026-06-08."]
 
 
+def test_parse_scenario_plan_extracts_vietnamese_source_timeframe_block():
+    text = """
+### Scenario 1: Sụp Đổ Tiếp Diễn
+
+**Condition**: Long/Short ratio stays crowded.
+**Expected Behavior**: Price continues lower.
+**Probability**: Medium
+**Invalidation**: Price reclaims resistance.
+**Suggested Action**: Reassess — đánh giá lại danh mục.
+Source, timeframe, as_of
+Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư.
+Khung thời gian ưu tiên: daily cho xu hướng chính, 1h cho điểm phá vỡ.
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_x")
+
+    assert len(rows) == 1
+    assert rows[0].suggested_user_action == "Reassess — đánh giá lại danh mục."
+    assert rows[0].as_of == "2026-06-08"
+    assert rows[0].timeframe == "daily cho xu hướng chính, 1h cho điểm phá vỡ"
+    assert rows[0].source == [
+        "Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư"
+    ]
+
+
 def test_scenarios_from_structured_plan_enforces_contract_limit():
     plan = ScenarioPlan(
         setup_type="agent_debate",

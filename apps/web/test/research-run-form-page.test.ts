@@ -58,3 +58,19 @@ test('research run form sends the selected output language', () => {
   assert.equal(schemaSource.includes('output_language'), true);
   assert.equal(clientSource.includes('output_language?: string | null'), true);
 });
+
+test('research run form recovers transient launch errors by job id', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ResearchRunFormPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const schemaSource = readFileSync(
+    new URL('../src/schemas/research-run.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('createClientRunId()'), true);
+  assert.equal(source.includes('getJobStatus(request.run_id, auth)'), true);
+  assert.equal(source.includes('navigate(routes.researchRun(job.run_id, job.id))'), true);
+  assert.equal(schemaSource.includes('run_id'), true);
+});

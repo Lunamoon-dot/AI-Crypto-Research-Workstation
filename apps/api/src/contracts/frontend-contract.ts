@@ -2557,17 +2557,14 @@ function cleanScenarioBlock(value: string): string {
 }
 
 function cleanScenarioAction(value: string): string {
-  return value
-    .replace(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*.+$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return splitLegacyScenarioMeta(value).action.replace(/\s+/g, ' ').trim();
 }
 
 function legacyScenarioMeta(
   payload: JsonRecord,
   scenario: JsonRecord,
 ): { as_of: string; timeframe: string; source: string[] } {
-  const text = [
+  const candidates = [
     scenario.suggested_user_action,
     payload.suggested_user_action,
     payload.suggested_action,
@@ -2575,18 +2572,59 @@ function legacyScenarioMeta(
     payload.condition,
   ]
     .map((item) => stringValue(item))
-    .filter(Boolean)
-    .join(' ');
-  const match = text.match(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*(.+)$/i);
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    const parsed = splitLegacyScenarioMeta(candidate);
+    if (parsed.as_of || parsed.timeframe || parsed.source.length > 0) {
+      return {
+        as_of: parsed.as_of,
+        timeframe: parsed.timeframe,
+        source: parsed.source,
+      };
+    }
+  }
+  return { as_of: '', timeframe: '', source: [] };
+}
+
+function splitLegacyScenarioMeta(
+  value: string,
+): { action: string; as_of: string; timeframe: string; source: string[] } {
+  const text = stringValue(value);
+  const match = text.match(/\bSource,\s*timeframe,\s*(?:and\s*)?as_of\b\s*:?\s*([\s\S]*)$/i);
   if (!match) {
-    return { as_of: '', timeframe: '', source: [] };
+    return { action: text, as_of: '', timeframe: '', source: [] };
   }
   const raw = match[1].trim();
+  const action = text.slice(0, match.index).trim();
+  const source: string[] = [];
+  let timeframe = '';
+  for (const line of raw.split(/\r?\n/)) {
+    const cleaned = line.trim().replace(/^\s*[-*]\s*/, '');
+    if (!cleaned) {
+      continue;
+    }
+    const timeframeMatch = cleaned.match(
+      /^(?:khung\s+thời\s+gian\s+ưu\s+tiên|khung\s+thoi\s+gian\s+uu\s+tien|time\s*frame|timeframe)\s*:?\s*(.+)$/i,
+    );
+    if (timeframeMatch) {
+      timeframe = cleanScenarioActionMeta(timeframeMatch[1]);
+      continue;
+    }
+    source.push(cleanScenarioActionMeta(cleaned));
+  }
+  if (!timeframe) {
+    timeframe = raw.match(/\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b/i)?.[1] ?? '';
+  }
   return {
+    action,
     as_of: raw.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? '',
-    timeframe: raw.match(/\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b/i)?.[1] ?? '',
-    source: raw ? [raw.replace(/[.;]\s*$/, '')] : [],
+    timeframe,
+    source,
   };
+}
+
+function cleanScenarioActionMeta(value: unknown): string {
+  return stringValue(value).replace(/[.;]\s*$/, '').trim();
 }
 
 function nullableRecord(value: unknown): JsonRecord | null {

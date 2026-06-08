@@ -10,7 +10,12 @@ import {
   Radar,
   ShieldCheck,
 } from "lucide-react";
-import { createResearchRun, getApiHealth } from "@/services/research-runs";
+import {
+  createResearchRun,
+  getApiHealth,
+  getJobStatus,
+  type CreateResearchRunRequest,
+} from "@/services/research-runs";
 import { BentoGrid } from "@/components/research/bento";
 import { Panel } from "@/components/research/panel";
 import { isApiError } from "@/services/api-error";
@@ -135,32 +140,44 @@ export function ResearchRunFormPage() {
       setLaunchRetryReady(false);
       setConfirmOpen(false);
     },
-    mutationFn: () =>
-      createResearchRun(
-        researchRunRequestSchema.parse({
-          workspace_id: auth.workspaceId,
-          symbol: fixedWorkspaceSymbol ?? normalizedSymbol,
-          asset_class: "crypto",
-          market_type: marketType,
-          analysis_date: analysisDate,
-          analysts,
-          config_profile: profile,
-          output_language: outputLanguage,
-        }),
-        auth,
-      ),
+    mutationFn: (request: CreateResearchRunRequest) =>
+      createResearchRun(request, auth),
     onSuccess: (result) => {
       navigate(routes.researchRun(result.run_id, result.job_id));
     },
-    onError: async (error) => {
+    onError: async (error, request) => {
       if (!isTransientLaunchError(error)) {
         setLaunchRetryReady(false);
         return;
       }
       const health = await apiHealth.refetch();
-      setLaunchRetryReady(health.data?.status === "ok");
+      const ready = health.data?.status === "ok";
+      setLaunchRetryReady(ready);
+      if (!ready || !request.run_id) {
+        return;
+      }
+      try {
+        const job = await getJobStatus(request.run_id, auth);
+        navigate(routes.researchRun(job.run_id, job.id));
+      } catch {
+        // The POST may have failed before enqueue; leave the retry affordance visible.
+      }
     },
   });
+
+  function buildLaunchRequest(): CreateResearchRunRequest {
+    return researchRunRequestSchema.parse({
+      run_id: createClientRunId(),
+      workspace_id: auth.workspaceId,
+      symbol: fixedWorkspaceSymbol ?? normalizedSymbol,
+      asset_class: "crypto",
+      market_type: marketType,
+      analysis_date: analysisDate,
+      analysts,
+      config_profile: profile,
+      output_language: outputLanguage,
+    });
+  }
 
   useEffect(() => {
     if (!launchRetryReady || !mutation.isError || !apiReady) {
@@ -193,7 +210,7 @@ export function ResearchRunFormPage() {
     if (mutation.isPending || !apiReady || disabledReason) {
       return;
     }
-    mutation.mutate();
+    mutation.mutate(buildLaunchRequest());
   }
 
   return (
@@ -513,4 +530,12 @@ function isTransientLaunchError(error: unknown): boolean {
     message.includes("failed to fetch") ||
     message.includes("timeout")
   );
+}
+
+function createClientRunId(): string {
+  const uuid =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `run_${uuid.replaceAll("-", "")}`;
 }

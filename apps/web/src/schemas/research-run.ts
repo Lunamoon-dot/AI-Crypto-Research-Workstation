@@ -3,6 +3,7 @@ import { z } from 'zod';
 const analystSchema = z.enum(['market', 'news', 'social', 'onchain']);
 
 export const researchRunRequestSchema = z.object({
+  run_id: z.string().trim().min(1).optional(),
   workspace_id: z.string().trim().min(1, 'Workspace is required.'),
   symbol: z.string().trim().min(1, 'Symbol is required.').transform(normalizeCryptoSymbol),
   asset_class: z.string().trim().min(1).default('crypto'),

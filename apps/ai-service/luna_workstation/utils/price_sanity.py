@@ -10,6 +10,13 @@ _TRIGGER_LEVEL_RE = re.compile(
     r"\b(?P<direction>above|below)\s+\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
     re.I,
 )
+_LOCALIZED_TRIGGER_LEVEL_RE = re.compile(
+    r"(?P<phrase>"
+    r"giảm\s+dưới|giam\s+duoi|dưới|duoi|"
+    r"phá\s+vỡ\s+trên|pha\s+vo\s+tren|vượt\s+trên|vuot\s+tren|trên|tren"
+    r")\s+\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
+    re.I,
+)
 _UPSIDE_REFERENCE_LEVEL_RE = re.compile(
     r"\b(?P<label>breakout(?:\s+level)?|reclaim|recent\s+high|resistance|upside\s+target)"
     r"\b[^\n$]{0,40}?\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
@@ -42,10 +49,9 @@ def price_trigger_sanity_notes(
 
     notes: list[str] = []
     seen: set[tuple[str, float]] = set()
-    for match in _TRIGGER_LEVEL_RE.finditer(text):
-        direction = match.group("direction").lower()
+    for direction, raw_level in _price_trigger_matches(text):
         try:
-            level = float(match.group("level").replace(",", ""))
+            level = float(raw_level.replace(",", ""))
         except ValueError:
             continue
         key = (direction, level)
@@ -82,6 +88,15 @@ def price_trigger_sanity_notes(
             "remains a current non-price condition."
         )
     return notes
+
+
+def _price_trigger_matches(text: str):
+    for match in _TRIGGER_LEVEL_RE.finditer(text):
+        yield match.group("direction").lower(), match.group("level")
+    for match in _LOCALIZED_TRIGGER_LEVEL_RE.finditer(text):
+        phrase = match.group("phrase").lower()
+        direction = "below" if "dưới" in phrase or "duoi" in phrase else "above"
+        yield direction, match.group("level")
 
 
 def format_price(value: float) -> str:

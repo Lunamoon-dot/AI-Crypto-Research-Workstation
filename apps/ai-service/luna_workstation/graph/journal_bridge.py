@@ -787,22 +787,44 @@ def _normalize_scenario_provenance(
 def _extract_legacy_source_timeframe_as_of(text: str) -> tuple[str, str, list[str], str]:
     raw = str(text or "").strip()
     match = _re.search(
-        r"\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*(.+)$",
+        r"\bSource,\s*timeframe,\s*(?:and\s*)?as_of\b\s*:?\s*(.*)$",
         raw,
-        _re.IGNORECASE,
+        _re.IGNORECASE | _re.DOTALL,
     )
     if not match:
         return raw, "", [], ""
-    source_text = match.group(1).strip().rstrip(".")
     cleaned = raw[: match.start()].strip()
-    date_match = _re.search(r"\b(\d{4}-\d{2}-\d{2})\b", source_text)
-    timeframe_match = _re.search(
-        r"\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b",
-        source_text,
-        _re.IGNORECASE,
-    )
-    timeframe = timeframe_match.group(1) if timeframe_match else ""
-    return cleaned, date_match.group(1) if date_match else "", [source_text], timeframe
+    source_text = match.group(1).strip()
+    date_match = _DATE_IN_TEXT_RE.search(source_text)
+    source, timeframe = _split_legacy_source_and_timeframe(source_text)
+    if not timeframe:
+        timeframe_match = _re.search(
+            r"\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b",
+            source_text,
+            _re.IGNORECASE,
+        )
+        timeframe = timeframe_match.group(1) if timeframe_match else ""
+    return cleaned, date_match.group(1) if date_match else "", source, timeframe
+
+
+def _split_legacy_source_and_timeframe(text: str) -> tuple[list[str], str]:
+    source: list[str] = []
+    timeframe = ""
+    for line in str(text or "").splitlines():
+        cleaned = line.strip().strip(" -*")
+        if not cleaned:
+            continue
+        timeframe_match = _re.match(
+            r"^(?:khung\s+thời\s+gian\s+ưu\s+tiên|khung\s+thoi\s+gian\s+uu\s+tien|"
+            r"time\s*frame|timeframe)\s*:?\s*(.+)$",
+            cleaned,
+            _re.IGNORECASE,
+        )
+        if timeframe_match:
+            timeframe = timeframe_match.group(1).strip().rstrip(".")
+            continue
+        source.append(cleaned.rstrip("."))
+    return source, timeframe
 
 
 def _extract_section(text: str, field_pattern: str) -> str | None:

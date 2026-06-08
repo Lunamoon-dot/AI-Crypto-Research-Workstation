@@ -11674,6 +11674,44 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.equal(scenarios[0]?.runtime_decision.recommended_action, 'review');
 });
 
+test('scenario response extracts legacy source timeframe block from action text', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_scenario_legacy_meta', 'workspace_a'), {
+    id: 'thesis_scenario_legacy_meta',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    thesis_text: 'Watch ETH risk.',
+  });
+  journal.scenarios.set(key('thesis_scenario_legacy_meta', 'workspace_a'), [
+    {
+      id: 'scenario_legacy_meta',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_legacy_meta',
+      scenario_name: 'Sụp Đổ Tiếp Diễn',
+      condition: 'Long crowding remains high.',
+      suggested_user_action:
+        'Reassess — đánh giá lại danh mục.\n' +
+        'Source, timeframe, as_of\n' +
+        'Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư.\n' +
+        'Khung thời gian ưu tiên: daily cho xu hướng chính, 1h cho điểm phá vỡ.',
+      payload: {},
+    },
+  ]);
+
+  const scenarios = await theses.scenarios(
+    'thesis_scenario_legacy_meta',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(scenarios[0]?.suggested_user_action, 'Reassess — đánh giá lại danh mục.');
+  assert.equal(scenarios[0]?.as_of, '2026-06-08');
+  assert.equal(scenarios[0]?.timeframe, 'daily cho xu hướng chính, 1h cho điểm phá vỡ');
+  assert.deepEqual(scenarios[0]?.source, [
+    'Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư',
+  ]);
+});
+
 test('scenario monitor evaluates trigger distance and lifecycle status', async () => {
   const { journal, scenarios } = buildHarness();
   journal.theses.set(key('thesis_eval', 'workspace_a'), {
@@ -13338,3 +13376,19 @@ class FakeWorkspacePool {
 
   async end(): Promise<void> {}
 }
+
+test('research run create path is idempotent for caller supplied run ids', () => {
+  const serviceSource = readFileSync(
+    join(process.cwd(), 'src', 'research-runs', 'research-runs.service.ts'),
+    'utf8',
+  );
+  const jobsSource = readFileSync(
+    join(process.cwd(), 'src', 'jobs', 'jobs.service.ts'),
+    'utf8',
+  );
+
+  assert.equal(serviceSource.includes('findExistingResearchRunJob'), true);
+  assert.equal(serviceSource.includes('create research run idempotent hit'), true);
+  assert.equal(serviceSource.includes('queuedResponseFromJob(request, existingJob'), true);
+  assert.equal(jobsSource.includes('findExistingResearchRunJob'), true);
+});

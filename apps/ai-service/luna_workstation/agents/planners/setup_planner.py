@@ -13,6 +13,7 @@ from luna_workstation.agents.schemas import (
 )
 from luna_workstation.agents.utils.agent_utils import (
     build_instrument_context,
+    build_current_price_context,
     guard_untrusted_context,
 )
 from luna_workstation.agents.utils.structured import (
@@ -35,6 +36,7 @@ def create_setup_planner(llm, config=None):
     def setup_planner_node(state, name):
         company_name = state["company_of_interest"]
         instrument_context = build_instrument_context(company_name)
+        current_price_context = build_current_price_context(state)
         investment_plan = state["investment_plan"]
         market_type = _market_type_from(config, state)
         market_guidance = (
@@ -64,7 +66,8 @@ def create_setup_planner(llm, config=None):
                 "content": (
                     f"Based on a comprehensive analysis by a team of analysts, here is a research "
                     f"plan tailored for {company_name}. {instrument_context} Market type: "
-                    f"{market_type.value}. {market_guidance} This plan incorporates "
+                    f"{market_type.value}. {current_price_context} "
+                    f"{market_guidance} This plan incorporates "
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for a setup proposal, "
                     "not an execution instruction.\n\nProposed Research Plan: "
