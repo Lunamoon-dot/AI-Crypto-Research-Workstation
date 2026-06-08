@@ -39,3 +39,21 @@ test('scenario monitor shows runtime decision provenance', () => {
   assert.equal(viewModelSource.includes('runtimeSource'), true);
   assert.equal(viewModelSource.includes('playbookSourceLabel'), true);
 });
+
+test('scenario view model tolerates missing runtime decision', () => {
+  const viewModelSource = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(viewModelSource.includes('scenarioRuntimeDecision'), true);
+  assert.equal(viewModelSource.includes('missingRuntimeDecision'), true);
+  assert.equal(
+    viewModelSource.includes("blocking_reasons: ['runtime_decision_missing']"),
+    true,
+  );
+  assert.equal(
+    viewModelSource.includes('scenario.runtime_decision.playbook_source'),
+    false,
+  );
+});

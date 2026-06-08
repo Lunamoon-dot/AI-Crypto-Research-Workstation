@@ -729,11 +729,15 @@ function legacyStatusForSection(
   }
   if (
     id === 'current_view' ||
+    id === 'claims' ||
     id === 'active_risks' ||
+    id === 'scenarios' ||
     id === 'watchpoints' ||
     id === 'evidence_health' ||
     title.includes('current view') ||
+    title.includes('claim') ||
     title.includes('risk') ||
+    title.includes('scenario') ||
     title.includes('watchpoint') ||
     title.includes('evidence')
   ) {

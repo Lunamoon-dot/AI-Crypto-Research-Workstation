@@ -3147,6 +3147,45 @@ a {
   overflow-wrap: anywhere;
 }
 
+.structured-rich-text {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.structured-rich-text p {
+  margin: 0;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+
+.structured-rich-text-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.structured-rich-text-list li {
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+}
+
+.structured-rich-text.dense {
+  gap: 7px;
+}
+
+.structured-rich-text.dense .structured-rich-text-list {
+  gap: 6px;
+  padding-left: 16px;
+}
+
 .thesis-full-text {
   border-color: rgba(171, 157, 242, 0.22);
   border-left-color: rgba(171, 157, 242, 0.78);
@@ -4438,6 +4477,13 @@ a {
   overflow-wrap: anywhere;
 }
 
+.scenario-action .structured-rich-text {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
 .scenario-field {
   display: grid;
   align-content: start;
@@ -4464,6 +4510,12 @@ a {
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.scenario-field .structured-rich-text {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .scenario-evidence-grid {

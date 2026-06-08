@@ -34,6 +34,10 @@ test('research run form gates launch until the backend health check is ready', (
   assert.equal(source.includes('Backend is starting'), true);
   assert.equal(source.includes('mutation.isPending || !apiReady'), true);
   assert.equal(source.includes('error.status >= 500 && error.status <= 504'), true);
+  assert.equal(source.includes('["api-health", auth.mode, auth.workspaceId]'), true);
+  assert.equal(source.includes('staleTime: 0'), true);
+  assert.equal(source.includes('createResearchRunWithFreshHealth'), true);
+  assert.equal(source.includes('refetchApiReady()'), true);
   assert.equal(serviceSource.includes('getHealth'), true);
 });
 

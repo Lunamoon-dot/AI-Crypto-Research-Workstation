@@ -114,14 +114,14 @@ export function ResearchRunFormPage() {
     [analysts],
   );
   const apiHealth = useQuery({
-    queryKey: ["api-health", auth.mode],
+    queryKey: ["api-health", auth.mode, auth.workspaceId],
     queryFn: () => getApiHealth(auth),
     retry: true,
     retryDelay: 1000,
     refetchInterval: (query) =>
       query.state.status === "success" ? false : 1000,
     refetchIntervalInBackground: true,
-    staleTime: 5000,
+    staleTime: 0,
   });
   const apiReady = apiHealth.data?.status === "ok";
   const validationDisabledReason = legacyMixedWorkspace
@@ -141,7 +141,7 @@ export function ResearchRunFormPage() {
       setConfirmOpen(false);
     },
     mutationFn: (request: CreateResearchRunRequest) =>
-      createResearchRun(request, auth),
+      createResearchRunWithFreshHealth(request),
     onSuccess: (result) => {
       navigate(routes.researchRun(result.run_id, result.job_id));
     },
@@ -177,6 +177,28 @@ export function ResearchRunFormPage() {
       config_profile: profile,
       output_language: outputLanguage,
     });
+  }
+
+  async function createResearchRunWithFreshHealth(
+    request: CreateResearchRunRequest,
+  ) {
+    if (!(await refetchApiReady())) {
+      throw new Error("Backend is starting. Launch will unlock when API is ready.");
+    }
+
+    try {
+      return await createResearchRun(request, auth);
+    } catch (error) {
+      if (!isTransientLaunchError(error) || !(await refetchApiReady())) {
+        throw error;
+      }
+      return createResearchRun(request, auth);
+    }
+  }
+
+  async function refetchApiReady(): Promise<boolean> {
+    const health = await apiHealth.refetch();
+    return health.data?.status === "ok";
   }
 
   useEffect(() => {

@@ -160,9 +160,10 @@ export function buildLegacyThinReport(input: {
     currentViewItems: itemsForTitles(sectionItems, ['Current View']),
     materialChangeItems: itemsForTitles(sectionItems, [
       'Material Changes',
-      'Reinforced And Updated Claims',
     ]),
+    claimItems: itemsForTitles(sectionItems, ['Reinforced And Updated Claims']),
     activeRiskItems: itemsForTitles(sectionItems, ['Risks And Invalidations']),
+    scenarioItems: [],
     watchpointItems: itemsForTitles(sectionItems, ['Watchpoints And Levels']),
     resolvedItems: itemsForTitles(sectionItems, ['Resolved Or Weakened Items']),
     evidenceHealthItems: evidenceHealthItems(quality),
@@ -206,6 +207,14 @@ function buildThinReport(
       'data_quality_changed',
       'agent_conflict_changed',
     ]),
+    claimItems: [
+      ...thinEventItems(input.events, [
+        'claim_added',
+        'claim_reinforced',
+        'claim_updated',
+      ]),
+      ...snapshotThinItems(input.snapshot, ['claim']),
+    ],
     activeRiskItems: [
       ...thinEventItems(input.events, [
         'risk_added',
@@ -215,6 +224,13 @@ function buildThinReport(
         'invalidation_updated',
       ]),
       ...snapshotThinItems(input.snapshot, ['risk', 'invalidation']),
+    ],
+    scenarioItems: [
+      ...thinEventItems(input.events, [
+        'scenario_added',
+        'scenario_probability_changed',
+      ]),
+      ...snapshotThinItems(input.snapshot, ['scenario']),
     ],
     watchpointItems: [
       ...thinEventItems(input.events, [
@@ -243,7 +259,9 @@ function assembleThinReport(input: {
   qualityItems: Array<string | CandidateThinItem>;
   currentViewItems: Array<string | CandidateThinItem>;
   materialChangeItems: Array<string | CandidateThinItem>;
+  claimItems: Array<string | CandidateThinItem>;
   activeRiskItems: Array<string | CandidateThinItem>;
+  scenarioItems: Array<string | CandidateThinItem>;
   watchpointItems: Array<string | CandidateThinItem>;
   resolvedItems: Array<string | CandidateThinItem>;
   evidenceHealthItems: Array<string | CandidateThinItem>;
@@ -266,7 +284,9 @@ function assembleThinReport(input: {
       input.materialChangeItems,
       5,
     ),
+    thinSection('claims', 'Claims', input.claimItems, 5, true),
     thinSection('active_risks', 'Active Risks', input.activeRiskItems, 5),
+    thinSection('scenarios', 'Scenarios', input.scenarioItems, 5, true),
     thinSection('watchpoints', 'Watchpoints', input.watchpointItems, 5),
     thinSection(
       'resolved_or_weakened',

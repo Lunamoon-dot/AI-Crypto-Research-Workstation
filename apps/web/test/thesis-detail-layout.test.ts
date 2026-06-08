@@ -52,7 +52,22 @@ test('thesis detail renders first-class confirmation condition', () => {
   assert.equal(source.includes('const confirmation ='), true);
   assert.equal(source.includes('thesis.confirmation_condition'), true);
   assert.equal(source.includes('<span>Confirmation</span>'), true);
-  assert.equal(source.includes('<p>{confirmation}</p>'), true);
+  assert.equal(source.includes('<StructuredRichText value={confirmation} />'), true);
+});
+
+test('thesis detail uses one structured text renderer across narrative blocks', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('function StructuredRichText'), true);
+  assert.equal(source.includes('<StructuredRichText value={actionSummary} />'), true);
+  assert.equal(source.includes('<StructuredRichText value={fullThesisText} />'), true);
+  assert.equal(source.includes('<StructuredRichText value={entryPlanText} />'), true);
+  assert.equal(source.includes('<StructuredRichText value={invalidation} />'), true);
+  assert.equal(source.includes('function parseStructuredText'), true);
+  assert.equal(source.includes('function splitInlineListItems'), true);
 });
 
 test('thesis technical audit fields stay out of the primary brief', () => {
@@ -112,4 +127,17 @@ test('scenario radar ignores missing runtime decisions for primary actions', () 
   assert.equal(source.includes("playbook_source !== 'missing'"), true);
   assert.equal(source.includes('runtime_decision_missing'), true);
   assert.equal(source.includes('actionLabel: runtimeAction || action.label'), true);
+});
+
+test('scenario radar supplements missing scenario branches from thesis boundaries', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('const scenarioCards = buildScenarioCards('), true);
+  assert.equal(source.includes('function buildScenarioCards('), true);
+  assert.equal(source.includes('buildBoundaryScenario('), true);
+  assert.equal(source.includes('branchType: \'confirmation\''), true);
+  assert.equal(source.includes('branchType: \'invalidation\''), true);
 });

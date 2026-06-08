@@ -147,6 +147,16 @@ test('captured continuity memory groups expose latest degraded entry items', () 
           items: ['Risk item 1.', 'Risk item 2.'],
         },
         {
+          id: 'claims',
+          title: 'Claims',
+          items: ['Claim item.'],
+        },
+        {
+          id: 'scenarios',
+          title: 'Scenarios',
+          items: ['Scenario item.'],
+        },
+        {
           id: 'watchpoints',
           title: 'Watchpoints',
           items: ['Watchpoint item.'],
@@ -171,6 +181,16 @@ test('captured continuity memory groups expose latest degraded entry items', () 
         id: 'active_risks',
         items: ['Risk item 1.', 'Risk item 2.'],
         title: 'Active Risks',
+      },
+      {
+        id: 'claims',
+        items: ['Claim item.'],
+        title: 'Claims',
+      },
+      {
+        id: 'scenarios',
+        items: ['Scenario item.'],
+        title: 'Scenarios',
       },
       {
         id: 'watchpoints',

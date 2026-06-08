@@ -28,7 +28,7 @@ export interface ActiveScenarioBranchView {
 }
 
 export interface CapturedContinuityMemoryGroup {
-  id: 'active_risks' | 'material_changes' | 'watchpoints';
+  id: 'active_risks' | 'claims' | 'material_changes' | 'scenarios' | 'watchpoints';
   title: string;
   description: string;
   items: string[];
@@ -39,6 +39,18 @@ const CAPTURED_MEMORY_SECTIONS: CapturedContinuityMemoryGroup[] = [
     id: 'active_risks',
     title: 'Active Risks',
     description: 'Captured risks and invalidations from the latest entry',
+    items: [],
+  },
+  {
+    id: 'claims',
+    title: 'Claims',
+    description: 'Captured thesis claims from the latest entry',
+    items: [],
+  },
+  {
+    id: 'scenarios',
+    title: 'Scenarios',
+    description: 'Captured scenario branches from the latest entry',
     items: [],
   },
   {

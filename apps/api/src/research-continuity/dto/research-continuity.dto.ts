@@ -185,7 +185,9 @@ export type ResearchContinuityThinSectionId =
   | 'quality'
   | 'current_view'
   | 'material_changes'
+  | 'claims'
   | 'active_risks'
+  | 'scenarios'
   | 'watchpoints'
   | 'resolved_or_weakened'
   | 'evidence_health';

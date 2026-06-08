@@ -38,6 +38,7 @@ import { scenarioDetailViewModel } from './scenario-view-model';
 import type {
   JsonRecord,
   ScenarioResponse,
+  ThesisResponse,
 } from '@/types';
 
 export function ThesisDetailPage() {
@@ -155,6 +156,7 @@ export function ThesisDetailPage() {
       : thesis.stale_or_missing_data;
   const invalidation =
     thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
+  const scenarioCards = buildScenarioCards(thesis, scenariosQuery.data ?? []);
   const headerMeta = [
     thesis.analysis_mode_label,
     thesis.thesis_status_label,
@@ -249,29 +251,29 @@ export function ThesisDetailPage() {
 
                 <section className="thesis-brief-summary">
                   <span>Main recommendation</span>
-                  <p>{actionSummary}</p>
+                  <StructuredRichText value={actionSummary} />
                 </section>
 
                 {showFullThesis ? (
                   <section className="thesis-full-text">
                     <span>Full thesis</span>
-                    <p>{fullThesisText}</p>
+                    <StructuredRichText value={fullThesisText} />
                   </section>
                 ) : null}
 
                 <section className={`thesis-entry-state${entryPlanIsEmpty ? ' empty' : ''}`}>
                   <span>Entry plan</span>
-                  <p>{entryPlanText}</p>
+                  <StructuredRichText value={entryPlanText} />
                 </section>
 
                 <div className="thesis-boundary-grid">
                   <section className="thesis-boundary thesis-boundary-confirmation">
                     <span>Confirmation</span>
-                    <p>{confirmation}</p>
+                    <StructuredRichText value={confirmation} />
                   </section>
                   <section className="thesis-boundary">
                     <span>Invalidation</span>
-                    <p>{invalidation}</p>
+                    <StructuredRichText value={invalidation} />
                   </section>
                 </div>
 
@@ -364,11 +366,11 @@ export function ThesisDetailPage() {
           <Panel title="Scenario radar" description="Conditional outcomes">
             {scenariosQuery.isLoading ? <LoadingState /> : null}
             {scenariosQuery.isError ? <ErrorState error={scenariosQuery.error} /> : null}
-            {scenariosQuery.data?.length === 0 ? (
+            {scenarioCards.length === 0 && !scenariosQuery.isLoading && !scenariosQuery.isError ? (
               <EmptyState label="No scenarios for this thesis." />
             ) : null}
             <div className="scenario-radar-list">
-              {scenariosQuery.data?.map((scenario, index) => (
+              {scenarioCards.map((scenario, index) => (
                 <ScenarioRadarCard
                   index={index}
                   key={scenario.id ?? scenario.condition}
@@ -699,18 +701,18 @@ function ScenarioRadarCard({
 
       <div className={`scenario-action scenario-action-${actionToneValue}`}>
         <span className="scenario-action-label">Action</span>
-        <p>{actionText}</p>
+        <StructuredRichText dense value={actionText} />
       </div>
 
       <div className="scenario-field">
         <span>Impact on thesis</span>
-        <p>{impactOnThesis || 'No thesis impact recorded.'}</p>
+        <StructuredRichText dense value={impactOnThesis || 'No thesis impact recorded.'} />
       </div>
 
       {invalidation ? (
         <div className="scenario-field scenario-field-compact">
           <span>Invalidation</span>
-          <p>{invalidation}</p>
+          <StructuredRichText dense value={invalidation} />
         </div>
       ) : null}
 
@@ -739,6 +741,247 @@ function ScenarioMeta({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function StructuredRichText({
+  value,
+  dense = false,
+}: {
+  value: string;
+  dense?: boolean;
+}) {
+  const blocks = parseStructuredText(value);
+  if (blocks.length === 0) {
+    return <p className={`structured-rich-text${dense ? ' dense' : ''}`}>No details recorded.</p>;
+  }
+  return (
+    <div className={`structured-rich-text${dense ? ' dense' : ''}`}>
+      {blocks.map((block, index) => {
+        if (block.kind === 'ordered-list') {
+          return (
+            <ol className="structured-rich-text-list ordered" key={`${block.kind}-${index}`}>
+              {block.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.kind === 'unordered-list') {
+          return (
+            <ul className="structured-rich-text-list" key={`${block.kind}-${index}`}>
+              {block.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          );
+        }
+        return <p key={`${block.kind}-${index}`}>{block.items[0]}</p>;
+      })}
+    </div>
+  );
+}
+
+type StructuredTextBlock = {
+  kind: 'paragraph' | 'ordered-list' | 'unordered-list';
+  items: string[];
+};
+
+function parseStructuredText(value: string): StructuredTextBlock[] {
+  const normalized = String(value ?? '')
+    .replace(/\r/g, '')
+    .trim();
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized
+    .split(/\n\s*\n+/)
+    .flatMap<StructuredTextBlock>((chunk) => {
+      const lines = chunk
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (lines.length === 0) {
+        return [];
+      }
+      if (lines.every((line) => /^\d+[.)]\s+/.test(line))) {
+        return [{
+          kind: 'ordered-list',
+          items: lines.map((line) => line.replace(/^\d+[.)]\s+/, '').trim()).filter(Boolean),
+        }];
+      }
+      if (lines.every((line) => /^[-*•]\s+/.test(line))) {
+        return [{
+          kind: 'unordered-list',
+          items: lines.map((line) => line.replace(/^[-*•]\s+/, '').trim()).filter(Boolean),
+        }];
+      }
+
+      const joined = lines.join(' ');
+      const orderedItems = splitInlineListItems(joined);
+      if (orderedItems.length > 1) {
+        return [{ kind: 'ordered-list', items: orderedItems }];
+      }
+
+      return [{ kind: 'paragraph', items: [joined] }];
+    });
+}
+
+function splitInlineListItems(value: string): string[] {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized || !/\b1[.)]\s+/.test(normalized)) {
+    return [];
+  }
+
+  const matches = Array.from(normalized.matchAll(/(?:^|\s)(\d+)[.)]\s+/g));
+  if (matches.length < 2) {
+    return [];
+  }
+
+  return matches
+    .map((match, index) => {
+      const start = (match.index ?? 0) + match[0].length;
+      const end = index + 1 < matches.length ? (matches[index + 1].index ?? normalized.length) : normalized.length;
+      return normalized.slice(start, end).trim();
+    })
+    .filter(Boolean);
+}
+
+function buildScenarioCards(
+  thesis: ThesisResponse,
+  scenarios: ScenarioResponse[],
+): ScenarioResponse[] {
+  const cards = [...scenarios];
+  const confirmation = thesis.confirmation_condition || thesis.summary.confirmation_condition;
+  const invalidation = thesis.invalidation_level || thesis.summary.invalidation;
+
+  if (confirmation && !hasBoundaryScenario(cards, confirmation, 'confirmation')) {
+    cards.unshift(buildBoundaryScenario(thesis, {
+      branchType: 'confirmation',
+      title: 'Confirmation setup',
+      condition: confirmation,
+      expectedBehavior: 'If confirmation prints cleanly, the thesis gains enough support for a first review.',
+      invalidation: invalidation || 'Invalid if the market loses the setup before confirmation completes.',
+      suggestedAction: thesis.entry_plan_status === 'no_trade'
+        ? 'Watch: no trade until confirmation conditions print with follow-through.'
+        : `Watch: ${thesis.entry_plan_status_label || 'wait for confirmation before acting.'}`,
+      impactOnThesis: 'Strengthens the current thesis if the confirmation stack completes.',
+    }));
+  }
+
+  if (invalidation && !hasBoundaryScenario(cards, invalidation, 'invalidation')) {
+    cards.push(buildBoundaryScenario(thesis, {
+      branchType: 'invalidation',
+      title: 'Invalidation guardrail',
+      condition: invalidation,
+      expectedBehavior: 'If this level fails, the thesis should be downgraded, reduced, or stopped.',
+      invalidation: confirmation || 'Invalid if the market reclaims confirmation first with stronger evidence.',
+      suggestedAction: 'Reduce: stop treating this thesis as actionable once invalidation triggers.',
+      impactOnThesis: 'Weakens or cancels the current thesis if the invalidation case confirms.',
+    }));
+  }
+
+  return cards;
+}
+
+function hasBoundaryScenario(
+  scenarios: ScenarioResponse[],
+  boundaryText: string,
+  branchType: 'confirmation' | 'invalidation',
+): boolean {
+  const needle = normalizeScenarioCompareText(boundaryText);
+  if (!needle) {
+    return false;
+  }
+
+  return scenarios.some((scenario) => {
+    const payloadBranchType = normalizeScenarioCompareText(
+      stringValue(scenario.payload.branchType) || stringValue(scenario.payload.branch_type),
+    );
+    if (payloadBranchType === branchType) {
+      return true;
+    }
+    const haystack = normalizeScenarioCompareText([
+      scenario.scenario_name,
+      scenario.condition,
+      scenario.expected_behavior,
+      scenario.invalidation,
+    ].join(' '));
+    return haystack.includes(needle) || needle.includes(haystack);
+  });
+}
+
+function normalizeScenarioCompareText(value: string): string {
+  return cleanScenarioText(value).toLowerCase();
+}
+
+function buildBoundaryScenario(
+  thesis: ThesisResponse,
+  boundary: {
+    branchType: 'confirmation' | 'invalidation';
+    title: string;
+    condition: string;
+    expectedBehavior: string;
+    invalidation: string;
+    suggestedAction: string;
+    impactOnThesis: string;
+  },
+): ScenarioResponse {
+  return {
+    id: `${thesis.id ?? thesis.symbol}:${boundary.branchType}`,
+    workspace_id: thesis.workspace_id,
+    thesis_id: thesis.id ?? '',
+    scenario_name: boundary.title,
+    direction: boundary.branchType === 'confirmation'
+      ? thesis.market_bias || thesis.direction || 'neutral'
+      : 'risk',
+    thesis_impact: boundary.branchType === 'confirmation' ? 'medium' : 'high',
+    probability_band: 'base',
+    suggested_user_action: boundary.suggestedAction,
+    condition: boundary.condition,
+    expected_behavior: boundary.expectedBehavior,
+    invalidation: boundary.invalidation,
+    evidence: thesis.summary.key_reasons.slice(0, 3),
+    watch_triggers: splitInlineListItems(boundary.condition),
+    impact_on_thesis: boundary.impactOnThesis,
+    risk_map: thesis.summary.risks.slice(0, 3),
+    as_of: thesis.created_at ? thesis.created_at.slice(0, 10) : '',
+    timeframe: thesis.summary.market_type || thesis.summary.direction || '',
+    source: ['thesis_brief'],
+    status: 'watching',
+    status_reason: '',
+    distance_to_trigger: null,
+    last_evaluated_at: null,
+    trigger_spec: null,
+    decision_playbook: null,
+    runtime_decision: {
+      version: 'scenario_runtime_decision.v1',
+      evaluated_at: '',
+      trigger_status: 'needs_review',
+      validity_status: 'needs_review',
+      recommended_action: 'review',
+      confidence: 0,
+      matched_conditions: [],
+      failed_conditions: [],
+      blocking_reasons: ['runtime_decision_missing'],
+      risk_notes: [],
+      evidence_refs: [],
+      source: 'rule_engine_from_decision_playbook',
+      playbook_source: 'missing',
+      status_reason: 'Runtime decision has not been evaluated.',
+      distance_to_trigger: null,
+      llm_recommendation: null,
+      final_decision: {
+        action: 'review',
+        reason: 'Runtime decision has not been evaluated.',
+        overrides: ['runtime_decision_missing'],
+      },
+    },
+    payload: {
+      branchType: boundary.branchType,
+      source_context: 'thesis_brief',
+    },
+  };
 }
 
 function scenarioDisplayName(

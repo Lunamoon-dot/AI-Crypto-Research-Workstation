@@ -1,4 +1,4 @@
-import type { ScenarioResponse } from '@/types';
+import type { ScenarioResponse, ScenarioRuntimeDecision } from '@/types';
 
 export type ScenarioTone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
 
@@ -37,11 +37,12 @@ export function scenarioDetailViewModel(scenario: ScenarioResponse, index: numbe
 
 function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: string): ScenarioViewModel {
   const action = splitAction(scenario.suggested_user_action || 'review');
+  const runtimeDecision = scenarioRuntimeDecision(scenario.runtime_decision);
   const hasRuntimeDecision =
-    scenario.runtime_decision.playbook_source !== 'missing' &&
-    !scenario.runtime_decision.blocking_reasons.includes('runtime_decision_missing');
+    runtimeDecision.playbook_source !== 'missing' &&
+    !runtimeDecision.blocking_reasons.includes('runtime_decision_missing');
   const runtimeAction = hasRuntimeDecision
-    ? actionLabel(scenario.runtime_decision.recommended_action)
+    ? actionLabel(runtimeDecision.recommended_action)
     : '';
   return {
     title: cleanText(scenario.scenario_name) || cleanText(scenario.condition).slice(0, 90) || fallbackTitle,
@@ -65,20 +66,61 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
         : 'n/a',
     runtimeAction,
     triggerStatus: hasRuntimeDecision
-      ? statusLabel(scenario.runtime_decision.trigger_status)
+      ? statusLabel(runtimeDecision.trigger_status)
       : '',
     validityStatus: hasRuntimeDecision
-      ? statusLabel(scenario.runtime_decision.validity_status)
+      ? statusLabel(runtimeDecision.validity_status)
       : '',
     runtimeReason: hasRuntimeDecision
-      ? cleanText(scenario.runtime_decision.status_reason)
+      ? cleanText(runtimeDecision.status_reason)
       : '',
     runtimeSource: hasRuntimeDecision
-      ? playbookSourceLabel(scenario.runtime_decision.playbook_source)
+      ? playbookSourceLabel(runtimeDecision.playbook_source)
       : '',
     blockingReasons: hasRuntimeDecision
-      ? scenario.runtime_decision.blocking_reasons.map(cleanText).filter(Boolean)
+      ? runtimeDecision.blocking_reasons.map(cleanText).filter(Boolean)
       : [],
+  };
+}
+
+function scenarioRuntimeDecision(
+  value: ScenarioResponse['runtime_decision'] | undefined,
+): ScenarioRuntimeDecision {
+  if (value?.version === 'scenario_runtime_decision.v1') {
+    return {
+      ...missingRuntimeDecision(),
+      ...value,
+      blocking_reasons: Array.isArray(value.blocking_reasons)
+        ? value.blocking_reasons
+        : [],
+    };
+  }
+  return missingRuntimeDecision();
+}
+
+function missingRuntimeDecision(): ScenarioRuntimeDecision {
+  return {
+    version: 'scenario_runtime_decision.v1',
+    evaluated_at: '',
+    trigger_status: 'needs_review',
+    validity_status: 'needs_review',
+    recommended_action: 'review',
+    confidence: 0,
+    matched_conditions: [],
+    failed_conditions: [],
+    blocking_reasons: ['runtime_decision_missing'],
+    risk_notes: [],
+    evidence_refs: [],
+    source: 'rule_engine_from_decision_playbook',
+    playbook_source: 'missing',
+    status_reason: 'Runtime decision has not been evaluated.',
+    distance_to_trigger: null,
+    llm_recommendation: null,
+    final_decision: {
+      action: 'review',
+      reason: 'Runtime decision has not been evaluated.',
+      overrides: ['runtime_decision_missing'],
+    },
   };
 }
 
