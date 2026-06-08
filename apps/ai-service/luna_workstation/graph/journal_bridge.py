@@ -27,6 +27,7 @@ from luna_workstation.signals.provenance import (
     signal_result_to_domain_signals,
 )
 from luna_workstation.agents.schemas import ScenarioPlan
+from luna_workstation.graph.scenarios import build_scenarios_for_thesis
 from luna_workstation.graph.opinions import build_agent_opinions, build_research_debate
 
 logger = logging.getLogger(__name__)
@@ -276,6 +277,24 @@ class JournalBridge:
                         logger.warning("Could not parse scenario_plan_json: %s", exc)
                 if not parsed_from_json and scenario_plan_text:
                     parsed_scenarios = _parse_scenario_plan(scenario_plan_text, "")
+                if not parsed_scenarios and (scenario_plan_json or scenario_plan_text):
+                    parsed_scenarios = build_scenarios_for_thesis(
+                        thesis,
+                        template_name=getattr(thesis.setup_type, "value", thesis.setup_type),
+                    )
+                    if run.id:
+                        self.service.add_run_event(
+                            run.id,
+                            "scenario.plan.degraded",
+                            "Scenario Planner output could not be parsed; saved deterministic fallback scenarios.",
+                            {
+                                "scenario_count": len(parsed_scenarios),
+                                "had_json": bool(scenario_plan_json),
+                                "had_text": bool(scenario_plan_text),
+                                "thesis_id": thesis.id,
+                            },
+                            thesis_id=thesis.id,
+                        )
             run, thesis, _saved_scenarios = self.service.complete_research_run_bundle(
                 run,
                 thesis,

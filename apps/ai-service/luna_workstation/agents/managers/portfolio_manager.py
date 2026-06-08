@@ -15,8 +15,8 @@ import re
 
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
-    build_instrument_context,
     build_current_price_context,
+    build_instrument_context,
     get_language_instruction,
     guard_untrusted_context,
 )
@@ -212,6 +212,8 @@ def create_portfolio_manager(llm, config=None):
         prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final research thesis stance.
 
 {instrument_context}
+
+{current_price_context}
 
 ---
 

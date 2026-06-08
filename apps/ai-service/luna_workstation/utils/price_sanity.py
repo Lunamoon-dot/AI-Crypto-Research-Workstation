@@ -11,9 +11,10 @@ _TRIGGER_LEVEL_RE = re.compile(
     re.I,
 )
 _LOCALIZED_TRIGGER_LEVEL_RE = re.compile(
-    r"(?P<phrase>"
-    r"giảm\s+dưới|giam\s+duoi|dưới|duoi|"
-    r"phá\s+vỡ\s+trên|pha\s+vo\s+tren|vượt\s+trên|vuot\s+tren|trên|tren"
+    r"\b(?P<direction>"
+    r"gi\u1ea3m\s+d\u01b0\u1edbi|giam\s+duoi|d\u01b0\u1edbi|duoi|"
+    r"ph\u00e1\s+v\u1ee1\s+tr\u00ean|pha\s+vo\s+tren|"
+    r"v\u01b0\u1ee3t\s+tr\u00ean|vuot\s+tren|tr\u00ean|tren"
     r")\s+\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
     re.I,
 )
@@ -49,9 +50,9 @@ def price_trigger_sanity_notes(
 
     notes: list[str] = []
     seen: set[tuple[str, float]] = set()
-    for direction, raw_level in _price_trigger_matches(text):
+    for direction, level_text in _price_trigger_matches(text):
         try:
-            level = float(raw_level.replace(",", ""))
+            level = float(level_text.replace(",", ""))
         except ValueError:
             continue
         key = (direction, level)
@@ -94,8 +95,8 @@ def _price_trigger_matches(text: str):
     for match in _TRIGGER_LEVEL_RE.finditer(text):
         yield match.group("direction").lower(), match.group("level")
     for match in _LOCALIZED_TRIGGER_LEVEL_RE.finditer(text):
-        phrase = match.group("phrase").lower()
-        direction = "below" if "dưới" in phrase or "duoi" in phrase else "above"
+        raw = match.group("direction").lower()
+        direction = "below" if "d\u01b0\u1edbi" in raw or "duoi" in raw else "above"
         yield direction, match.group("level")
 
 

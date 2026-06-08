@@ -113,6 +113,31 @@ def test_journal_bridge_saves_scenarios_from_json_plan(tmp_path):
     assert scenarios[0].condition.startswith("Break above")
 
 
+def test_journal_bridge_falls_back_when_scenario_plan_is_unparseable(tmp_path):
+    bridge = JournalBridge(_config(tmp_path))
+    run = bridge.start_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = TradeThesis(
+        symbol="BTC/USDT",
+        direction=ThesisDirection.SHORT,
+        thesis_text="Avoid longs while downside trend dominates.",
+        confidence=0.35,
+        invalidation_level="Daily close above 73500.",
+    )
+
+    run, thesis = bridge.complete_run(
+        run,
+        thesis,
+        scenario_plan_text="Scenario Planner completed but returned malformed prose.",
+    )
+
+    assert thesis and thesis.id
+    scenarios = bridge.service.list_scenarios(thesis_id=thesis.id)
+    assert len(scenarios) >= 3
+    assert all(scenario.thesis_id == thesis.id for scenario in scenarios)
+    events = bridge.service.list_timeline_events(research_run_id=run.id)
+    assert any(event.event_type == "scenario.plan.degraded" for event in events)
+
+
 def test_scenarios_from_structured_plan_maps_probability():
     plan = ScenarioPlan(
         setup_type="agent_debate",

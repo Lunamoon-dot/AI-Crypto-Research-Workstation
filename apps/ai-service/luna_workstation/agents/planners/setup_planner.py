@@ -12,8 +12,8 @@ from luna_workstation.agents.schemas import (
     render_setup_proposal,
 )
 from luna_workstation.agents.utils.agent_utils import (
-    build_instrument_context,
     build_current_price_context,
+    build_instrument_context,
     guard_untrusted_context,
 )
 from luna_workstation.agents.utils.structured import (

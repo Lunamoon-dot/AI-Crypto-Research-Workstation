@@ -3110,6 +3110,7 @@ a {
 }
 
 .thesis-brief-summary,
+.thesis-full-text,
 .thesis-boundary,
 .thesis-entry-state {
   min-width: 0;
@@ -3121,6 +3122,7 @@ a {
 }
 
 .thesis-brief-summary span,
+.thesis-full-text span,
 .thesis-boundary span,
 .thesis-entry-state span,
 .thesis-fact span {
@@ -3134,6 +3136,7 @@ a {
 }
 
 .thesis-brief-summary p,
+.thesis-full-text p,
 .thesis-boundary p,
 .thesis-entry-state p {
   margin: 0;
@@ -3142,6 +3145,18 @@ a {
   font-weight: 680;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.thesis-full-text {
+  border-color: rgba(171, 157, 242, 0.22);
+  border-left-color: rgba(171, 157, 242, 0.78);
+  background: rgba(171, 157, 242, 0.06);
+}
+
+.thesis-full-text p {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .thesis-entry-state {

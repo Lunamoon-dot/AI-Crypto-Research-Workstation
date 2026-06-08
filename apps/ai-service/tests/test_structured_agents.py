@@ -191,6 +191,7 @@ class TestPortfolioManagerAgent:
         payload = json.loads(result["final_trade_summary_json"])
 
         assert result["final_trade_decision"] == plain_response
+        assert "Current price anchor: $1,647.71" in llm.invoke.call_args.args[0]
         assert payload["rating"] == "Underweight"
         assert payload["direction"] == "avoid"
         assert payload["market_type"] == "spot"
@@ -320,6 +321,7 @@ class TestSetupPlannerAgent:
         prompt = captured["prompt"]
         assert any("Proposed Research Plan" in m["content"] for m in prompt)
         assert any("Setup Planner" in m["content"] for m in prompt)
+        assert any("Current price anchor: $682.00" in m["content"] for m in prompt)
 
     def test_prompt_includes_perp_guidance(self):
         captured = {}
@@ -509,6 +511,7 @@ class TestScenarioPlannerAgent:
                 "sentiment_report": "",
                 "news_report": "",
                 "fundamentals_report": "",
+                "quant_signal": "Price: $1,647.71\nTrend: bearish",
                 "setup_type": "agent_debate",
             }
         )
@@ -517,6 +520,7 @@ class TestScenarioPlannerAgent:
         assert "Analysis date: 2026-05-31" in prompt_text
         assert "Do not attach a specific calendar date" in prompt_text
         assert "prior breakout/support/resistance level" in prompt_text
+        assert "Current price anchor: $1,647.71" in prompt_text
 
     def test_prompt_honors_output_language_config(self):
         captured = {}

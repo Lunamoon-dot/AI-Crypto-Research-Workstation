@@ -135,6 +135,9 @@ export function ThesisDetailPage() {
   }
   const actionSummary =
     thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
+  const fullThesisText = thesis.thesis_text.trim();
+  const showFullThesis =
+    fullThesisText.length > 0 && fullThesisText !== actionSummary.trim();
   const entry = thesis.entry_zone || thesis.summary.entry_zone;
   const entryPlanIsEmpty = thesis.entry_plan_status === 'no_trade';
   const entryPlanText =
@@ -248,6 +251,13 @@ export function ThesisDetailPage() {
                   <span>Main recommendation</span>
                   <p>{actionSummary}</p>
                 </section>
+
+                {showFullThesis ? (
+                  <section className="thesis-full-text">
+                    <span>Full thesis</span>
+                    <p>{fullThesisText}</p>
+                  </section>
+                ) : null}
 
                 <section className={`thesis-entry-state${entryPlanIsEmpty ? ' empty' : ''}`}>
                   <span>Entry plan</span>

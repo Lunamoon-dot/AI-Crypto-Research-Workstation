@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage
 
 from luna_workstation.agents.schemas import ScenarioPlan, render_scenario_plan
 from luna_workstation.agents.utils.agent_utils import (
+    build_current_price_context,
     build_instrument_context,
     get_language_instruction,
     guard_untrusted_context,
@@ -348,6 +349,7 @@ def create_scenario_planner(llm, config=None):
         company_name = state["company_of_interest"]
         analysis_date = str(state.get("trade_date") or state.get("analysis_date") or "")
         instrument_context = build_instrument_context(company_name)
+        current_price_context = build_current_price_context(state)
         investment_plan = state.get("investment_plan", "")
         pm_decision = state.get("final_trade_decision", "") or ""
 
@@ -410,6 +412,7 @@ def create_scenario_planner(llm, config=None):
                 "content": (
                     f"Generate a structured scenario map for {company_name}. "
                     f"{instrument_context}\n\n"
+                    f"{current_price_context}\n\n"
                     f"{date_grounding}\n\n"
                     f"{_TEMPLATE_LINE}\n\n"
                     f"Produce exactly 3-4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
@@ -459,6 +462,8 @@ def create_scenario_planner(llm, config=None):
 
         fallback_prompt = f"""You are a Scenario Planning Analyst. Generate 2-3 alternative
 future market scenarios for {company_name}. {instrument_context}
+
+{current_price_context}
 
 {date_grounding}
 
