@@ -16,6 +16,7 @@ import re
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
     build_instrument_context,
+    build_current_price_context,
     get_language_instruction,
     guard_untrusted_context,
 )
@@ -182,6 +183,7 @@ def create_portfolio_manager(llm, config=None):
 
     def portfolio_manager_node(state) -> dict:
         instrument_context = build_instrument_context(state["company_of_interest"])
+        current_price_context = build_current_price_context(state)
 
         history = state["risk_debate_state"]["history"]
         risk_debate_state = state["risk_debate_state"]
@@ -214,6 +216,8 @@ def create_portfolio_manager(llm, config=None):
 ---
 
 Market type: {market_type}
+
+{current_price_context}
 
 **Research Stance Scale** (use exactly one):
 - **Buy**: Strong bullish thesis; prioritize bullish setup review

@@ -625,6 +625,7 @@ function LifecycleEventRow({
 }) {
   const before = nonDuplicateTimelineText(event.before, event.title);
   const after = nonDuplicateTimelineText(event.after, event.title);
+  const reason = nonDuplicateTimelineText(event.reason, event.title);
   return (
     <article className="lifecycle-event-row">
       <div className="lifecycle-event-date">
@@ -648,8 +649,14 @@ function LifecycleEventRow({
           ) : null}
         </div>
         <p className="lifecycle-event-title">{event.title}</p>
-        {before || after ? (
+        {reason || before || after ? (
           <div className="lifecycle-event-diff">
+            {reason ? (
+              <div className="lifecycle-diff-line">
+                <span>Reason</span>
+                <strong>{reason}</strong>
+              </div>
+            ) : null}
             {before ? (
               <div className="lifecycle-diff-line">
                 <span>Before</span>
@@ -762,7 +769,7 @@ function TrustQuality({ quality }: { quality: JsonRecord }) {
         icon={<ShieldCheck aria-hidden size={15} />}
         label="Snapshot status"
         value={stringValue(quality.status, 'unknown')}
-        meta={quality.score === undefined ? null : `Score ${String(quality.score)}`}
+        meta={quality.score === undefined ? null : `Quality score ${String(quality.score)}`}
         tone={stringValue(quality.status) === 'clean' ? 'constructive' : 'warning'}
       />
       <MetricTile
@@ -776,12 +783,12 @@ function TrustQuality({ quality }: { quality: JsonRecord }) {
         icon={<FileText aria-hidden size={15} />}
         label="Evidence coverage"
         value={formatCoverage(quality.evidence_coverage)}
-        meta={`${numberValue(quality.evidence_attached_count)} evidence-backed`}
+        meta={`${numberValue(quality.evidence_attached_count)} evidence attached`}
         tone="constructive"
       />
       <MetricTile
         icon={<FileText aria-hidden size={15} />}
-        label="Observed evidence"
+        label="Observed item coverage"
         value={formatCoverage(quality.observed_evidence_coverage)}
         meta={`${numberValue(quality.observed_evidence_count)} observed lines`}
         tone="constructive"

@@ -101,3 +101,15 @@ test('scenario radar strips parser heading artifacts from decision cards', () =>
   assert.equal(source.includes('vm.actionDetail || vm.actionLabel'), true);
   assert.equal(source.includes('Action Watch'), false);
 });
+
+test('scenario radar ignores missing runtime decisions for primary actions', () => {
+  const source = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('hasRuntimeDecision'), true);
+  assert.equal(source.includes("playbook_source !== 'missing'"), true);
+  assert.equal(source.includes('runtime_decision_missing'), true);
+  assert.equal(source.includes('actionLabel: runtimeAction || action.label'), true);
+});

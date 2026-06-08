@@ -14,7 +14,7 @@ export class ContinuityStateProjector {
     const cleanEntry = entry.entry_type === 'baseline' || entry.entry_type === 'delta';
     const canUpdateTopLevelView =
       cleanEntry || booleanValue(quality.can_update_top_level_view);
-    const canUpdateItems = cleanEntry || numberValue(quality.score) >= 0.65;
+    const canUpdateItems = cleanEntry || booleanValue(quality.can_update_items);
     const currentView = canUpdateTopLevelView
       ? recordValue(snapshot.symbol_view)
       : recordValue(previousState?.current_view);

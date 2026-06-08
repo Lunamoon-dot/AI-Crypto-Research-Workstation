@@ -297,6 +297,66 @@ export interface ThesisResponse {
   monitor_next: string[];
 }
 
+export type ScenarioTriggerStatus =
+  | 'watching'
+  | 'near_trigger'
+  | 'triggered'
+  | 'stale'
+  | 'missing_price'
+  | 'needs_review';
+
+export type ScenarioValidityStatus =
+  | 'valid'
+  | 'weakening'
+  | 'invalidated'
+  | 'expired'
+  | 'overextended'
+  | 'conflicted'
+  | 'needs_review';
+
+export type ScenarioRecommendedAction =
+  | 'wait'
+  | 'entry_long_now'
+  | 'entry_short_now'
+  | 'consider_long'
+  | 'consider_short'
+  | 'avoid'
+  | 'reduce'
+  | 'exit'
+  | 'review';
+
+export interface ScenarioEvidenceRef {
+  type: string;
+  id: string | null;
+  field: string;
+  label: string;
+  supports: string;
+}
+
+export interface ScenarioRuntimeDecision {
+  version: 'scenario_runtime_decision.v1';
+  evaluated_at: string;
+  trigger_status: ScenarioTriggerStatus;
+  validity_status: ScenarioValidityStatus;
+  recommended_action: ScenarioRecommendedAction;
+  confidence: number;
+  matched_conditions: string[];
+  failed_conditions: string[];
+  blocking_reasons: string[];
+  risk_notes: string[];
+  evidence_refs: ScenarioEvidenceRef[];
+  source: 'rule_engine_from_decision_playbook';
+  playbook_source: 'llm' | 'derived_v1' | 'missing';
+  status_reason: string;
+  distance_to_trigger: number | null;
+  llm_recommendation: JsonRecord | null;
+  final_decision: {
+    action: ScenarioRecommendedAction;
+    reason: string;
+    overrides: string[];
+  };
+}
+
 export interface ScenarioResponse {
   id: string | null;
   workspace_id: string;
@@ -321,6 +381,8 @@ export interface ScenarioResponse {
   distance_to_trigger: number | null;
   last_evaluated_at: string | null;
   trigger_spec: JsonRecord | null;
+  decision_playbook: JsonRecord | null;
+  runtime_decision: ScenarioRuntimeDecision;
   payload: JsonRecord;
 }
 
@@ -1486,6 +1548,7 @@ export interface ResearchContinuityTimelineEventResponse {
   item_type: ResearchContinuityLifecycleItemType;
   status: ResearchContinuityLifecycleStatus;
   title: string;
+  reason: string | null;
   before: string | null;
   after: string | null;
   severity: 'info' | 'warning' | 'critical';

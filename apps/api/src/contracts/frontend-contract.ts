@@ -1,4 +1,8 @@
 import { JsonRecord } from '../database/journal.types';
+import type {
+  ScenarioDecisionPlaybook,
+  ScenarioRuntimeDecision,
+} from '../scenarios/scenario-decision.types';
 import { researchItemTextList } from './research-evidence';
 
 export interface WorkspacePermissionDto {
@@ -249,6 +253,8 @@ export interface ScenarioResponse {
   distance_to_trigger: number | null;
   last_evaluated_at: string | null;
   trigger_spec: JsonRecord | null;
+  decision_playbook: ScenarioDecisionPlaybook | null;
+  runtime_decision: ScenarioRuntimeDecision;
   payload: JsonRecord;
 }
 
@@ -1674,6 +1680,9 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
 export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   const legacyMeta = legacyScenarioMeta(payload, scenario);
+  const decisionPlaybook = scenarioDecisionPlaybookValue(
+    scenario.decision_playbook ?? payload.decision_playbook,
+  );
   return {
     id: nullableString(scenario.id),
     workspace_id: stringValue(scenario.workspace_id, 'local'),
@@ -1714,6 +1723,10 @@ export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
     distance_to_trigger: nullableNumber(scenario.distance_to_trigger ?? payload.distance_to_trigger),
     last_evaluated_at: nullableString(scenario.last_evaluated_at ?? payload.last_evaluated_at),
     trigger_spec: nullableRecord(scenario.trigger_spec ?? payload.trigger_spec),
+    decision_playbook: decisionPlaybook,
+    runtime_decision: scenarioRuntimeDecisionValue(
+      scenario.runtime_decision ?? payload.runtime_decision,
+    ),
     payload,
   };
 }
@@ -2544,17 +2557,14 @@ function cleanScenarioBlock(value: string): string {
 }
 
 function cleanScenarioAction(value: string): string {
-  return value
-    .replace(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*.+$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return splitLegacyScenarioMeta(value).action.replace(/\s+/g, ' ').trim();
 }
 
 function legacyScenarioMeta(
   payload: JsonRecord,
   scenario: JsonRecord,
 ): { as_of: string; timeframe: string; source: string[] } {
-  const text = [
+  const candidates = [
     scenario.suggested_user_action,
     payload.suggested_user_action,
     payload.suggested_action,
@@ -2562,23 +2572,103 @@ function legacyScenarioMeta(
     payload.condition,
   ]
     .map((item) => stringValue(item))
-    .filter(Boolean)
-    .join(' ');
-  const match = text.match(/\bSource,\s*timeframe,\s*and\s*as_of\s*:\s*(.+)$/i);
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    const parsed = splitLegacyScenarioMeta(candidate);
+    if (parsed.as_of || parsed.timeframe || parsed.source.length > 0) {
+      return {
+        as_of: parsed.as_of,
+        timeframe: parsed.timeframe,
+        source: parsed.source,
+      };
+    }
+  }
+  return { as_of: '', timeframe: '', source: [] };
+}
+
+function splitLegacyScenarioMeta(
+  value: string,
+): { action: string; as_of: string; timeframe: string; source: string[] } {
+  const text = stringValue(value);
+  const match = text.match(/\bSource,\s*timeframe,\s*(?:and\s*)?as_of\b\s*:?\s*([\s\S]*)$/i);
   if (!match) {
-    return { as_of: '', timeframe: '', source: [] };
+    return { action: text, as_of: '', timeframe: '', source: [] };
   }
   const raw = match[1].trim();
+  const action = text.slice(0, match.index).trim();
+  const source: string[] = [];
+  let timeframe = '';
+  for (const line of raw.split(/\r?\n/)) {
+    const cleaned = line.trim().replace(/^\s*[-*]\s*/, '');
+    if (!cleaned) {
+      continue;
+    }
+    const timeframeMatch = cleaned.match(
+      /^(?:khung\s+thời\s+gian\s+ưu\s+tiên|khung\s+thoi\s+gian\s+uu\s+tien|time\s*frame|timeframe)\s*:?\s*(.+)$/i,
+    );
+    if (timeframeMatch) {
+      timeframe = cleanScenarioActionMeta(timeframeMatch[1]);
+      continue;
+    }
+    source.push(cleanScenarioActionMeta(cleaned));
+  }
+  if (!timeframe) {
+    timeframe = raw.match(/\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b/i)?.[1] ?? '';
+  }
   return {
+    action,
     as_of: raw.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? '',
-    timeframe: raw.match(/\b(1m|5m|15m|1h|4h|daily|weekly|monthly|1D|4H|1W)\b/i)?.[1] ?? '',
-    source: raw ? [raw.replace(/[.;]\s*$/, '')] : [],
+    timeframe,
+    source,
   };
+}
+
+function cleanScenarioActionMeta(value: unknown): string {
+  return stringValue(value).replace(/[.;]\s*$/, '').trim();
 }
 
 function nullableRecord(value: unknown): JsonRecord | null {
   const record = recordValue(value);
   return Object.keys(record).length > 0 ? record : null;
+}
+
+function scenarioDecisionPlaybookValue(
+  value: unknown,
+): ScenarioDecisionPlaybook | null {
+  const record = recordValue(value);
+  return record.version === 'scenario_decision_playbook.v1'
+    ? (record as unknown as ScenarioDecisionPlaybook)
+    : null;
+}
+
+function scenarioRuntimeDecisionValue(value: unknown): ScenarioRuntimeDecision {
+  const record = recordValue(value);
+  if (record.version === 'scenario_runtime_decision.v1') {
+    return record as unknown as ScenarioRuntimeDecision;
+  }
+  return {
+    version: 'scenario_runtime_decision.v1',
+    evaluated_at: new Date().toISOString(),
+    trigger_status: 'needs_review',
+    validity_status: 'needs_review',
+    recommended_action: 'review',
+    confidence: 0,
+    matched_conditions: [],
+    failed_conditions: [],
+    blocking_reasons: ['runtime_decision_missing'],
+    risk_notes: [],
+    evidence_refs: [],
+    source: 'rule_engine_from_decision_playbook',
+    playbook_source: 'missing',
+    status_reason: 'Runtime decision has not been evaluated.',
+    distance_to_trigger: null,
+    llm_recommendation: null,
+    final_decision: {
+      action: 'review',
+      reason: 'Runtime decision has not been evaluated.',
+      overrides: ['runtime_decision_missing'],
+    },
+  };
 }
 
 function booleanValue(value: unknown, fallback = false): boolean {

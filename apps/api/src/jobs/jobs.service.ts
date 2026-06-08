@@ -167,6 +167,20 @@ export class JobsService implements OnModuleDestroy {
     return { id: request.run_id, backend: 'memory' };
   }
 
+  async findExistingResearchRunJob(
+    runId: string,
+  ): Promise<EnqueuedJob | null> {
+    const record = await this.lifecycle.get(runId);
+    if (!record) {
+      return null;
+    }
+    return {
+      id: record.id,
+      backend: record.backend,
+      result: record.result_summary ?? undefined,
+    };
+  }
+
   listMemoryJobs(): EngineRunRequest[] {
     return [...this.memoryJobs];
   }

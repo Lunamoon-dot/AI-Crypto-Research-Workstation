@@ -130,7 +130,7 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
   const condition = vm.condition;
   const actionToneValue = vm.actionTone;
   const expected = vm.expected;
-  const statusReason = cleanScenarioText(item.status_reason || vm.statusReason);
+  const statusReason = cleanScenarioText(vm.runtimeReason || item.status_reason || vm.statusReason);
   const probability = cleanScenarioText(item.scenario.probability_band) || 'n/a';
   const market = item.latest_market_snapshot;
   const alert = item.latest_alert;
@@ -152,6 +152,11 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
           <span className={statusBadgeClass(item.status)}>
             {statusLabel(item.status)}
           </span>
+          {vm.runtimeAction ? (
+            <span className="badge scenario-status-badge">{vm.runtimeAction}</span>
+          ) : null}
+          {vm.triggerStatus ? <span className="badge">{vm.triggerStatus}</span> : null}
+          {vm.validityStatus ? <span className="badge">{vm.validityStatus}</span> : null}
           {item.thesis.id ? (
             <Link className="button ghost scenario-open-button" to={routes.thesis(item.thesis.id)}>
               <ExternalLink aria-hidden size={14} />
@@ -177,6 +182,11 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
 
       <div className="scenario-monitor-facts">
         <div className="scenario-monitor-fact">
+          <span>Runtime decision</span>
+          <p>{vm.runtimeAction || vm.actionLabel}</p>
+          <p className="small muted">{vm.runtimeSource || 'No runtime decision'}</p>
+        </div>
+        <div className="scenario-monitor-fact">
           <span>Market</span>
           <p>
             <strong>{formatNumber(market?.current_price)}</strong>
@@ -199,6 +209,9 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
         <div className="scenario-monitor-fact">
           <span>Status reason</span>
           <p>{statusReason || 'Scenario is monitored with latest persisted market context.'}</p>
+          {vm.blockingReasons.length ? (
+            <p className="small muted">Blocked by {vm.blockingReasons.join(', ')}</p>
+          ) : null}
           <p className="small muted">Distance {vm.distanceLabel}</p>
         </div>
       </div>

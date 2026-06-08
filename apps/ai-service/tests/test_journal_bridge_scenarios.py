@@ -142,6 +142,98 @@ def test_scenarios_from_structured_plan_maps_probability():
     assert rows[0].probability_band.value == "high"
 
 
+def test_scenarios_from_structured_plan_extracts_as_of_from_timeframe():
+    plan = ScenarioPlan(
+        setup_type="agent_debate",
+        scenarios=[
+            ScenarioItem(
+                scenario_name="Short squeeze",
+                direction="bullish risk",
+                thesis_impact="low",
+                condition="RSI is deeply oversold.",
+                expected_behavior="Fast bounce if shorts cover.",
+                evidence=[],
+                watch_triggers=[],
+                impact_on_thesis="",
+                probability_band="low",
+                invalidation="No bounce.",
+                risk_factors=[],
+                suggested_action="watch",
+                as_of="",
+                timeframe="Intraday / 1H-4H (as_of: 2026-06-08).",
+                source=["Market report ngay 2026-06-08."],
+            ),
+        ],
+    )
+
+    rows = scenarios_from_structured_plan(plan, "thesis_x")
+
+    assert rows[0].as_of == "2026-06-08"
+    assert rows[0].timeframe == "Intraday / 1H-4H"
+    assert rows[0].source == ["Market report ngay 2026-06-08."]
+
+
+def test_parse_scenario_plan_extracts_vietnamese_source_timeframe_block():
+    text = """
+### Scenario 1: Sụp Đổ Tiếp Diễn
+
+**Condition**: Long/Short ratio stays crowded.
+**Expected Behavior**: Price continues lower.
+**Probability**: Medium
+**Invalidation**: Price reclaims resistance.
+**Suggested Action**: Reassess — đánh giá lại danh mục.
+Source, timeframe, as_of
+Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư.
+Khung thời gian ưu tiên: daily cho xu hướng chính, 1h cho điểm phá vỡ.
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_x")
+
+    assert len(rows) == 1
+    assert rows[0].suggested_user_action == "Reassess — đánh giá lại danh mục."
+    assert rows[0].as_of == "2026-06-08"
+    assert rows[0].timeframe == "daily cho xu hướng chính, 1h cho điểm phá vỡ"
+    assert rows[0].source == [
+        "Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư"
+    ]
+
+
+def test_scenarios_from_structured_plan_enforces_contract_limit():
+    plan = ScenarioPlan(
+        setup_type="agent_debate",
+        scenarios=[
+            ScenarioItem(
+                scenario_name=f"Scenario {index}",
+                direction="neutral",
+                thesis_impact="low",
+                condition=f"Condition {index}",
+                expected_behavior=f"Behavior {index}",
+                evidence=[f"Evidence {index}"],
+                watch_triggers=[f"Watch {index}"],
+                impact_on_thesis=f"Impact {index}",
+                probability_band="medium",
+                invalidation=f"Invalidation {index}",
+                risk_factors=[f"Risk {index}"],
+                suggested_action="watch",
+                as_of="2026-05-31",
+                timeframe="1D",
+                source=["test"],
+            )
+            for index in range(1, 7)
+        ],
+    )
+
+    rows = scenarios_from_structured_plan(plan, "thesis_x")
+
+    assert len(rows) == 4
+    assert [row.scenario_name for row in rows] == [
+        "Scenario 1",
+        "Scenario 2",
+        "Scenario 3",
+        "Scenario 4",
+    ]
+
+
 def test_parse_scenario_plan_handles_markdown_headings_without_truncation():
     text = """
 Intro text that should not become a scenario.

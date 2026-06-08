@@ -1563,10 +1563,13 @@ export class ResearchContinuityService {
     const quality =
       input.quality ??
       ({
+        artifact_score: 0,
+        evidence_score: 0,
         score: 0,
         status: 'skipped',
         reasons: [input.reason],
         can_update_top_level_view: false,
+        can_update_items: false,
       } satisfies JsonRecord);
     const events = [
       {

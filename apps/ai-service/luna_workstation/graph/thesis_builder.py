@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -142,7 +143,106 @@ def extract_thesis_field(text: str, field: str) -> str | None:
         r"\s*[:\-\u2013\u2014]\s*(.+?)\s*$"
     )
     match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-    return match.group(1).strip() if match else None
+    if match:
+        return match.group(1).strip()
+    inline = _extract_inline_labeled_thesis_field(text, field)
+    if inline:
+        return inline
+    return _extract_multiline_thesis_field(text, field)
+
+
+def _extract_inline_labeled_thesis_field(text: str, field: str) -> str | None:
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith('"'):
+            continue
+        cleaned = _clean_multiline_field_item(stripped)
+        if ":" not in cleaned:
+            continue
+        label, value = cleaned.split(":", 1)
+        if not _heading_matches_multiline_field(_normalize_heading(label), field):
+            continue
+        value = value.strip().strip(" -*_`")
+        if value:
+            return value
+    return None
+
+
+def _extract_multiline_thesis_field(text: str, field: str) -> str | None:
+    lines = (text or "").splitlines()
+    for index, line in enumerate(lines):
+        if not _line_matches_multiline_field(line, field):
+            continue
+        items = _collect_following_list_items(lines[index + 1 :])
+        if items:
+            return "; ".join(items)
+    return None
+
+
+def _line_matches_multiline_field(line: str, field: str) -> bool:
+    heading = _normalize_heading(line)
+    return _heading_matches_multiline_field(heading, field)
+
+
+def _heading_matches_multiline_field(heading: str, field: str) -> bool:
+    if not heading:
+        return False
+    if field == "confirmation":
+        return (
+            "dieu kien xac nhan" in heading
+            or "xac nhan luan diem" in heading
+            or "confirmation condition" in heading
+            or heading.startswith("confirmation trigger")
+        )
+    if field == "invalidation":
+        return (
+            "dieu kien lam suy yeu" in heading
+            or "khi nao can xem xet lai" in heading
+            or "diem vo hieu" in heading
+            or "dieu kien vo hieu" in heading
+            or "vo hieu" in heading
+            or "invalidation condition" in heading
+            or heading.startswith("invalidation trigger")
+        )
+    return False
+
+
+def _normalize_heading(line: str) -> str:
+    cleaned = line.strip()
+    cleaned = re.sub(r"^\s*#{1,6}\s*", "", cleaned)
+    cleaned = cleaned.strip(" -*_`")
+    if not cleaned:
+        return ""
+    cleaned = cleaned.replace("Đ", "D").replace("đ", "d")
+    normalized = unicodedata.normalize("NFKD", cleaned)
+    ascii_text = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", ascii_text).strip().lower()
+
+
+def _collect_following_list_items(lines: list[str]) -> list[str]:
+    items: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("---") or _looks_like_markdown_heading(stripped):
+            break
+        item = _clean_multiline_field_item(stripped)
+        if item:
+            items.append(item)
+    return items
+
+
+def _looks_like_markdown_heading(line: str) -> bool:
+    if re.match(r"^#{1,6}\s+\S", line):
+        return True
+    return bool(re.match(r"^\*{2}[^*].*[^*]\*{2}\s*$", line))
+
+
+def _clean_multiline_field_item(line: str) -> str:
+    cleaned = re.sub(r"^\s*[-*]\s+", "", line)
+    cleaned = cleaned.replace("**", "").replace("`", "")
+    return cleaned.strip()
 
 
 def extract_thesis_list_field(text: str, field: str) -> list[str]:

@@ -7508,7 +7508,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.ok(rawBaseline);
   assert.ok(rawDelta);
   assert.equal(baseline.entry.entry_type, 'baseline');
-  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 0);
+  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 1);
   assert.equal(delta.entry.entry_type, 'delta');
   assert.equal(delta.entry.state_transition.previous_entry_id, baseline.entry.id);
   assert.equal(delta.entry.thin_report?.version, 'research_continuity_thin.v1');
@@ -9211,6 +9211,107 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   );
 });
 
+test('research continuity recovers observed evidence from thesis text JSON when normalized summary is lossy', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_lossy_thesis_text_evidence',
+    thesisId: 'thesis_btc_lossy_thesis_text_evidence',
+    debateId: 'debate_btc_lossy_thesis_text_evidence',
+    marketSnapshotId: 'market_btc_lossy_thesis_text_evidence',
+    signalSnapshotId: 'signal_btc_lossy_thesis_text_evidence',
+    stance: 'bearish',
+    thesisDirection: 'short',
+  });
+  const thesis = journal.theses.get(
+    key('thesis_btc_lossy_thesis_text_evidence', 'workspace_a'),
+  );
+  assert.ok(thesis);
+  thesis.structured_summary = {
+    direction: 'short',
+    key_reasons: ['Bear trend strength remains the main driver.'],
+    risks: ['Oversold bounce can squeeze late shorts.'],
+    monitor_next: ['Watch whether BTC accepts below support.'],
+  };
+  thesis.payload = {
+    ...record(thesis.payload),
+    thesis_text: [
+      'Final thesis markdown.',
+      '```json',
+      JSON.stringify({
+        direction: 'short',
+        key_reasons: [
+          {
+            text: 'Bear trend strength remains the main driver.',
+            supporting_evidence: [
+              {
+                text: 'Trend strength is 90% on daily and weekly snapshots.',
+                evidence_kind: 'observed',
+                source_artifact: 'signal_snapshot',
+                source_field: 'trend_strength',
+                strength: 'high',
+              },
+            ],
+          },
+        ],
+        risks: [
+          {
+            text: 'Oversold bounce can squeeze late shorts.',
+            supporting_evidence: [
+              {
+                text: 'RSI is deeply oversold on the latest signal snapshot.',
+                evidence_kind: 'observed',
+                source_artifact: 'signal_snapshot',
+                source_field: 'rsi_14',
+                strength: 'medium',
+              },
+            ],
+          },
+        ],
+        monitor_next: [
+          {
+            text: 'Watch whether BTC accepts below support.',
+            supporting_evidence: [
+              {
+                text: 'Support acceptance is required before adding short exposure.',
+                evidence_kind: 'reasoning',
+                source_artifact: 'trade_thesis',
+                source_field: 'confirmation_condition',
+                strength: 'medium',
+              },
+            ],
+          },
+        ],
+      }),
+      '```',
+    ].join('\n'),
+  };
+
+  await researchContinuity.generateForRun(
+    'run_btc_lossy_thesis_text_evidence',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_btc_lossy_thesis_text_evidence',
+    'workspace_a',
+  );
+  assert.ok(snapshot);
+  const trackedItems = records(snapshot.tracked_items);
+  const claim = trackedItems.find((item) =>
+    String(item.text).includes('Bear trend strength'),
+  );
+  const risk = trackedItems.find((item) =>
+    String(item.text).includes('Oversold bounce'),
+  );
+  assert.ok(claim);
+  assert.ok(risk);
+  assert.equal(claim.evidence_quality, 'observed_backed');
+  assert.equal(risk.evidence_quality, 'observed_backed');
+  assert.equal(records(claim.evidence)[0]?.evidence_kind, 'observed');
+  assert.ok(Number(record(snapshot.data_quality).observed_evidence_coverage) > 0);
+});
+
 test('research continuity V1.1 matches legacy item keys without fake churn', async () => {
   const { journal, researchContinuity } = buildHarness();
   const riskText = 'Funding is crowded.';
@@ -9346,7 +9447,11 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
     (event) => event.event_type === 'risk_updated',
   );
   assert.ok(riskUpdated);
-  assert.deepEqual(riskUpdated.changed_fields, ['text', 'canonical_text']);
+  assert.deepEqual(riskUpdated.changed_fields, [
+    'text',
+    'canonical_text',
+    'evidence',
+  ]);
   assert.equal(riskUpdated.previous_text, 'Funding is slightly elevated.');
   assert.equal(riskUpdated.current_text, 'Funding is extremely overheated.');
   assert.equal(record(riskUpdated.source).source_artifact, 'thesis');
@@ -9452,6 +9557,84 @@ test('research continuity skips insufficient runs and constrains degraded state 
   assert.equal(state.state?.latest_entry_id, degraded.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity degrades high-artifact snapshots with weak evidence and preserves active memory', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_quality_gate_clean',
+    thesisId: 'thesis_quality_gate_clean',
+    debateId: 'debate_quality_gate_clean',
+    marketSnapshotId: 'market_quality_gate_clean',
+    signalSnapshotId: 'signal_quality_gate_clean',
+    stance: 'bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is orderly.'],
+    monitorNext: ['Watch whether spot demand follows through.'],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_quality_gate_no_evidence_2',
+    thesisId: 'thesis_quality_gate_no_evidence',
+    debateId: 'debate_quality_gate_no_evidence',
+    marketSnapshotId: 'market_quality_gate_no_evidence',
+    signalSnapshotId: 'signal_quality_gate_no_evidence',
+    stance: 'bearish',
+    thesisDirection: 'short',
+    risks: ['Evidence-free risk should not become active.'],
+    monitorNext: ['Evidence-free watchpoint should not become active.'],
+    currentPrice: 99500,
+    evidenceMode: 'none',
+  });
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_quality_gate_clean',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const degraded = await researchContinuity.generateForRun(
+    'run_quality_gate_no_evidence_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const degradedSnapshot = await journal.getResearchSnapshotByRun(
+    'run_quality_gate_no_evidence_2',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const activeTexts = records(state.state?.active_items).map((item) =>
+    String(item.text),
+  );
+  const quality = record(degradedSnapshot?.data_quality);
+
+  assert.equal(baseline.entry.entry_type, 'baseline');
+  assert.equal(degraded.entry.entry_type, 'degraded');
+  assert.equal(quality.artifact_score, 1);
+  assert.equal(quality.status, 'degraded');
+  assert.ok(numberValue(quality.score) < 0.65);
+  assert.equal(quality.evidence_coverage, 0);
+  assert.equal(quality.observed_evidence_coverage, 0);
+  assert.ok(numberValue(quality.no_evidence_item_count) > 0);
+  assert.equal(quality.can_update_top_level_view, false);
+  assert.equal(quality.can_update_items, false);
+  assert.ok(
+    (quality.reasons as string[]).includes('observed_evidence_below_threshold'),
+  );
+  assert.equal(state.state?.latest_entry_id, degraded.entry.id);
+  assert.equal(state.state?.current_view.directional_bias, 'bullish');
+  assert.equal(
+    activeTexts.some((text) => text.includes('Evidence-free risk')),
+    false,
+  );
+  assert.equal(
+    activeTexts.some((text) => text.includes('Evidence-free watchpoint')),
+    false,
+  );
 });
 
 test('research continuity current view uses final thesis direction over debate stance', async () => {
@@ -11478,6 +11661,7 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.equal(scenarios[0]?.scenario_name, 'Breakout confirmation');
   assert.equal(scenarios[0]?.direction, 'bullish');
   assert.equal(scenarios[0]?.thesis_impact, 'strengthens thesis');
+  assert.equal(scenarios[0]?.suggested_user_action, 'Watch for close confirmation.');
   assert.equal(scenarios[0]?.condition, 'Daily close above 620 confirms continuation.');
   assert.deepEqual(scenarios[0]?.evidence, ['Price reclaimed 600 with rising volume.']);
   assert.deepEqual(scenarios[0]?.watch_triggers, ['Daily close above 620']);
@@ -11486,6 +11670,46 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.equal(scenarios[0]?.as_of, '2026-06-05');
   assert.equal(scenarios[0]?.timeframe, '1D');
   assert.deepEqual(scenarios[0]?.source, ['market_report', 'quant_signal_text']);
+  assert.equal(scenarios[0]?.runtime_decision.playbook_source, 'missing');
+  assert.equal(scenarios[0]?.runtime_decision.recommended_action, 'review');
+});
+
+test('scenario response extracts legacy source timeframe block from action text', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_scenario_legacy_meta', 'workspace_a'), {
+    id: 'thesis_scenario_legacy_meta',
+    workspace_id: 'workspace_a',
+    symbol: 'ETH/USDT',
+    thesis_text: 'Watch ETH risk.',
+  });
+  journal.scenarios.set(key('thesis_scenario_legacy_meta', 'workspace_a'), [
+    {
+      id: 'scenario_legacy_meta',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_legacy_meta',
+      scenario_name: 'Sụp Đổ Tiếp Diễn',
+      condition: 'Long crowding remains high.',
+      suggested_user_action:
+        'Reassess — đánh giá lại danh mục.\n' +
+        'Source, timeframe, as_of\n' +
+        'Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư.\n' +
+        'Khung thời gian ưu tiên: daily cho xu hướng chính, 1h cho điểm phá vỡ.',
+      payload: {},
+    },
+  ]);
+
+  const scenarios = await theses.scenarios(
+    'thesis_scenario_legacy_meta',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(scenarios[0]?.suggested_user_action, 'Reassess — đánh giá lại danh mục.');
+  assert.equal(scenarios[0]?.as_of, '2026-06-08');
+  assert.equal(scenarios[0]?.timeframe, 'daily cho xu hướng chính, 1h cho điểm phá vỡ');
+  assert.deepEqual(scenarios[0]?.source, [
+    'Báo cáo phân tích tín hiệu định lượng (market_analyst, 2026-06-08); kế hoạch đầu tư',
+  ]);
 });
 
 test('scenario monitor evaluates trigger distance and lifecycle status', async () => {
@@ -11521,7 +11745,7 @@ test('scenario monitor evaluates trigger distance and lifecycle status', async (
     id: 'snap_bnb_eval',
     workspace_id: 'workspace_a',
     symbol: 'BNB/USDT',
-    captured_at: '2026-06-05T00:00:00.000Z',
+    captured_at: new Date().toISOString(),
     current_price: 612,
     source: 'test',
   });
@@ -11537,6 +11761,363 @@ test('scenario monitor evaluates trigger distance and lifecycle status', async (
   assert.equal(monitor.items[0]?.scenario.distance_to_trigger, 0.0129);
   assert.match(monitor.items[0]?.scenario.status_reason ?? '', /1.29% below 620/);
   assert.equal(monitor.items[0]?.scenario.trigger_spec?.type, 'price_above');
+});
+
+test('scenario runtime decision marks expired playbooks as review only', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_expired_runtime', 'workspace_a'), {
+    id: 'thesis_expired_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_expired_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_expired_runtime',
+      thesisId: 'thesis_expired_runtime',
+      validUntil: '2026-06-02T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_expired_runtime', 'workspace_a'), {
+    id: 'snap_bnb_expired_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 625,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'expired');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'review');
+  assert.equal(
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('expired'),
+    true,
+  );
+});
+
+test('scenario runtime decision treats near trigger as consider only', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_near_runtime', 'workspace_a'), {
+    id: 'thesis_near_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_near_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_near_runtime',
+      thesisId: 'thesis_near_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_near_runtime', 'workspace_a'), {
+    id: 'snap_bnb_near_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 612,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'near_trigger');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'consider_long');
+});
+
+test('scenario runtime decision allows entry long now only when gates pass', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_entry_runtime', 'workspace_a'), {
+    id: 'thesis_entry_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_entry_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_entry_runtime',
+      thesisId: 'thesis_entry_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_entry_runtime', 'workspace_a'), {
+    id: 'snap_bnb_entry_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'triggered');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'valid');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'entry_long_now');
+  assert.deepEqual(monitor.items[0]?.scenario.runtime_decision.blocking_reasons, []);
+});
+
+test('scenario runtime decision blocks entry now when an entry condition fails', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_failed_condition_runtime', 'workspace_a'), {
+    id: 'thesis_failed_condition_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_failed_condition_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_failed_condition_runtime',
+      thesisId: 'thesis_failed_condition_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      entryConditions: [
+        { type: 'price_above', level: 620 },
+        { type: 'price_above', level: 630 },
+      ],
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_failed_condition_runtime', 'workspace_a'), {
+    id: 'snap_bnb_failed_condition_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  const runtime = monitor.items[0]?.scenario.runtime_decision;
+  assert.equal(runtime?.trigger_status, 'triggered');
+  assert.equal(runtime?.recommended_action, 'consider_long');
+  assert.deepEqual(runtime?.failed_conditions, ['price_above:630']);
+  assert.equal(
+    runtime?.blocking_reasons.includes('failed_condition:price_above:630'),
+    true,
+  );
+});
+
+test('scenario runtime decision downgrades entry when price is overextended', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_overextended_runtime', 'workspace_a'), {
+    id: 'thesis_overextended_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_overextended_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_overextended_runtime',
+      thesisId: 'thesis_overextended_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_overextended_runtime', 'workspace_a'), {
+    id: 'snap_bnb_overextended_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 640,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('overextended'),
+    true,
+  );
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'overextended');
+  assert.notEqual(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'entry_long_now');
+});
+
+test('scenario runtime decision honors custom overextended threshold', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_custom_overextension_runtime', 'workspace_a'), {
+    id: 'thesis_custom_overextension_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_custom_overextension_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_custom_overextension_runtime',
+      thesisId: 'thesis_custom_overextension_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      avoidIf: [{ type: 'overextended_from_trigger', threshold_pct: 10 }],
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_custom_overextension_runtime', 'workspace_a'), {
+    id: 'snap_bnb_custom_overextension_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 640,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'valid');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'entry_long_now');
+  assert.equal(
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('overextended'),
+    false,
+  );
+});
+
+test('scenario runtime decision evaluates zone-only triggers', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_zone_runtime', 'workspace_a'), {
+    id: 'thesis_zone_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim zone.',
+  });
+  journal.scenarios.set(key('thesis_zone_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_zone_runtime',
+      thesisId: 'thesis_zone_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      entryConditions: [{ type: 'price_in_zone', zone_low: 615, zone_high: 630 }],
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_zone_runtime', 'workspace_a'), {
+    id: 'snap_bnb_zone_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'triggered');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.distance_to_trigger, 0);
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'entry_long_now');
+});
+
+test('scenario runtime decision marks stale crossed triggers as stale review', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_stale_runtime', 'workspace_a'), {
+    id: 'thesis_stale_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB stale data.',
+  });
+  journal.scenarios.set(key('thesis_stale_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_stale_runtime',
+      thesisId: 'thesis_stale_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_stale_runtime', 'workspace_a'), {
+    id: 'snap_bnb_stale_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: '2026-06-01T00:00:00.000Z',
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.status, 'stale');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'stale');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'review');
+  assert.equal(
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('stale_market_data'),
+    true,
+  );
+});
+
+test('scenario runtime decision does not default neutral bias into long actions', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_neutral_runtime', 'workspace_a'), {
+    id: 'thesis_neutral_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB neutral setup.',
+  });
+  journal.scenarios.set(key('thesis_neutral_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_neutral_runtime',
+      thesisId: 'thesis_neutral_runtime',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      actionBias: 'neutral',
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_neutral_runtime', 'workspace_a'), {
+    id: 'snap_bnb_neutral_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 612,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'near_trigger');
+  assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'review');
 });
 
 test('alert scheduler status and manual run are workspace scoped', async () => {
@@ -11811,22 +12392,20 @@ test('workbench attention includes active scenarios ordered by monitor urgency',
     thesis_text: 'Watch BNB levels.',
   });
   journal.scenarios.set(key('thesis_workbench_scenario', 'workspace_a'), [
-    {
+    runtimeScenarioFixture({
       id: 'scenario_workbench_near',
-      workspace_id: 'workspace_a',
-      thesis_id: 'thesis_workbench_scenario',
-      scenario_name: 'Breakout near',
-      condition: 'BNB/USDT reclaims 620.',
-      suggested_user_action: 'watch',
-      payload: { trigger_spec: { type: 'price_above', level: 620 } },
-    },
+      thesisId: 'thesis_workbench_scenario',
+      validUntil: '2026-06-10T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+    }),
   ]);
   journal.marketSnapshots.set(key('snap_workbench_bnb', 'workspace_a'), {
     id: 'snap_workbench_bnb',
     workspace_id: 'workspace_a',
     symbol: 'BNB/USDT',
     current_price: 612,
-    captured_at: '2026-06-05T00:00:00.000Z',
+    captured_at: new Date().toISOString(),
     source: 'test',
   });
 
@@ -11834,7 +12413,66 @@ test('workbench attention includes active scenarios ordered by monitor urgency',
 
   assert.equal(response.active_scenarios[0]?.id, 'scenario_workbench_near');
   assert.equal(response.active_scenarios[0]?.status, 'near_trigger');
+  assert.equal(response.active_scenarios[0]?.runtime_decision.trigger_status, 'near_trigger');
+  assert.equal(response.active_scenarios[0]?.runtime_decision.recommended_action, 'consider_long');
 });
+
+function runtimeScenarioFixture(input: {
+  id: string;
+  thesisId: string;
+  validUntil: string;
+  preferred: string;
+  confidence: number;
+  actionBias?: string;
+  avoidIf?: JsonRecord[];
+  entryConditions?: JsonRecord[];
+}): JsonRecord {
+  return {
+    id: input.id,
+    workspace_id: 'workspace_a',
+    thesis_id: input.thesisId,
+    scenario_name: 'Runtime reclaim',
+    condition: 'BNB/USDT reclaims 620.',
+    invalidation: 'Invalid below 600.',
+    probability_band: 'medium',
+    payload: {
+      trigger_spec: { type: 'price_above', level: 620 },
+      decision_playbook: {
+        version: 'scenario_decision_playbook.v1',
+        source: 'llm',
+        generated_at: '2026-06-07T00:00:00.000Z',
+        generated_from_run_id: 'run_runtime',
+        action_bias: input.actionBias ?? 'long',
+        confidence: input.confidence,
+        preferred_action_if_triggered: input.preferred,
+        fallback_action: 'wait',
+        near_trigger_threshold_pct: 2,
+        validity_window: {
+          valid_from: '2026-06-07T00:00:00.000Z',
+          valid_until: input.validUntil,
+          timeframe: '1D',
+          rationale: 'Runtime fixture validity window.',
+          refresh_policy: 'refresh_on_next_research_run',
+        },
+        entry_conditions: input.entryConditions ?? [{ type: 'price_above', level: 620 }],
+        avoid_if: input.avoidIf ?? [{ type: 'overextended_from_trigger', threshold_pct: 2.5 }],
+        invalidation_conditions: [{ type: 'price_below', level: 600 }],
+        wait_for: ['Price above 620.'],
+        risk_notes: [],
+        evidence_refs: [
+          {
+            type: 'scenario',
+            id: input.id,
+            field: 'payload.trigger_spec',
+            label: 'Trigger spec',
+            supports: 'Trigger level is machine-readable.',
+          },
+        ],
+        rationale: 'Fixture playbook.',
+      },
+    },
+  };
+}
 
 const createResearchRunMetadata: ArgumentMetadata = {
   type: 'body',
@@ -12207,10 +12845,24 @@ function seedContinuityRun(
     risks?: string[];
     monitorNext?: string[];
     currentPrice?: number;
+    evidenceMode?: 'observed' | 'none';
     workspaceId?: string;
   },
 ) {
   const workspaceId = options.workspaceId ?? 'workspace_a';
+  const supportingEvidence =
+    options.evidenceMode === 'none'
+      ? []
+      : [
+          {
+            text: 'Market snapshot confirms the continuity view.',
+            evidence_kind: 'observed',
+            source_artifact: 'market_snapshot',
+            source_id: options.marketSnapshotId,
+            source_field: 'current_price',
+            strength: 'medium',
+          },
+        ];
   const createdAt = options.runId.endsWith('2')
     ? '2026-05-13T00:00:00.000Z'
     : '2026-05-12T00:00:00.000Z';
@@ -12297,6 +12949,7 @@ function seedContinuityRun(
       missing_data: [],
       data_quality_label: 'good',
       data_quality: 0.8,
+      supporting_evidence: supportingEvidence,
     },
     payload: {
       structured_summary: {
@@ -12723,3 +13376,19 @@ class FakeWorkspacePool {
 
   async end(): Promise<void> {}
 }
+
+test('research run create path is idempotent for caller supplied run ids', () => {
+  const serviceSource = readFileSync(
+    join(process.cwd(), 'src', 'research-runs', 'research-runs.service.ts'),
+    'utf8',
+  );
+  const jobsSource = readFileSync(
+    join(process.cwd(), 'src', 'jobs', 'jobs.service.ts'),
+    'utf8',
+  );
+
+  assert.equal(serviceSource.includes('findExistingResearchRunJob'), true);
+  assert.equal(serviceSource.includes('create research run idempotent hit'), true);
+  assert.equal(serviceSource.includes('queuedResponseFromJob(request, existingJob'), true);
+  assert.equal(jobsSource.includes('findExistingResearchRunJob'), true);
+});

@@ -302,6 +302,21 @@ test('continuity timeline treats scenario events as lifecycle items', () => {
               source_field: 'probability_band',
             },
           },
+          {
+            event_type: 'scenario_invalidated',
+            item_key:
+              'thesis_scenario_bridge:invalidation:if-btc-loses-102k-on-volume',
+            severity: 'medium',
+            from: {
+              scenario_key:
+                'thesis_scenario_bridge:invalidation:if-btc-loses-102k-on-volume',
+              scenario_id: 'scenario_bridge_2',
+              probability_band: 'medium',
+              condition: 'If BTC loses 102k on volume',
+            },
+            reason:
+              'Scenario branch no longer active: invalidation branch was removed.',
+          },
         ],
         snapshot_quality: { status: 'clean', score: 1 },
         payload: { schema_version: 'research_continuity_entry.v1.1' },
@@ -309,10 +324,21 @@ test('continuity timeline treats scenario events as lifecycle items', () => {
     ],
   });
 
-  assert.equal(response.lifecycle_items.length, 1);
-  assert.equal(response.lifecycle_items[0]?.item_type, 'scenario');
-  assert.equal(response.lifecycle_items[0]?.status, 'updated');
-  assert.equal(response.timeline_events[0]?.source_artifact, 'scenario');
+  assert.equal(response.lifecycle_items.length, 2);
+  const probabilityEvent = response.timeline_events.find(
+    (event) => event.event_type === 'scenario_probability_changed',
+  );
+  assert.equal(probabilityEvent?.source_artifact, 'scenario');
+
+  const invalidatedEvent = response.timeline_events.find(
+    (event) => event.event_type === 'scenario_invalidated',
+  );
+  assert.equal(invalidatedEvent?.item_type, 'scenario');
+  assert.equal(invalidatedEvent?.status, 'invalidated');
+  assert.equal(
+    invalidatedEvent?.reason,
+    'Scenario branch no longer active: invalidation branch was removed.',
+  );
 });
 
 test('continuity timeline maps terminal statuses and returns stable empty ledgers', () => {

@@ -500,6 +500,7 @@ export interface ResearchContinuityTimelineEventResponse {
   item_type: ResearchContinuityLifecycleItemType;
   status: ResearchContinuityLifecycleStatus;
   title: string;
+  reason: string | null;
   before: string | null;
   after: string | null;
   severity: ResearchContinuityDiffSeverity;

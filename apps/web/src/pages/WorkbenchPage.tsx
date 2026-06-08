@@ -311,9 +311,11 @@ function ActiveScenariosRail({
             >
               <div className="attention-item-top">
                 <strong>{scenario.scenario_name || scenario.condition}</strong>
-                <span className="badge">{scenario.status.replaceAll('_', ' ')}</span>
+                <span className="badge">
+                  {scenario.runtime_decision.recommended_action.replaceAll('_', ' ')}
+                </span>
               </div>
-              <p>{scenario.status_reason || scenario.condition}</p>
+              <p>{scenario.runtime_decision.status_reason || scenario.status_reason || scenario.condition}</p>
             </Link>
           ))}
         </div>

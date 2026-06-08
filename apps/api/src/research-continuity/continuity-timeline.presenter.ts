@@ -225,6 +225,7 @@ function timelineEventFor(
   const before = beforeText(event, status);
   const after = afterText(event, status);
   const title = titleFor(event, before, after, eventType);
+  const reason = nullableString(event.reason);
   const evidence = evidenceFor(event);
   const repairSourceRunId = nullableString(context.repair.source_run_id);
   const repairSourceEntryId = nullableString(context.repair.source_entry_id);
@@ -243,6 +244,7 @@ function timelineEventFor(
     item_type: itemType,
     status,
     title,
+    reason,
     before,
     after,
     severity: severityFor(event, eventType),
@@ -357,6 +359,7 @@ function legacyTimelineEventFor(
     item_type: legacyItemTypeForTitle(title, status),
     status,
     title,
+    reason: null,
     before: null,
     after:
       status === 'resolved' || status === 'weakened' || status === 'invalidated'

@@ -19,6 +19,7 @@ from luna_workstation.agents.managers.research_manager import create_research_ma
 from luna_workstation.agents.schemas import (
     MarketType,
     PortfolioRating,
+    PortfolioDecision,
     ResearchPlan,
     ScenarioItem,
     ScenarioPlan,
@@ -144,6 +145,7 @@ def _make_pm_state():
     return {
         "company_of_interest": "ETH/USDT",
         "market_type": "spot",
+        "quant_signal": "=== Quant Bias: ETH/USDT ===\nPrice: $1,647.71",
         "investment_plan": "**Research Stance**: Underweight\nAvoid fresh longs.",
         "trader_investment_plan": (
             "**Setup Stance**: Underweight\n"
@@ -220,6 +222,38 @@ class TestPortfolioManagerAgent:
         )
         assert payload["invalidation"] == "Daily close below 1715."
 
+    def test_prompt_includes_current_price_context(self):
+        captured = {}
+        structured = MagicMock()
+        structured.invoke.side_effect = lambda prompt: (
+            captured.__setitem__("prompt", prompt)
+            or PortfolioDecision(
+                rating=PortfolioRating.UNDERWEIGHT,
+                executive_summary="Avoid fresh longs.",
+                investment_thesis="Live-price anchored thesis.",
+                confidence=0.2,
+                market_type=MarketType.SPOT,
+                action_summary="Avoid fresh longs.",
+                confirmation_condition="Watch for live-price anchored confirmation.",
+                invalidation="Live-price anchored invalidation.",
+                key_reasons=[],
+                risks=[],
+                monitor_next=[],
+                supporting_evidence=[],
+                spot_notes="",
+                perp_notes="",
+                missing_data=[],
+            )
+        )
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        portfolio_manager(_make_pm_state())
+
+        assert "$1,647.71" in captured["prompt"]
+        assert "Do not assume price levels" in captured["prompt"]
+
 
 # ---------------------------------------------------------------------------
 # Setup Planner agent: structured happy path + fallback
@@ -230,6 +264,7 @@ def _make_setup_state(market_type: str = "spot"):
     return {
         "company_of_interest": "NVDA",
         "market_type": market_type,
+        "quant_signal": "=== Quant Bias: NVDA ===\nPrice: $682.00",
         "investment_plan": "**Research Stance**: Buy\n**Rationale**: ...\n**Review Focus**: ...",
     }
 
@@ -294,6 +329,16 @@ class TestSetupPlannerAgent:
         prompt = captured["prompt"]
         assert any("Market type: perp" in m["content"] for m in prompt)
         assert any("funding" in m["content"] for m in prompt)
+
+    def test_prompt_includes_current_price_context(self):
+        captured = {}
+        llm = _structured_setup_llm(captured)
+        setup_planner = create_setup_planner(llm)
+        setup_planner(_make_setup_state())
+        prompt = captured["prompt"]
+        user_text = "\n".join(m["content"] for m in prompt)
+        assert "$682" in user_text
+        assert "Do not assume price levels" in user_text
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain_response = (
@@ -543,3 +588,104 @@ class TestScenarioPlannerAgent:
         assert "May 30" not in result["scenario_plan"]
         assert "May 30" not in result["scenario_plan_json"]
         assert "prior breakout level ($643)" in result["scenario_plan"]
+
+    def test_structured_output_limits_scenario_count(self):
+        captured = {}
+        llm = _structured_scenario_llm(
+            captured,
+            ScenarioPlan(
+                setup_type="agent_debate",
+                scenarios=[
+                    ScenarioItem(
+                        scenario_name=f"Scenario {index}",
+                        direction="neutral",
+                        thesis_impact="low",
+                        condition=f"Condition {index}",
+                        expected_behavior=f"Behavior {index}",
+                        evidence=[f"Evidence {index}"],
+                        watch_triggers=[f"Watch {index}"],
+                        impact_on_thesis=f"Impact {index}",
+                        probability_band="medium",
+                        invalidation=f"Invalidation {index}",
+                        risk_factors=[f"Risk {index}"],
+                        suggested_action="watch",
+                        as_of="2026-05-31",
+                        timeframe="1D",
+                        source=["market_report"],
+                    )
+                    for index in range(1, 7)
+                ],
+            ),
+        )
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BNB/USDT",
+                "trade_date": "2026-05-31",
+                "investment_plan": "Wait for confirmation.",
+                "final_trade_decision": "Watch the trigger.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        assert result["scenario_plan"].count("### Scenario") == 4
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        assert len(plan.scenarios) == 4
+        assert plan.scenarios[-1].scenario_name == "Scenario 4"
+
+    def test_structured_output_enriches_missing_provenance_fields(self):
+        captured = {}
+        llm = _structured_scenario_llm(
+            captured,
+            ScenarioPlan(
+                setup_type="agent_debate",
+                scenarios=[
+                    ScenarioItem(
+                        scenario_name="Dead Cat Bounce",
+                        direction="bearish risk",
+                        thesis_impact="low",
+                        condition="If ETH bounces weakly into resistance.",
+                        expected_behavior="Trend remains fragile after the bounce.",
+                        evidence=["RSI oversold on the daily chart."],
+                        watch_triggers=["Price reclaims 1680 intraday"],
+                        impact_on_thesis="Still supports underweight unless follow-through improves.",
+                        probability_band="medium",
+                        invalidation="Invalid if ETH closes above 1720 with volume.",
+                        risk_factors=["Thin weekend liquidity."],
+                        suggested_action="review",
+                        as_of="",
+                        timeframe="",
+                        source=[],
+                    )
+                ],
+            ),
+        )
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "ETH/USDT",
+                "trade_date": "2026-06-08",
+                "investment_plan": "Underweight until market structure improves.",
+                "final_trade_decision": "Review the resistance zone before upgrading.",
+                "market_report": (
+                    "Market report for ETH/USDT. Analysis date: 2026-06-08. "
+                    "Primary timeframe: 1D. Daily trend remains bearish."
+                ),
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        scenario = plan.scenarios[0]
+        assert scenario.as_of == "2026-06-08"
+        assert scenario.timeframe == "1D"
+        assert scenario.source == ["market_report"]
