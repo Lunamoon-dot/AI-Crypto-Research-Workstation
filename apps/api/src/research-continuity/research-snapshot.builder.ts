@@ -113,6 +113,18 @@ const AGENT_OPINION_ADVERSE_RISK_TERMS = [
   ...AGENT_OPINION_DIRECT_RISK_TERMS,
 ];
 
+const STRUCTURED_RESEARCH_ITEM_FIELDS = [
+  'key_reasons',
+  'risks',
+  'monitor_next',
+] as const;
+
+const QUALITY_SCORE_CLEAN_THRESHOLD = 0.65;
+const OBSERVED_COVERAGE_CLEAN_THRESHOLD = 0.1;
+const EVIDENCE_COVERAGE_CLEAN_THRESHOLD = 0.5;
+const NO_EVIDENCE_COVERAGE_MAX = 0.35;
+const STABLE_IDENTITY_COVERAGE_CLEAN_THRESHOLD = 0.25;
+
 export class ResearchSnapshotBuilder {
   build(input: ResearchSnapshotBuildInput): ResearchSnapshotBuildResult {
     const runId = stringValue(input.run.id ?? input.run.run_id);
@@ -128,10 +140,13 @@ export class ResearchSnapshotBuilder {
       return {
         snapshot: null,
         quality: {
+          artifact_score: 0,
+          evidence_score: 0,
           score: 0,
           status: 'skipped',
           reasons: ['missing_run_or_symbol'],
           can_update_top_level_view: false,
+          can_update_items: false,
         },
         skippedReason: 'missing_run_or_symbol',
       };
@@ -268,12 +283,14 @@ function snapshotQuality(input: ResearchSnapshotBuildInput): JsonRecord {
     !skipped &&
     (stringValue(input.run.status) === 'completed_degraded' || roundedScore < 0.65);
   return {
+    artifact_score: roundedScore,
     score: roundedScore,
     status: skipped ? 'skipped' : degraded ? 'degraded' : 'clean',
     reasons: uniqueStrings(reasons),
     artifact_count: artifactCount,
     skipped,
-    can_update_top_level_view: !skipped && roundedScore >= 0.65,
+    can_update_top_level_view: false,
+    can_update_items: false,
   };
 }
 
@@ -505,6 +522,22 @@ function snapshotQualityWithTrackedItems(
   const highConfidenceIdentityCount = items.filter(
     (item) => stringValue(item.identity_confidence) === 'high',
   ).length;
+  const sourceCoverage = ratio(sourcedItemCount, trackedItemCount);
+  const evidenceCoverage = ratio(evidenceAttachedCount, trackedItemCount);
+  const observedCoverage = ratio(observedBackedItemCount, trackedItemCount);
+  const noEvidenceCoverage = ratio(noEvidenceItemCount, trackedItemCount);
+  const stableIdentityCoverage = ratio(
+    trackedItemCount - fallbackHashCount,
+    trackedItemCount,
+  );
+  const artifactScore = numberValue(baseQuality.artifact_score ?? baseQuality.score);
+  const evidenceScore = qualityScore({
+    evidenceCoverage,
+    observedCoverage,
+    sourceCoverage,
+    stableIdentityCoverage,
+  });
+  const finalScore = roundedRatio(artifactScore * 0.35 + evidenceScore * 0.65);
   const provenanceReasons = [
     unsourcedItemCount > 0
       ? `${unsourcedItemCount} tracked items missing source provenance`
@@ -513,32 +546,96 @@ function snapshotQualityWithTrackedItems(
       ? `${fallbackHashCount} tracked items use fallback text identity`
       : '',
   ].filter(Boolean);
+  const qualityReasons = [
+    ...stringList(baseQuality.reasons),
+    observedCoverage !== null &&
+    observedCoverage < OBSERVED_COVERAGE_CLEAN_THRESHOLD
+      ? 'observed_evidence_below_threshold'
+      : '',
+    evidenceCoverage !== null &&
+    evidenceCoverage < EVIDENCE_COVERAGE_CLEAN_THRESHOLD
+      ? 'evidence_coverage_below_threshold'
+      : '',
+    noEvidenceCoverage !== null && noEvidenceCoverage > NO_EVIDENCE_COVERAGE_MAX
+      ? 'no_evidence_coverage_high'
+      : '',
+    stableIdentityCoverage !== null &&
+    stableIdentityCoverage < STABLE_IDENTITY_COVERAGE_CLEAN_THRESHOLD
+      ? 'stable_identity_below_threshold'
+      : '',
+  ].filter(Boolean);
+  const skipped = Boolean(baseQuality.skipped);
+  const degraded =
+    !skipped &&
+    (stringValue(baseQuality.status) === 'degraded' ||
+      finalScore < QUALITY_SCORE_CLEAN_THRESHOLD ||
+      Boolean(
+        observedCoverage !== null &&
+          observedCoverage < OBSERVED_COVERAGE_CLEAN_THRESHOLD,
+      ) ||
+      Boolean(
+        evidenceCoverage !== null &&
+          evidenceCoverage < EVIDENCE_COVERAGE_CLEAN_THRESHOLD,
+      ) ||
+      Boolean(
+        noEvidenceCoverage !== null &&
+          noEvidenceCoverage > NO_EVIDENCE_COVERAGE_MAX,
+      ) ||
+      Boolean(
+        stableIdentityCoverage !== null &&
+          stableIdentityCoverage < STABLE_IDENTITY_COVERAGE_CLEAN_THRESHOLD,
+      ));
+  const status = skipped ? 'skipped' : degraded ? 'degraded' : 'clean';
+  const canPromote = status === 'clean';
 
   return {
     ...baseQuality,
+    artifact_score: artifactScore,
+    evidence_score: evidenceScore,
+    score: finalScore,
+    status,
+    reasons: uniqueStrings(qualityReasons),
     tracked_item_count: trackedItemCount,
     ...counts,
     sourced_item_count: sourcedItemCount,
     unsourced_item_count: unsourcedItemCount,
-    source_coverage: ratio(sourcedItemCount, trackedItemCount),
+    source_coverage: sourceCoverage,
     evidence_attached_count: evidenceAttachedCount,
-    evidence_coverage: ratio(evidenceAttachedCount, trackedItemCount),
+    evidence_coverage: evidenceCoverage,
     observed_evidence_count: evidenceCounts.observed,
     reasoning_evidence_count: evidenceCounts.reasoning,
     missing_evidence_count: evidenceCounts.missing,
-    observed_evidence_coverage: ratio(observedBackedItemCount, trackedItemCount),
+    observed_evidence_coverage: observedCoverage,
     reasoning_only_item_count: reasoningOnlyItemCount,
     missing_evidence_item_count: missingEvidenceItemCount,
     no_evidence_item_count: noEvidenceItemCount,
+    no_evidence_coverage: noEvidenceCoverage,
     identity_quality: {
       stable_key_count: trackedItemCount - fallbackHashCount,
       fallback_hash_count: fallbackHashCount,
       fallback_hash_ratio: ratio(fallbackHashCount, trackedItemCount),
       high_confidence_identity_count: highConfidenceIdentityCount,
+      stable_identity_coverage: stableIdentityCoverage,
     },
     provenance_status: provenanceReasons.length === 0 ? 'clean' : 'partial',
     provenance_reasons: provenanceReasons,
+    can_update_top_level_view: canPromote,
+    can_update_items: canPromote,
   };
+}
+
+function qualityScore(input: {
+  evidenceCoverage: number | null;
+  observedCoverage: number | null;
+  sourceCoverage: number | null;
+  stableIdentityCoverage: number | null;
+}): number {
+  return roundedRatio(
+    numberValue(input.observedCoverage) * 0.55 +
+      numberValue(input.evidenceCoverage) * 0.25 +
+      numberValue(input.sourceCoverage) * 0.1 +
+      numberValue(input.stableIdentityCoverage) * 0.1,
+  );
 }
 
 function directionalBias(input: ResearchSnapshotBuildInput): string {
@@ -663,7 +760,7 @@ function claimItems(thesis: JsonRecord | null): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
   const summary = summaryValue(thesis);
   const summaryPrefix = summarySourcePrefix(thesis);
-  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  const payloadSummary = payloadStructuredSummary(thesis);
   return [
     ...indexedResearchItems(summary.key_reasons, (item, index) =>
       seedItem(
@@ -710,7 +807,7 @@ function riskItems(thesis: JsonRecord | null, opinions: JsonRecord[]): TrackedIt
   const thesisId = nullableString(thesis?.id);
   const summary = summaryValue(thesis);
   const summaryPrefix = summarySourcePrefix(thesis);
-  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  const payloadSummary = payloadStructuredSummary(thesis);
   return [
     ...indexedResearchItems(summary.risks, (item, index) =>
       seedItem(
@@ -792,7 +889,7 @@ function watchpointItems(thesis: JsonRecord | null): TrackedItemSeed[] {
   const thesisId = nullableString(thesis?.id);
   const summary = summaryValue(thesis);
   const summaryPrefix = summarySourcePrefix(thesis);
-  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  const payloadSummary = payloadStructuredSummary(thesis);
   return [
     ...indexedResearchItems(thesis?.monitor_next, (item, index) =>
       seedItem(
@@ -903,7 +1000,7 @@ function levelItems(thesis: JsonRecord | null): TrackedItemSeed[] {
 function evidenceItems(input: ResearchSnapshotBuildInput): ResearchEvidenceItem[] {
   const thesis = input.thesis;
   const summary = summaryValue(thesis);
-  const payloadSummary = recordValue(recordValue(thesis?.payload).structured_summary);
+  const payloadSummary = payloadStructuredSummary(thesis);
   return uniqueEvidence([
     ...normalizeEvidenceItems(summary.supporting_evidence),
     ...normalizeEvidenceItems(thesis?.supporting_evidence),
@@ -1104,15 +1201,152 @@ function safeId(value: string): string {
 function summaryValue(thesis: JsonRecord | null): JsonRecord {
   const structuredSummary = recordValue(thesis?.structured_summary);
   if (Object.keys(structuredSummary).length > 0) {
-    return structuredSummary;
+    return mergeSummaryWithThesisTextEvidence(thesis, structuredSummary);
   }
-  return recordValue(thesis?.summary);
+  return mergeSummaryWithThesisTextEvidence(thesis, recordValue(thesis?.summary));
+}
+
+function payloadStructuredSummary(thesis: JsonRecord | null): JsonRecord {
+  return mergeSummaryWithThesisTextEvidence(
+    thesis,
+    recordValue(recordValue(thesis?.payload).structured_summary),
+  );
 }
 
 function summarySourcePrefix(thesis: JsonRecord | null): string {
   return Object.keys(recordValue(thesis?.structured_summary)).length > 0
     ? 'structured_summary'
     : 'summary';
+}
+
+function mergeSummaryWithThesisTextEvidence(
+  thesis: JsonRecord | null,
+  summary: JsonRecord,
+): JsonRecord {
+  const extracted = thesisTextStructuredSummary(thesis);
+  if (Object.keys(extracted).length === 0) {
+    return summary;
+  }
+  const merged: JsonRecord = { ...extracted, ...summary };
+  for (const field of STRUCTURED_RESEARCH_ITEM_FIELDS) {
+    merged[field] = mergeResearchItemField(summary[field], extracted[field]);
+  }
+  merged.supporting_evidence = mergeEvidenceField(
+    summary.supporting_evidence,
+    extracted.supporting_evidence,
+  );
+  return merged;
+}
+
+function mergeResearchItemField(primary: unknown, fallback: unknown): unknown {
+  const primaryItems = normalizeResearchItems(primary);
+  const fallbackItems = normalizeResearchItems(fallback);
+  if (fallbackItems.length === 0) {
+    return nonEmptyValue(primary) ? primary : fallback;
+  }
+  if (primaryItems.length === 0) {
+    return fallback;
+  }
+  const fallbackByText = new Map(
+    fallbackItems.map((item) => [normalizedText(item.text), item]),
+  );
+  const merged = primaryItems.map((item) => {
+    if (item.supporting_evidence.length > 0) {
+      return item;
+    }
+    const fallbackItem = fallbackByText.get(normalizedText(item.text));
+    return fallbackItem?.supporting_evidence.length ? fallbackItem : item;
+  });
+  const seen = new Set(merged.map((item) => normalizedText(item.text)));
+  for (const fallbackItem of fallbackItems) {
+    const key = normalizedText(fallbackItem.text);
+    if (!seen.has(key)) {
+      merged.push(fallbackItem);
+      seen.add(key);
+    }
+  }
+  return merged;
+}
+
+function mergeEvidenceField(primary: unknown, fallback: unknown): unknown {
+  const evidence = uniqueEvidence([
+    ...normalizeEvidenceItems(primary),
+    ...normalizeEvidenceItems(fallback),
+  ]);
+  if (evidence.length > 0) {
+    return evidence;
+  }
+  return nonEmptyValue(primary) ? primary : fallback;
+}
+
+function thesisTextStructuredSummary(thesis: JsonRecord | null): JsonRecord {
+  const payload = recordValue(thesis?.payload);
+  const text = stringValue(payload.thesis_text ?? thesis?.thesis_text);
+  if (!text) {
+    return {};
+  }
+  const candidates = parseJsonCandidates(text)
+    .map((candidate) => {
+      const nested = recordValue(candidate.structured_summary);
+      return Object.keys(nested).length > 0 ? nested : candidate;
+    })
+    .filter(isStructuredSummaryLike);
+  return (
+    candidates.find((candidate) => structuredSummaryHasEvidence(candidate)) ??
+    candidates[0] ??
+    {}
+  );
+}
+
+function parseJsonCandidates(text: string): JsonRecord[] {
+  const blocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(
+    (match) => match[1] ?? '',
+  );
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    blocks.push(trimmed);
+  }
+  return blocks
+    .map((block) => parseJsonRecord(block.trim()))
+    .filter((record): record is JsonRecord => record !== null);
+}
+
+function parseJsonRecord(text: string): JsonRecord | null {
+  try {
+    return recordValue(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+function isStructuredSummaryLike(record: JsonRecord): boolean {
+  return [
+    'action_summary',
+    'confirmation_condition',
+    'direction',
+    'invalidation',
+    'key_reasons',
+    'monitor_next',
+    'risks',
+    'supporting_evidence',
+  ].some((field) => record[field] !== undefined);
+}
+
+function structuredSummaryHasEvidence(record: JsonRecord): boolean {
+  return (
+    STRUCTURED_RESEARCH_ITEM_FIELDS.some((field) =>
+      normalizeResearchItems(record[field]).some(
+        (item) => item.supporting_evidence.length > 0,
+      ),
+    ) || normalizeEvidenceItems(record.supporting_evidence).length > 0
+  );
+}
+
+function nonEmptyValue(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  return value !== undefined && value !== null && value !== '';
 }
 
 function recordValue(value: unknown): JsonRecord {
@@ -1191,6 +1425,10 @@ function ratio(numerator: number, denominator: number): number {
     return 0;
   }
   return Number((numerator / denominator).toFixed(2));
+}
+
+function roundedRatio(value: number): number {
+  return Math.max(0, Math.min(1, Number(value.toFixed(2))));
 }
 
 function uniqueStrings(values: string[]): string[] {

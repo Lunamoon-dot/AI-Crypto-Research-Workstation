@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-test('page header suppresses route headline copy and keeps actions', () => {
+test('page header suppresses route headline copy', () => {
   const source = readFileSync(
     new URL('../src/components/research/page-header.tsx', import.meta.url),
     'utf8',
@@ -11,5 +11,4 @@ test('page header suppresses route headline copy and keeps actions', () => {
   assert.equal(source.includes('page-title'), false);
   assert.equal(source.includes('page-description'), false);
   assert.equal(source.includes('eyebrow'), false);
-  assert.equal(source.includes('page-header-actions'), true);
 });

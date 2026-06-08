@@ -7508,7 +7508,7 @@ test('research continuity creates baseline then delta and exposes the nine-secti
   assert.ok(rawBaseline);
   assert.ok(rawDelta);
   assert.equal(baseline.entry.entry_type, 'baseline');
-  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 0);
+  assert.equal(record(rawBaseline.snapshot_quality).evidence_coverage, 1);
   assert.equal(delta.entry.entry_type, 'delta');
   assert.equal(delta.entry.state_transition.previous_entry_id, baseline.entry.id);
   assert.equal(delta.entry.thin_report?.version, 'research_continuity_thin.v1');
@@ -9211,6 +9211,107 @@ test('research continuity V1.2 attaches item evidence before global fallback and
   );
 });
 
+test('research continuity recovers observed evidence from thesis text JSON when normalized summary is lossy', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_btc_lossy_thesis_text_evidence',
+    thesisId: 'thesis_btc_lossy_thesis_text_evidence',
+    debateId: 'debate_btc_lossy_thesis_text_evidence',
+    marketSnapshotId: 'market_btc_lossy_thesis_text_evidence',
+    signalSnapshotId: 'signal_btc_lossy_thesis_text_evidence',
+    stance: 'bearish',
+    thesisDirection: 'short',
+  });
+  const thesis = journal.theses.get(
+    key('thesis_btc_lossy_thesis_text_evidence', 'workspace_a'),
+  );
+  assert.ok(thesis);
+  thesis.structured_summary = {
+    direction: 'short',
+    key_reasons: ['Bear trend strength remains the main driver.'],
+    risks: ['Oversold bounce can squeeze late shorts.'],
+    monitor_next: ['Watch whether BTC accepts below support.'],
+  };
+  thesis.payload = {
+    ...record(thesis.payload),
+    thesis_text: [
+      'Final thesis markdown.',
+      '```json',
+      JSON.stringify({
+        direction: 'short',
+        key_reasons: [
+          {
+            text: 'Bear trend strength remains the main driver.',
+            supporting_evidence: [
+              {
+                text: 'Trend strength is 90% on daily and weekly snapshots.',
+                evidence_kind: 'observed',
+                source_artifact: 'signal_snapshot',
+                source_field: 'trend_strength',
+                strength: 'high',
+              },
+            ],
+          },
+        ],
+        risks: [
+          {
+            text: 'Oversold bounce can squeeze late shorts.',
+            supporting_evidence: [
+              {
+                text: 'RSI is deeply oversold on the latest signal snapshot.',
+                evidence_kind: 'observed',
+                source_artifact: 'signal_snapshot',
+                source_field: 'rsi_14',
+                strength: 'medium',
+              },
+            ],
+          },
+        ],
+        monitor_next: [
+          {
+            text: 'Watch whether BTC accepts below support.',
+            supporting_evidence: [
+              {
+                text: 'Support acceptance is required before adding short exposure.',
+                evidence_kind: 'reasoning',
+                source_artifact: 'trade_thesis',
+                source_field: 'confirmation_condition',
+                strength: 'medium',
+              },
+            ],
+          },
+        ],
+      }),
+      '```',
+    ].join('\n'),
+  };
+
+  await researchContinuity.generateForRun(
+    'run_btc_lossy_thesis_text_evidence',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const snapshot = await journal.getResearchSnapshotByRun(
+    'run_btc_lossy_thesis_text_evidence',
+    'workspace_a',
+  );
+  assert.ok(snapshot);
+  const trackedItems = records(snapshot.tracked_items);
+  const claim = trackedItems.find((item) =>
+    String(item.text).includes('Bear trend strength'),
+  );
+  const risk = trackedItems.find((item) =>
+    String(item.text).includes('Oversold bounce'),
+  );
+  assert.ok(claim);
+  assert.ok(risk);
+  assert.equal(claim.evidence_quality, 'observed_backed');
+  assert.equal(risk.evidence_quality, 'observed_backed');
+  assert.equal(records(claim.evidence)[0]?.evidence_kind, 'observed');
+  assert.ok(Number(record(snapshot.data_quality).observed_evidence_coverage) > 0);
+});
+
 test('research continuity V1.1 matches legacy item keys without fake churn', async () => {
   const { journal, researchContinuity } = buildHarness();
   const riskText = 'Funding is crowded.';
@@ -9346,7 +9447,11 @@ test('research continuity V1.1 emits update events and preserves item lifecycle 
     (event) => event.event_type === 'risk_updated',
   );
   assert.ok(riskUpdated);
-  assert.deepEqual(riskUpdated.changed_fields, ['text', 'canonical_text']);
+  assert.deepEqual(riskUpdated.changed_fields, [
+    'text',
+    'canonical_text',
+    'evidence',
+  ]);
   assert.equal(riskUpdated.previous_text, 'Funding is slightly elevated.');
   assert.equal(riskUpdated.current_text, 'Funding is extremely overheated.');
   assert.equal(record(riskUpdated.source).source_artifact, 'thesis');
@@ -9452,6 +9557,84 @@ test('research continuity skips insufficient runs and constrains degraded state 
   assert.equal(state.state?.latest_entry_id, degraded.entry.id);
   assert.equal(state.state?.current_view.directional_bias, 'bullish');
   assert.equal(state.state?.data_quality.status, 'degraded');
+});
+
+test('research continuity degrades high-artifact snapshots with weak evidence and preserves active memory', async () => {
+  const { journal, researchContinuity } = buildHarness();
+  seedContinuityRun(journal, {
+    runId: 'run_quality_gate_clean',
+    thesisId: 'thesis_quality_gate_clean',
+    debateId: 'debate_quality_gate_clean',
+    marketSnapshotId: 'market_quality_gate_clean',
+    signalSnapshotId: 'signal_quality_gate_clean',
+    stance: 'bullish',
+    thesisDirection: 'long',
+    risks: ['Funding is orderly.'],
+    monitorNext: ['Watch whether spot demand follows through.'],
+  });
+  seedContinuityRun(journal, {
+    runId: 'run_quality_gate_no_evidence_2',
+    thesisId: 'thesis_quality_gate_no_evidence',
+    debateId: 'debate_quality_gate_no_evidence',
+    marketSnapshotId: 'market_quality_gate_no_evidence',
+    signalSnapshotId: 'signal_quality_gate_no_evidence',
+    stance: 'bearish',
+    thesisDirection: 'short',
+    risks: ['Evidence-free risk should not become active.'],
+    monitorNext: ['Evidence-free watchpoint should not become active.'],
+    currentPrice: 99500,
+    evidenceMode: 'none',
+  });
+
+  const baseline = await researchContinuity.generateForRun(
+    'run_quality_gate_clean',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const degraded = await researchContinuity.generateForRun(
+    'run_quality_gate_no_evidence_2',
+    {},
+    'user_1',
+    'workspace_a',
+  );
+  const degradedSnapshot = await journal.getResearchSnapshotByRun(
+    'run_quality_gate_no_evidence_2',
+    'workspace_a',
+  );
+  const state = await researchContinuity.getSymbolState(
+    'BTC/USDT',
+    'viewer_1',
+    'workspace_a',
+  );
+  const activeTexts = records(state.state?.active_items).map((item) =>
+    String(item.text),
+  );
+  const quality = record(degradedSnapshot?.data_quality);
+
+  assert.equal(baseline.entry.entry_type, 'baseline');
+  assert.equal(degraded.entry.entry_type, 'degraded');
+  assert.equal(quality.artifact_score, 1);
+  assert.equal(quality.status, 'degraded');
+  assert.ok(numberValue(quality.score) < 0.65);
+  assert.equal(quality.evidence_coverage, 0);
+  assert.equal(quality.observed_evidence_coverage, 0);
+  assert.ok(numberValue(quality.no_evidence_item_count) > 0);
+  assert.equal(quality.can_update_top_level_view, false);
+  assert.equal(quality.can_update_items, false);
+  assert.ok(
+    (quality.reasons as string[]).includes('observed_evidence_below_threshold'),
+  );
+  assert.equal(state.state?.latest_entry_id, degraded.entry.id);
+  assert.equal(state.state?.current_view.directional_bias, 'bullish');
+  assert.equal(
+    activeTexts.some((text) => text.includes('Evidence-free risk')),
+    false,
+  );
+  assert.equal(
+    activeTexts.some((text) => text.includes('Evidence-free watchpoint')),
+    false,
+  );
 });
 
 test('research continuity current view uses final thesis direction over debate stance', async () => {
@@ -12624,10 +12807,24 @@ function seedContinuityRun(
     risks?: string[];
     monitorNext?: string[];
     currentPrice?: number;
+    evidenceMode?: 'observed' | 'none';
     workspaceId?: string;
   },
 ) {
   const workspaceId = options.workspaceId ?? 'workspace_a';
+  const supportingEvidence =
+    options.evidenceMode === 'none'
+      ? []
+      : [
+          {
+            text: 'Market snapshot confirms the continuity view.',
+            evidence_kind: 'observed',
+            source_artifact: 'market_snapshot',
+            source_id: options.marketSnapshotId,
+            source_field: 'current_price',
+            strength: 'medium',
+          },
+        ];
   const createdAt = options.runId.endsWith('2')
     ? '2026-05-13T00:00:00.000Z'
     : '2026-05-12T00:00:00.000Z';
@@ -12714,6 +12911,7 @@ function seedContinuityRun(
       missing_data: [],
       data_quality_label: 'good',
       data_quality: 0.8,
+      supporting_evidence: supportingEvidence,
     },
     payload: {
       structured_summary: {
