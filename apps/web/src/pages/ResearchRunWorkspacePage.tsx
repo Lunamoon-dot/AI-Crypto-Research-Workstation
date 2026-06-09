@@ -1474,9 +1474,9 @@ function resolvePipelineStageState({
 
   if (runFailed) {
     return {
-      label: 'missing',
+      label: 'blocked',
       badgeClass: 'badge warning',
-      detail: 'Not reached before run failed',
+      detail: 'Blocked by upstream failure',
     };
   }
 

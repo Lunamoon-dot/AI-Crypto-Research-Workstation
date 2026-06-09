@@ -757,11 +757,22 @@ function StructuredRichText({
   return (
     <div className={`structured-rich-text${dense ? ' dense' : ''}`}>
       {blocks.map((block, index) => {
+        if (block.kind === 'rule') {
+          return <hr className="structured-rich-text-rule" key={`${block.kind}-${index}`} />;
+        }
+        if (block.kind === 'heading') {
+          const Tag = headingTag(block.level);
+          return (
+            <Tag className={`structured-rich-text-heading level-${block.level}`} key={`${block.kind}-${index}`}>
+              {renderInlineMarkdown(block.items[0] ?? '')}
+            </Tag>
+          );
+        }
         if (block.kind === 'ordered-list') {
           return (
             <ol className="structured-rich-text-list ordered" key={`${block.kind}-${index}`}>
               {block.items.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{renderInlineMarkdown(item)}</li>
               ))}
             </ol>
           );
@@ -770,20 +781,21 @@ function StructuredRichText({
           return (
             <ul className="structured-rich-text-list" key={`${block.kind}-${index}`}>
               {block.items.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{renderInlineMarkdown(item)}</li>
               ))}
             </ul>
           );
         }
-        return <p key={`${block.kind}-${index}`}>{block.items[0]}</p>;
+        return <p key={`${block.kind}-${index}`}>{renderInlineMarkdown(block.items[0] ?? '')}</p>;
       })}
     </div>
   );
 }
 
 type StructuredTextBlock = {
-  kind: 'paragraph' | 'ordered-list' | 'unordered-list';
+  kind: 'paragraph' | 'ordered-list' | 'unordered-list' | 'heading' | 'rule';
   items: string[];
+  level?: 1 | 2 | 3 | 4 | 5 | 6;
 };
 
 function parseStructuredText(value: string): StructuredTextBlock[] {
@@ -803,6 +815,20 @@ function parseStructuredText(value: string): StructuredTextBlock[] {
         .filter(Boolean);
       if (lines.length === 0) {
         return [];
+      }
+      if (lines.length === 1 && /^-{3,}$/.test(lines[0] ?? '')) {
+        return [{ kind: 'rule', items: [] }];
+      }
+      if (lines.length === 1 && /^#{1,6}\s+/.test(lines[0] ?? '')) {
+        const line = lines[0] ?? '';
+        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+          return [{
+            kind: 'heading',
+            level: headingMatch[1].length as 1 | 2 | 3 | 4 | 5 | 6,
+            items: [headingMatch[2].trim()],
+          }];
+        }
       }
       if (lines.every((line) => /^\d+[.)]\s+/.test(line))) {
         return [{
@@ -825,6 +851,49 @@ function parseStructuredText(value: string): StructuredTextBlock[] {
 
       return [{ kind: 'paragraph', items: [joined] }];
     });
+}
+
+function renderInlineMarkdown(value: string): ReactNode[] {
+  const text = value.trim();
+  if (!text) {
+    return [];
+  }
+
+  const nodes: ReactNode[] = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(text.slice(lastIndex, index));
+    }
+    nodes.push(<strong key={`${index}-${match[1]}`}>{match[1]}</strong>);
+    lastIndex = index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function headingTag(level?: StructuredTextBlock['level']): 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' {
+  switch (level) {
+    case 1:
+      return 'h1';
+    case 2:
+      return 'h2';
+    case 3:
+      return 'h3';
+    case 4:
+      return 'h4';
+    case 5:
+      return 'h5';
+    default:
+      return 'h6';
+  }
 }
 
 function splitInlineListItems(value: string): string[] {
@@ -946,7 +1015,7 @@ function buildBoundaryScenario(
     impact_on_thesis: boundary.impactOnThesis,
     risk_map: thesis.summary.risks.slice(0, 3),
     as_of: thesis.created_at ? thesis.created_at.slice(0, 10) : '',
-    timeframe: thesis.summary.market_type || thesis.summary.direction || '',
+    timeframe: '',
     source: ['thesis_brief'],
     status: 'watching',
     status_reason: '',

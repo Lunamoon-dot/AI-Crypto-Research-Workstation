@@ -70,6 +70,23 @@ test('thesis detail uses one structured text renderer across narrative blocks', 
   assert.equal(source.includes('function splitInlineListItems'), true);
 });
 
+test('thesis detail structured text renderer supports thesis markdown primitives', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes("kind: 'heading'"), true);
+  assert.equal(source.includes("kind: 'rule'"), true);
+  assert.equal(source.includes('function renderInlineMarkdown'), true);
+  assert.equal(source.includes('function headingTag'), true);
+  assert.equal(source.includes('return <hr'), true);
+  assert.equal(source.includes('const Tag = headingTag(block.level);'), true);
+  assert.equal(source.includes('/\\*\\*(.+?)\\*\\*/g'), true);
+  assert.equal(source.includes('/^#{1,6}\\s+/'), true);
+  assert.equal(source.includes('/^-{3,}$/'), true);
+});
+
 test('thesis technical audit fields stay out of the primary brief', () => {
   const source = readFileSync(
     new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
@@ -140,4 +157,13 @@ test('scenario radar supplements missing scenario branches from thesis boundarie
   assert.equal(source.includes('buildBoundaryScenario('), true);
   assert.equal(source.includes('branchType: \'confirmation\''), true);
   assert.equal(source.includes('branchType: \'invalidation\''), true);
+});
+
+test('boundary scenarios do not use market type as timeframe metadata', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes("timeframe: thesis.summary.market_type || thesis.summary.direction || ''"), false);
 });

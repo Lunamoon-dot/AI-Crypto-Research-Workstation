@@ -40,8 +40,7 @@ export function WorkflowVisualization({
   const analystGridStyle = analystGridVariables(analystStages.length);
   const canvasStyle = workflowCanvasVariables(analystStages.length);
   const analystConnectorState = groupConnectorState(analystStages);
-  const firstSequentialStage = sequentialStages[0];
-  const mergeConnectorState = firstSequentialStage?.statusLabel ?? 'pending';
+  const mergeConnectorState = groupConnectorState(analystStages);
   const workflowComplete = terminalStagesComplete({
     signalStage,
     analystStages,
@@ -403,6 +402,9 @@ function groupConnectorState(stages: WorkflowVisualizationStage[]): string {
   }
   if (states.includes('failed')) {
     return 'failed';
+  }
+  if (states.includes('blocked')) {
+    return 'blocked';
   }
   if (states.length > 0 && states.every((state) => state === 'ready' || state === 'completed')) {
     return 'ready';
