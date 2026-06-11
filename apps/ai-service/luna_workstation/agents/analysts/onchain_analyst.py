@@ -37,7 +37,9 @@ _ONCHAIN_SYSTEM_CONTENT = (
     "snapshot, position skew, valuation/liquidity proxy, supply, and exchange "
     "volume/liquidity proxy data."
     " Make sure to append a Markdown table at the end of the report to organize "
-    "key points in the report, organized and easy to read."
+    "key points in the report, organized and easy to read. The table must be a "
+    "valid Markdown pipe table in its own block: one header row, one separator "
+    "row like `|---|---|`, then one data row per line."
 )
 
 

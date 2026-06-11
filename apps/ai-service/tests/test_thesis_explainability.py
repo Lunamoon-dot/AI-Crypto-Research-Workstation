@@ -12,7 +12,9 @@ from luna_workstation.domain import (
     Signal,
     SignalDirection,
     SignalProvenance,
+    ThesisArtifactStatus,
     ThesisDirection,
+    ThesisTextSource,
     TradeThesis,
     TradeThesisStructuredSummary,
 )
@@ -465,7 +467,7 @@ def test_graph_preserves_object_first_research_evidence_contract():
     assert thesis.risk_notes == ["Funding data is unavailable for this run."]
 
 
-def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
+def test_graph_keeps_untrusted_summary_json_as_audit_text_only():
     graph = object.__new__(ResearchAgentsGraph)
     graph.ticker = "SOL/USDT"
     graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
@@ -499,7 +501,10 @@ def test_graph_prefers_validated_summary_json_and_strips_it_from_thesis_text():
     )
 
     assert thesis.direction == ThesisDirection.AVOID
-    assert thesis.thesis_text == (
+    assert thesis.artifact_status == ThesisArtifactStatus.BLOCKED
+    assert thesis.thesis_text_source == ThesisTextSource.DIAGNOSTIC
+    assert thesis.thesis_text.startswith("Thesis blocked.")
+    assert thesis.raw_model_thesis_text == (
         "**Rating**: Underweight\n\n**Executive Summary**: Wait for confirmation."
     )
     assert thesis.structured_summary is not None
@@ -1242,14 +1247,31 @@ def test_graph_stability_guard_holds_recent_same_symbol_flip():
             "final_trade_decision": "Hold; wait for confirmation.",
             "final_trade_summary_json": """
             {
+              "schema_version": "thesis_candidate.v1",
               "rating": "Hold",
               "direction": "watch",
               "confidence": 0.25,
               "action_summary": "Wait; bullish follow-through faded",
+              "investment_thesis": "Momentum cooled enough to wait for fresh confirmation.",
+              "entry_zone": "$84-$86 reclaim",
+              "confirmation_condition": "Daily close above $86 with spot volume",
               "invalidation": "Structural bearish break below $81",
+              "target_zones": ["$92"],
+              "key_reasons": ["Follow-through faded after the prior rally."],
+              "risks": ["Prior long thesis could still resume if support holds."],
+              "monitor_next": ["Watch the $86 reclaim."],
+              "supporting_evidence": [
+                {
+                  "text": "Momentum faded during the current run.",
+                  "evidence_kind": "observed",
+                  "source_artifact": "signal_snapshot"
+                }
+              ],
               "market_type": "spot"
             }
             """,
+            "final_trade_candidate_source": "portfolio_decision_structured",
+            "final_trade_candidate_schema_version": "thesis_candidate.v1",
         },
     )
 
@@ -1261,3 +1283,84 @@ def test_graph_stability_guard_holds_recent_same_symbol_flip():
     assert thesis.evidence["stability_guard"]["applied"] is True
     assert thesis.evidence["stability_guard"]["proposed"]["direction"] == "watch"
     assert thesis.evidence["stability_guard"]["proposed"]["confidence"] == 0.25
+
+
+def test_stability_guard_does_not_apply_to_blocked_thesis_artifact():
+    now = datetime.now(timezone.utc)
+    previous = TradeThesis(
+        id="thesis_prev_blocked_guard",
+        research_run_id="run_prev_blocked_guard",
+        workspace_id="local",
+        symbol="SOL/USDT",
+        direction=ThesisDirection.LONG,
+        confidence=0.60,
+        heuristic_confidence=0.60,
+        thesis_text="Long while flag support holds.",
+        entry_zone="$92-$94",
+        invalidation_level="Daily close below $87.50",
+        invalidation="Daily close below $87.50",
+        target_zones=["$100", "$108"],
+        monitor_next=["invalidation: Daily close below $87.50"],
+        structured_summary=TradeThesisStructuredSummary(
+            rating="Overweight",
+            direction="long",
+            confidence=0.60,
+            action_summary="Long while flag support holds.",
+            entry_zone="$92-$94",
+            invalidation="Daily close below $87.50",
+            target_zones=["$100", "$108"],
+        ),
+        created_at=now - timedelta(minutes=16),
+    )
+
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "SOL/USDT"
+    graph.config = {
+        "thesis_stability": {
+            "enabled": True,
+            "cooldown_minutes": 60,
+            "max_confidence_delta": 0.20,
+            "flip_override_confidence": 0.75,
+            "memory_limit": 10,
+        }
+    }
+    graph.journal_bridge = SimpleNamespace(service=_ThesisMemoryService([previous]))
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.25)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(
+        id="run_blocked_guard",
+        symbol="SOL/USDT",
+        workspace_id="local",
+    )
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "final_trade_decision": "Hold; wait for confirmation.",
+            "final_trade_summary_json": """
+            {
+              "rating": "Hold",
+              "direction": "watch",
+              "confidence": 0.25,
+              "action_summary": "Wait; bullish follow-through faded",
+              "invalidation": "Structural bearish break below $81",
+              "market_type": "spot"
+            }
+            """,
+        },
+    )
+
+    assert thesis.artifact_status == ThesisArtifactStatus.BLOCKED
+    assert thesis.thesis_text_source == ThesisTextSource.DIAGNOSTIC
+    assert thesis.direction == ThesisDirection.WATCH
+    assert thesis.confidence == 0.25
+    assert thesis.structured_summary.rating == "Hold"
+    assert thesis.evidence["stability_guard"] == {
+        "applied": False,
+        "reason": "artifact_blocked",
+    }
+    assert thesis.thesis_text.startswith("Thesis blocked.")
+    assert "Long while flag support holds." not in thesis.thesis_text

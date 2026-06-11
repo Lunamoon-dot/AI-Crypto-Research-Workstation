@@ -186,6 +186,29 @@ export class WorkspacesService implements OnModuleDestroy {
     return workspace;
   }
 
+  async archiveMetadata(id: string, userId: string): Promise<WorkspaceMetadata> {
+    const user = normalizeUserId(userId);
+    const workspaceId = this.resolveWorkspace(id);
+    if (workspaceId === 'local') {
+      throw new BadRequestException('Legacy mixed workspace cannot be deleted.');
+    }
+    await this.assertAccess(user, workspaceId, 'owner');
+    const workspace = await this.getMetadataById(workspaceId);
+    if (!workspace || workspace.archived) {
+      throw new NotFoundException(`Workspace ${workspaceId} not found`);
+    }
+
+    const archived = validateWorkspaceMetadata({
+      ...workspace,
+      archived: true,
+      updated_at: new Date().toISOString(),
+    });
+    await this.archivePostgresMetadata(archived);
+    this.metadata.set(workspaceId, archived);
+    this.newsSources.delete(workspaceId);
+    return archived;
+  }
+
   async getMetadataById(workspaceId: string): Promise<WorkspaceMetadata | null> {
     const workspace = this.resolveWorkspace(workspaceId);
     if (workspace === 'local') {
@@ -479,6 +502,29 @@ export class WorkspacesService implements OnModuleDestroy {
       await this.pool.query('COMMIT');
     } catch (error) {
       await this.rollbackPostgresWorkspaceTransaction();
+      if (shouldUseLocalPostgresFallback(this.databaseUrl, error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async archivePostgresMetadata(workspace: WorkspaceMetadata): Promise<void> {
+    if (!this.pool) {
+      return;
+    }
+
+    try {
+      await this.ensurePostgresWorkspaceSchema();
+      await this.pool.query(
+        `
+        UPDATE workspaces
+        SET archived = true, updated_at = $2
+        WHERE id = $1
+        `,
+        [workspace.id, workspace.updated_at],
+      );
+    } catch (error) {
       if (shouldUseLocalPostgresFallback(this.databaseUrl, error)) {
         return;
       }

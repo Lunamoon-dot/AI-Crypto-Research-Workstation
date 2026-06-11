@@ -36,6 +36,8 @@ class Scenario(BaseModel):
     as_of: str = ""
     timeframe: str = ""
     source: list[str] = Field(default_factory=list)
+    horizon: str = "unknown"
+    timeframe_label: str = ""
     # Phase 5: template enforcement metadata
     template_metadata: dict = Field(
         default_factory=dict,

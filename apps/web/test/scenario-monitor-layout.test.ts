@@ -57,3 +57,22 @@ test('scenario view model tolerates missing runtime decision', () => {
     false,
   );
 });
+
+test('scenario monitor exposes local horizon filters', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ScenarioMonitorPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const viewModelSource = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes('ScenarioHorizonFilter'), true);
+  assert.equal(pageSource.includes('horizonFilter'), true);
+  assert.equal(pageSource.includes('filteredItems'), true);
+  assert.equal(pageSource.includes("value=\"short_term\""), true);
+  assert.equal(pageSource.includes("value=\"mid_term\""), true);
+  assert.equal(pageSource.includes("value=\"long_term\""), true);
+  assert.equal(viewModelSource.includes('horizonLabel'), true);
+});

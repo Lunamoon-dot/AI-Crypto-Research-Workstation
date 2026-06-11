@@ -1332,7 +1332,12 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
        ) AS payload_json
        FROM scenarios
        WHERE thesis_id = $1 AND workspace_id = $2
-       ORDER BY id ASC`,
+       ORDER BY CASE payload_json->>'horizon'
+         WHEN 'short_term' THEN 1
+         WHEN 'mid_term' THEN 2
+         WHEN 'long_term' THEN 3
+         ELSE 4
+       END, id ASC`,
       [thesisId, workspaceId],
     );
   }

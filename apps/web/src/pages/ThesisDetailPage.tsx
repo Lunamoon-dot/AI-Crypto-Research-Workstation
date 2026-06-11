@@ -1,5 +1,5 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { FormEvent, type ReactNode, useState } from 'react';
+import { FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Download,
@@ -34,12 +34,21 @@ import {
   setThesisDetailTabParam,
   type ThesisDetailTab,
 } from './thesis-detail-tabs';
-import { scenarioDetailViewModel } from './scenario-view-model';
+import { scenarioDetailViewModel, scenarioHorizon } from './scenario-view-model';
 import type {
   JsonRecord,
+  ScenarioHorizon,
   ScenarioResponse,
   ThesisResponse,
 } from '@/types';
+
+type ScenarioHorizonFilter = 'all' | ScenarioHorizon;
+const SCENARIO_HORIZON_FILTER_ORDER: ScenarioHorizon[] = [
+  'short_term',
+  'mid_term',
+  'long_term',
+  'unknown',
+];
 
 export function ThesisDetailPage() {
   const { id } = useParams();
@@ -70,6 +79,7 @@ export function ThesisDetailPage() {
   const [reviewMae, setReviewMae] = useState('');
   const [exportingBundle, setExportingBundle] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [scenarioHorizonFilter, setScenarioHorizonFilter] = useState<ScenarioHorizonFilter>('all');
 
   const decisionMutation = useMutation({
     mutationFn: () =>
@@ -111,6 +121,19 @@ export function ThesisDetailPage() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesis(thesisId) });
     },
   });
+  const scenarioCards = thesisQuery.data
+    ? buildScenarioCards(thesisQuery.data, scenariosQuery.data ?? [])
+    : [];
+  const availableScenarioHorizons = scenarioHorizonOptions(scenarioCards);
+  useEffect(() => {
+    if (
+      scenarioHorizonFilter !== 'all' &&
+      !availableScenarioHorizons.includes(scenarioHorizonFilter)
+    ) {
+      setScenarioHorizonFilter('all');
+    }
+  }, [availableScenarioHorizons, scenarioHorizonFilter]);
+
   if (thesisQuery.isLoading) {
     return (
       <main className="page">
@@ -134,11 +157,17 @@ export function ThesisDetailPage() {
       </main>
     );
   }
-  const actionSummary =
-    thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
+  const actionSummary = thesis.artifact_status === 'blocked'
+    ? 'Thesis blocked. Review validation reasons before using this artifact.'
+    : thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
   const fullThesisText = thesis.thesis_text.trim();
   const showFullThesis =
     fullThesisText.length > 0 && fullThesisText !== actionSummary.trim();
+  const showDiagnosticThesis =
+    thesis.artifact_status === 'blocked' &&
+    thesis.thesis_text_source === 'diagnostic' &&
+    fullThesisText.length > 0;
+  const showValidatedThesisPlan = thesis.artifact_status !== 'blocked';
   const entry = thesis.entry_zone || thesis.summary.entry_zone;
   const entryPlanIsEmpty = thesis.entry_plan_status === 'no_trade';
   const entryPlanText =
@@ -156,7 +185,9 @@ export function ThesisDetailPage() {
       : thesis.stale_or_missing_data;
   const invalidation =
     thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
-  const scenarioCards = buildScenarioCards(thesis, scenariosQuery.data ?? []);
+  const filteredScenarioCards = scenarioCards.filter((scenario) => (
+    scenarioHorizonFilter === 'all' || scenarioHorizon(scenario) === scenarioHorizonFilter
+  ));
   const headerMeta = [
     thesis.analysis_mode_label,
     thesis.thesis_status_label,
@@ -249,33 +280,46 @@ export function ThesisDetailPage() {
                   </ThesisBriefKpi>
                 </div>
 
+                <ThesisContractStatus thesis={thesis} />
+
                 <section className="thesis-brief-summary">
                   <span>Main recommendation</span>
                   <StructuredRichText value={actionSummary} />
                 </section>
 
-                {showFullThesis ? (
+                {showFullThesis && thesis.artifact_status !== 'blocked' ? (
                   <section className="thesis-full-text">
                     <span>Full thesis</span>
                     <StructuredRichText value={fullThesisText} />
                   </section>
                 ) : null}
 
-                <section className={`thesis-entry-state${entryPlanIsEmpty ? ' empty' : ''}`}>
-                  <span>Entry plan</span>
-                  <StructuredRichText value={entryPlanText} />
-                </section>
+                {showDiagnosticThesis ? (
+                  <section className="thesis-diagnostic-text">
+                    <span>Diagnostic thesis</span>
+                    <StructuredRichText value={fullThesisText} />
+                  </section>
+                ) : null}
 
-                <div className="thesis-boundary-grid">
-                  <section className="thesis-boundary thesis-boundary-confirmation">
-                    <span>Confirmation</span>
-                    <StructuredRichText value={confirmation} />
-                  </section>
-                  <section className="thesis-boundary">
-                    <span>Invalidation</span>
-                    <StructuredRichText value={invalidation} />
-                  </section>
-                </div>
+                {showValidatedThesisPlan ? (
+                  <>
+                    <section className={`thesis-entry-state${entryPlanIsEmpty ? ' empty' : ''}`}>
+                      <span>Entry plan</span>
+                      <StructuredRichText value={entryPlanText} />
+                    </section>
+
+                    <div className="thesis-boundary-grid">
+                      <section className="thesis-boundary thesis-boundary-confirmation">
+                        <span>Confirmation</span>
+                        <StructuredRichText value={confirmation} />
+                      </section>
+                      <section className="thesis-boundary">
+                        <span>Invalidation</span>
+                        <StructuredRichText value={invalidation} />
+                      </section>
+                    </div>
+                  </>
+                ) : null}
 
                 <div className="top-strip-meta thesis-brief-actions">
                   <span className="thesis-run-inline">
@@ -366,11 +410,28 @@ export function ThesisDetailPage() {
           <Panel title="Scenario radar" description="Conditional outcomes">
             {scenariosQuery.isLoading ? <LoadingState /> : null}
             {scenariosQuery.isError ? <ErrorState error={scenariosQuery.error} /> : null}
-            {scenarioCards.length === 0 && !scenariosQuery.isLoading && !scenariosQuery.isError ? (
-              <EmptyState label="No scenarios for this thesis." />
+            {scenarioCards.length > 0 ? (
+              <label className="scenario-filter-label">
+                Horizon
+                <select
+                  className="select"
+                  onChange={(event) => setScenarioHorizonFilter(event.target.value as ScenarioHorizonFilter)}
+                  value={scenarioHorizonFilter}
+                >
+                  <option value="all">All</option>
+                  {availableScenarioHorizons.map((horizon) => (
+                    <option key={horizon} value={horizon}>
+                      {scenarioHorizonFilterLabel(horizon)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {filteredScenarioCards.length === 0 && !scenariosQuery.isLoading && !scenariosQuery.isError ? (
+              <EmptyState label={emptyScenarioFilterLabel(scenarioHorizonFilter)} />
             ) : null}
             <div className="scenario-radar-list">
-              {scenarioCards.map((scenario, index) => (
+              {filteredScenarioCards.map((scenario, index) => (
                 <ScenarioRadarCard
                   index={index}
                   key={scenario.id ?? scenario.condition}
@@ -668,6 +729,8 @@ function ScenarioRadarCard({
       </div>
 
       <div className="scenario-meta-row" aria-label="Scenario provenance">
+        <ScenarioMeta label="Horizon" value={vm.horizonLabel} />
+        <ScenarioMeta label="Window" value={vm.timeframeLabel} />
         <ScenarioMeta label="As of" value={vm.asOf} />
         <ScenarioMeta label="Timeframe" value={vm.timeframe} />
         <ScenarioMeta label="Source" value={vm.source} />
@@ -743,6 +806,31 @@ function ScenarioMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
+function scenarioHorizonOptions(scenarios: ScenarioResponse[]): ScenarioHorizon[] {
+  const available = new Set(scenarios.map((scenario) => scenarioHorizon(scenario)));
+  return SCENARIO_HORIZON_FILTER_ORDER.filter((horizon) => available.has(horizon));
+}
+
+function scenarioHorizonFilterLabel(horizon: ScenarioHorizon): string {
+  if (horizon === 'short_term') {
+    return 'Short-term';
+  }
+  if (horizon === 'mid_term') {
+    return 'Mid-term';
+  }
+  if (horizon === 'long_term') {
+    return 'Long-term';
+  }
+  return 'Unknown';
+}
+
+function emptyScenarioFilterLabel(filter: ScenarioHorizonFilter): string {
+  if (filter === 'all') {
+    return 'No scenarios for this thesis.';
+  }
+  return `No ${scenarioHorizonFilterLabel(filter).toLowerCase()} scenarios for this thesis.`;
+}
+
 function StructuredRichText({
   value,
   dense = false,
@@ -786,17 +874,52 @@ function StructuredRichText({
             </ul>
           );
         }
+        if (block.kind === 'table') {
+          const [header = [], ...rows] = block.rows;
+          return (
+            <div className="structured-rich-text-table-wrap" key={`${block.kind}-${index}`}>
+              <table className="structured-rich-text-table">
+                <thead>
+                  <tr>
+                    {header.map((cell, cellIndex) => (
+                      <th key={`${cellIndex}-${cell}`}>{renderInlineMarkdown(cell)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={`${rowIndex}-${row.join('|')}`}>
+                      {header.map((_, cellIndex) => (
+                        <td key={`${cellIndex}-${row[cellIndex] ?? ''}`}>
+                          {renderInlineMarkdown(row[cellIndex] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
         return <p key={`${block.kind}-${index}`}>{renderInlineMarkdown(block.items[0] ?? '')}</p>;
       })}
     </div>
   );
 }
 
-type StructuredTextBlock = {
+type StructuredTextLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+type StructuredTextBlock =
+  | {
   kind: 'paragraph' | 'ordered-list' | 'unordered-list' | 'heading' | 'rule';
   items: string[];
-  level?: 1 | 2 | 3 | 4 | 5 | 6;
-};
+  level?: StructuredTextLevel;
+}
+  | {
+      kind: 'table';
+      items: string[];
+      rows: string[][];
+    };
 
 function parseStructuredText(value: string): StructuredTextBlock[] {
   const normalized = String(value ?? '')
@@ -819,13 +942,27 @@ function parseStructuredText(value: string): StructuredTextBlock[] {
       if (lines.length === 1 && /^-{3,}$/.test(lines[0] ?? '')) {
         return [{ kind: 'rule', items: [] }];
       }
+      const tableStart = findMarkdownTableStart(lines);
+      if (tableStart > 0) {
+        const tableRows = parseMarkdownTable(lines.slice(tableStart));
+        if (tableRows.length > 0) {
+          return [
+            { kind: 'paragraph', items: [lines.slice(0, tableStart).join(' ')] },
+            { kind: 'table', items: [], rows: tableRows },
+          ];
+        }
+      }
+      const tableRows = parseMarkdownTable(lines);
+      if (tableRows.length > 0) {
+        return [{ kind: 'table', items: [], rows: tableRows }];
+      }
       if (lines.length === 1 && /^#{1,6}\s+/.test(lines[0] ?? '')) {
         const line = lines[0] ?? '';
         const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
         if (headingMatch) {
           return [{
             kind: 'heading',
-            level: headingMatch[1].length as 1 | 2 | 3 | 4 | 5 | 6,
+            level: headingMatch[1].length as StructuredTextLevel,
             items: [headingMatch[2].trim()],
           }];
         }
@@ -851,6 +988,45 @@ function parseStructuredText(value: string): StructuredTextBlock[] {
 
       return [{ kind: 'paragraph', items: [joined] }];
     });
+}
+
+function findMarkdownTableStart(lines: string[]): number {
+  return lines.findIndex((line, index) => (
+    line.includes('|') && index + 1 < lines.length && isMarkdownTableSeparator(lines[index + 1] ?? '')
+  ));
+}
+
+function parseMarkdownTable(lines: string[]): string[][] {
+  if (lines.length < 3 || !lines.every((line) => line.includes('|'))) {
+    return [];
+  }
+  const separatorIndex = lines.findIndex(isMarkdownTableSeparator);
+  if (separatorIndex !== 1) {
+    return [];
+  }
+  const rows = lines
+    .filter((_, index) => index !== separatorIndex)
+    .map(splitMarkdownTableRow);
+  const columnCount = rows[0]?.length ?? 0;
+  if (columnCount < 2 || rows.some((row) => row.length === 0)) {
+    return [];
+  }
+  return rows.map((row) => {
+    if (row.length >= columnCount) {
+      return row.slice(0, columnCount);
+    }
+    return [...row, ...Array<string>(columnCount - row.length).fill('')];
+  });
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return trimmed.split('|').map((cell) => cell.trim());
 }
 
 function renderInlineMarkdown(value: string): ReactNode[] {
@@ -879,7 +1055,7 @@ function renderInlineMarkdown(value: string): ReactNode[] {
   return nodes.length > 0 ? nodes : [text];
 }
 
-function headingTag(level?: StructuredTextBlock['level']): 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' {
+function headingTag(level?: StructuredTextLevel): 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' {
   switch (level) {
     case 1:
       return 'h1';
@@ -920,6 +1096,10 @@ function buildScenarioCards(
   thesis: ThesisResponse,
   scenarios: ScenarioResponse[],
 ): ScenarioResponse[] {
+  if (scenarios.length > 0) {
+    return scenarios;
+  }
+
   const cards = [...scenarios];
   const confirmation = thesis.confirmation_condition || thesis.summary.confirmation_condition;
   const invalidation = thesis.invalidation_level || thesis.summary.invalidation;
@@ -1016,6 +1196,8 @@ function buildBoundaryScenario(
     risk_map: thesis.summary.risks.slice(0, 3),
     as_of: thesis.created_at ? thesis.created_at.slice(0, 10) : '',
     timeframe: '',
+    horizon: 'unknown',
+    timeframe_label: null,
     source: ['thesis_brief'],
     status: 'watching',
     status_reason: '',
@@ -1481,6 +1663,97 @@ function ThesisFact({
       <div className="thesis-fact-value">{children}</div>
     </div>
   );
+}
+
+function ThesisContractStatus({ thesis }: { thesis: ThesisResponse }) {
+  const reasons = thesisContractReasons(thesis);
+  return (
+    <section className={`thesis-contract-status ${thesis.artifact_status}`}>
+      <div className="thesis-contract-status-heading">
+        <span className={`badge ${thesisTextSourceTone(thesis)}`}>
+          {thesisTextSourceTitle(thesis)}
+        </span>
+        {thesis.artifact_status !== 'valid' ? (
+          <span className={`badge ${thesisContractTone(thesis.artifact_status)}`}>
+            {thesisContractTitle(thesis.artifact_status)}
+          </span>
+        ) : null}
+        <span className={`badge ${thesisContractTone(thesis.artifact_status)}`}>
+          {thesis.compiled_sections.length} compiled sections
+        </span>
+        {thesis.candidate_schema_version ? (
+          <span className="badge mono">{thesis.candidate_schema_version}</span>
+        ) : null}
+        {thesis.compiler_version ? (
+          <span className="badge mono">{thesis.compiler_version}</span>
+        ) : null}
+      </div>
+      {reasons.length > 0 ? (
+        <ul>
+          {reasons.map((reason) => (
+            <li key={reason}>{labelFromKey(reason)}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function thesisTextSourceTitle(thesis: ThesisResponse): string {
+  if (thesis.thesis_text_source === 'compiled' && thesis.artifact_status === 'degraded') {
+    return 'Compiled with caveats';
+  }
+  if (thesis.thesis_text_source === 'compiled') {
+    return 'Compiled thesis';
+  }
+  if (thesis.thesis_text_source === 'diagnostic') {
+    return 'Diagnostic thesis';
+  }
+  if (thesis.thesis_text_source === 'missing') {
+    return 'Thesis text missing';
+  }
+  return 'Legacy thesis text';
+}
+
+function thesisTextSourceTone(thesis: ThesisResponse): ThesisTone | 'primary' {
+  if (thesis.thesis_text_source === 'diagnostic' || thesis.artifact_status === 'blocked') {
+    return 'risk';
+  }
+  if (thesis.artifact_status === 'degraded') {
+    return 'warning';
+  }
+  if (thesis.thesis_text_source === 'compiled') {
+    return 'constructive';
+  }
+  return 'primary';
+}
+
+function thesisContractTitle(status: ThesisResponse['artifact_status']): string {
+  if (status === 'blocked') {
+    return 'Blocked thesis';
+  }
+  if (status === 'degraded') {
+    return 'Degraded thesis';
+  }
+  return 'Legacy thesis';
+}
+
+function thesisContractTone(status: ThesisResponse['artifact_status']): ThesisTone | 'primary' {
+  if (status === 'blocked') {
+    return 'risk';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  return 'primary';
+}
+
+function thesisContractReasons(thesis: ThesisResponse): string[] {
+  return Array.from(new Set([
+    ...thesis.blocked_reasons,
+    ...thesis.degradation_reasons,
+    ...thesis.validation_issues.map((issue) => issue.message || issue.code),
+  ].filter(Boolean))).slice(0, 5);
 }
 
 function ThesisBriefKpi({

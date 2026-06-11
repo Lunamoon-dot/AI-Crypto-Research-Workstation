@@ -77,24 +77,30 @@ def build_scenarios_for_thesis(
 
     signals = signals or []
     scenarios = [
+        _neutral_wait_scenario(thesis, signals=signals, template=template),
         _directional_confirmation(
             thesis, debate=debate, signals=signals, template=template
         ),
         _invalidation_scenario(
             thesis, debate=debate, signals=signals, template=template
         ),
-        _neutral_wait_scenario(thesis, signals=signals, template=template),
     ]
-    if _has_material_conflict(thesis, debate):
-        scenarios.append(
-            _contradiction_scenario(thesis, debate=debate, template=template)
-        )
 
     # Attach template_metadata to every scenario
-    for scenario in scenarios:
-        scenario.template_metadata = template_metadata
+    for scenario, horizon, timeframe_label in zip(
+        scenarios,
+        ("short_term", "mid_term", "long_term"),
+        ("24-72h", "1-3w", "1-3m"),
+    ):
+        scenario.horizon = horizon
+        scenario.timeframe_label = timeframe_label
+        scenario.template_metadata = {
+            **template_metadata,
+            "horizon": horizon,
+            "timeframe_label": timeframe_label,
+        }
 
-    return _dedupe_scenarios(scenarios)[:4]
+    return _dedupe_scenarios(scenarios)[:3]
 
 
 def _directional_confirmation(

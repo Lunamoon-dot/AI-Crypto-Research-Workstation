@@ -13,14 +13,16 @@ import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { scenarioMonitorViewModel } from './scenario-view-model';
-import type { ScenarioMonitorItemResponse } from '@/types';
+import type { ScenarioHorizon, ScenarioMonitorItemResponse } from '@/types';
 
 type Tone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
+type ScenarioHorizonFilter = 'all' | ScenarioHorizon;
 
 export function ScenarioMonitorPage() {
   const auth = useWorkspaceStore();
   const [symbol, setSymbol] = useState('');
   const [status, setStatus] = useState('');
+  const [horizonFilter, setHorizonFilter] = useState<ScenarioHorizonFilter>('all');
   const filters = {
     symbol: symbol.trim() || undefined,
     status: status || undefined,
@@ -30,6 +32,9 @@ export function ScenarioMonitorPage() {
     queryKey: queryKeys.scenarioMonitor(filters),
     queryFn: () => getScenarioMonitor(filters, auth),
   });
+  const filteredItems = (monitor.data?.items ?? []).filter((item) => (
+    horizonFilter === 'all' || item.scenario.horizon === horizonFilter
+  ));
   const scenarioFilters = (
     <div className="scenario-filter-controls scenario-queue-filters">
       <label className="scenario-filter-label">
@@ -40,6 +45,20 @@ export function ScenarioMonitorPage() {
           placeholder="SOL/USDT"
           value={symbol}
         />
+      </label>
+      <label className="scenario-filter-label">
+        Horizon
+        <select
+          className="select"
+          onChange={(event) => setHorizonFilter(event.target.value as ScenarioHorizonFilter)}
+          value={horizonFilter}
+        >
+          <option value="all">All</option>
+          <option value="short_term">Short-term</option>
+          <option value="mid_term">Mid-term</option>
+          <option value="long_term">Long-term</option>
+          <option value="unknown">Unknown</option>
+        </select>
       </label>
       <label className="scenario-filter-label">
         Status
@@ -106,13 +125,13 @@ export function ScenarioMonitorPage() {
           action={scenarioFilters}
           description={
             monitor.data
-              ? `${monitor.data.items.length} shown | generated ${formatDateTime(monitor.data.generated_at)}`
+              ? `${filteredItems.length} shown | generated ${formatDateTime(monitor.data.generated_at)}`
               : 'Loading monitored thesis scenarios'
           }
         >
-          {monitor.data?.items.length === 0 ? <EmptyState label="No scenarios match the filters." /> : null}
+          {monitor.data && filteredItems.length === 0 ? <EmptyState label="No scenarios match the filters." /> : null}
           <div className="scenario-monitor-list">
-            {monitor.data?.items.map((item) => (
+            {filteredItems.map((item) => (
               <ScenarioMonitorCard
                 item={item}
                 key={item.scenario.id ?? item.trigger_summary}
@@ -141,6 +160,7 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
         <div className="scenario-monitor-heading">
           <div className="scenario-monitor-title-row">
             <strong>{item.thesis.symbol}</strong>
+            <span className="badge">{vm.horizonLabel}</span>
             <span className="badge">{probability} probability</span>
           </div>
           <div className="scenario-monitor-condition">

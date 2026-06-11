@@ -87,6 +87,29 @@ test('thesis detail structured text renderer supports thesis markdown primitives
   assert.equal(source.includes('/^-{3,}$/'), true);
 });
 
+test('thesis detail structured text renderer supports markdown tables', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const styles = readFileSync(
+    new URL('../src/styles/index.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes("kind: 'table'"), true);
+  assert.equal(source.includes('function findMarkdownTableStart'), true);
+  assert.equal(source.includes('function parseMarkdownTable'), true);
+  assert.equal(source.includes('function isMarkdownTableSeparator'), true);
+  assert.equal(source.includes('function splitMarkdownTableRow'), true);
+  assert.equal(source.includes('structured-rich-text-table-wrap'), true);
+  assert.equal(source.includes('<table className="structured-rich-text-table">'), true);
+  assert.equal(styles.includes('.structured-rich-text-table-wrap'), true);
+  assert.equal(styles.includes('overflow-x: auto;'), true);
+  assert.equal(styles.includes('.structured-rich-text-table th,'), true);
+  assert.equal(styles.includes('overflow-wrap: anywhere;'), true);
+});
+
 test('thesis technical audit fields stay out of the primary brief', () => {
   const source = readFileSync(
     new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
@@ -99,6 +122,50 @@ test('thesis technical audit fields stay out of the primary brief', () => {
   assert.equal(source.includes('label="Quant confidence"'), true);
   assert.equal(source.includes('label="Confidence basis"'), true);
   assert.equal(source.includes('label="Data quality"'), true);
+});
+
+test('thesis detail surfaces contract validation status near the summary', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('function ThesisContractStatus'), true);
+  assert.equal(source.includes('<ThesisContractStatus thesis={thesis} />'), true);
+  assert.equal(source.includes('thesis.artifact_status'), true);
+  assert.equal(source.includes('thesis.validation_issues'), true);
+  assert.equal(source.includes('thesis.degradation_reasons'), true);
+  assert.equal(source.includes('thesis.blocked_reasons'), true);
+  assert.equal(source.includes('Blocked thesis'), true);
+  assert.equal(source.includes('Degraded thesis'), true);
+  assert.equal(source.includes('Legacy thesis'), true);
+});
+
+test('thesis detail labels compiler text source and blocked diagnostics', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('thesis.thesis_text_source'), true);
+  assert.equal(source.includes('Compiled thesis'), true);
+  assert.equal(source.includes('Compiled with caveats'), true);
+  assert.equal(source.includes('Diagnostic thesis'), true);
+  assert.equal(source.includes('Legacy thesis text'), true);
+  assert.equal(source.includes('thesis-diagnostic-text'), true);
+  assert.equal(source.includes('<StructuredRichText value={fullThesisText} />'), true);
+  assert.equal(source.includes('thesis.compiled_sections'), true);
+});
+
+test('thesis detail hides validated plan fields for blocked artifacts', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('const showValidatedThesisPlan'), true);
+  assert.equal(source.includes('{showValidatedThesisPlan ? ('), true);
+  assert.equal(source.includes("thesis.artifact_status !== 'blocked'"), true);
 });
 
 test('thesis detail consumes backend decision brief fields', () => {
@@ -152,9 +219,10 @@ test('scenario radar supplements missing scenario branches from thesis boundarie
     'utf8',
   );
 
-  assert.equal(source.includes('const scenarioCards = buildScenarioCards('), true);
+  assert.equal(source.includes('buildScenarioCards(thesisQuery.data'), true);
   assert.equal(source.includes('function buildScenarioCards('), true);
   assert.equal(source.includes('buildBoundaryScenario('), true);
+  assert.equal(source.includes('if (scenarios.length > 0)'), true);
   assert.equal(source.includes('branchType: \'confirmation\''), true);
   assert.equal(source.includes('branchType: \'invalidation\''), true);
 });
@@ -166,4 +234,20 @@ test('boundary scenarios do not use market type as timeframe metadata', () => {
   );
 
   assert.equal(source.includes("timeframe: thesis.summary.market_type || thesis.summary.direction || ''"), false);
+});
+
+test('scenario radar exposes local horizon filters', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('ScenarioHorizonFilter'), true);
+  assert.equal(source.includes('scenarioHorizonFilter'), true);
+  assert.equal(source.includes('filteredScenarioCards'), true);
+  assert.equal(source.includes('SCENARIO_HORIZON_FILTER_ORDER'), true);
+  assert.equal(source.includes('availableScenarioHorizons.map'), true);
+  assert.equal(source.includes('scenarioHorizonOptions'), true);
+  assert.equal(source.includes("setScenarioHorizonFilter('all')"), true);
+  assert.equal(source.includes('scenarioHorizon(scenario)'), true);
 });

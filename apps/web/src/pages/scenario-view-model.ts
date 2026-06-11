@@ -15,6 +15,9 @@ export interface ScenarioViewModel {
   riskMap: string[];
   asOf: string;
   timeframe: string;
+  horizon: ScenarioResponse['horizon'];
+  horizonLabel: string;
+  timeframeLabel: string;
   source: string;
   status: string;
   statusReason: string;
@@ -57,6 +60,9 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
     riskMap: cleanList(scenario.risk_map),
     asOf: cleanText(scenario.as_of) || 'not recorded',
     timeframe: cleanText(scenario.timeframe) || 'not recorded',
+    horizon: scenarioHorizon(scenario),
+    horizonLabel: scenarioHorizonLabel(scenarioHorizon(scenario)),
+    timeframeLabel: cleanText(scenario.timeframe_label) || 'not recorded',
     source: cleanList(scenario.source).join(', ') || 'not recorded',
     status: cleanText(scenario.status) || 'watching',
     statusReason: cleanText(scenario.status_reason),
@@ -81,6 +87,39 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
       ? runtimeDecision.blocking_reasons.map(cleanText).filter(Boolean)
       : [],
   };
+}
+
+export function scenarioHorizon(scenario: Pick<ScenarioResponse, 'horizon' | 'payload'>): ScenarioResponse['horizon'] {
+  if (
+    scenario.horizon === 'short_term' ||
+    scenario.horizon === 'mid_term' ||
+    scenario.horizon === 'long_term' ||
+    scenario.horizon === 'unknown'
+  ) {
+    return scenario.horizon;
+  }
+  const payloadHorizon = scenario.payload?.horizon;
+  if (
+    payloadHorizon === 'short_term' ||
+    payloadHorizon === 'mid_term' ||
+    payloadHorizon === 'long_term'
+  ) {
+    return payloadHorizon;
+  }
+  return 'unknown';
+}
+
+function scenarioHorizonLabel(value: ScenarioResponse['horizon']): string {
+  if (value === 'short_term') {
+    return 'Short-term';
+  }
+  if (value === 'mid_term') {
+    return 'Mid-term';
+  }
+  if (value === 'long_term') {
+    return 'Long-term';
+  }
+  return 'Unknown horizon';
 }
 
 function scenarioRuntimeDecision(

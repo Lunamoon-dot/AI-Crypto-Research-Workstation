@@ -53,6 +53,14 @@ class MarketType(str, Enum):
     PERP = "perp"
 
 
+class ScenarioHorizon(str, Enum):
+    """Fixed planning horizons emitted by the Scenario Planner."""
+
+    SHORT_TERM = "short_term"
+    MID_TERM = "mid_term"
+    LONG_TERM = "long_term"
+
+
 class SetupAction(str, Enum):
     """3-tier setup direction used by the Setup Planner.
 
@@ -369,23 +377,42 @@ class PortfolioDecision(BaseModel):
             "specific price levels or event thresholds when possible."
         ),
     )
+    entry_zone: str = Field(
+        default="",
+        description=(
+            "Specific review/entry zone for the thesis. For avoid/watch theses, "
+            "state the zone where exposure would be reconsidered instead of leaving it blank."
+        ),
+    )
+    target_zones: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Objective or risk zones for the thesis. For avoid/watch theses, include "
+            "the downside, rejection, or reclaim zones being monitored."
+        ),
+    )
     key_reasons: list[str | StructuredResearchItem] = Field(
         default_factory=list,
         description=(
             "Three concise reasons behind the final rating. Prefer objects with "
-            "text and supporting_evidence evidence items."
+            "text and supporting_evidence evidence items. Do not encode Markdown "
+            "tables or pipe-delimited rows inside list item text."
         ),
     )
     risks: list[str | StructuredResearchItem] = Field(
         default_factory=list,
         description=(
             "Main risks, missing data, or caveats that could weaken the thesis. "
-            "Prefer objects with text and supporting_evidence evidence items."
+            "Prefer objects with text and supporting_evidence evidence items. Do "
+            "not encode Markdown tables or pipe-delimited rows inside list item text."
         ),
     )
     monitor_next: list[str | StructuredResearchItem] = Field(
         default_factory=list,
-        description="Watchpoints to monitor next, preferably with supporting_evidence.",
+        description=(
+            "Watchpoints to monitor next, preferably with supporting_evidence. Do "
+            "not encode Markdown tables or pipe-delimited rows inside list item text."
+        ),
     )
     supporting_evidence: list[ResearchEvidenceItem] = Field(
         default_factory=list,
@@ -409,6 +436,14 @@ class PortfolioDecision(BaseModel):
     missing_data: list[str] = Field(
         default_factory=list,
         description="Missing data that weakens confidence in the final thesis.",
+    )
+    scenario_continuity_handoff: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional compact Portfolio Manager-authored prior-memory handoff for "
+            "Scenario Planner. Summarize how Research Continuity prior memory should "
+            "influence short/mid/long scenarios without treating it as current evidence."
+        ),
     )
 
     @field_validator("market_type", mode="before")
@@ -439,9 +474,9 @@ class PortfolioDecision(BaseModel):
             return max(min(number, 1.0), 0.0)
         return value
 
-    @field_validator("missing_data", mode="before")
+    @field_validator("target_zones", "missing_data", mode="before")
     @classmethod
-    def _normalize_missing_data(cls, value: Any) -> list[str]:
+    def _normalize_text_list(cls, value: Any) -> list[str]:
         if value is None:
             return []
         if isinstance(value, str):
@@ -477,6 +512,10 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Invalidation**: {decision.invalidation}"])
     if decision.upside_catalyst:
         parts.extend(["", f"**Upside Catalyst**: {decision.upside_catalyst}"])
+    if decision.entry_zone:
+        parts.extend(["", f"**Review Zone**: {decision.entry_zone}"])
+    if decision.target_zones:
+        parts.extend(["", "**Objective Zones**: " + "; ".join(decision.target_zones)])
     if decision.risks:
         parts.extend(
             ["", "**Risks**: " + "; ".join(research_item_texts(decision.risks))]
@@ -500,14 +539,18 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         PortfolioRating.SELL: "short",
     }
     return {
+        "schema_version": "thesis_candidate.v1",
         "rating": decision.rating.value,
         "direction": direction_by_rating[decision.rating],
         "confidence": decision.confidence,
         "market_type": decision.market_type.value,
         "action_summary": decision.action_summary or decision.executive_summary,
+        "investment_thesis": decision.investment_thesis,
         "confirmation_condition": decision.confirmation_condition,
         "upside_catalyst": decision.upside_catalyst,
         "invalidation": decision.invalidation,
+        "entry_zone": decision.entry_zone,
+        "target_zones": decision.target_zones,
         "key_reasons": _json_ready_items(decision.key_reasons),
         "risks": _json_ready_items(decision.risks),
         "monitor_next": _json_ready_items(decision.monitor_next),
@@ -515,6 +558,7 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "spot_notes": decision.spot_notes,
         "perp_notes": decision.perp_notes,
         "missing_data": decision.missing_data,
+        "scenario_continuity_handoff": decision.scenario_continuity_handoff,
     }
 
 
@@ -536,6 +580,20 @@ def _json_ready_items(values: list[Any]) -> list[Any]:
 class ScenarioItem(BaseModel):
     """A single conditional market scenario produced by the Scenario Planner."""
 
+    horizon: ScenarioHorizon | None = Field(
+        default=None,
+        description=(
+            "Planning horizon for this scenario. After planner normalization this "
+            "is exactly one of short_term, mid_term, or long_term."
+        ),
+    )
+    timeframe_label: str = Field(
+        default="",
+        description=(
+            "Human-readable horizon window such as 24-72h, 1-3w, or 1-3m. "
+            "This is separate from the evidence timeframe field."
+        ),
+    )
     scenario_name: str = Field(
         description=(
             "Short decision-card title naming the scenario, not the probability. "
@@ -642,9 +700,8 @@ class ScenarioItem(BaseModel):
 class ScenarioPlan(BaseModel):
     """Structured scenario map produced by the Scenario Planner.
 
-    Contains 3-4 conditional market scenarios that together cover the
-    directional-confirmation, invalidation, neutral-wait, and (when applicable)
-    contradiction branches for the current thesis.
+    Contains one short-term, one mid-term, and one long-term conditional
+    market scenario for the current thesis.
     """
 
     setup_type: str = Field(
@@ -654,7 +711,7 @@ class ScenarioPlan(BaseModel):
         ),
     )
     scenarios: list[ScenarioItem] = Field(
-        description="3-4 conditional scenarios covering the thesis decision space.",
+        description="Exactly three conditional scenarios, one per fixed horizon.",
     )
 
 
@@ -665,6 +722,10 @@ def render_scenario_plan(plan: ScenarioPlan) -> str:
         lines.extend(
             [
                 f"### Scenario {i}: {s.scenario_name}",
+                "",
+                f"**Horizon**: {s.horizon.value if s.horizon else 'unknown'}",
+                "",
+                f"**Horizon Window**: {s.timeframe_label or 'not recorded'}",
                 "",
                 f"**Probability**: {s.probability_band}",
                 "",

@@ -25,6 +25,8 @@ from luna_workstation.agents.utils.thesis_json import (
 from luna_workstation.domain import (
     ResearchRun,
     Signal,
+    ThesisArtifactStatus,
+    ThesisCandidate,
     ThesisDirection,
     TradeThesis,
     TradeThesisStructuredSummary,
@@ -32,6 +34,8 @@ from luna_workstation.domain import (
 )
 from luna_workstation.observability import log_event
 from luna_workstation.utils.price_sanity import price_trigger_sanity_notes
+from .thesis_compiler import ThesisCompiler
+from .thesis_validation import ThesisValidator
 
 logger = logging.getLogger(__name__)
 
@@ -776,6 +780,21 @@ class ThesisBuilder:
             extract_trade_thesis_json(final_decision)
         )
         structured_payload = parse_structured_summary_payload(raw_summary_json)
+        source_contract = str(final_state.get("final_trade_candidate_source") or "unknown")
+        candidate_schema_version = (
+            str(
+                final_state.get("final_trade_candidate_schema_version")
+                or structured_payload.get("schema_version")
+                or ""
+            ).strip()
+            or None
+        )
+        thesis_candidate = None
+        if structured_payload:
+            try:
+                thesis_candidate = ThesisCandidate.model_validate(structured_payload)
+            except ValidationError:
+                thesis_candidate = None
         clean_decision = (
             strip_trade_thesis_json_block(final_decision)
             if raw_summary_json
@@ -1045,6 +1064,18 @@ class ThesisBuilder:
         for note in [confidence_cap_note, quant_cap_note, mtf_penalty_note]:
             if note:
                 confidence_rationale = f"{confidence_rationale} {note}"
+        validation_result = ThesisValidator().validate(
+            candidate=structured_payload if structured_payload else None,
+            source_contract=source_contract,
+            data_quality_label=data_quality_label,
+        )
+        all_degradation_reasons = _dedupe(
+            [
+                *all_degradation_reasons,
+                *validation_result.degradation_reasons,
+                *validation_result.blocked_reasons,
+            ]
+        )
         structured_summary = self._structured_summary(
             payload=structured_payload,
             rating=rating,
@@ -1069,6 +1100,11 @@ class ThesisBuilder:
             missing_data_reason_codes=missing_data_reason_codes,
             system_risk_notes=system_risk_notes,
         )
+        compiled_thesis = ThesisCompiler().compile(
+            candidate=thesis_candidate,
+            validation=validation_result,
+            confidence=confidence,
+        )
 
         thesis = TradeThesis(
             id=str(uuid.uuid4()),
@@ -1078,7 +1114,11 @@ class ThesisBuilder:
             direction=direction,
             setup_type="agent_debate",
             structured_summary=structured_summary,
-            thesis_text=clean_decision,
+            thesis_text=compiled_thesis.text,
+            thesis_text_source=compiled_thesis.source,
+            compiled_sections=compiled_thesis.sections,
+            compiler_version=compiled_thesis.compiler_version,
+            raw_model_thesis_text=clean_decision,
             confidence=confidence,
             heuristic_confidence=heuristic_confidence,
             empirical_confidence=empirical_confidence,
@@ -1103,6 +1143,20 @@ class ThesisBuilder:
                 "structured_summary": bool(structured_payload),
                 "contract_degraded": bool(contract_degradation_reasons),
                 "contract_degradation_reasons": contract_degradation_reasons,
+                "source_contract": source_contract,
+                "artifact_status": validation_result.status.value,
+                "validation_issues": [
+                    issue.model_dump(mode="json")
+                    for issue in validation_result.issues
+                ],
+                "validation_degradation_reasons": validation_result.degradation_reasons,
+                "validation_blocked_reasons": validation_result.blocked_reasons,
+                "thesis_text_source": compiled_thesis.source.value,
+                "compiler_version": compiled_thesis.compiler_version,
+                "compiled_sections": [
+                    section.model_dump(mode="json")
+                    for section in compiled_thesis.sections
+                ],
                 "confidence_source": confidence_source,
                 "quant_confidence": quant_confidence,
                 "quant_bias": quant_bias_from_score(
@@ -1124,6 +1178,18 @@ class ThesisBuilder:
             confidence_rationale=confidence_rationale,
             risk_notes=structured_item_text_list(structured_summary.risks)
             or ["Manual review required before changing thesis stance."],
+            artifact_status=validation_result.status,
+            validation_issues=validation_result.issues,
+            degradation_reasons=validation_result.degradation_reasons,
+            blocked_reasons=validation_result.blocked_reasons,
+            candidate_schema_version=candidate_schema_version,
+            prompt_version="portfolio_manager.thesis_candidate.v1",
+            model_provider=self._model_provider(),
+            model_name=self._model_name(),
+            source_contract=source_contract,
+            thesis_candidate=(
+                thesis_candidate.model_dump(mode="json") if thesis_candidate else {}
+            ),
         )
 
         thesis = self._apply_stability_guard(thesis)
@@ -1145,6 +1211,7 @@ class ThesisBuilder:
             empirical_confidence_sample_size=thesis.empirical_confidence_sample_size,
             empirical_confidence_oos_sample_size=thesis.empirical_confidence_oos_sample_size,
             confidence_version=thesis.confidence_version,
+            artifact_status=thesis.artifact_status.value,
             data_quality=data_quality,
             data_quality_label=data_quality_label,
             supporting_evidence_count=len(thesis.supporting_evidence),
@@ -1164,10 +1231,25 @@ class ThesisBuilder:
             heuristic_confidence=thesis.heuristic_confidence,
             empirical_confidence=thesis.empirical_confidence,
             confidence_version=thesis.confidence_version,
+            artifact_status=thesis.artifact_status.value,
             data_quality=data_quality,
             data_quality_label=data_quality_label,
         )
         return thesis
+
+    def _model_provider(self) -> str | None:
+        cfg = getattr(self.host, "config", None) or {}
+        value = cfg.get("llm_provider") or cfg.get("provider")
+        return str(value).strip() if value else None
+
+    def _model_name(self) -> str | None:
+        cfg = getattr(self.host, "config", None) or {}
+        value = (
+            cfg.get("deep_thinking_model")
+            or cfg.get("quick_thinking_model")
+            or cfg.get("model")
+        )
+        return str(value).strip() if value else None
 
     @staticmethod
     def _resolve_direction(
@@ -1408,6 +1490,12 @@ class ThesisBuilder:
     def _apply_stability_guard(self, thesis: TradeThesis) -> TradeThesis:
         cfg = (getattr(self.host, "config", None) or {}).get("thesis_stability", {})
         if not cfg.get("enabled", True):
+            return thesis
+        if thesis.artifact_status == ThesisArtifactStatus.BLOCKED:
+            thesis.evidence["stability_guard"] = {
+                "applied": False,
+                "reason": "artifact_blocked",
+            }
             return thesis
 
         previous = self._latest_previous_thesis(thesis, cfg)

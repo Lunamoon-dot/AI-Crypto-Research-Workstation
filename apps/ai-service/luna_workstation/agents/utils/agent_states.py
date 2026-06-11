@@ -92,6 +92,16 @@ class AgentState(MessagesState):
     final_trade_summary_json: Annotated[
         str, "Validated-source JSON summary emitted by the Portfolio Manager"
     ]
+    final_trade_candidate_source: Annotated[
+        str, "Source path for the Portfolio Manager thesis candidate contract"
+    ]
+    final_trade_candidate_schema_version: Annotated[
+        str, "Schema version for the Portfolio Manager thesis candidate contract"
+    ]
+    scenario_continuity_handoff: Annotated[
+        dict[str, Any] | None,
+        "Portfolio Manager-authored prior-memory guidance for horizon scenario planning",
+    ]
     past_context: Annotated[
         str,
         "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)",

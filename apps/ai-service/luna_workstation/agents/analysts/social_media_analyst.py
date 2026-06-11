@@ -22,7 +22,9 @@ _SOCIAL_SYSTEM_CONTENT = (
     "Minimum report sections: Macro Mood, Asset Retail Attention, Trading "
     "Implication, Missing Data / Limits. Make sure to append a Markdown table "
     "at the end of the report to organize key points in the report, organized "
-    "and easy to read."
+    "and easy to read. The table must be a valid Markdown pipe table in its own "
+    "block: one header row, one separator row like `|---|---|`, then one data "
+    "row per line."
 )
 
 

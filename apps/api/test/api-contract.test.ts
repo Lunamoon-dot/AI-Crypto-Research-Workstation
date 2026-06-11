@@ -1695,6 +1695,62 @@ test('thesis response prioritizes ai-service decision semantic fields', () => {
   assert.equal(response.entry_plan_status_label, 'No trade');
 });
 
+test('thesis response exposes contract validation status fields', () => {
+  const response = toThesisResponse({
+    id: 'thesis_contract_blocked',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_contract_blocked',
+    symbol: 'BTC/USDT',
+    artifact_status: 'blocked',
+    validation_issues: [
+      {
+        code: 'confirmation_condition_missing',
+        severity: 'blocker',
+        message: 'Confirmation condition is required.',
+        field: 'confirmation_condition',
+        source: 'thesis_validator',
+      },
+    ],
+    degradation_reasons: ['data_quality_degraded'],
+    blocked_reasons: ['confirmation_condition_missing'],
+    candidate_schema_version: 'thesis_candidate.v1',
+    thesis_text_source: 'diagnostic',
+    compiler_version: 'thesis_compiler.v1',
+    compiled_sections: [
+      {
+        key: 'data_caveats',
+        title: 'Data caveats',
+        text: '- data_quality_degraded',
+        source_fields: ['validation.degradation_reasons'],
+      },
+    ],
+  });
+
+  assert.equal(response.artifact_status, 'blocked');
+  assert.deepEqual(response.validation_issues, [
+    {
+      code: 'confirmation_condition_missing',
+      severity: 'blocker',
+      message: 'Confirmation condition is required.',
+      field: 'confirmation_condition',
+      source: 'thesis_validator',
+    },
+  ]);
+  assert.deepEqual(response.degradation_reasons, ['data_quality_degraded']);
+  assert.deepEqual(response.blocked_reasons, ['confirmation_condition_missing']);
+  assert.equal(response.candidate_schema_version, 'thesis_candidate.v1');
+  assert.equal(response.thesis_text_source, 'diagnostic');
+  assert.equal(response.compiler_version, 'thesis_compiler.v1');
+  assert.deepEqual(response.compiled_sections, [
+    {
+      key: 'data_caveats',
+      title: 'Data caveats',
+      text: '- data_quality_degraded',
+      source_fields: ['validation.degradation_reasons'],
+    },
+  ]);
+});
+
 test('POST /research-runs rejects x-workspace-id mismatches', async () => {
   const { researchRuns } = buildHarness();
 
@@ -1867,6 +1923,85 @@ test('POST /workspaces creates fixed-symbol metadata and grants owner access', a
       await workspaces.onModuleDestroy();
     },
   );
+});
+
+test('DELETE /workspaces archives fixed-symbol metadata for owners', async () => {
+  await withEnv(
+    {
+      DATABASE_URL: undefined,
+      WORKSPACE_MEMBERSHIPS: undefined,
+      LOCAL_WORKSPACE_MEMBERSHIP: undefined,
+      LOCAL_USER_ID: undefined,
+      LOCAL_WORKSPACE_ID: undefined,
+    },
+    async () => {
+      const workspaces = new WorkspacesService();
+      const controller = new WorkspacesController(new AuthService(), workspaces);
+
+      const created = await controller.create(
+        {
+          name: 'Delete Me',
+          symbol: 'btc',
+        },
+        'local-user',
+      );
+
+      const archived = await controller.remove(created.id, 'local-user');
+
+      assert.equal(archived.id, created.id);
+      assert.equal(archived.archived, true);
+      await assert.rejects(
+        () => controller.get(created.id, 'local-user'),
+        /not found/i,
+      );
+      assert.deepEqual(await controller.list('local-user'), [
+        {
+          id: 'local',
+          name: 'Legacy Mixed Workspace',
+          scope_type: 'legacy_mixed',
+          symbol: null,
+          market_type: 'mixed',
+          default_timeframe: null,
+          archived: false,
+          created_at: '1970-01-01T00:00:00.000Z',
+          updated_at: '1970-01-01T00:00:00.000Z',
+        },
+      ]);
+      await workspaces.onModuleDestroy();
+    },
+  );
+});
+
+test('DELETE /workspaces protects legacy and non-owner workspaces', async () => {
+  const workspaces = new WorkspacesService();
+  workspaces.setMembershipsForTest([
+    { user_id: 'viewer_1', workspace_id: 'workspace_a', role: 'viewer' },
+    { user_id: 'owner_1', workspace_id: 'workspace_a', role: 'owner' },
+  ]);
+  workspaces.setWorkspaceMetadataForTest([
+    {
+      id: 'workspace_a',
+      name: 'BTC Workspace',
+      scope_type: 'fixed_symbol',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      default_timeframe: null,
+      archived: false,
+      created_at: '2026-05-31T00:00:00.000Z',
+      updated_at: '2026-05-31T00:00:00.000Z',
+    },
+  ]);
+  const controller = new WorkspacesController(new AuthService(), workspaces);
+
+  await assert.rejects(
+    () => controller.remove('workspace_a', 'viewer_1'),
+    /cannot perform owner actions/i,
+  );
+  await assert.rejects(
+    () => controller.remove('local', 'owner_1'),
+    /cannot be deleted/i,
+  );
+  await workspaces.onModuleDestroy();
 });
 
 test('workspace news sources can be saved, listed, and require editor access', async () => {
@@ -6139,6 +6274,21 @@ test('postgres workspace schema declares fixed-symbol metadata columns', () => {
     'updated_at TIMESTAMPTZ NOT NULL DEFAULT now()',
   ]) {
     assert.ok(schema.includes(fragment), `missing schema fragment: ${fragment}`);
+  }
+});
+
+test('postgres journal lists scenarios in horizon order', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-journal.repository.ts'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  for (const fragment of [
+    "ORDER BY CASE payload_json->>'horizon'",
+    "WHEN 'short_term' THEN 1",
+    "WHEN 'mid_term' THEN 2",
+    "WHEN 'long_term' THEN 3",
+  ]) {
+    assert.ok(source.includes(fragment), `missing scenario order fragment: ${fragment}`);
   }
 });
 
@@ -10779,7 +10929,7 @@ test('research continuity V1.7 scheduler enabled mode creates real repair histor
       scheduled_repair_mode: 'enabled',
       scheduled_repair_case_types: ['missing_continuity'],
       scheduled_repair_interval_hours: 6,
-      scheduled_repair_lookback_days: 30,
+      scheduled_repair_lookback_days: 60,
       scheduled_repair_limit: 5,
     },
     'user_1',
@@ -11815,7 +11965,7 @@ test('scenario runtime decision treats near trigger as consider only', async () 
     runtimeScenarioFixture({
       id: 'scenario_near_runtime',
       thesisId: 'thesis_near_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
     }),
@@ -11851,7 +12001,7 @@ test('scenario runtime decision allows entry long now only when gates pass', asy
     runtimeScenarioFixture({
       id: 'scenario_entry_runtime',
       thesisId: 'thesis_entry_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
     }),
@@ -11889,7 +12039,7 @@ test('scenario runtime decision blocks entry now when an entry condition fails',
     runtimeScenarioFixture({
       id: 'scenario_failed_condition_runtime',
       thesisId: 'thesis_failed_condition_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
       entryConditions: [
@@ -11935,7 +12085,7 @@ test('scenario runtime decision downgrades entry when price is overextended', as
     runtimeScenarioFixture({
       id: 'scenario_overextended_runtime',
       thesisId: 'thesis_overextended_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
     }),
@@ -11975,7 +12125,7 @@ test('scenario runtime decision honors custom overextended threshold', async () 
     runtimeScenarioFixture({
       id: 'scenario_custom_overextension_runtime',
       thesisId: 'thesis_custom_overextension_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
       avoidIf: [{ type: 'overextended_from_trigger', threshold_pct: 10 }],
@@ -12016,7 +12166,7 @@ test('scenario runtime decision evaluates zone-only triggers', async () => {
     runtimeScenarioFixture({
       id: 'scenario_zone_runtime',
       thesisId: 'thesis_zone_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
       entryConditions: [{ type: 'price_in_zone', zone_low: 615, zone_high: 630 }],
@@ -12054,7 +12204,7 @@ test('scenario runtime decision marks stale crossed triggers as stale review', a
     runtimeScenarioFixture({
       id: 'scenario_stale_runtime',
       thesisId: 'thesis_stale_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
     }),
@@ -12095,7 +12245,7 @@ test('scenario runtime decision does not default neutral bias into long actions'
     runtimeScenarioFixture({
       id: 'scenario_neutral_runtime',
       thesisId: 'thesis_neutral_runtime',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
       actionBias: 'neutral',
@@ -12395,7 +12545,7 @@ test('workbench attention includes active scenarios ordered by monitor urgency',
     runtimeScenarioFixture({
       id: 'scenario_workbench_near',
       thesisId: 'thesis_workbench_scenario',
-      validUntil: '2026-06-10T00:00:00.000Z',
+      validUntil: '2999-01-01T00:00:00.000Z',
       preferred: 'entry_long_now',
       confidence: 0.82,
     }),

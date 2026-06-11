@@ -50,11 +50,16 @@ def test_build_scenarios_for_long_thesis_with_conflict():
 
     scenarios = build_scenarios_for_thesis(thesis, debate=debate, signals=signals)
 
-    assert len(scenarios) == 4
+    assert len(scenarios) == 3
     assert all(scenario.thesis_id == thesis.id for scenario in scenarios)
+    assert [scenario.horizon for scenario in scenarios] == [
+        "short_term",
+        "mid_term",
+        "long_term",
+    ]
     assert scenarios[0].probability_band == ScenarioProbabilityBand.MEDIUM
     assert any("Funding is elevated" in scenario.condition for scenario in scenarios)
     assert any(
-        scenario.suggested_user_action == "reduce confidence and review evidence"
+        scenario.suggested_user_action == "stand aside or reassess"
         for scenario in scenarios
     )

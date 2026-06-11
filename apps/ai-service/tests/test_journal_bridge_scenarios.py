@@ -1,4 +1,4 @@
-from luna_workstation.agents.schemas import ScenarioItem, ScenarioPlan
+from luna_workstation.agents.schemas import ScenarioHorizon, ScenarioItem, ScenarioPlan
 from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
 from luna_workstation.graph.journal_bridge import (
     JournalBridge,
@@ -110,6 +110,7 @@ def test_journal_bridge_saves_scenarios_from_json_plan(tmp_path):
     assert thesis and thesis.id
     scenarios = bridge.service.list_scenarios(thesis_id=thesis.id)
     assert len(scenarios) == 1
+    assert scenarios[0].thesis_id == thesis.id
     assert scenarios[0].condition.startswith("Break above")
 
 
@@ -165,6 +166,40 @@ def test_scenarios_from_structured_plan_maps_probability():
     assert len(rows) == 1
     assert rows[0].thesis_id == "thesis_x"
     assert rows[0].probability_band.value == "high"
+
+
+def test_scenarios_from_structured_plan_preserves_horizon_payload():
+    plan = ScenarioPlan(
+        setup_type="agent_debate",
+        scenarios=[
+            ScenarioItem(
+                horizon=ScenarioHorizon.MID_TERM,
+                timeframe_label="1-3w",
+                scenario_name="Catalyst follow-through",
+                direction="bullish risk",
+                thesis_impact="medium",
+                condition="Catalyst path confirms over several sessions.",
+                expected_behavior="Thesis follow-through improves.",
+                evidence=["Catalyst: pending"],
+                watch_triggers=["Catalyst confirms"],
+                impact_on_thesis="Strengthens the medium-term thesis.",
+                probability_band="medium",
+                invalidation="Invalid if catalyst fails.",
+                risk_factors=["Catalyst delay"],
+                suggested_action="watch",
+                as_of="2026-06-10",
+                timeframe="1D",
+                source=["market_report"],
+            ),
+        ],
+    )
+
+    rows = scenarios_from_structured_plan(plan, "thesis_x")
+
+    assert rows[0].horizon == "mid_term"
+    assert rows[0].timeframe_label == "1-3w"
+    assert rows[0].template_metadata["horizon"] == "mid_term"
+    assert rows[0].template_metadata["timeframe_label"] == "1-3w"
 
 
 def test_scenarios_from_structured_plan_extracts_as_of_from_timeframe():
@@ -223,7 +258,48 @@ Khung thời gian ưu tiên: daily cho xu hướng chính, 1h cho điểm phá v
     ]
 
 
-def test_scenarios_from_structured_plan_enforces_contract_limit():
+def test_parse_scenario_plan_preserves_horizon_metadata():
+    text = """
+### Scenario 1: Breakout confirmation
+
+**Horizon**: short_term
+**Horizon Window**: 24-72h
+**Condition**: BTC reclaims resistance with improving volume.
+**Expected Behavior**: Price expands toward the next liquidity zone.
+**Probability**: Medium
+**Suggested Action**: Watch confirmation.
+
+---
+
+### Scenario 2: Trend continuation
+
+**Condition**: Weekly structure holds above support.
+**Expected Behavior**: Follow-through improves over several sessions.
+**Probability**: Medium
+**Suggested Action**: Watch thesis.
+
+---
+
+### Scenario 3: Structural repricing
+
+**Condition**: Monthly liquidity regime turns supportive.
+**Expected Behavior**: Thesis quality improves over the next cycle.
+**Probability**: Low
+**Suggested Action**: Review allocation.
+"""
+
+    rows = _parse_scenario_plan(text, "thesis_x")
+
+    assert len(rows) == 3
+    assert rows[0].horizon == "short_term"
+    assert rows[0].timeframe_label == "24-72h"
+    assert rows[1].horizon == "mid_term"
+    assert rows[1].timeframe_label == "1-3w"
+    assert rows[2].horizon == "long_term"
+    assert rows[2].timeframe_label == "1-3m"
+
+
+def test_scenarios_from_structured_plan_enforces_horizon_contract_limit():
     plan = ScenarioPlan(
         setup_type="agent_debate",
         scenarios=[
@@ -250,12 +326,11 @@ def test_scenarios_from_structured_plan_enforces_contract_limit():
 
     rows = scenarios_from_structured_plan(plan, "thesis_x")
 
-    assert len(rows) == 4
+    assert len(rows) == 3
     assert [row.scenario_name for row in rows] == [
         "Scenario 1",
         "Scenario 2",
         "Scenario 3",
-        "Scenario 4",
     ]
 
 

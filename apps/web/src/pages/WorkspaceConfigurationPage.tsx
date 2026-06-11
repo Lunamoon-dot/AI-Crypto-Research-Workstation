@@ -10,6 +10,7 @@ import { env } from '@/lib/env';
 import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
 import {
+  deleteWorkspace,
   listWorkspaceNewsSources,
   updateWorkspaceNewsSources,
 } from '@/services/workspaces';
@@ -19,6 +20,7 @@ import type {
   WorkspaceNewsSourceTargetAnalyst,
   WorkspaceNewsSourceTrustTier,
   WorkspaceNewsSourceType,
+  WorkspaceSummary,
 } from '@/types';
 import { defaultWorkspaceNewsSourceScope } from './settings-news-source-scope';
 
@@ -56,10 +58,16 @@ export function WorkspaceConfigurationPage() {
   const auth = useWorkspaceStore();
   const queryClient = useQueryClient();
   const [newsSourceDrafts, setNewsSourceDrafts] = useState<NewsSourceDraft[]>([]);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const hasWorkspace = Boolean(auth.workspaceId.trim());
   const workspaceLabel = auth.workspace?.name ?? auth.workspaceId;
   const defaultScopeText = defaultWorkspaceNewsSourceScope(auth.workspace?.symbol);
   const hasWorkspaceSymbol = Boolean(defaultScopeText);
+  const canDeleteWorkspace = hasWorkspace && auth.workspaceId !== 'local';
+  const deleteConfirmationTarget = workspaceLabel || auth.workspaceId;
+  const deleteConfirmationMatches =
+    deleteConfirmation.trim() === deleteConfirmationTarget ||
+    deleteConfirmation.trim() === auth.workspaceId;
   const newsSourcesQuery = useQuery({
     queryKey: queryKeys.workspaceNewsSources(auth.workspaceId),
     queryFn: () => listWorkspaceNewsSources(auth.workspaceId, auth),
@@ -85,6 +93,23 @@ export function WorkspaceConfigurationPage() {
       });
     },
   });
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: () => deleteWorkspace(auth.workspaceId, auth),
+    onSuccess: async (workspace) => {
+      queryClient.setQueryData<WorkspaceSummary[]>(
+        queryKeys.workspacesRoot(),
+        (workspaces) =>
+          (workspaces ?? []).filter((candidate) => candidate.id !== workspace.id),
+      );
+      auth.clearWorkspace(workspace.id);
+      setDeleteConfirmation('');
+      setNewsSourceDrafts([]);
+      queryClient.removeQueries({
+        queryKey: queryKeys.workspaceNewsSources(workspace.id),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspacesRoot() });
+    },
+  });
   const showNewsSourcesQueryError =
     newsSourcesQuery.isError && newsSourceDrafts.length === 0;
   const savedNewsSources = newsSourcesQuery.data?.sources ?? [];
@@ -94,6 +119,7 @@ export function WorkspaceConfigurationPage() {
 
   useEffect(() => {
     setNewsSourceDrafts([]);
+    setDeleteConfirmation('');
   }, [auth.workspaceId]);
 
   useEffect(() => {
@@ -178,6 +204,59 @@ export function WorkspaceConfigurationPage() {
         }
       />
       <BentoGrid>
+        <Panel
+          className="span-12"
+          title="Workspace lifecycle"
+          description="Archive the selected workspace from your workspace list without deleting historical research artifacts."
+          action={
+            <span className={canDeleteWorkspace ? 'badge warning' : 'badge'}>
+              {canDeleteWorkspace ? 'deletable' : 'protected'}
+            </span>
+          }
+        >
+          <div className="workspace-news-source-context">
+            <div className="workspace-news-source-target">
+              <span>Selected workspace</span>
+              <strong>{workspaceLabel || 'No workspace selected'}</strong>
+              <small>
+                Workspace id: {auth.workspaceId || 'none'} - archived workspaces are hidden from selection
+              </small>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label className="label">
+              Type workspace name or id to delete
+              <input
+                className="input"
+                disabled={!canDeleteWorkspace || deleteWorkspaceMutation.isPending}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={deleteConfirmationTarget}
+                value={deleteConfirmation}
+              />
+            </label>
+          </div>
+          <div className="top-strip-meta">
+            <button
+              className="button risk"
+              disabled={
+                !canDeleteWorkspace ||
+                !deleteConfirmationMatches ||
+                deleteWorkspaceMutation.isPending
+              }
+              onClick={() => deleteWorkspaceMutation.mutate()}
+              type="button"
+            >
+              <Trash2 aria-hidden size={16} />
+              {deleteWorkspaceMutation.isPending ? 'Deleting workspace' : 'Delete workspace'}
+            </button>
+            {deleteWorkspaceMutation.isError ? (
+              <span className="badge risk">{errorMessage(deleteWorkspaceMutation.error)}</span>
+            ) : null}
+            {deleteWorkspaceMutation.isSuccess ? (
+              <span className="badge constructive">workspace archived</span>
+            ) : null}
+          </div>
+        </Panel>
         <Panel
           className="span-12"
           title="Workspace analyst sources"

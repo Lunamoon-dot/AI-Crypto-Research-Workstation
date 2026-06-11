@@ -21,6 +21,81 @@ class ThesisDirection(str, Enum):
     NEUTRAL = "neutral"
 
 
+class ThesisArtifactStatus(str, Enum):
+    """Trust status for a persisted thesis artifact."""
+
+    VALID = "valid"
+    DEGRADED = "degraded"
+    BLOCKED = "blocked"
+    LEGACY = "legacy"
+
+
+class ThesisValidationSeverity(str, Enum):
+    """Severity for deterministic thesis validation issues."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    BLOCKER = "blocker"
+
+
+class ThesisTextSource(str, Enum):
+    """Source of the user-facing thesis text."""
+
+    COMPILED = "compiled"
+    LEGACY = "legacy"
+    DIAGNOSTIC = "diagnostic"
+    MISSING = "missing"
+
+
+class ThesisValidationIssue(BaseModel):
+    """Machine-readable thesis contract validation issue."""
+
+    code: str
+    severity: ThesisValidationSeverity
+    message: str
+    field: str | None = None
+    source: str | None = None
+
+    @field_validator("code", "message", "field", "source", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text[:500] if text else None
+
+
+class ThesisValidationResult(BaseModel):
+    """Deterministic validation outcome for a thesis candidate."""
+
+    status: ThesisArtifactStatus
+    issues: list[ThesisValidationIssue] = Field(default_factory=list)
+    degradation_reasons: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    confidence_cap: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class CompiledThesisSection(BaseModel):
+    """Section rendered by the deterministic thesis compiler."""
+
+    key: str
+    title: str
+    text: str
+    source_fields: list[str] = Field(default_factory=list)
+
+
+class CompiledThesis(BaseModel):
+    """Deterministic user-facing thesis text and provenance."""
+
+    text: str
+    source: ThesisTextSource
+    sections: list[CompiledThesisSection] = Field(default_factory=list)
+    omitted_sections: list[str] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+    compiler_version: str | None = None
+
+
 ALLOWED_EVIDENCE_KINDS = {"observed", "reasoning", "missing"}
 ALLOWED_SOURCE_ARTIFACTS = {
     "market_snapshot",
@@ -100,6 +175,91 @@ class StructuredResearchItem(BaseModel):
 
 
 ResearchSummaryItem = str | StructuredResearchItem
+
+
+class ThesisCandidate(BaseModel):
+    """Structured candidate contract produced by Portfolio Manager V1."""
+
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "thesis_candidate.v1"
+    rating: str = ""
+    direction: str = ""
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    market_type: str = "spot"
+    action_summary: str = ""
+    investment_thesis: str = ""
+    confirmation_condition: str = ""
+    invalidation: str = ""
+    entry_zone: str | None = None
+    target_zones: list[str] = Field(default_factory=list)
+    key_reasons: list[ResearchSummaryItem] = Field(default_factory=list)
+    risks: list[ResearchSummaryItem] = Field(default_factory=list)
+    monitor_next: list[ResearchSummaryItem] = Field(default_factory=list)
+    supporting_evidence: list[ResearchEvidenceItem] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
+    spot_notes: str = ""
+    perp_notes: str = ""
+    scenario_continuity_handoff: dict[str, Any] | None = None
+
+    @field_validator(
+        "schema_version",
+        "rating",
+        "direction",
+        "market_type",
+        "action_summary",
+        "investment_thesis",
+        "confirmation_condition",
+        "invalidation",
+        "entry_zone",
+        "spot_notes",
+        "perp_notes",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()[:1000]
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _normalize_confidence(cls, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            raw = value.strip()
+            is_percent = raw.endswith("%")
+            raw = raw.rstrip("%").strip()
+            try:
+                number = float(raw)
+            except ValueError:
+                return None
+            if is_percent or number > 1:
+                number = number / 100
+            return max(min(number, 1.0), 0.0)
+        return value
+
+    @field_validator("target_zones", "missing_data", mode="before")
+    @classmethod
+    def _normalize_text_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            value = list(value) if isinstance(value, tuple) else [value]
+        return [str(item).strip()[:500] for item in value if str(item).strip()]
+
+    @field_validator("key_reasons", "risks", "monitor_next", mode="before")
+    @classmethod
+    def _normalize_research_item_list(cls, value: Any) -> list[Any]:
+        return _normalize_research_items(value)
+
+    @field_validator("supporting_evidence", mode="before")
+    @classmethod
+    def _normalize_supporting_evidence(cls, value: Any) -> list[dict[str, Any]]:
+        return normalize_evidence_items(value)
 
 
 def text_from_research_item(value: Any) -> str:
@@ -564,6 +724,20 @@ class TradeThesis(BaseModel):
     invalidation: str = ""
     monitor_next: list[str] = Field(default_factory=list)
     confidence_rationale: str = ""
+    artifact_status: ThesisArtifactStatus = ThesisArtifactStatus.LEGACY
+    thesis_text_source: ThesisTextSource = ThesisTextSource.LEGACY
+    compiled_sections: list[CompiledThesisSection] = Field(default_factory=list)
+    compiler_version: str | None = None
+    raw_model_thesis_text: str | None = None
+    validation_issues: list[ThesisValidationIssue] = Field(default_factory=list)
+    degradation_reasons: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    candidate_schema_version: str | None = None
+    prompt_version: str | None = None
+    model_provider: str | None = None
+    model_name: str | None = None
+    source_contract: str | None = None
+    thesis_candidate: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("workspace_id", mode="before")

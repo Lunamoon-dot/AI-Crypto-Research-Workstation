@@ -21,6 +21,7 @@ from luna_workstation.agents.schemas import (
     PortfolioRating,
     PortfolioDecision,
     ResearchPlan,
+    ScenarioHorizon,
     ScenarioItem,
     ScenarioPlan,
     SetupAction,
@@ -28,6 +29,7 @@ from luna_workstation.agents.schemas import (
     TraderAction,
     TraderProposal,
     render_research_plan,
+    render_scenario_plan,
     render_setup_proposal,
     render_trader_proposal,
 )
@@ -174,6 +176,7 @@ class TestPortfolioManagerAgent:
                 "**Portfolio Manager's Final Research Thesis: ETH/USDT (Spot)**",
                 "**Stance**: Underweight - avoid new longs.",
                 "**Research Summary**: Avoid long until reclaim confirmation.",
+                "**Investment Thesis**: Trend and risk evidence favor patience.",
                 "**Confirmation**: Daily close back above 1850 with spot volume.",
                 "**Invalidation**: Daily close below 1715.",
                 "**Target Zones**: 1650; 1580.",
@@ -187,20 +190,76 @@ class TestPortfolioManagerAgent:
         llm.invoke.return_value = MagicMock(content=plain_response)
 
         portfolio_manager = create_portfolio_manager(llm, config={})
-        result = portfolio_manager(_make_pm_state())
+        state = _make_pm_state()
+        state["latest_continuity_context"] = {
+            "summary": "Prior continuity exists.",
+            "active_invalidations": ["Invalidate below 65000 on volume."],
+        }
+        result = portfolio_manager(state)
         payload = json.loads(result["final_trade_summary_json"])
 
         assert result["final_trade_decision"] == plain_response
+        assert result["scenario_continuity_handoff"] is None
         assert "Current price anchor: $1,647.71" in llm.invoke.call_args.args[0]
         assert payload["rating"] == "Underweight"
         assert payload["direction"] == "avoid"
         assert payload["market_type"] == "spot"
+        assert payload["investment_thesis"] == (
+            "Trend and risk evidence favor patience."
+        )
         assert (
             payload["confirmation_condition"]
             == "Daily close back above 1850 with spot volume."
         )
         assert payload["invalidation"] == "Daily close below 1715."
         assert payload["target_zones"] == ["1650", "1580."]
+
+    def test_free_text_fallback_validates_trade_thesis_json_block(self):
+        thesis_json = {
+            "schema_version": "thesis_candidate.v1",
+            "rating": "Underweight",
+            "direction": "avoid",
+            "confidence": 0.55,
+            "market_type": "spot",
+            "action_summary": "Avoid fresh longs until reclaim confirmation.",
+            "investment_thesis": "Trend and risk evidence favor patience.",
+            "confirmation_condition": "Daily close back above 1850 with spot volume.",
+            "invalidation": "Daily close below 1715.",
+            "entry_zone": "1780-1820 failed retest",
+            "target_zones": ["1650", "1580"],
+            "key_reasons": ["Risk debate favors defensive exposure."],
+            "risks": ["Liquidity data is incomplete."],
+            "monitor_next": ["Watch daily close and spot volume."],
+            "supporting_evidence": [],
+            "missing_data": ["liquidation heatmap"],
+        }
+        plain_response = (
+            "**Portfolio Manager's Final Research Thesis: ETH/USDT (Spot)**\n"
+            "Raw prose should not become the contract.\n\n"
+            "TRADE_THESIS_JSON:\n"
+            "```json\n"
+            f"{json.dumps(thesis_json)}\n"
+            "```"
+        )
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.return_value = MagicMock(content=plain_response)
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert result["final_trade_candidate_source"] == "portfolio_decision_json_block"
+        assert "Raw prose should not become the contract." in result["final_trade_decision"]
+        assert "TRADE_THESIS_JSON" not in result["final_trade_decision"]
+        assert payload["rating"] == thesis_json["rating"]
+        assert payload["direction"] == thesis_json["direction"]
+        assert payload["entry_zone"] == thesis_json["entry_zone"]
+        assert payload["target_zones"] == thesis_json["target_zones"]
+        assert payload["spot_notes"] == ""
+        assert payload["perp_notes"] == ""
 
     def test_llm_failure_falls_back_to_prior_artifacts(self):
         structured = MagicMock()
@@ -237,6 +296,8 @@ class TestPortfolioManagerAgent:
                 action_summary="Avoid fresh longs.",
                 confirmation_condition="Watch for live-price anchored confirmation.",
                 invalidation="Live-price anchored invalidation.",
+                entry_zone="No new long entry below reclaim.",
+                target_zones=["1850 reclaim review"],
                 key_reasons=[],
                 risks=[],
                 monitor_next=[],
@@ -250,10 +311,53 @@ class TestPortfolioManagerAgent:
         llm.with_structured_output.return_value = structured
 
         portfolio_manager = create_portfolio_manager(llm, config={})
-        portfolio_manager(_make_pm_state())
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
 
         assert "$1,647.71" in captured["prompt"]
         assert "Do not assume price levels" in captured["prompt"]
+        assert '"investment_thesis"' in captured["prompt"]
+        assert payload["investment_thesis"] == "Live-price anchored thesis."
+        assert payload["entry_zone"] == "No new long entry below reclaim."
+        assert payload["target_zones"] == ["1850 reclaim review"]
+
+    def test_extracts_only_pm_authored_scenario_continuity_handoff(self):
+        handoff = {
+            "continuity_relation": "weakens",
+            "summary": "Prior long thesis is weakening.",
+            "short_term_focus": "Watch reclaim failure.",
+            "mid_term_focus": "Compare catalyst follow-through.",
+            "long_term_focus": "Track structural invalidation.",
+            "carry_forward_watchpoints": ["Prior reclaim zone"],
+            "carry_forward_invalidations": ["Prior invalidation level"],
+            "stale_prior": False,
+        }
+        structured = MagicMock()
+        structured.invoke.return_value = PortfolioDecision(
+            rating=PortfolioRating.HOLD,
+            executive_summary="Hold pending confirmation.",
+            investment_thesis="Current evidence is mixed.",
+            confidence=0.5,
+            market_type=MarketType.SPOT,
+            action_summary="Watch.",
+            confirmation_condition="Reclaim resistance.",
+            invalidation="Lose support.",
+            key_reasons=[],
+            risks=[],
+            monitor_next=[],
+            supporting_evidence=[],
+            spot_notes="",
+            perp_notes="",
+            missing_data=[],
+            scenario_continuity_handoff=handoff,
+        )
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+
+        assert result["scenario_continuity_handoff"] == handoff
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +600,236 @@ def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
 
 @pytest.mark.unit
 class TestScenarioPlannerAgent:
+    def test_scenario_plan_renders_horizon_identity(self):
+        plan = ScenarioPlan(
+            setup_type="agent_debate",
+            scenarios=[
+                ScenarioItem(
+                    horizon=ScenarioHorizon.SHORT_TERM,
+                    timeframe_label="24-72h",
+                    scenario_name="Short-term reclaim",
+                    direction="bullish risk",
+                    thesis_impact="medium",
+                    condition="If price reclaims resistance with volume.",
+                    expected_behavior="Fast tactical reaction toward prior highs.",
+                    evidence=["Volume: improving"],
+                    watch_triggers=["Reclaim resistance"],
+                    impact_on_thesis="Supports the thesis tactically.",
+                    probability_band="medium",
+                    invalidation="Invalid if price loses the reclaim.",
+                    risk_factors=["False breakout risk"],
+                    suggested_action="watch",
+                    as_of="2026-06-10",
+                    timeframe="1D",
+                    source=["market_report"],
+                )
+            ],
+        )
+
+        markdown = render_scenario_plan(plan)
+
+        assert "**Horizon**: short_term" in markdown
+        assert "**Horizon Window**: 24-72h" in markdown
+
+    def test_structured_output_normalizes_exactly_three_horizons(self):
+        captured = {}
+        llm = _structured_scenario_llm(
+            captured,
+            ScenarioPlan(
+                setup_type="agent_debate",
+                scenarios=[
+                    ScenarioItem(
+                        horizon=ScenarioHorizon.SHORT_TERM,
+                        timeframe_label="24-72h",
+                        scenario_name="Short tactical reclaim",
+                        direction="bullish risk",
+                        thesis_impact="medium",
+                        condition="If price reclaims resistance with volume.",
+                        expected_behavior="Fast tactical reaction.",
+                        evidence=["Volume: improving"],
+                        watch_triggers=["Reclaim resistance"],
+                        impact_on_thesis="Supports the thesis tactically.",
+                        probability_band="medium",
+                        invalidation="Invalid if price loses the reclaim.",
+                        risk_factors=["False breakout risk"],
+                        suggested_action="watch",
+                        as_of="2026-06-10",
+                        timeframe="1D",
+                        source=["market_report"],
+                    ),
+                    ScenarioItem(
+                        horizon=ScenarioHorizon.SHORT_TERM,
+                        timeframe_label="24-72h",
+                        scenario_name="Duplicate short branch",
+                        direction="neutral",
+                        thesis_impact="low",
+                        condition="If price chops near resistance.",
+                        expected_behavior="Sideways tactical churn.",
+                        evidence=["Range: tight"],
+                        watch_triggers=["Range holds"],
+                        impact_on_thesis="Keeps thesis on watch.",
+                        probability_band="low",
+                        invalidation="Invalid if price breaks range.",
+                        risk_factors=["Low signal quality"],
+                        suggested_action="watch",
+                        as_of="2026-06-10",
+                        timeframe="1D",
+                        source=["market_report"],
+                    ),
+                ],
+            ),
+        )
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight if reclaim confirms.",
+                "final_trade_decision": "Watch reclaim and invalidation.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        assert [scenario.horizon for scenario in plan.scenarios] == [
+            ScenarioHorizon.SHORT_TERM,
+            ScenarioHorizon.MID_TERM,
+            ScenarioHorizon.LONG_TERM,
+        ]
+        assert len(plan.scenarios) == 3
+
+    def test_structured_output_replaces_duplicate_horizon_content_with_fallback(self):
+        duplicate_condition = "If price reclaims resistance with volume."
+        duplicate_behavior = "Momentum improves after confirmation."
+
+        def plan_for(horizon: ScenarioHorizon) -> ScenarioPlan:
+            return ScenarioPlan(
+                setup_type="agent_debate",
+                scenarios=[
+                    ScenarioItem(
+                        horizon=horizon,
+                        timeframe_label="",
+                        scenario_name=f"{horizon.value} duplicate",
+                        direction="bullish risk",
+                        thesis_impact="medium",
+                        condition=duplicate_condition,
+                        expected_behavior=duplicate_behavior,
+                        evidence=["Volume: improving"],
+                        watch_triggers=["Reclaim resistance"],
+                        impact_on_thesis="Supports the thesis.",
+                        probability_band="medium",
+                        invalidation="Invalid if price loses the reclaim.",
+                        risk_factors=["False breakout risk"],
+                        suggested_action="watch",
+                        as_of="2026-06-10",
+                        timeframe="1D",
+                        source=["market_report"],
+                    )
+                ],
+            )
+
+        structured = MagicMock()
+        structured.invoke.side_effect = [
+            plan_for(ScenarioHorizon.SHORT_TERM),
+            plan_for(ScenarioHorizon.MID_TERM),
+            plan_for(ScenarioHorizon.LONG_TERM),
+        ]
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight if reclaim confirms.",
+                "final_trade_decision": "Watch reclaim and invalidation.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        assert plan.scenarios[0].condition == duplicate_condition
+        assert plan.scenarios[1].scenario_name == "Mid-term thesis follow-through"
+        assert plan.scenarios[2].scenario_name == "Long-term structural branch"
+        assert len({scenario.condition for scenario in plan.scenarios}) == 3
+
+    def test_structured_output_uses_fallback_for_one_failed_horizon(self):
+        short_plan = ScenarioPlan(
+            setup_type="agent_debate",
+            scenarios=[
+                ScenarioItem(
+                    horizon=ScenarioHorizon.SHORT_TERM,
+                    timeframe_label="24-72h",
+                    scenario_name="Short tactical reclaim",
+                    direction="bullish risk",
+                    thesis_impact="medium",
+                    condition="If price reclaims resistance with volume.",
+                    expected_behavior="Fast tactical reaction.",
+                    evidence=["Volume: improving"],
+                    watch_triggers=["Reclaim resistance"],
+                    impact_on_thesis="Supports the thesis tactically.",
+                    probability_band="medium",
+                    invalidation="Invalid if price loses the reclaim.",
+                    risk_factors=["False breakout risk"],
+                    suggested_action="watch",
+                    as_of="2026-06-10",
+                    timeframe="1D",
+                    source=["market_report"],
+                ),
+            ],
+        )
+        long_plan = short_plan.model_copy(
+            update={
+                "scenarios": [
+                    short_plan.scenarios[0].model_copy(
+                        update={
+                            "horizon": ScenarioHorizon.LONG_TERM,
+                            "timeframe_label": "1-3m",
+                            "scenario_name": "Long structural durability",
+                        }
+                    )
+                ]
+            }
+        )
+        structured = MagicMock()
+        structured.invoke.side_effect = [short_plan, TimeoutError("mid failed"), long_plan]
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight if reclaim confirms.",
+                "final_trade_decision": "Watch reclaim and invalidation.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        assert [scenario.horizon for scenario in plan.scenarios] == [
+            ScenarioHorizon.SHORT_TERM,
+            ScenarioHorizon.MID_TERM,
+            ScenarioHorizon.LONG_TERM,
+        ]
+        assert plan.scenarios[1].scenario_name == "Mid-term thesis follow-through"
+        assert result["scenario_plan"].count("### Scenario") == 3
+
     def test_prompt_includes_analysis_date_and_date_provenance_guard(self):
         captured = {}
         llm = _structured_scenario_llm(captured)
@@ -637,10 +971,14 @@ class TestScenarioPlannerAgent:
             }
         )
 
-        assert result["scenario_plan"].count("### Scenario") == 4
+        assert result["scenario_plan"].count("### Scenario") == 3
         plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
-        assert len(plan.scenarios) == 4
-        assert plan.scenarios[-1].scenario_name == "Scenario 4"
+        assert len(plan.scenarios) == 3
+        assert [scenario.horizon for scenario in plan.scenarios] == [
+            ScenarioHorizon.SHORT_TERM,
+            ScenarioHorizon.MID_TERM,
+            ScenarioHorizon.LONG_TERM,
+        ]
 
     def test_structured_output_enriches_missing_provenance_fields(self):
         captured = {}

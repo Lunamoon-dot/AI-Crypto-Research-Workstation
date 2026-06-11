@@ -321,6 +321,11 @@ function scenarioBranch(scenario: JsonRecord, thesis: JsonRecord | null): JsonRe
   const probabilityBand = normalizeProbabilityBand(
     scenario.probability_band ?? payload.probability_band,
   );
+  const horizon = scenarioHorizonValue(scenario.horizon ?? payload.horizon);
+  const timeframeLabel = firstOptionalString(
+    scenario.timeframe_label,
+    payload.timeframe_label,
+  );
   const invalidation = firstOptionalString(
     scenario.invalidation,
     payload.invalidation,
@@ -345,6 +350,8 @@ function scenarioBranch(scenario: JsonRecord, thesis: JsonRecord | null): JsonRe
     }),
     thesis_id: thesisId,
     scenario_id: scenarioId,
+    horizon,
+    timeframe_label: timeframeLabel,
     branch_type: branchType,
     condition,
     expected_behavior: expectedBehavior,
@@ -451,6 +458,13 @@ function scenarioBranchType(scenario: JsonRecord): string {
     ),
   ).replace(/[^a-z0-9_]+/g, '_');
   return normalized || 'branch';
+}
+
+function scenarioHorizonValue(value: unknown): string {
+  const normalized = normalizedText(stringValue(value));
+  return ['short_term', 'mid_term', 'long_term'].includes(normalized)
+    ? normalized
+    : 'unknown';
 }
 
 function normalizeProbabilityBand(

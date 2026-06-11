@@ -21,6 +21,8 @@ export interface ContinuitySnapshotView {
 
 export interface ActiveScenarioBranchView {
   key: string;
+  horizon: string;
+  timeframeLabel: string;
   branchType: string;
   probabilityBand: string;
   condition: string;
@@ -138,6 +140,8 @@ export function buildActiveScenarioBranchViews(
   return records(state?.active_scenarios)
     .map((scenario, index) => ({
       key: stringValue(scenario.scenario_key, `scenario-${index + 1}`),
+      horizon: stringValue(scenario.horizon, 'unknown'),
+      timeframeLabel: stringValue(scenario.timeframe_label, 'not recorded'),
       branchType: stringValue(scenario.branch_type, 'scenario'),
       probabilityBand: stringValue(scenario.probability_band, 'unknown'),
       condition: stringValue(scenario.condition, 'Scenario condition unavailable.'),

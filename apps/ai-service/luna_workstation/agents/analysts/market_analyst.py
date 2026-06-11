@@ -26,7 +26,9 @@ _MARKET_SYSTEM_CONTENT = (
     "   in it, which factors drive the signal, any conflicting indicators, "
     "   and actionable insights for the Setup Planner.\n\n"
     "Your role is INTERPRETATION, not computation."
-    + " Append a brief Markdown table organizing the signal factors at the end."
+    + " Append a brief Markdown table organizing the signal factors at the end. "
+    "The table must be a valid Markdown pipe table in its own block: one header "
+    "row, one separator row like `|---|---|`, then one data row per line."
 )
 
 

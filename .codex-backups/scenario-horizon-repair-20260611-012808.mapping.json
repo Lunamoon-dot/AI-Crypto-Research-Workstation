@@ -1,0 +1,41 @@
+{
+  "sqlite_backup": "C:\\Users\\dell\\LunaCrypto\\.codex-backups\\research_journal.before-scenario-horizon-repair.sqlite",
+  "updates": [
+    {
+      "id": "85c2e7ea-a29b-4161-b5ed-9a6a08894fd1",
+      "thesis_id": "26718a38-bf22-4baf-a643-05743384c6bb",
+      "horizon": "short_term",
+      "timeframe_label": "24-72h"
+    },
+    {
+      "id": "e96cfda0-4707-4f31-a159-9a1fc0a2f5d6",
+      "thesis_id": "26718a38-bf22-4baf-a643-05743384c6bb",
+      "horizon": "mid_term",
+      "timeframe_label": "1-3w"
+    },
+    {
+      "id": "96bcbda9-8c40-4af6-9f30-b609d5c5f7fb",
+      "thesis_id": "26718a38-bf22-4baf-a643-05743384c6bb",
+      "horizon": "long_term",
+      "timeframe_label": "1-3m"
+    },
+    {
+      "id": "6794625b-863f-487b-b18d-db76ec5723d8",
+      "thesis_id": "9303719b-303e-4bd5-a425-a31fdab54fe3",
+      "horizon": "short_term",
+      "timeframe_label": "24-72h"
+    },
+    {
+      "id": "5179ceb5-1b95-4305-ba30-baf7518095e0",
+      "thesis_id": "9303719b-303e-4bd5-a425-a31fdab54fe3",
+      "horizon": "mid_term",
+      "timeframe_label": "1-3w"
+    },
+    {
+      "id": "1e5a378b-3c91-4582-9b6b-c3c7d059a6ef",
+      "thesis_id": "9303719b-303e-4bd5-a425-a31fdab54fe3",
+      "horizon": "long_term",
+      "timeframe_label": "1-3m"
+    }
+  ]
+}

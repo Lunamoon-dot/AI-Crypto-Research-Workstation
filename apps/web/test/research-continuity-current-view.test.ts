@@ -104,6 +104,8 @@ test('continuity snapshot counts active scenario branches as active memory', () 
     active_scenarios: [
       {
         scenario_key: 'thesis_1:confirmation:if-btc-reclaims-108k-on-acceptance',
+        horizon: 'short_term',
+        timeframe_label: '24-72h',
         branch_type: 'confirmation',
         probability_band: 'high',
         condition: 'If BTC reclaims 108k on acceptance',
@@ -124,6 +126,8 @@ test('continuity snapshot counts active scenario branches as active memory', () 
   assert.deepEqual(buildActiveScenarioBranchViews(state), [
     {
       key: 'thesis_1:confirmation:if-btc-reclaims-108k-on-acceptance',
+      horizon: 'short_term',
+      timeframeLabel: '24-72h',
       branchType: 'confirmation',
       probabilityBand: 'high',
       condition: 'If BTC reclaims 108k on acceptance',

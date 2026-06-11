@@ -14,7 +14,12 @@ from datetime import datetime
 
 from langchain_core.messages import AIMessage
 
-from luna_workstation.agents.schemas import ScenarioPlan, render_scenario_plan
+from luna_workstation.agents.schemas import (
+    ScenarioHorizon,
+    ScenarioItem,
+    ScenarioPlan,
+    render_scenario_plan,
+)
 from luna_workstation.agents.utils.agent_utils import (
     build_current_price_context,
     build_instrument_context,
@@ -30,7 +35,25 @@ _TEMPLATE_LINE = (
     "setup_type must be one of: breakout, range_reversion, funding_squeeze, "
     "news_event, macro_event, trend_pullback, liquidity_sweep, or agent_debate."
 )
-_MAX_STRUCTURED_SCENARIOS = 4
+_HORIZON_WINDOWS = {
+    ScenarioHorizon.SHORT_TERM: "24-72h",
+    ScenarioHorizon.MID_TERM: "1-3w",
+    ScenarioHorizon.LONG_TERM: "1-3m",
+}
+_HORIZON_POLICIES = {
+    ScenarioHorizon.SHORT_TERM: (
+        "Build only the tactical short-term branch. Emphasize near-term trigger, "
+        "liquidity/event reaction, and a tight invalidation."
+    ),
+    ScenarioHorizon.MID_TERM: (
+        "Build only the medium-term thesis follow-through branch. Emphasize the "
+        "catalyst path over weeks, confirmation, and weakening conditions."
+    ),
+    ScenarioHorizon.LONG_TERM: (
+        "Build only the long-term structural branch. Emphasize regime durability, "
+        "persistent invalidation, and what would make the thesis structurally wrong."
+    ),
+}
 
 _DATE_REFERENCE_RE = re.compile(
     r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -199,9 +222,7 @@ def _ground_scenario_plan_dates(
                 }
             )
         )
-    return plan.model_copy(
-        update={"scenarios": grounded_scenarios[:_MAX_STRUCTURED_SCENARIOS]}
-    )
+    return plan.model_copy(update={"scenarios": grounded_scenarios})
 
 
 def _normalize_timeframe_label(value: str) -> str:
@@ -269,7 +290,144 @@ def _enrich_scenario_plan_provenance(
                 }
             )
         )
-    return plan.model_copy(update={"scenarios": enriched[:_MAX_STRUCTURED_SCENARIOS]})
+    return plan.model_copy(update={"scenarios": enriched})
+
+
+def _scenario_with_horizon(
+    scenario: ScenarioItem,
+    horizon: ScenarioHorizon,
+) -> ScenarioItem:
+    return scenario.model_copy(
+        update={
+            "horizon": horizon,
+            "timeframe_label": scenario.timeframe_label or _HORIZON_WINDOWS[horizon],
+        }
+    )
+
+
+def _scenario_content_key(scenario: ScenarioItem) -> str:
+    return " ".join(
+        str(part or "").strip().lower()
+        for part in (
+            scenario.condition,
+            scenario.expected_behavior,
+            scenario.invalidation,
+        )
+        if str(part or "").strip()
+    )
+
+
+def _fallback_scenario(
+    *,
+    horizon: ScenarioHorizon,
+    analysis_date: str,
+    research_reports: dict[str, str],
+    state: dict,
+) -> ScenarioItem:
+    fallback_sources = _default_scenario_sources(research_reports) or ["scenario_planner"]
+    fallback_timeframe = _extract_context_timeframe(
+        state.get("quant_signal_text", ""),
+        state.get("signal_text", ""),
+        *research_reports.values(),
+    )
+    label = {
+        ScenarioHorizon.SHORT_TERM: "Short-term tactical branch",
+        ScenarioHorizon.MID_TERM: "Mid-term thesis follow-through",
+        ScenarioHorizon.LONG_TERM: "Long-term structural branch",
+    }[horizon]
+    condition = {
+        ScenarioHorizon.SHORT_TERM: (
+            "If near-term price, liquidity, or event reaction confirms the current thesis."
+        ),
+        ScenarioHorizon.MID_TERM: (
+            "If catalyst follow-through confirms or weakens the current thesis over several sessions."
+        ),
+        ScenarioHorizon.LONG_TERM: (
+            "If structural evidence shows the thesis is durable or structurally invalidated."
+        ),
+    }[horizon]
+    return ScenarioItem(
+        horizon=horizon,
+        timeframe_label=_HORIZON_WINDOWS[horizon],
+        scenario_name=label,
+        direction="neutral",
+        thesis_impact="medium",
+        condition=condition,
+        expected_behavior=(
+            "Planner used a deterministic fallback for this horizon; review current "
+            "reports and Portfolio Manager decision before acting."
+        ),
+        evidence=["Structured horizon output missing or unusable."],
+        watch_triggers=["Re-run scenario planner when fresh evidence is available."],
+        impact_on_thesis="Keeps the thesis on manual review until this horizon is regenerated.",
+        probability_band="unknown",
+        invalidation="Invalid if current evidence contradicts this fallback branch.",
+        risk_factors=["Fallback scenario has limited evidence coverage."],
+        suggested_action="review",
+        as_of=str(analysis_date or "").strip(),
+        timeframe=fallback_timeframe,
+        source=fallback_sources[:3],
+    )
+
+
+def _normalize_horizon_plan(
+    plans: list[ScenarioPlan],
+    *,
+    setup_type: str,
+    analysis_date: str,
+    research_reports: dict[str, str],
+    state: dict,
+) -> ScenarioPlan:
+    by_horizon: dict[ScenarioHorizon, ScenarioItem] = {}
+    seen_content: set[str] = set()
+    for requested_horizon, plan in zip(ScenarioHorizon, plans):
+        for scenario in plan.scenarios:
+            horizon = scenario.horizon or requested_horizon
+            if horizon not in _HORIZON_WINDOWS or horizon in by_horizon:
+                continue
+            if not str(scenario.condition or "").strip():
+                continue
+            if not str(scenario.expected_behavior or "").strip():
+                continue
+            content_key = _scenario_content_key(scenario)
+            if content_key in seen_content:
+                continue
+            by_horizon[horizon] = _scenario_with_horizon(scenario, horizon)
+            seen_content.add(content_key)
+
+    scenarios = [
+        by_horizon.get(horizon)
+        or _fallback_scenario(
+            horizon=horizon,
+            analysis_date=analysis_date,
+            research_reports=research_reports,
+            state=state,
+        )
+        for horizon in ScenarioHorizon
+    ]
+    return ScenarioPlan(setup_type=setup_type or "agent_debate", scenarios=scenarios)
+
+
+def _render_scenario_continuity_handoff(handoff: object) -> str:
+    if not isinstance(handoff, dict) or not handoff:
+        return ""
+    lines = [
+        "Portfolio Manager scenario continuity handoff (prior memory only; not current evidence):"
+    ]
+    for key in (
+        "continuity_relation",
+        "summary",
+        "short_term_focus",
+        "mid_term_focus",
+        "long_term_focus",
+        "carry_forward_watchpoints",
+        "carry_forward_invalidations",
+        "stale_prior",
+    ):
+        value = handoff.get(key)
+        if value:
+            lines.append(f"- {key}: {value}")
+    return "\n".join(lines)
 
 
 def _date_grounding_instruction(analysis_date: str) -> str:
@@ -352,6 +510,9 @@ def create_scenario_planner(llm, config=None):
         current_price_context = build_current_price_context(state)
         investment_plan = state.get("investment_plan", "")
         pm_decision = state.get("final_trade_decision", "") or ""
+        scenario_handoff = _render_scenario_continuity_handoff(
+            state.get("scenario_continuity_handoff")
+        )
 
         research_reports = {
             k: state.get(k, "")
@@ -393,44 +554,73 @@ def create_scenario_planner(llm, config=None):
             requested_setup, validation_result=validation
         )
 
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a Scenario Planning Analyst. Produce conditional market "
-                    "scenarios (not trade commands). Each scenario must read like a "
-                    "decision card: named scenario first, concise evidence, concrete "
-                    "watch triggers, action, and impact on thesis. Never use probability "
-                    "as the scenario title, and never issue imperative buy/sell commands."
-                    f"{language_instruction}"
-                    f"\n\n{date_grounding}"
-                    f"{field_instructions}"
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Generate a structured scenario map for {company_name}. "
-                    f"{instrument_context}\n\n"
-                    f"{current_price_context}\n\n"
-                    f"{date_grounding}\n\n"
-                    f"{_TEMPLATE_LINE}\n\n"
-                    f"Produce exactly 3-4 scenarios (each with required template fields if setup_type is specified) covering: directional confirmation, "
-                    f"invalidation / adverse path, neutral/wait, and (if debate shows conflict) "
-                    f"a contradiction branch. Use scenario names as titles; keep summaries short; "
-                    f"express watch conditions as checklist triggers; include source, timeframe, "
-                    f"and as_of for evidence when available.\n\n"
-                    "Portfolio Manager decision (truncated):\n"
-                    f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
-                    f"Investment plan:\n{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
-                    f"Research context:\n{reports_block}"
-                ),
-            },
-        ]
-
         if structured_llm is not None:
             try:
-                plan = structured_llm.invoke(messages)
+                horizon_plans = []
+                structured_successes = 0
+                for horizon in ScenarioHorizon:
+                    messages = [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a Scenario Planning Analyst. Produce one "
+                                "conditional market scenario for the requested horizon "
+                                "(not a trade command). The scenario must read like a "
+                                "decision card: named scenario first, concise evidence, "
+                                "concrete watch triggers, action, and impact on thesis. "
+                                "Never use probability as the scenario title, and never "
+                                "issue imperative buy/sell commands."
+                                f"{language_instruction}"
+                                f"\n\n{date_grounding}"
+                                f"\n\nHorizon policy: {horizon.value}. "
+                                f"{_HORIZON_POLICIES[horizon]} "
+                                f"Set horizon to {horizon.value} and timeframe_label "
+                                f"to {_HORIZON_WINDOWS[horizon]}."
+                                f"{field_instructions}"
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Generate the {horizon.value} structured scenario for {company_name}. "
+                                f"{instrument_context}\n\n"
+                                f"{current_price_context}\n\n"
+                                f"{date_grounding}\n\n"
+                                f"{_TEMPLATE_LINE}\n\n"
+                                "Return a ScenarioPlan with exactly one scenario for this "
+                                "horizon. The parent planner will normalize the final "
+                                "short/mid/long plan. Use the current reports, investment "
+                                "plan, and Portfolio Manager decision as the primary "
+                                "evidence layer. Do not use raw continuity memory.\n\n"
+                                f"{scenario_handoff}\n\n"
+                                "Portfolio Manager decision (truncated):\n"
+                                f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
+                                f"Investment plan:\n{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
+                                f"Research context:\n{reports_block}"
+                            ),
+                        },
+                    ]
+                    try:
+                        horizon_plans.append(structured_llm.invoke(messages))
+                        structured_successes += 1
+                    except Exception as exc:
+                        logger.warning(
+                            "ScenarioPlanner: %s structured horizon failed (%s); using horizon fallback",
+                            horizon.value,
+                            exc,
+                        )
+                        horizon_plans.append(
+                            ScenarioPlan(setup_type=effective_setup, scenarios=[])
+                        )
+                if structured_successes == 0:
+                    raise RuntimeError("all structured horizon calls failed")
+                plan = _normalize_horizon_plan(
+                    horizon_plans,
+                    setup_type=effective_setup,
+                    analysis_date=analysis_date,
+                    research_reports=research_reports,
+                    state=state,
+                )
                 plan = _ground_scenario_plan_dates(
                     plan,
                     evidence_text=source_evidence,

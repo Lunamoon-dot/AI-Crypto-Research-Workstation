@@ -192,6 +192,27 @@ export interface ThesisSummaryResponse {
   degradation_reasons: string[];
 }
 
+export type ThesisArtifactStatus = 'valid' | 'degraded' | 'blocked' | 'legacy';
+
+export type ThesisTextSource = 'compiled' | 'legacy' | 'diagnostic' | 'missing';
+
+export type ThesisValidationSeverity = 'info' | 'warning' | 'error' | 'blocker';
+
+export interface ThesisValidationIssueResponse {
+  code: string;
+  severity: ThesisValidationSeverity;
+  message: string;
+  field: string | null;
+  source: string | null;
+}
+
+export interface CompiledThesisSectionResponse {
+  key: string;
+  title: string;
+  text: string;
+  source_fields: string[];
+}
+
 export interface ThesisResponse {
   id: string | null;
   workspace_id: string;
@@ -227,6 +248,14 @@ export interface ThesisResponse {
   contradicting_signal_ids: string[];
   stale_or_missing_data: string[];
   monitor_next: string[];
+  artifact_status: ThesisArtifactStatus;
+  thesis_text_source: ThesisTextSource;
+  compiled_sections: CompiledThesisSectionResponse[];
+  compiler_version: string | null;
+  validation_issues: ThesisValidationIssueResponse[];
+  degradation_reasons: string[];
+  blocked_reasons: string[];
+  candidate_schema_version: string | null;
 }
 
 export interface ScenarioResponse {
@@ -247,6 +276,8 @@ export interface ScenarioResponse {
   risk_map: string[];
   as_of: string;
   timeframe: string;
+  horizon: ScenarioHorizon;
+  timeframe_label: string | null;
   source: string[];
   status: string;
   status_reason: string;
@@ -257,6 +288,8 @@ export interface ScenarioResponse {
   runtime_decision: ScenarioRuntimeDecision;
   payload: JsonRecord;
 }
+
+export type ScenarioHorizon = 'short_term' | 'mid_term' | 'long_term' | 'unknown';
 
 export interface ThesisDecisionResponse {
   id: string | null;
@@ -1674,12 +1707,82 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     stale_or_missing_data: stringList(thesis.stale_or_missing_data),
     monitor_next:
       monitorNext.length > 0 ? monitorNext : researchItemTextList(summary.monitor_next),
+    artifact_status: thesisArtifactStatusValue(thesis.artifact_status),
+    thesis_text_source: thesisTextSourceValue(thesis.thesis_text_source),
+    compiled_sections: compiledThesisSectionResponses(
+      thesis.compiled_sections ?? evidence.compiled_sections,
+    ),
+    compiler_version: nullableString(thesis.compiler_version ?? evidence.compiler_version),
+    validation_issues: thesisValidationIssueResponses(thesis.validation_issues),
+    degradation_reasons: stringList(thesis.degradation_reasons),
+    blocked_reasons: stringList(thesis.blocked_reasons),
+    candidate_schema_version: nullableString(thesis.candidate_schema_version),
   };
+}
+
+function thesisArtifactStatusValue(value: unknown): ThesisArtifactStatus {
+  if (value === 'valid' || value === 'degraded' || value === 'blocked') {
+    return value;
+  }
+  return 'legacy';
+}
+
+function thesisTextSourceValue(value: unknown): ThesisTextSource {
+  if (
+    value === 'compiled' ||
+    value === 'legacy' ||
+    value === 'diagnostic' ||
+    value === 'missing'
+  ) {
+    return value;
+  }
+  return 'legacy';
+}
+
+function compiledThesisSectionResponses(value: unknown): CompiledThesisSectionResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      const section = recordValue(item);
+      return {
+        key: stringValue(section.key),
+        title: stringValue(section.title),
+        text: stringValue(section.text),
+        source_fields: stringList(section.source_fields),
+      };
+    })
+    .filter((section) => section.key && section.title && section.text);
+}
+
+function thesisValidationIssueResponses(value: unknown): ThesisValidationIssueResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const issue = recordValue(item);
+    return {
+      code: stringValue(issue.code),
+      severity: thesisValidationSeverityValue(issue.severity),
+      message: stringValue(issue.message),
+      field: nullableString(issue.field),
+      source: nullableString(issue.source),
+    };
+  }).filter((issue) => issue.code || issue.message);
+}
+
+function thesisValidationSeverityValue(value: unknown): ThesisValidationSeverity {
+  if (value === 'info' || value === 'warning' || value === 'error' || value === 'blocker') {
+    return value;
+  }
+  return 'info';
 }
 
 export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   const legacyMeta = legacyScenarioMeta(payload, scenario);
+  const horizon = scenarioHorizonValue(scenario.horizon ?? payload.horizon);
   const decisionPlaybook = scenarioDecisionPlaybookValue(
     scenario.decision_playbook ?? payload.decision_playbook,
   );
@@ -1716,7 +1819,9 @@ export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
     impact_on_thesis: firstScenarioString(scenario.impact_on_thesis, payload.impact_on_thesis),
     risk_map: firstScenarioStringList(scenario.risk_map, payload.risk_map, payload.risk_factors),
     as_of: firstScenarioString(scenario.as_of, payload.as_of, payload.asOf, payload.source_timestamp, legacyMeta.as_of),
-    timeframe: firstScenarioString(scenario.timeframe, payload.timeframe, payload.time_frame, payload.horizon, legacyMeta.timeframe),
+    timeframe: firstScenarioString(scenario.timeframe, payload.timeframe, payload.time_frame, legacyMeta.timeframe),
+    horizon,
+    timeframe_label: nullableString(scenario.timeframe_label ?? payload.timeframe_label),
     source: firstScenarioStringList(scenario.source, payload.source, payload.sources, payload.source_artifacts, legacyMeta.source),
     status: firstScenarioString(scenario.status, payload.status, 'watching'),
     status_reason: firstScenarioString(scenario.status_reason, payload.status_reason),
@@ -1729,6 +1834,13 @@ export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
     ),
     payload,
   };
+}
+
+function scenarioHorizonValue(value: unknown): ScenarioHorizon {
+  if (value === 'short_term' || value === 'mid_term' || value === 'long_term') {
+    return value;
+  }
+  return 'unknown';
 }
 
 export function toThesisDecisionResponse(

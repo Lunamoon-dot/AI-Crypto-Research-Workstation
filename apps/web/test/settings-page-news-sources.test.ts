@@ -24,6 +24,14 @@ test('workspace configuration page exposes workspace news source management', ()
     new URL('../src/services/workspaces.ts', import.meta.url),
     'utf8',
   );
+  const generatedClientSource = readFileSync(
+    new URL('../src/services/generated/api-client.ts', import.meta.url),
+    'utf8',
+  );
+  const storeSource = readFileSync(
+    new URL('../src/store/useWorkspaceStore.ts', import.meta.url),
+    'utf8',
+  );
   const queryKeySource = readFileSync(
     new URL('../src/services/query-keys.ts', import.meta.url),
     'utf8',
@@ -35,6 +43,13 @@ test('workspace configuration page exposes workspace news source management', ()
 
   assert.equal(pageSource.includes('listWorkspaceNewsSources'), true);
   assert.equal(pageSource.includes('updateWorkspaceNewsSources'), true);
+  assert.equal(pageSource.includes('deleteWorkspace'), true);
+  assert.equal(pageSource.includes('deleteConfirmationMatches'), true);
+  assert.equal(pageSource.includes('queryClient.setQueryData<WorkspaceSummary[]>'), true);
+  assert.equal(pageSource.includes('candidate.id !== workspace.id'), true);
+  assert.equal(pageSource.includes('auth.clearWorkspace(workspace.id)'), true);
+  assert.equal(pageSource.includes("auth.workspaceId !== 'local'"), true);
+  assert.equal(pageSource.includes('Delete workspace'), true);
   assert.equal(pageSource.includes('Workspace analyst sources'), true);
   assert.equal(pageSource.includes('Target analyst'), true);
   assert.equal(pageSource.includes('ANALYST_TARGET_OPTIONS'), true);
@@ -66,7 +81,12 @@ test('workspace configuration page exposes workspace news source management', ()
   assert.equal(navSource.includes('Workspace Config'), true);
   assert.equal(navSource.includes('routes.researchWorkspace'), true);
   assert.equal(serviceSource.includes('/news-sources'), true);
+  assert.equal(serviceSource.includes('generatedClient(auth).deleteWorkspace(id)'), true);
+  assert.equal(generatedClientSource.includes('deleteWorkspace: (id: string)'), true);
+  assert.equal(generatedClientSource.includes("method: 'DELETE'"), true);
   assert.equal(queryKeySource.includes('workspaceNewsSources'), true);
+  assert.equal(storeSource.includes('clearWorkspace: (workspaceId: string) => void'), true);
+  assert.equal(storeSource.includes('workspaceId: legacyMixedWorkspace.id'), true);
   assert.equal(typeSource.includes('WorkspaceNewsSource'), true);
   assert.equal(typeSource.includes('WorkspaceNewsSourceTargetAnalyst'), true);
   assert.equal(typeSource.includes('target_analysts'), true);

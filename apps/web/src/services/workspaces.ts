@@ -25,6 +25,10 @@ export function getWorkspace(id: string, auth: WorkspaceRequestContext) {
   return generatedClient(auth).getWorkspace(id);
 }
 
+export function deleteWorkspace(id: string, auth: WorkspaceRequestContext) {
+  return generatedClient(auth).deleteWorkspace(id);
+}
+
 export function listWorkspaceNewsSources(
   id: string,
   auth: WorkspaceRequestContext,

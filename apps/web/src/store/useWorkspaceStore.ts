@@ -15,6 +15,7 @@ type WorkspaceStore = WorkspaceRequestContext & {
   setLocalUserId: (userId: string) => void;
   setLocalWorkspaceId: (workspaceId: string) => void;
   setWorkspace: (workspace: WorkspaceSummary) => void;
+  clearWorkspace: (workspaceId: string) => void;
   isLegacyMixedWorkspace: () => boolean;
   fixedWorkspaceSymbol: () => string | null;
   resetWorkspace: () => void;
@@ -53,6 +54,15 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       workspace,
       workspaceId: workspace.id,
     }),
+  clearWorkspace: (workspaceId) => {
+    if (get().workspaceId !== workspaceId) {
+      return;
+    }
+    set({
+      workspaceId: legacyMixedWorkspace.id,
+      workspace: legacyMixedWorkspace,
+    });
+  },
   isLegacyMixedWorkspace: () =>
     get().workspace?.scope_type === 'legacy_mixed',
   fixedWorkspaceSymbol: () => {

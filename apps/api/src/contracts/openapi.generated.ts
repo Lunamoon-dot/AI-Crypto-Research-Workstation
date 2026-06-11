@@ -1565,6 +1565,27 @@ export const openApiDocument = {
           degradation_reasons: { type: 'array', items: { type: 'string' } },
         },
       },
+      ThesisValidationIssueResponse: {
+        type: 'object',
+        required: ['code', 'severity', 'message', 'field', 'source'],
+        properties: {
+          code: { type: 'string' },
+          severity: { type: 'string', enum: ['info', 'warning', 'error', 'blocker'] },
+          message: { type: 'string' },
+          field: { type: ['string', 'null'] },
+          source: { type: ['string', 'null'] },
+        },
+      },
+      CompiledThesisSectionResponse: {
+        type: 'object',
+        required: ['key', 'title', 'text', 'source_fields'],
+        properties: {
+          key: { type: 'string' },
+          title: { type: 'string' },
+          text: { type: 'string' },
+          source_fields: { type: 'array', items: { type: 'string' } },
+        },
+      },
       ThesisResponse: {
         type: 'object',
         required: [
@@ -1602,6 +1623,14 @@ export const openApiDocument = {
           'contradicting_signal_ids',
           'stale_or_missing_data',
           'monitor_next',
+          'artifact_status',
+          'thesis_text_source',
+          'compiled_sections',
+          'compiler_version',
+          'validation_issues',
+          'degradation_reasons',
+          'blocked_reasons',
+          'candidate_schema_version',
         ],
         properties: {
           id: { type: ['string', 'null'] },
@@ -1638,6 +1667,26 @@ export const openApiDocument = {
           contradicting_signal_ids: { type: 'array', items: { type: 'string' } },
           stale_or_missing_data: { type: 'array', items: { type: 'string' } },
           monitor_next: { type: 'array', items: { type: 'string' } },
+          artifact_status: {
+            type: 'string',
+            enum: ['valid', 'degraded', 'blocked', 'legacy'],
+          },
+          thesis_text_source: {
+            type: 'string',
+            enum: ['compiled', 'legacy', 'diagnostic', 'missing'],
+          },
+          compiled_sections: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/CompiledThesisSectionResponse' },
+          },
+          compiler_version: { type: ['string', 'null'] },
+          validation_issues: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ThesisValidationIssueResponse' },
+          },
+          degradation_reasons: { type: 'array', items: { type: 'string' } },
+          blocked_reasons: { type: 'array', items: { type: 'string' } },
+          candidate_schema_version: { type: ['string', 'null'] },
         },
       },
       ScenarioResponse: {
@@ -1660,6 +1709,8 @@ export const openApiDocument = {
           'risk_map',
           'as_of',
           'timeframe',
+          'horizon',
+          'timeframe_label',
           'source',
           'status',
           'status_reason',
@@ -1688,6 +1739,8 @@ export const openApiDocument = {
           risk_map: { type: 'array', items: { type: 'string' } },
           as_of: { type: 'string' },
           timeframe: { type: 'string' },
+          horizon: { type: 'string', enum: ['short_term', 'mid_term', 'long_term', 'unknown'] },
+          timeframe_label: { type: ['string', 'null'] },
           source: { type: 'array', items: { type: 'string' } },
           status: { type: 'string' },
           status_reason: { type: 'string' },

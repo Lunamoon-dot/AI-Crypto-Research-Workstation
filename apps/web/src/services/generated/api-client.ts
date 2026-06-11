@@ -266,6 +266,27 @@ export interface ThesisSummaryResponse {
   degradation_reasons: string[];
 }
 
+export type ThesisArtifactStatus = 'valid' | 'degraded' | 'blocked' | 'legacy';
+
+export type ThesisTextSource = 'compiled' | 'legacy' | 'diagnostic' | 'missing';
+
+export type ThesisValidationSeverity = 'info' | 'warning' | 'error' | 'blocker';
+
+export interface ThesisValidationIssueResponse {
+  code: string;
+  severity: ThesisValidationSeverity;
+  message: string;
+  field: string | null;
+  source: string | null;
+}
+
+export interface CompiledThesisSectionResponse {
+  key: string;
+  title: string;
+  text: string;
+  source_fields: string[];
+}
+
 export interface ThesisResponse {
   id: string | null;
   workspace_id: string;
@@ -301,6 +322,14 @@ export interface ThesisResponse {
   contradicting_signal_ids: string[];
   stale_or_missing_data: string[];
   monitor_next: string[];
+  artifact_status: ThesisArtifactStatus;
+  thesis_text_source: ThesisTextSource;
+  compiled_sections: CompiledThesisSectionResponse[];
+  compiler_version: string | null;
+  validation_issues: ThesisValidationIssueResponse[];
+  degradation_reasons: string[];
+  blocked_reasons: string[];
+  candidate_schema_version: string | null;
 }
 
 export type ScenarioTriggerStatus =
@@ -381,6 +410,8 @@ export interface ScenarioResponse {
   risk_map: string[];
   as_of: string;
   timeframe: string;
+  horizon: ScenarioHorizon;
+  timeframe_label: string | null;
   source: string[];
   status: string;
   status_reason: string;
@@ -391,6 +422,8 @@ export interface ScenarioResponse {
   runtime_decision: ScenarioRuntimeDecision;
   payload: JsonRecord;
 }
+
+export type ScenarioHorizon = 'short_term' | 'mid_term' | 'long_term' | 'unknown';
 
 export interface JournalRunWorkspaceResponse {
   run: ResearchRunResponse;
@@ -422,6 +455,10 @@ export function createApiClient(request: ApiTransport) {
       request<WorkspaceSummary>('/workspaces', { method: 'POST', body }),
     getWorkspace: (id: string) =>
       request<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`, {}),
+    deleteWorkspace: (id: string) =>
+      request<WorkspaceSummary>(`/workspaces/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
     listResearchRuns: (params: {
       symbol?: string;
       status?: string;

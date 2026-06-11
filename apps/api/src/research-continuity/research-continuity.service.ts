@@ -2833,8 +2833,12 @@ function compactScenarioBranches(values: unknown[], limit: number): JsonRecord[]
   return values
     .map((value) => {
       const record = recordValue(value);
+      const horizon = nullableString(record.horizon);
+      const timeframeLabel = nullableString(record.timeframe_label);
       return {
         scenario_key: nullableString(record.scenario_key),
+        ...(horizon ? { horizon } : {}),
+        ...(timeframeLabel ? { timeframe_label: timeframeLabel } : {}),
         branch_type: nullableString(record.branch_type),
         probability_band: nullableString(record.probability_band),
         condition: truncateText(stringValue(record.condition), 220),

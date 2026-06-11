@@ -63,6 +63,24 @@ def invoke_structured_or_freetext(
     shape). The same value is forwarded to the free-text path so the
     fallback sees the same input the structured call did.
     """
+    text, _source = invoke_structured_or_freetext_with_source(
+        structured_llm,
+        plain_llm,
+        prompt,
+        render,
+        agent_name,
+    )
+    return text
+
+
+def invoke_structured_or_freetext_with_source(
+    structured_llm: Optional[Any],
+    plain_llm: Any,
+    prompt: Any,
+    render: Callable[[T], str],
+    agent_name: str,
+) -> tuple[str, str]:
+    """Run the structured call and report whether fallback text was used."""
     if structured_llm is not None:
         try:
             result = structured_llm.invoke(prompt)
@@ -72,7 +90,7 @@ def invoke_structured_or_freetext(
                 agent_name=agent_name,
                 status="success",
             )
-            return render(result)
+            return render(result), "structured"
         except Exception as exc:
             log_event(
                 logger,
@@ -90,7 +108,7 @@ def invoke_structured_or_freetext(
 
     try:
         response = plain_llm.invoke(prompt)
-        return response.content
+        return response.content, "free_text_fallback"
     except Exception as exc:
         log_event(
             logger,

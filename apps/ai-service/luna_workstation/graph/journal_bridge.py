@@ -271,7 +271,10 @@ class JournalBridge:
                 if scenario_plan_json:
                     try:
                         plan = ScenarioPlan.model_validate_json(scenario_plan_json)
-                        parsed_scenarios = scenarios_from_structured_plan(plan, "")
+                        parsed_scenarios = scenarios_from_structured_plan(
+                            plan,
+                            thesis.id or "",
+                        )
                         parsed_from_json = bool(parsed_scenarios)
                     except Exception as exc:
                         logger.warning("Could not parse scenario_plan_json: %s", exc)
@@ -586,7 +589,7 @@ def scenarios_from_structured_plan(
     import uuid
 
     out: list[Scenario] = []
-    for item in plan.scenarios[:4]:
+    for item in plan.scenarios[:3]:
         band = _probability_band_from_label(item.probability_band)
         as_of, timeframe, source = _normalize_scenario_provenance(
             item.as_of,
@@ -612,6 +615,12 @@ def scenarios_from_structured_plan(
                 as_of=as_of,
                 timeframe=timeframe,
                 source=source[:8],
+                horizon=item.horizon.value if item.horizon else "unknown",
+                timeframe_label=item.timeframe_label,
+                template_metadata={
+                    "horizon": item.horizon.value if item.horizon else "unknown",
+                    "timeframe_label": item.timeframe_label,
+                },
             )
         )
     return out
@@ -648,11 +657,17 @@ def _parse_scenario_plan(
     blocks = _split_scenario_blocks(text)
 
     scenarios: list[Scenario] = []
-    for block in blocks:
+    parsed_blocks = [block.strip() for block in blocks if block.strip()]
+    apply_ordered_horizons = len(parsed_blocks) >= len(_HORIZON_METADATA)
+    for block_index, block in enumerate(parsed_blocks):
         block = block.strip()
         if not block or len(block) < 20:
             continue
 
+        horizon_raw = _extract_markdown_section(block, _HORIZON_SECTION_PATTERN)
+        timeframe_label_raw = _extract_markdown_section(
+            block, _HORIZON_WINDOW_SECTION_PATTERN
+        )
         condition = _extract_markdown_section(block, _CONDITION_SECTION_PATTERN)
         behavior = _extract_markdown_section(block, _BEHAVIOR_SECTION_PATTERN)
         prob_raw = _extract_markdown_section(block, _PROBABILITY_SECTION_PATTERN)
@@ -667,6 +682,11 @@ def _parse_scenario_plan(
         source_raw = _extract_markdown_section(block, _SOURCE_SECTION_PATTERN)
         clean_action, legacy_as_of, legacy_source, legacy_timeframe = (
             _extract_legacy_source_timeframe_as_of(action)
+        )
+        horizon, timeframe_label = _scenario_horizon_metadata(
+            horizon_raw,
+            timeframe_label_raw,
+            block_index if apply_ordered_horizons else None,
         )
 
         if not any(
@@ -759,6 +779,12 @@ def _parse_scenario_plan(
                 timeframe or legacy_timeframe or "",
                 _split_list_section(source_raw) or legacy_source,
             ),
+            horizon=horizon,
+            timeframe_label=timeframe_label,
+            template_metadata={
+                "horizon": horizon,
+                "timeframe_label": timeframe_label,
+            },
         )
         scenarios.append(scenario)
 
@@ -801,6 +827,36 @@ def _normalize_scenario_provenance(
         if match:
             cleaned_as_of = match.group(1)
     return cleaned_as_of, cleaned_timeframe, cleaned_source
+
+
+def _scenario_horizon_metadata(
+    horizon_raw: str,
+    timeframe_label_raw: str,
+    ordered_index: int | None,
+) -> tuple[str, str]:
+    horizon = _parse_scenario_horizon(horizon_raw)
+    timeframe_label = str(timeframe_label_raw or "").strip()
+    if horizon == "unknown" and ordered_index is not None:
+        if 0 <= ordered_index < len(_HORIZON_METADATA):
+            horizon, fallback_label = _HORIZON_METADATA[ordered_index]
+            return horizon, timeframe_label or fallback_label
+    if horizon != "unknown":
+        for candidate, fallback_label in _HORIZON_METADATA:
+            if candidate == horizon:
+                return horizon, timeframe_label or fallback_label
+    return "unknown", timeframe_label
+
+
+def _parse_scenario_horizon(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    normalized = _re.sub(r"[\s\-]+", "_", normalized)
+    if "short_term" in normalized or normalized.startswith("short"):
+        return "short_term"
+    if "mid_term" in normalized or normalized.startswith("mid"):
+        return "mid_term"
+    if "long_term" in normalized or normalized.startswith("long"):
+        return "long_term"
+    return "unknown"
 
 
 def _extract_legacy_source_timeframe_as_of(text: str) -> tuple[str, str, list[str], str]:
@@ -860,6 +916,15 @@ _DATE_IN_TEXT_RE = _re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _AS_OF_IN_TIMEFRAME_RE = _re.compile(
     r"\(?\s*as[_\s-]*of\s*:\s*(\d{4}-\d{2}-\d{2})\s*\)?\.?",
     _re.IGNORECASE,
+)
+_HORIZON_METADATA = (
+    ("short_term", "24-72h"),
+    ("mid_term", "1-3w"),
+    ("long_term", "1-3m"),
+)
+_HORIZON_SECTION_PATTERN = r"horizon"
+_HORIZON_WINDOW_SECTION_PATTERN = (
+    r"horizon\s+window|timeframe\s+label|time\s*frame\s+label"
 )
 _CONDITION_SECTION_PATTERN = (
     r"key\s+market\s+conditions?(?:\s*(?:&|and)\s*catalysts?)?|"

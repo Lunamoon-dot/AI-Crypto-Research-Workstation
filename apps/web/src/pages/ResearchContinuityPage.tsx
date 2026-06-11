@@ -888,6 +888,8 @@ function ActiveItems({
             <article className="continuity-active-item" key={scenario.key}>
               <div className="continuity-active-item-main">
                 <div className="continuity-active-item-meta">
+                  <span className="badge">{scenario.horizon}</span>
+                  <span className="badge">{scenario.timeframeLabel}</span>
                   <span className="badge primary">{scenario.probabilityBand}</span>
                   <span className="badge">{scenario.branchType}</span>
                 </div>

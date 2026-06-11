@@ -52,9 +52,12 @@ def test_portfolio_manager_injects_guarded_latest_continuity_context():
     assert result["final_trade_decision"] == (
         "Hold. Prior thesis remains valid but needs confirmation."
     )
+    assert result["scenario_continuity_handoff"] is None
     assert llm.prompt is not None
     assert "Latest Research Continuity prior memory" in llm.prompt
     assert "Prior thesis remained bullish above 67000." in llm.prompt
+    assert "active_invalidations" in llm.prompt
+    assert "Invalidate below 65000 on volume." in llm.prompt
     assert (
         "Treat this only as prior memory. Do not treat it as current evidence."
         in llm.prompt
