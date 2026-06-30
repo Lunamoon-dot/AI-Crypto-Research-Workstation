@@ -61,6 +61,102 @@ class ScenarioHorizon(str, Enum):
     LONG_TERM = "long_term"
 
 
+class ScenarioRelationToThesis(str, Enum):
+    """How a scenario branch relates to the current thesis."""
+
+    SUPPORTS = "supports"
+    CHALLENGES = "challenges"
+    INVALIDATES = "invalidates"
+    NEUTRAL = "neutral"
+
+
+class ScenarioRecommendationAction(str, Enum):
+    """Current action intent for a scenario recommendation."""
+
+    WAIT = "wait"
+    CONSIDER_LONG = "consider_long"
+    CONSIDER_SHORT = "consider_short"
+    ENTRY_LONG_NOW = "entry_long_now"
+    ENTRY_SHORT_NOW = "entry_short_now"
+    AVOID = "avoid"
+    REDUCE = "reduce"
+    EXIT = "exit"
+    REVIEW = "review"
+
+
+class ScenarioRecommendationBias(str, Enum):
+    """Directional bias behind a scenario recommendation."""
+
+    LONG = "long"
+    SHORT = "short"
+    NEUTRAL = "neutral"
+    UNKNOWN = "unknown"
+
+
+class ScenarioEvaluationReadiness(str, Enum):
+    """Whether a recommendation has enough structure for later evaluation."""
+
+    READY = "ready"
+    MISSING_TRIGGER = "missing_trigger"
+    MISSING_INVALIDATION = "missing_invalidation"
+    MISSING_TIME_WINDOW = "missing_time_window"
+    NOT_ACTIONABLE = "not_actionable"
+    NEEDS_REVIEW = "needs_review"
+
+
+class ScenarioRecommendationGate(BaseModel):
+    """Hard gate that must be checked before acting on a recommendation."""
+
+    id: str = ""
+    label: str = ""
+    status: str = Field(
+        default="unknown",
+        description="Exactly one of passed, failed, pending, or unknown.",
+    )
+    reason: str = ""
+
+
+class ScenarioRecommendationEvaluationWindow(BaseModel):
+    """Evaluation window prepared for a later scenario evaluation pass."""
+
+    starts_at: str | None = None
+    ends_at: str | None = None
+    horizon: ScenarioHorizon | None = None
+    metric_hint: str = Field(
+        default="manual_review",
+        description=(
+            "Exactly one of trigger_then_mfe_mae, avoidance_check, or manual_review."
+        ),
+    )
+
+
+class ScenarioRecommendation(BaseModel):
+    """Structured recommendation intent optionally emitted with a scenario."""
+
+    version: str = Field(default="scenario_recommendation.v1")
+    generated_at: str | None = None
+    source: str = Field(default="llm", description="Exactly llm or derived_v1.")
+    action: ScenarioRecommendationAction = ScenarioRecommendationAction.REVIEW
+    action_bias: ScenarioRecommendationBias = ScenarioRecommendationBias.UNKNOWN
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    summary: str = ""
+    thesis_link: str = ""
+    required_conditions: list[dict[str, Any]] = Field(default_factory=list)
+    invalidation_conditions: list[dict[str, Any]] = Field(default_factory=list)
+    wait_for: list[str] = Field(default_factory=list)
+    hard_gates: list[ScenarioRecommendationGate] = Field(default_factory=list)
+    blocking_reasons: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    valid_until: str | None = None
+    evaluation_readiness: ScenarioEvaluationReadiness = (
+        ScenarioEvaluationReadiness.NEEDS_REVIEW
+    )
+    evaluation_window: ScenarioRecommendationEvaluationWindow = Field(
+        default_factory=ScenarioRecommendationEvaluationWindow
+    )
+
+
 class SetupAction(str, Enum):
     """3-tier setup direction used by the Setup Planner.
 
@@ -614,6 +710,15 @@ class ScenarioItem(BaseModel):
             "Rank impact separately from probability."
         ),
     )
+    relation_to_thesis: ScenarioRelationToThesis | None = Field(
+        default=None,
+        description=(
+            "Relationship to the current thesis: supports, challenges, "
+            "invalidates, or neutral. Use supports for confirmation branches, "
+            "challenges for stress-test branches, and invalidates when the "
+            "branch would make the thesis no longer active."
+        ),
+    )
     condition: str = Field(
         description=(
             "Concrete trigger condition with specific price levels, indicator "
@@ -695,6 +800,14 @@ class ScenarioItem(BaseModel):
             "'ETF flow tracker'. Use only sources present in context."
         ),
     )
+    scenario_recommendation: ScenarioRecommendation | None = Field(
+        default=None,
+        description=(
+            "Optional structured recommendation intent for this scenario. Keep "
+            "legacy scenarios valid by omitting it when recommendation metadata "
+            "is not available."
+        ),
+    )
 
 
 class ScenarioPlan(BaseModel):
@@ -733,6 +846,11 @@ def render_scenario_plan(plan: ScenarioPlan) -> str:
                 "",
                 f"**Thesis Impact**: {s.thesis_impact}",
                 "",
+                (
+                    "**Relation to Thesis**: "
+                    f"{s.relation_to_thesis.value if s.relation_to_thesis else 'neutral'}"
+                ),
+                "",
                 f"**Condition**: {s.condition}",
                 "",
                 f"**Evidence**: {', '.join(s.evidence) if s.evidence else 'Not recorded.'}",
@@ -748,6 +866,16 @@ def render_scenario_plan(plan: ScenarioPlan) -> str:
                 f"**Risk Factors**: {', '.join(s.risk_factors) if s.risk_factors else 'Manual review required.'}",
                 "",
                 f"**Suggested Action**: {s.suggested_action}",
+                "",
+                (
+                    "**Recommendation**: "
+                    f"{s.scenario_recommendation.action.value if s.scenario_recommendation else 'review'}"
+                ),
+                "",
+                (
+                    "**Recommendation Summary**: "
+                    f"{s.scenario_recommendation.summary if s.scenario_recommendation else 'Structured recommendation not recorded.'}"
+                ),
                 "",
                 f"**As Of**: {s.as_of}",
                 "",

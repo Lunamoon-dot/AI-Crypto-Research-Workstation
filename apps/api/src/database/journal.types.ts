@@ -132,6 +132,13 @@ export interface AgentCalibrationSourceFilters {
   windowDays: number;
 }
 
+export interface ScenarioReliabilityEvaluationFilters {
+  symbol?: string;
+  market_type?: string;
+  horizon?: string;
+  limit: number;
+}
+
 export interface ThesisEvaluationUpsertResult {
   created: boolean;
   evaluation: JsonRecord;
@@ -156,6 +163,14 @@ export interface ResearchRunFailure {
   reason: string;
   message: string;
   completedAt?: string;
+}
+
+export interface ResearchRunCascadeDeletion {
+  removed: boolean;
+  workspace_id: string;
+  requested_run_id: string;
+  deleted_count: number;
+  deleted_run_ids: string[];
 }
 
 export interface ContinuityRepairRunFilters {
@@ -187,6 +202,11 @@ export interface JournalRepository {
     workspaceId: string,
     failure: ResearchRunFailure,
   ): Promise<JsonRecord | null>;
+  removeResearchRunCascade(
+    id: string,
+    workspaceId: string,
+  ): Promise<ResearchRunCascadeDeletion>;
+  removeWorkspaceSignals(workspaceId: string): Promise<string[]>;
   listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]>;
   getMarketSnapshot(id: string, workspaceId: string): Promise<JsonRecord | null>;
   getLatestMarketSnapshot(
@@ -320,7 +340,52 @@ export interface JournalRepository {
     input: ThesisEvaluationPromotionInput,
     workspaceId: string,
   ): Promise<JsonRecord>;
+  getScenario(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listScenarios(thesisId: string, workspaceId: string): Promise<JsonRecord[]>;
+  saveScenarioEvaluation(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listScenarioEvaluations(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getScenarioEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  listScenarioEvaluationsForReliability(
+    filters: ScenarioReliabilityEvaluationFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  saveTradePlaybook(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  getTradePlaybook(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  listTradePlaybooksForScenario(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listTradePlaybooks(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  saveBacktestRun(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  getBacktestRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
+  listBacktestRunsForPlaybook(
+    playbookId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listBacktestRuns(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  saveBacktestTradeEvents(
+    runId: string,
+    events: JsonRecord[],
+    workspaceId: string,
+  ): Promise<void>;
+  listBacktestTradeEvents(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  saveScenarioDecisionItemState(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listScenarioDecisionItemStates(workspaceId: string): Promise<JsonRecord[]>;
   recordThesisDecision(
     thesisId: string,
     action: string,

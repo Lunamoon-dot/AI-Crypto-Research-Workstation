@@ -170,6 +170,14 @@ export const openApiDocument = {
           },
         },
       },
+      delete: {
+        operationId: 'deleteWorkspaceResearchRunData',
+        tags: ['research-runs'],
+        responses: jsonResponse(
+          'Deleted all current workspace research run data.',
+          'ResearchRunDeletionResponse',
+        ),
+      },
     },
     '/research-runs/{id}/workspace': {
       get: {
@@ -451,6 +459,15 @@ export const openApiDocument = {
         responses: jsonResponse(
           'Workspace-scoped research run.',
           'ResearchRunResponse',
+        ),
+      },
+      delete: {
+        operationId: 'deleteResearchRun',
+        tags: ['research-runs'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Deleted research run and later workspace runs.',
+          'ResearchRunDeletionResponse',
         ),
       },
     },
@@ -1043,6 +1060,193 @@ export const openApiDocument = {
         ),
       },
     },
+    '/scenarios/{id}/evaluations': {
+      get: {
+        operationId: 'listScenarioEvaluations',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Persisted scenario evaluations.',
+          'ScenarioEvaluationResponse',
+        ),
+      },
+      post: {
+        operationId: 'evaluateScenario',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Created scenario evaluation.',
+          'ScenarioEvaluationResponse',
+          '201',
+        ),
+      },
+    },
+    '/scenario-evaluations/{id}': {
+      get: {
+        operationId: 'getScenarioEvaluation',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped scenario evaluation.',
+          'ScenarioEvaluationResponse',
+        ),
+      },
+    },
+    '/scenario-reliability': {
+      get: {
+        operationId: 'listScenarioReliability',
+        tags: ['scenarios'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('market_type', { type: 'string', enum: ['spot', 'perp'] }),
+          queryParameter('horizon', { type: 'string' }),
+          limitParameter(50, 200),
+        ],
+        responses: jsonArrayResponse(
+          'Scenario reliability profiles.',
+          'ScenarioReliabilityProfileResponse',
+        ),
+      },
+    },
+    '/scenario-reliability/{symbol}': {
+      get: {
+        operationId: 'getScenarioReliabilityForSymbol',
+        tags: ['scenarios'],
+        parameters: [
+          pathParameter('symbol'),
+          queryParameter('market_type', { type: 'string', enum: ['spot', 'perp'] }),
+          queryParameter('horizon', { type: 'string' }),
+          limitParameter(50, 200),
+        ],
+        responses: jsonArrayResponse(
+          'Scenario reliability profiles for a symbol.',
+          'ScenarioReliabilityProfileResponse',
+        ),
+      },
+    },
+    '/scenario-reliability/rebuild': {
+      post: {
+        operationId: 'rebuildScenarioReliability',
+        tags: ['scenarios'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonArrayResponse(
+          'Rebuilt scenario reliability profiles.',
+          'ScenarioReliabilityProfileResponse',
+        ),
+      },
+    },
+    '/scenarios/{id}/playbook': {
+      get: {
+        operationId: 'listScenarioPlaybooks',
+        tags: ['playbooks'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Compiled trade playbooks for a scenario.',
+          'TradePlaybookResponse',
+        ),
+      },
+      post: {
+        operationId: 'compileScenarioPlaybook',
+        tags: ['playbooks'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Scenario playbook compile report.',
+          'PlaybookCompileReportResponse',
+          '201',
+        ),
+      },
+    },
+    '/playbooks/{id}': {
+      get: {
+        operationId: 'getPlaybook',
+        tags: ['playbooks'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped trade playbook.',
+          'TradePlaybookResponse',
+        ),
+      },
+    },
+    '/playbooks/{id}/backtests': {
+      get: {
+        operationId: 'listPlaybookBacktests',
+        tags: ['backtests'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Backtest runs for a playbook.',
+          'BacktestRunResponse',
+        ),
+      },
+      post: {
+        operationId: 'createPlaybookBacktest',
+        tags: ['backtests'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Created playbook backtest run.',
+          'BacktestRunResponse',
+          '201',
+        ),
+      },
+    },
+    '/backtests/{id}': {
+      get: {
+        operationId: 'getBacktest',
+        tags: ['backtests'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Workspace-scoped backtest run.',
+          'BacktestRunResponse',
+        ),
+      },
+    },
+    '/backtests/{id}/events': {
+      get: {
+        operationId: 'listBacktestTradeEvents',
+        tags: ['backtests'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Workspace-scoped backtest trade events.',
+          'BacktestTradeEventResponse',
+        ),
+      },
+    },
+    '/scenario-decision/workbench': {
+      get: {
+        operationId: 'getScenarioDecisionWorkbench',
+        tags: ['scenario-decision'],
+        responses: jsonResponse(
+          'Scenario decision workbench queue.',
+          'ScenarioDecisionWorkbenchResponse',
+        ),
+      },
+    },
+    '/scenario-decision/items/{id}/resolve': {
+      post: {
+        operationId: 'resolveScenarioDecisionItem',
+        tags: ['scenario-decision'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Resolved scenario decision item.',
+          'ScenarioDecisionQueueItemResponse',
+          '201',
+        ),
+      },
+    },
+    '/scenario-decision/items/{id}/snooze': {
+      post: {
+        operationId: 'snoozeScenarioDecisionItem',
+        tags: ['scenario-decision'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Snoozed scenario decision item.',
+          'ScenarioDecisionQueueItemResponse',
+          '201',
+        ),
+      },
+    },
     '/operations/health': {
       get: {
         operationId: 'getOperationsHealth',
@@ -1229,6 +1433,23 @@ export const openApiDocument = {
           queue_backend: { type: 'string', enum: ['bullmq', 'memory', 'inline'] },
           permission: { $ref: '#/components/schemas/WorkspacePermissionDto' },
           result: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      ResearchRunDeletionResponse: {
+        type: 'object',
+        required: [
+          'removed',
+          'workspace_id',
+          'requested_run_id',
+          'deleted_count',
+          'deleted_run_ids',
+        ],
+        properties: {
+          removed: { type: 'boolean' },
+          workspace_id: { type: 'string' },
+          requested_run_id: { type: 'string' },
+          deleted_count: { type: 'integer' },
+          deleted_run_ids: { type: 'array', items: { type: 'string' } },
         },
       },
       JobStatusResponse: {
@@ -1698,6 +1919,7 @@ export const openApiDocument = {
           'scenario_name',
           'direction',
           'thesis_impact',
+          'relation_to_thesis',
           'probability_band',
           'suggested_user_action',
           'condition',
@@ -1718,7 +1940,14 @@ export const openApiDocument = {
           'last_evaluated_at',
           'trigger_spec',
           'decision_playbook',
+          'scenario_recommendation',
           'runtime_decision',
+          'evaluation_snapshot',
+          'latest_evaluation',
+          'evaluation_state',
+          'reliability_profile',
+          'latest_playbook',
+          'latest_backtest',
           'payload',
         ],
         properties: {
@@ -1728,6 +1957,10 @@ export const openApiDocument = {
           scenario_name: { type: 'string' },
           direction: { type: 'string' },
           thesis_impact: { type: 'string' },
+          relation_to_thesis: {
+            type: 'string',
+            enum: ['supports', 'challenges', 'invalidates', 'neutral'],
+          },
           probability_band: { type: 'string' },
           suggested_user_action: { type: 'string' },
           condition: { type: 'string' },
@@ -1748,8 +1981,216 @@ export const openApiDocument = {
           last_evaluated_at: { type: ['string', 'null'] },
           trigger_spec: { type: ['object', 'null'], additionalProperties: true },
           decision_playbook: { type: ['object', 'null'], additionalProperties: true },
+          scenario_recommendation: {
+            type: ['object', 'null'],
+            additionalProperties: true,
+          },
           runtime_decision: { type: 'object', additionalProperties: true },
+          evaluation_snapshot: {
+            type: ['object', 'null'],
+            additionalProperties: true,
+          },
+          latest_evaluation: {
+            anyOf: [
+              { $ref: '#/components/schemas/ScenarioEvaluationResponse' },
+              { type: 'null' },
+            ],
+          },
+          evaluation_state: {
+            type: 'string',
+            enum: ['not_ready', 'pending', 'due', 'evaluated', 'inconclusive'],
+          },
+          reliability_profile: {
+            anyOf: [
+              { $ref: '#/components/schemas/ScenarioReliabilityProfileResponse' },
+              { type: 'null' },
+            ],
+          },
+          latest_playbook: {
+            anyOf: [
+              { $ref: '#/components/schemas/TradePlaybookResponse' },
+              { type: 'null' },
+            ],
+          },
+          latest_backtest: {
+            anyOf: [
+              { $ref: '#/components/schemas/BacktestRunResponse' },
+              { type: 'null' },
+            ],
+          },
           payload: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      ScenarioEvaluationResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'scenario_id', 'thesis_id', 'symbol', 'market_type', 'horizon', 'evaluated_at', 'evaluation_window', 'result', 'data_quality', 'warnings', 'evidence'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_evaluation.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          scenario_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          research_run_id: { type: ['string', 'null'] },
+          symbol: { type: 'string' },
+          market_type: { type: 'string', enum: ['spot', 'perp'] },
+          horizon: { type: 'string' },
+          evaluated_at: { type: 'string' },
+          evaluation_window: { $ref: '#/components/schemas/JsonRecord' },
+          result: { type: 'string', enum: ['hit', 'invalidated', 'missed', 'mixed', 'inconclusive'] },
+          trigger_hit: { type: ['boolean', 'null'] },
+          invalidation_hit: { type: ['boolean', 'null'] },
+          target_hit: { type: ['boolean', 'null'] },
+          start_price: { type: ['number', 'null'] },
+          end_price: { type: ['number', 'null'] },
+          max_favorable_excursion: { type: ['number', 'null'] },
+          max_adverse_excursion: { type: ['number', 'null'] },
+          data_quality: { type: 'string', enum: ['complete', 'partial', 'insufficient'] },
+          warnings: { type: 'array', items: { type: 'string' } },
+          evidence: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      ScenarioReliabilityProfileResponse: {
+        type: 'object',
+        required: ['version', 'workspace_id', 'symbol', 'market_type', 'horizon', 'relation_to_thesis', 'action_bias', 'sample_size', 'hit_rate', 'invalidation_rate', 'mixed_rate', 'inconclusive_rate', 'data_quality_notes', 'recent_lessons'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_reliability_profile.v1'] },
+          workspace_id: { type: 'string' },
+          symbol: { type: ['string', 'null'] },
+          market_type: { type: 'string', enum: ['spot', 'perp', 'mixed'] },
+          horizon: { type: 'string' },
+          relation_to_thesis: { type: 'string' },
+          action_bias: { type: 'string' },
+          setup_type: { type: ['string', 'null'] },
+          sample_size: { type: 'integer' },
+          hit_rate: { type: ['number', 'null'] },
+          invalidation_rate: { type: ['number', 'null'] },
+          mixed_rate: { type: ['number', 'null'] },
+          inconclusive_rate: { type: ['number', 'null'] },
+          average_mfe: { type: ['number', 'null'] },
+          average_mae: { type: ['number', 'null'] },
+          data_quality_notes: { type: 'array', items: { type: 'string' } },
+          recent_lessons: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      TradePlaybookResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'source_scenario_id', 'source_thesis_id', 'symbol', 'market_type', 'direction', 'horizon', 'entry', 'invalidation', 'targets', 'no_trade_conditions', 'risk_context', 'sizing_policy', 'evidence_refs', 'compile_warnings', 'created_at'],
+        properties: {
+          version: { type: 'string', enum: ['trade_playbook.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          source_scenario_id: { type: 'string' },
+          source_thesis_id: { type: 'string' },
+          symbol: { type: 'string' },
+          market_type: { type: 'string', enum: ['spot', 'perp'] },
+          direction: { type: 'string', enum: ['long', 'short', 'avoid'] },
+          horizon: { type: 'string' },
+          entry: { $ref: '#/components/schemas/JsonRecord' },
+          invalidation: { $ref: '#/components/schemas/JsonRecord' },
+          targets: { type: 'array', items: { $ref: '#/components/schemas/JsonRecord' } },
+          no_trade_conditions: { type: 'array', items: { type: 'string' } },
+          risk_context: { type: 'array', items: { type: 'string' } },
+          sizing_policy: { $ref: '#/components/schemas/JsonRecord' },
+          evidence_refs: { type: 'array', items: { $ref: '#/components/schemas/JsonRecord' } },
+          reliability_context: {
+            anyOf: [
+              { $ref: '#/components/schemas/ScenarioReliabilityProfileResponse' },
+              { type: 'null' },
+            ],
+          },
+          compile_warnings: { type: 'array', items: { type: 'string' } },
+          created_at: { type: 'string' },
+        },
+      },
+      PlaybookCompileReportResponse: {
+        type: 'object',
+        required: ['version', 'eligible', 'playbook', 'rejection_reasons', 'warnings'],
+        properties: {
+          version: { type: 'string', enum: ['playbook_compile_report.v1'] },
+          eligible: { type: 'boolean' },
+          playbook: {
+            anyOf: [
+              { $ref: '#/components/schemas/TradePlaybookResponse' },
+              { type: 'null' },
+            ],
+          },
+          rejection_reasons: { type: 'array', items: { type: 'string' } },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      BacktestRunResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'playbook_id', 'status', 'assumptions', 'result', 'warnings', 'data_quality', 'trade_events', 'created_at', 'completed_at'],
+        properties: {
+          version: { type: 'string', enum: ['backtest_run.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          playbook_id: { type: 'string' },
+          status: { type: 'string', enum: ['queued', 'running', 'completed', 'failed', 'partial'] },
+          assumptions: { $ref: '#/components/schemas/JsonRecord' },
+          result: { $ref: '#/components/schemas/JsonRecord' },
+          warnings: { type: 'array', items: { type: 'string' } },
+          data_quality: { type: 'string', enum: ['complete', 'partial', 'insufficient'] },
+          trade_events: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BacktestTradeEventResponse' },
+          },
+          created_at: { type: 'string' },
+          completed_at: { type: ['string', 'null'] },
+        },
+      },
+      BacktestTradeEventResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'backtest_run_id', 'event_index', 'event_type', 'event_time', 'price', 'details'],
+        properties: {
+          version: { type: 'string', enum: ['backtest_trade_event.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          backtest_run_id: { type: 'string' },
+          event_index: { type: 'integer' },
+          event_type: { type: 'string' },
+          event_time: { type: 'string' },
+          price: { type: ['number', 'null'] },
+          details: { $ref: '#/components/schemas/JsonRecord' },
+        },
+      },
+      ScenarioDecisionQueueItemResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'type', 'priority', 'title', 'summary', 'scenario_id', 'thesis_id', 'playbook_id', 'backtest_id', 'status', 'blockers', 'next_action', 'due_at', 'created_at'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_decision_queue_item.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          type: {
+            type: 'string',
+            enum: ['active_scenario', 'evaluation_due', 'evaluation_inconclusive', 'reliability_changed', 'playbook_candidate', 'backtest_ready'],
+          },
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          priority: { type: 'integer' },
+          scenario_id: { type: ['string', 'null'] },
+          thesis_id: { type: ['string', 'null'] },
+          playbook_id: { type: ['string', 'null'] },
+          backtest_id: { type: ['string', 'null'] },
+          status: { type: 'string', enum: ['open', 'snoozed', 'resolved'] },
+          blockers: { type: 'array', items: { type: 'string' } },
+          next_action: { type: 'string' },
+          due_at: { type: ['string', 'null'] },
+          created_at: { type: 'string' },
+        },
+      },
+      ScenarioDecisionWorkbenchResponse: {
+        type: 'object',
+        required: ['version', 'workspace_id', 'generated_at', 'total_open', 'items'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_decision_workspace.v1'] },
+          workspace_id: { type: 'string' },
+          generated_at: { type: 'string' },
+          total_open: { type: 'integer' },
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ScenarioDecisionQueueItemResponse' },
+          },
         },
       },
       ThesisDecisionResponse: {

@@ -243,6 +243,23 @@ export class JobsService implements OnModuleDestroy {
     return this.toLifecycleStatus(cancelled ?? record);
   }
 
+  async removeResearchRunJobs(runIds: string[]): Promise<void> {
+    for (const runId of runIds) {
+      const record = await this.lifecycle.get(runId);
+      if (!record) {
+        continue;
+      }
+      this.removeMemoryJob(record.run_id);
+      const queueJob = await this.queue?.getJob(record.queue_job_id ?? record.id);
+      try {
+        await queueJob?.remove();
+      } catch {
+        await this.lifecycle.requestCancellation(record.id);
+      }
+      await this.lifecycle.remove(record.id);
+    }
+  }
+
   async onModuleDestroy() {
     this.destroyed = true;
     this.memoryJobs.length = 0;

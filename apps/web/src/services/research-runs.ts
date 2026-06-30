@@ -6,6 +6,7 @@ import {
   HealthResponse,
   JobStatusResponse,
   JournalRunWorkspaceResponse,
+  ResearchRunDeletionResponse,
   ResearchRunResponse,
   ResearchRunQueuedResponse,
 } from '@/services/generated/api-client';
@@ -23,6 +24,14 @@ export function createResearchRun(
   auth: WorkspaceRequestContext,
 ) {
   return generatedClient(auth).createResearchRun(request);
+}
+
+export function deleteResearchRun(id: string, auth: WorkspaceRequestContext) {
+  return generatedClient(auth).deleteResearchRun(id);
+}
+
+export function deleteWorkspaceResearchRunData(auth: WorkspaceRequestContext) {
+  return generatedClient(auth).deleteWorkspaceResearchRunData();
 }
 
 export function getApiHealth(auth: WorkspaceRequestContext) {
@@ -75,6 +84,7 @@ export type {
   HealthResponse,
   JobStatusResponse,
   JournalRunWorkspaceResponse,
+  ResearchRunDeletionResponse,
   ResearchRunResponse,
   ResearchRunQueuedResponse,
 };

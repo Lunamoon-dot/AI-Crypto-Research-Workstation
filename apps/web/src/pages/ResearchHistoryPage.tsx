@@ -10,8 +10,13 @@ import {
   FlaskConical,
   History,
   Square,
+  Trash2,
 } from 'lucide-react';
-import { cancelJob, listResearchRuns } from '@/services/research-runs';
+import {
+  cancelJob,
+  deleteResearchRun,
+  listResearchRuns,
+} from '@/services/research-runs';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { IdChip, StatusBadge } from '@/components/research/badges';
@@ -50,6 +55,14 @@ export function ResearchHistoryPage() {
   });
   const cancelQueuedMutation = useMutation({
     mutationFn: (runId: string) => cancelJob(runId, auth),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.researchRunsRoot(),
+      });
+    },
+  });
+  const deleteRunMutation = useMutation({
+    mutationFn: (runId: string) => deleteResearchRun(runId, auth),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.researchRunsRoot(),
@@ -150,7 +163,11 @@ export function ResearchHistoryPage() {
         <Panel
           className="span-12 research-history-results-panel"
           title="Run results"
-          description={`${runs.length} shown`}
+          description={
+            deleteRunMutation.isSuccess
+              ? `${runs.length} shown | ${deleteRunMutation.data.deleted_count} deleted`
+              : `${runs.length} shown`
+          }
           action={historyFilters}
         >
           {query.isLoading ? <LoadingState /> : null}
@@ -188,6 +205,14 @@ export function ResearchHistoryPage() {
                       cancelQueuedMutation.isError &&
                       cancelQueuedMutation.variables === runId
                         ? errorMessage(cancelQueuedMutation.error)
+                        : null;
+                    const deletePending =
+                      deleteRunMutation.isPending &&
+                      deleteRunMutation.variables === runId;
+                    const deleteError =
+                      deleteRunMutation.isError &&
+                      deleteRunMutation.variables === runId
+                        ? errorMessage(deleteRunMutation.error)
                         : null;
 
                     return (
@@ -255,8 +280,32 @@ export function ResearchHistoryPage() {
                                 Thesis
                               </Link>
                             ) : null}
+                            {canDeleteRun(run) ? (
+                              <button
+                                aria-label={`Delete run ${runId} and later runs`}
+                                className="button risk"
+                                disabled={deletePending}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      `Delete run ${runId} and all later runs in this workspace?`,
+                                    )
+                                  ) {
+                                    deleteRunMutation.mutate(runId);
+                                  }
+                                }}
+                                title="Delete this run and later runs"
+                                type="button"
+                              >
+                                <Trash2 aria-hidden size={15} />
+                                {deletePending ? 'Deleting' : 'Delete run'}
+                              </button>
+                            ) : null}
                             {cancelError ? (
                               <span className="badge risk">{cancelError}</span>
+                            ) : null}
+                            {deleteError ? (
+                              <span className="badge risk">{deleteError}</span>
                             ) : null}
                           </div>
                         </td>
@@ -332,4 +381,8 @@ function canCancelRun(run: ResearchRunResponse): boolean {
       run.status === 'submitted') &&
     Boolean(run.run_id ?? run.id)
   );
+}
+
+function canDeleteRun(run: ResearchRunResponse): boolean {
+  return Boolean(run.run_id ?? run.id) && !canCancelRun(run);
 }

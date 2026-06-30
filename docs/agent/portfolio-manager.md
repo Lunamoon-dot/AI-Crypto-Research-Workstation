@@ -19,8 +19,9 @@ Portfolio Manager synthesizes risk debate thanh final research thesis stance. No
 - `investment_plan`
 - `trader_investment_plan`
 - `market_type`
+- `quant_signal` for current price anchor
 - optional `past_context`
-- optional `latest_continuity_context`
+- optional `latest_continuity_context` as prior memory only
 - performance feedback context from config/service
 
 ## What it does
@@ -37,8 +38,10 @@ Portfolio Manager synthesizes risk debate thanh final research thesis stance. No
    - `Sell`
 6. Produces final readable markdown decision.
 7. Produces or synthesizes `TRADE_THESIS_JSON`.
-8. Strips JSON block from readable `final_trade_decision` when needed.
-9. Updates `risk_debate_state` with `judge_decision`.
+8. Extracts `scenario_continuity_handoff` from the thesis candidate JSON when available.
+9. Records candidate source and schema metadata.
+10. Strips JSON block from readable `final_trade_decision` when needed.
+11. Updates `risk_debate_state` with `judge_decision`.
 
 ## Required thesis semantics
 
@@ -55,14 +58,18 @@ Prompt requires every thesis to state:
 
 The JSON block includes:
 
+- `schema_version`
 - `rating`
 - `direction`
 - `confidence`
 - `market_type`
 - `action_summary`
+- `investment_thesis`
 - `confirmation_condition`
 - `upside_catalyst`
 - `invalidation`
+- `entry_zone`
+- `target_zones`
 - `key_reasons`
 - `risks`
 - `monitor_next`
@@ -70,6 +77,9 @@ The JSON block includes:
 - `spot_notes`
 - `perp_notes`
 - `missing_data`
+- `scenario_continuity_handoff`
+
+`scenario_continuity_handoff` is the only continuity memory passed to Scenario Planner. It should summarize prior-memory implications for short/mid/long scenarios without treating prior memory as current evidence.
 
 ## Fallback behavior
 
@@ -88,6 +98,7 @@ If the final output lacks JSON, `_synthesize_trade_summary_json` derives a summa
 
 - Research plan, setup proposal, prior memory, performance feedback, and risk debate are wrapped by `guard_untrusted_context`.
 - Prior continuity memory is explicitly treated as prior memory, not current evidence.
+- Current price comes from the pre-computed quant signal; PM should not invent price levels when the anchor is missing.
 - It is a research stance for manual review, not an exchange order.
 - Rating and direction must stay consistent:
   - Buy/Overweight -> long
@@ -99,6 +110,9 @@ If the final output lacks JSON, `_synthesize_trade_summary_json` derives a summa
 
 - `final_trade_decision`
 - `final_trade_summary_json`
+- `final_trade_candidate_source`
+- `final_trade_candidate_schema_version`
+- `scenario_continuity_handoff`
 - updated `risk_debate_state`
 
 ## Downstream consumers

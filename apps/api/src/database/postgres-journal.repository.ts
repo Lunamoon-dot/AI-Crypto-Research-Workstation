@@ -12,7 +12,9 @@ import {
   JournalRepository,
   JsonRecord,
   MaturedEvaluationThesisFilters,
+  ResearchRunCascadeDeletion,
   ResearchRunFailure,
+  ScenarioReliabilityEvaluationFilters,
   SignalSummary,
   SymbolCalibrationThesisFilters,
   ThesisDecisionIntent,
@@ -39,6 +41,7 @@ type CreatedPayloadRow = PayloadRow & {
 
 export class PostgresJournalRepository implements JournalRepository, OnModuleDestroy {
   private readonly pool?: Pool;
+  private scenarioLifecycleSchemaReady = false;
 
   constructor(databaseUrl = process.env.DATABASE_URL) {
     if (databaseUrl) {
@@ -238,6 +241,255 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     } finally {
       client.release();
     }
+  }
+
+  async removeResearchRunCascade(
+    id: string,
+    workspaceId: string,
+  ): Promise<ResearchRunCascadeDeletion> {
+    const client = await this.requirePool().connect();
+    try {
+      await client.query('BEGIN');
+      const target = await client.query<{ id: string; started_at: string }>(
+        `SELECT id, started_at
+         FROM research_runs
+         WHERE id = $1 AND workspace_id = $2
+         FOR UPDATE`,
+        [id, workspaceId],
+      );
+      const targetRun = target.rows[0];
+      if (!targetRun) {
+        throw new NotFoundException(`Research run ${id} not found`);
+      }
+
+      const runs = await client.query<{ id: string }>(
+        `SELECT id
+         FROM research_runs
+         WHERE workspace_id = $1
+           AND (
+             started_at > $2::timestamptz
+             OR (started_at = $2::timestamptz AND id >= $3)
+           )
+         ORDER BY started_at ASC, id ASC
+         FOR UPDATE`,
+        [workspaceId, targetRun.started_at, targetRun.id],
+      );
+      const runIds = runs.rows.map((row) => row.id);
+      const thesisIds = await selectIds(
+        client,
+        `SELECT id
+         FROM trade_theses
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      const debateIds = await selectIds(
+        client,
+        `SELECT id
+         FROM debates
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      const snapshotIds = await selectIds(
+        client,
+        `SELECT id
+         FROM research_snapshots
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      const signalSnapshotIds = await selectIds(
+        client,
+        `SELECT id
+         FROM signal_snapshots
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      const evaluationIds = await selectIds(
+        client,
+        `SELECT id
+         FROM thesis_evaluations
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      const evaluationRunIds = await selectIds(
+        client,
+        `SELECT id
+         FROM thesis_evaluation_runs
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      const watchlistItemIds = await selectIds(
+        client,
+        `SELECT id
+         FROM watchlist_items
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+
+      await client.query(
+        `DELETE FROM thesis_evaluation_promotions
+         WHERE workspace_id = $1
+           AND (
+             canonical_evaluation_id = ANY($2::text[])
+             OR promoted_rerun_id = ANY($3::text[])
+           )`,
+        [workspaceId, evaluationIds, evaluationRunIds],
+      );
+      await client.query(
+        `DELETE FROM thesis_evaluation_runs
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM thesis_evaluations
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM alerts
+         WHERE workspace_id = $1
+           AND (
+             thesis_id = ANY($2::text[])
+             OR watchlist_item_id = ANY($3::text[])
+           )`,
+        [workspaceId, thesisIds, watchlistItemIds],
+      );
+      await client.query(
+        `DELETE FROM watchlist_items
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM scenarios
+         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM user_decisions
+         WHERE thesis_id = ANY($1::text[])`,
+        [thesisIds],
+      );
+      await client.query(
+        `DELETE FROM outcome_reviews
+         WHERE thesis_id = ANY($1::text[])`,
+        [thesisIds],
+      );
+      await client.query(
+        `DELETE FROM llm_calls
+         WHERE research_run_id = ANY($1::text[])
+            OR thesis_id = ANY($2::text[])`,
+        [runIds, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM data_freshness_checks
+         WHERE research_run_id = ANY($1::text[])`,
+        [runIds],
+      );
+      await client.query(
+        `DELETE FROM run_events
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM agent_opinions
+         WHERE workspace_id = $1
+           AND (
+             research_run_id = ANY($2::text[])
+             OR debate_id = ANY($3::text[])
+           )`,
+        [workspaceId, runIds, debateIds],
+      );
+      await client.query(
+        `DELETE FROM debates
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM research_continuity_debug_access_audits
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM research_continuity_entries
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM research_continuity_states
+         WHERE workspace_id = $1
+           AND (
+             latest_run_id = ANY($2::text[])
+             OR current_snapshot_id = ANY($3::text[])
+           )`,
+        [workspaceId, runIds, snapshotIds],
+      );
+      await client.query(
+        `DELETE FROM research_snapshots
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM signals s
+         WHERE s.workspace_id = $1
+           AND (
+             EXISTS (
+               SELECT 1
+               FROM signal_snapshots ss
+               WHERE ss.workspace_id = s.workspace_id
+                 AND ss.research_run_id = ANY($2::text[])
+                 AND ss.payload_json->'signal_ids' ? s.id
+             )
+             OR s.payload_json->>'research_run_id' = ANY($2::text[])
+             OR s.payload_json->>'run_id' = ANY($2::text[])
+             OR s.payload_json->>'signal_snapshot_id' = ANY($3::text[])
+             OR s.payload_json->>'snapshot_id' = ANY($3::text[])
+           )`,
+        [workspaceId, runIds, signalSnapshotIds],
+      );
+      await client.query(
+        `DELETE FROM signal_snapshots
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM market_snapshots
+         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+      await client.query(
+        `DELETE FROM trade_theses
+         WHERE workspace_id = $1 AND id = ANY($2::text[])`,
+        [workspaceId, thesisIds],
+      );
+      await client.query(
+        `DELETE FROM research_runs
+         WHERE workspace_id = $1 AND id = ANY($2::text[])`,
+        [workspaceId, runIds],
+      );
+
+      await client.query('COMMIT');
+      return {
+        removed: true,
+        workspace_id: workspaceId,
+        requested_run_id: id,
+        deleted_count: runIds.length,
+        deleted_run_ids: runIds,
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async removeWorkspaceSignals(workspaceId: string): Promise<string[]> {
+    const result = await this.requirePool().query<{ id: string }>(
+      `DELETE FROM signals
+       WHERE workspace_id = $1
+       RETURNING id`,
+      [workspaceId],
+    );
+    return result.rows.map((row) => row.id);
   }
 
   async listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]> {
@@ -1317,6 +1569,22 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     return saved;
   }
 
+  async getScenario(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'thesis_id', thesis_id,
+         'probability_band', probability_band,
+         'suggested_user_action', suggested_user_action,
+         'payload', payload_json
+       ) AS payload_json
+       FROM scenarios
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
   async listScenarios(
     thesisId: string,
     workspaceId: string,
@@ -1339,6 +1607,569 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          ELSE 4
        END, id ASC`,
       [thesisId, workspaceId],
+    );
+  }
+
+  async saveScenarioEvaluation(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(input.id, `scenario_eval_${randomUUID().replaceAll('-', '')}`);
+    const evaluatedAt = stringValue(input.evaluated_at, new Date().toISOString());
+    const payload = { ...input, id, workspace_id: workspaceId, evaluated_at: evaluatedAt };
+    const saved = await this.one(
+      `INSERT INTO scenario_evaluations
+       (id, workspace_id, scenario_id, thesis_id, research_run_id, symbol, market_type,
+        horizon, evaluated_at, evaluation_window, result, trigger_hit, invalidation_hit,
+        target_hit, start_price, end_price, max_favorable_excursion,
+        max_adverse_excursion, data_quality, warnings_json, evidence_json, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::jsonb,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb, $22::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         result = EXCLUDED.result,
+         trigger_hit = EXCLUDED.trigger_hit,
+         invalidation_hit = EXCLUDED.invalidation_hit,
+         target_hit = EXCLUDED.target_hit,
+         start_price = EXCLUDED.start_price,
+         end_price = EXCLUDED.end_price,
+         max_favorable_excursion = EXCLUDED.max_favorable_excursion,
+         max_adverse_excursion = EXCLUDED.max_adverse_excursion,
+         data_quality = EXCLUDED.data_quality,
+         warnings_json = EXCLUDED.warnings_json,
+         evidence_json = EXCLUDED.evidence_json,
+         payload_json = EXCLUDED.payload_json,
+         updated_at = now()
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'horizon', horizon,
+         'evaluated_at', evaluated_at,
+         'evaluation_window', evaluation_window,
+         'result', result,
+         'trigger_hit', trigger_hit,
+         'invalidation_hit', invalidation_hit,
+         'target_hit', target_hit,
+         'start_price', start_price,
+         'end_price', end_price,
+         'max_favorable_excursion', max_favorable_excursion,
+         'max_adverse_excursion', max_adverse_excursion,
+         'data_quality', data_quality,
+         'warnings', warnings_json,
+         'evidence', evidence_json
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.scenario_id, ''),
+        stringValue(input.thesis_id, ''),
+        nullableString(input.research_run_id),
+        stringValue(input.symbol, ''),
+        stringValue(input.market_type, 'spot'),
+        stringValue(input.horizon, 'unknown'),
+        evaluatedAt,
+        JSON.stringify(recordOrDefault(input.evaluation_window, {})),
+        stringValue(input.result, 'inconclusive'),
+        input.trigger_hit ?? null,
+        input.invalidation_hit ?? null,
+        input.target_hit ?? null,
+        numberValue(input.start_price),
+        numberValue(input.end_price),
+        numberValue(input.max_favorable_excursion),
+        numberValue(input.max_adverse_excursion),
+        stringValue(input.data_quality, 'insufficient'),
+        JSON.stringify(arrayFromUnknown(input.warnings)),
+        JSON.stringify(recordOrDefault(input.evidence, {})),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario evaluation was not persisted.');
+    }
+    return saved;
+  }
+
+  async listScenarioEvaluations(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'horizon', horizon,
+         'evaluated_at', evaluated_at,
+         'evaluation_window', evaluation_window,
+         'result', result,
+         'trigger_hit', trigger_hit,
+         'invalidation_hit', invalidation_hit,
+         'target_hit', target_hit,
+         'start_price', start_price,
+         'end_price', end_price,
+         'max_favorable_excursion', max_favorable_excursion,
+         'max_adverse_excursion', max_adverse_excursion,
+         'data_quality', data_quality,
+         'warnings', warnings_json,
+         'evidence', evidence_json
+       ) AS payload_json
+       FROM scenario_evaluations
+       WHERE workspace_id = $1 AND scenario_id = $2
+       ORDER BY evaluated_at DESC`,
+      [workspaceId, scenarioId],
+    );
+  }
+
+  async getScenarioEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'research_run_id', research_run_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'horizon', horizon,
+         'evaluated_at', evaluated_at,
+         'evaluation_window', evaluation_window,
+         'result', result,
+         'trigger_hit', trigger_hit,
+         'invalidation_hit', invalidation_hit,
+         'target_hit', target_hit,
+         'start_price', start_price,
+         'end_price', end_price,
+         'max_favorable_excursion', max_favorable_excursion,
+         'max_adverse_excursion', max_adverse_excursion,
+         'data_quality', data_quality,
+         'warnings', warnings_json,
+         'evidence', evidence_json
+       ) AS payload_json
+       FROM scenario_evaluations
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listScenarioEvaluationsForReliability(
+    filters: ScenarioReliabilityEvaluationFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    if (filters.market_type && filters.market_type !== 'mixed') {
+      params.push(filters.market_type);
+      where.push(`market_type = $${params.length}`);
+    }
+    if (filters.horizon) {
+      params.push(filters.horizon);
+      where.push(`horizon = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'horizon', horizon,
+         'evaluated_at', evaluated_at,
+         'result', result,
+         'data_quality', data_quality,
+         'warnings', warnings_json,
+         'evidence', evidence_json,
+         'max_favorable_excursion', max_favorable_excursion,
+         'max_adverse_excursion', max_adverse_excursion
+       ) AS payload_json
+       FROM scenario_evaluations
+       WHERE ${where.join(' AND ')}
+       ORDER BY evaluated_at DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
+  async saveTradePlaybook(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(input.id, `playbook_${randomUUID().replaceAll('-', '')}`);
+    const createdAt = stringValue(input.created_at, new Date().toISOString());
+    const payload = { ...input, id, workspace_id: workspaceId, created_at: createdAt };
+    const saved = await this.one(
+      `INSERT INTO trade_playbooks
+       (id, workspace_id, source_scenario_id, source_thesis_id, symbol,
+        market_type, direction, horizon, payload_json, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::timestamptz)
+       ON CONFLICT (id) DO UPDATE SET
+         payload_json = EXCLUDED.payload_json,
+         updated_at = now()
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'source_scenario_id', source_scenario_id,
+         'source_thesis_id', source_thesis_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'direction', direction,
+         'horizon', horizon,
+         'created_at', created_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.source_scenario_id, ''),
+        stringValue(input.source_thesis_id, ''),
+        stringValue(input.symbol, ''),
+        stringValue(input.market_type, 'spot'),
+        stringValue(input.direction, 'long'),
+        stringValue(input.horizon, 'unknown'),
+        JSON.stringify(payload),
+        createdAt,
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Trade playbook was not persisted.');
+    }
+    return saved;
+  }
+
+  async getTradePlaybook(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'source_scenario_id', source_scenario_id,
+         'source_thesis_id', source_thesis_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'direction', direction,
+         'horizon', horizon,
+         'created_at', created_at
+       ) AS payload_json
+       FROM trade_playbooks
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listTradePlaybooksForScenario(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'source_scenario_id', source_scenario_id,
+         'source_thesis_id', source_thesis_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'direction', direction,
+         'horizon', horizon,
+         'created_at', created_at
+       ) AS payload_json
+       FROM trade_playbooks
+       WHERE workspace_id = $1 AND source_scenario_id = $2
+       ORDER BY created_at DESC`,
+      [workspaceId, scenarioId],
+    );
+  }
+
+  async listTradePlaybooks(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'source_scenario_id', source_scenario_id,
+         'source_thesis_id', source_thesis_id,
+         'symbol', symbol,
+         'market_type', market_type,
+         'direction', direction,
+         'horizon', horizon,
+         'created_at', created_at
+       ) AS payload_json
+       FROM trade_playbooks
+       WHERE workspace_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [workspaceId, limit],
+    );
+  }
+
+  async saveBacktestRun(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(input.id, `backtest_${randomUUID().replaceAll('-', '')}`);
+    const createdAt = stringValue(input.created_at, new Date().toISOString());
+    const payload = { ...input, id, workspace_id: workspaceId, created_at: createdAt };
+    const saved = await this.one(
+      `INSERT INTO backtest_runs
+       (id, workspace_id, playbook_id, status, assumptions_json, result_json,
+        warnings_json, data_quality, payload_json, created_at, completed_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb,
+        $10::timestamptz, $11::timestamptz)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         assumptions_json = EXCLUDED.assumptions_json,
+         result_json = EXCLUDED.result_json,
+         warnings_json = EXCLUDED.warnings_json,
+         data_quality = EXCLUDED.data_quality,
+         payload_json = EXCLUDED.payload_json,
+         completed_at = EXCLUDED.completed_at
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'playbook_id', playbook_id,
+         'status', status,
+         'assumptions', assumptions_json,
+         'result', result_json,
+         'warnings', warnings_json,
+         'data_quality', data_quality,
+         'created_at', created_at,
+         'completed_at', completed_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.playbook_id, ''),
+        stringValue(input.status, 'failed'),
+        JSON.stringify(recordOrDefault(input.assumptions, {})),
+        JSON.stringify(recordOrDefault(input.result, {})),
+        JSON.stringify(arrayFromUnknown(input.warnings)),
+        stringValue(input.data_quality, 'insufficient'),
+        JSON.stringify(payload),
+        createdAt,
+        nullableString(input.completed_at),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Backtest run was not persisted.');
+    }
+    return saved;
+  }
+
+  async getBacktestRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'playbook_id', playbook_id,
+         'status', status,
+         'assumptions', assumptions_json,
+         'result', result_json,
+         'warnings', warnings_json,
+         'data_quality', data_quality,
+         'created_at', created_at,
+         'completed_at', completed_at
+       ) AS payload_json
+       FROM backtest_runs
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listBacktestRunsForPlaybook(
+    playbookId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'playbook_id', playbook_id,
+         'status', status,
+         'assumptions', assumptions_json,
+         'result', result_json,
+         'warnings', warnings_json,
+         'data_quality', data_quality,
+         'created_at', created_at,
+         'completed_at', completed_at
+       ) AS payload_json
+       FROM backtest_runs
+       WHERE workspace_id = $1 AND playbook_id = $2
+       ORDER BY created_at DESC`,
+      [workspaceId, playbookId],
+    );
+  }
+
+  async listBacktestRuns(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'playbook_id', playbook_id,
+         'status', status,
+         'assumptions', assumptions_json,
+         'result', result_json,
+         'warnings', warnings_json,
+         'data_quality', data_quality,
+         'created_at', created_at,
+         'completed_at', completed_at
+       ) AS payload_json
+       FROM backtest_runs
+       WHERE workspace_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [workspaceId, limit],
+    );
+  }
+
+  async saveBacktestTradeEvents(
+    runId: string,
+    events: JsonRecord[],
+    workspaceId: string,
+  ): Promise<void> {
+    await this.ensureScenarioLifecycleSchema();
+    const client = await this.requirePool().connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'DELETE FROM backtest_trade_events WHERE workspace_id = $1 AND backtest_run_id = $2',
+        [workspaceId, runId],
+      );
+      for (const [index, event] of events.entries()) {
+        const eventIndex = Math.trunc(numberValue(event.event_index) ?? index + 1);
+        await client.query(
+          `INSERT INTO backtest_trade_events
+           (id, workspace_id, backtest_run_id, event_index, event_type, event_time,
+            price, payload_json)
+           VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)`,
+          [
+            stringValue(event.id, `backtest_event_${randomUUID().replaceAll('-', '')}`),
+            workspaceId,
+            runId,
+            eventIndex,
+            stringValue(event.event_type, 'note'),
+            stringValue(event.event_time, new Date().toISOString()),
+            numberValue(event.price),
+            JSON.stringify({ ...event, workspace_id: workspaceId, backtest_run_id: runId }),
+          ],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listBacktestTradeEvents(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'backtest_run_id', backtest_run_id,
+         'event_index', event_index,
+         'event_type', event_type,
+         'event_time', event_time,
+         'price', price
+       ) AS payload_json
+       FROM backtest_trade_events
+       WHERE workspace_id = $1 AND backtest_run_id = $2
+       ORDER BY event_index ASC`,
+      [workspaceId, runId],
+    );
+  }
+
+  async saveScenarioDecisionItemState(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(input.id, '');
+    const payload = { ...input, id, workspace_id: workspaceId };
+    const saved = await this.one(
+      `INSERT INTO scenario_decision_item_states
+       (id, workspace_id, status, due_at, payload_json)
+       VALUES ($1, $2, $3, $4::timestamptz, $5::jsonb)
+       ON CONFLICT (workspace_id, id) DO UPDATE SET
+         status = EXCLUDED.status,
+         due_at = EXCLUDED.due_at,
+         payload_json = EXCLUDED.payload_json,
+         updated_at = now()
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'status', status,
+         'due_at', due_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.status, 'open'),
+        nullableString(input.due_at),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario decision item state was not persisted.');
+    }
+    return saved;
+  }
+
+  async listScenarioDecisionItemStates(
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'status', status,
+         'due_at', due_at
+       ) AS payload_json
+       FROM scenario_decision_item_states
+       WHERE workspace_id = $1`,
+      [workspaceId],
     );
   }
 
@@ -2322,6 +3153,99 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     }
   }
 
+  private async ensureScenarioLifecycleSchema(): Promise<void> {
+    if (this.scenarioLifecycleSchemaReady) {
+      return;
+    }
+    const pool = this.requirePool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scenario_evaluations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        thesis_id TEXT NOT NULL,
+        research_run_id TEXT,
+        symbol TEXT NOT NULL,
+        market_type TEXT NOT NULL DEFAULT 'spot',
+        horizon TEXT NOT NULL DEFAULT 'unknown',
+        evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        evaluation_window JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result TEXT NOT NULL,
+        trigger_hit BOOLEAN,
+        invalidation_hit BOOLEAN,
+        target_hit BOOLEAN,
+        start_price DOUBLE PRECISION,
+        end_price DOUBLE PRECISION,
+        max_favorable_excursion DOUBLE PRECISION,
+        max_adverse_excursion DOUBLE PRECISION,
+        data_quality TEXT NOT NULL DEFAULT 'insufficient',
+        warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_scenario_evaluations_scenario
+        ON scenario_evaluations(workspace_id, scenario_id, evaluated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS trade_playbooks (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        source_scenario_id TEXT NOT NULL,
+        source_thesis_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        market_type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        horizon TEXT NOT NULL DEFAULT 'unknown',
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_trade_playbooks_scenario
+        ON trade_playbooks(workspace_id, source_scenario_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS backtest_runs (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        playbook_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        assumptions_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        data_quality TEXT NOT NULL DEFAULT 'insufficient',
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        completed_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_backtest_runs_playbook
+        ON backtest_runs(workspace_id, playbook_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS backtest_trade_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        backtest_run_id TEXT NOT NULL,
+        event_index INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        event_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+        price DOUBLE PRECISION,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_backtest_trade_events_run
+        ON backtest_trade_events(workspace_id, backtest_run_id, event_index ASC);
+
+      CREATE TABLE IF NOT EXISTS scenario_decision_item_states (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        due_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        PRIMARY KEY (workspace_id, id)
+      );
+    `);
+    this.scenarioLifecycleSchemaReady = true;
+  }
+
   private requirePool(): Pool {
     if (!this.pool) {
       throw new ServiceUnavailableException(
@@ -2337,6 +3261,15 @@ function parsePayload(value: string | JsonRecord): JsonRecord {
     return JSON.parse(value) as JsonRecord;
   }
   return value;
+}
+
+async function selectIds(
+  client: PoolClient,
+  sql: string,
+  params: unknown[],
+): Promise<string[]> {
+  const result = await client.query<{ id: string }>(sql, params);
+  return result.rows.map((row) => row.id);
 }
 
 function stringValue(value: unknown, fallback: string): string {

@@ -56,6 +56,11 @@ import { CalibrationService } from '../src/calibration/calibration.service';
 import { CreateEvaluationRerunDto } from '../src/calibration/dto/evaluation-rerun.dto';
 import { PerformanceService } from '../src/performance/performance.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
+import { ScenarioEvaluationService } from '../src/scenarios/scenario-evaluation.service';
+import { ScenarioReliabilityService } from '../src/scenarios/scenario-reliability.service';
+import { PlaybookCompilerService } from '../src/playbooks/playbook-compiler.service';
+import { BacktestService } from '../src/backtests/backtest.service';
+import { ScenarioDecisionWorkbenchService } from '../src/scenario-decision/scenario-decision-workbench.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
 import { redactForDebug } from '../src/common/redaction';
@@ -86,6 +91,8 @@ import {
 } from '../src/contracts/openapi.generated';
 import {
   buildResearchRunStageTimings,
+  toScenarioEvaluationResponse,
+  toScenarioResponse,
   toThesisResponse,
 } from '../src/contracts/frontend-contract';
 import type {
@@ -110,6 +117,11 @@ class FakeJournalRepository implements JournalRepository {
   readonly thesisEvaluationRuns = new Map<string, JsonRecord>();
   readonly thesisEvaluationPromotions = new Map<string, JsonRecord>();
   readonly scenarios = new Map<string, JsonRecord[]>();
+  readonly scenarioEvaluations = new Map<string, JsonRecord>();
+  readonly tradePlaybooks = new Map<string, JsonRecord>();
+  readonly backtestRuns = new Map<string, JsonRecord>();
+  readonly backtestTradeEvents = new Map<string, JsonRecord[]>();
+  readonly scenarioDecisionItemStates = new Map<string, JsonRecord>();
   readonly signals: JsonRecord[] = [];
   readonly watchlists: JsonRecord[] = [];
   readonly watchlistItems: JsonRecord[] = [];
@@ -193,6 +205,168 @@ class FakeJournalRepository implements JournalRepository {
       this.events.set(key(id, workspaceId), events);
     }
     return run;
+  }
+
+  async removeResearchRunCascade(
+    id: string,
+    workspaceId: string,
+  ): Promise<{
+    removed: boolean;
+    workspace_id: string;
+    requested_run_id: string;
+    deleted_count: number;
+    deleted_run_ids: string[];
+  }> {
+    const target = this.researchRuns.get(key(id, workspaceId));
+    if (!target) {
+      throw new NotFoundException(`Research run ${id} not found`);
+    }
+    const runs = [...this.researchRuns.values()]
+      .filter((run) => run.workspace_id === workspaceId)
+      .filter((run) => compareRunChainOrder(run, target) >= 0)
+      .sort(compareRunChainOrder);
+    const deletedRunIds = runs
+      .map((run) => String(run.id ?? run.run_id ?? ''))
+      .filter(Boolean);
+    const deletedThesisIds = new Set<string>();
+    const deletedDebateIds = new Set<string>();
+    const deletedSignalSnapshotIds = new Set<string>();
+    const deletedSignalIds = new Set<string>();
+
+    for (const runId of deletedRunIds) {
+      const run = this.researchRuns.get(key(runId, workspaceId));
+      const thesisId = String(run?.thesis_id ?? '');
+      const debateId = String(run?.debate_id ?? '');
+      if (thesisId) {
+        deletedThesisIds.add(thesisId);
+      }
+      if (debateId) {
+        deletedDebateIds.add(debateId);
+      }
+      this.researchRuns.delete(key(runId, workspaceId));
+      this.events.delete(key(runId, workspaceId));
+    }
+
+    for (const [snapshotKey, snapshot] of this.marketSnapshots) {
+      if (
+        snapshot.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(snapshot.research_run_id ?? ''))
+      ) {
+        this.marketSnapshots.delete(snapshotKey);
+      }
+    }
+    for (const [snapshotKey, snapshot] of this.signalSnapshots) {
+      if (
+        snapshot.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(snapshot.research_run_id ?? ''))
+      ) {
+        const snapshotId = String(snapshot.id ?? '');
+        if (snapshotId) {
+          deletedSignalSnapshotIds.add(snapshotId);
+        }
+        const payload = record(snapshot.payload ?? snapshot.payload_json);
+        const signalIds = [
+          ...(Array.isArray(snapshot.signal_ids) ? snapshot.signal_ids : []),
+          ...(Array.isArray(payload.signal_ids) ? payload.signal_ids : []),
+        ];
+        for (const signalId of signalIds) {
+          deletedSignalIds.add(String(signalId));
+        }
+        this.signalSnapshots.delete(snapshotKey);
+      }
+    }
+    for (const [snapshotKey, snapshot] of this.researchSnapshots) {
+      if (
+        snapshot.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(snapshot.research_run_id ?? ''))
+      ) {
+        this.researchSnapshots.delete(snapshotKey);
+      }
+    }
+    for (const [entryKey, entry] of this.continuityEntries) {
+      if (
+        entry.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(entry.research_run_id ?? ''))
+      ) {
+        this.continuityEntries.delete(entryKey);
+      }
+    }
+    for (const [debateKey, debate] of this.debates) {
+      if (
+        debate.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(debate.research_run_id ?? ''))
+      ) {
+        deletedDebateIds.add(String(debate.id ?? ''));
+        this.debates.delete(debateKey);
+      }
+    }
+    for (const debateId of deletedDebateIds) {
+      this.agentOpinions.delete(key(debateId, workspaceId));
+    }
+    for (const [thesisKey, thesis] of this.theses) {
+      if (
+        thesis.workspace_id === workspaceId &&
+        deletedRunIds.includes(String(thesis.research_run_id ?? ''))
+      ) {
+        deletedThesisIds.add(String(thesis.id ?? ''));
+        this.theses.delete(thesisKey);
+      }
+    }
+    for (const thesisId of deletedThesisIds) {
+      this.scenarios.delete(key(thesisId, workspaceId));
+    }
+    removeArrayItems(
+      this.watchlistItems,
+      (item) =>
+        item.workspace_id === workspaceId &&
+        deletedThesisIds.has(String(item.thesis_id ?? '')),
+    );
+    removeArrayItems(
+      this.alerts,
+      (alert) =>
+        alert.workspace_id === workspaceId &&
+        deletedThesisIds.has(String(alert.thesis_id ?? '')),
+    );
+    removeArrayItems(this.signals, (signal) => {
+      if (signal.workspace_id !== workspaceId) {
+        return false;
+      }
+      const payload = record(signal.payload ?? signal.payload_json);
+      const runId = String(
+        signal.research_run_id ?? payload.research_run_id ?? payload.run_id ?? '',
+      );
+      const snapshotId = String(
+        signal.signal_snapshot_id ??
+          payload.signal_snapshot_id ??
+          payload.snapshot_id ??
+          '',
+      );
+      return (
+        deletedSignalIds.has(String(signal.id ?? '')) ||
+        deletedRunIds.includes(runId) ||
+        deletedSignalSnapshotIds.has(snapshotId)
+      );
+    });
+
+    return {
+      removed: true,
+      workspace_id: workspaceId,
+      requested_run_id: id,
+      deleted_count: deletedRunIds.length,
+      deleted_run_ids: deletedRunIds,
+    };
+  }
+
+  async removeWorkspaceSignals(workspaceId: string): Promise<string[]> {
+    const deletedSignalIds = this.signals
+      .filter((signal) => signal.workspace_id === workspaceId)
+      .map((signal) => String(signal.id ?? ''))
+      .filter(Boolean);
+    removeArrayItems(
+      this.signals,
+      (signal) => signal.workspace_id === workspaceId,
+    );
+    return deletedSignalIds;
   }
 
   async listRunEvents(runId: string, workspaceId: string): Promise<JsonRecord[]> {
@@ -888,6 +1062,200 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord[]> {
     return this.scenarios.get(key(thesisId, workspaceId)) ?? [];
+  }
+
+  async getScenario(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    for (const [scenarioKey, scenarios] of this.scenarios) {
+      if (!scenarioKey.startsWith(`${workspaceId}:`)) {
+        continue;
+      }
+      const scenario = scenarios.find((item) => item.id === id);
+      if (scenario) {
+        return scenario;
+      }
+    }
+    return null;
+  }
+
+  async saveScenarioEvaluation(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `scenario_eval_${this.scenarioEvaluations.size + 1}`);
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      version: 'scenario_evaluation.v1',
+      evaluated_at: input.evaluated_at ?? '2026-07-01T00:00:00.000Z',
+      warnings: Array.isArray(input.warnings) ? input.warnings : [],
+      evidence: record(input.evidence),
+    };
+    this.scenarioEvaluations.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async listScenarioEvaluations(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.scenarioEvaluations.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.scenario_id === scenarioId)
+      .sort((a, b) => String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')));
+  }
+
+  async getScenarioEvaluation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.scenarioEvaluations.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listScenarioEvaluationsForReliability(
+    filters: { symbol?: string; market_type?: string; horizon?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.scenarioEvaluations.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => !filters.symbol || item.symbol === filters.symbol)
+      .filter((item) => !filters.market_type || filters.market_type === 'mixed' || item.market_type === filters.market_type)
+      .filter((item) => !filters.horizon || item.horizon === filters.horizon)
+      .sort((a, b) => String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')))
+      .slice(0, filters.limit);
+  }
+
+  async saveTradePlaybook(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `playbook_${this.tradePlaybooks.size + 1}`);
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      version: 'trade_playbook.v1',
+      created_at: input.created_at ?? '2026-07-01T00:00:00.000Z',
+    };
+    this.tradePlaybooks.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async getTradePlaybook(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.tradePlaybooks.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listTradePlaybooksForScenario(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.tradePlaybooks.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.source_scenario_id === scenarioId)
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  }
+
+  async listTradePlaybooks(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.tradePlaybooks.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+      .slice(0, limit);
+  }
+
+  async saveBacktestRun(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `backtest_${this.backtestRuns.size + 1}`);
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      version: 'backtest_run.v1',
+      created_at: input.created_at ?? '2026-07-01T00:00:00.000Z',
+      completed_at: input.completed_at ?? null,
+    };
+    this.backtestRuns.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async getBacktestRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.backtestRuns.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listBacktestRunsForPlaybook(
+    playbookId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.backtestRuns.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.playbook_id === playbookId)
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  }
+
+  async listBacktestRuns(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.backtestRuns.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
+      .slice(0, limit);
+  }
+
+  async saveBacktestTradeEvents(
+    runId: string,
+    events: JsonRecord[],
+    workspaceId: string,
+  ): Promise<void> {
+    this.backtestTradeEvents.set(
+      key(runId, workspaceId),
+      events
+        .map((event, index) => ({
+          ...event,
+          workspace_id: workspaceId,
+          backtest_run_id: runId,
+          event_index: event.event_index ?? index + 1,
+        }))
+        .sort((a, b) => Number(a.event_index ?? 0) - Number(b.event_index ?? 0)),
+    );
+  }
+
+  async listBacktestTradeEvents(
+    runId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.backtestTradeEvents.get(key(runId, workspaceId)) ?? [];
+  }
+
+  async saveScenarioDecisionItemState(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? '');
+    const saved = { ...input, id, workspace_id: workspaceId };
+    this.scenarioDecisionItemStates.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async listScenarioDecisionItemStates(
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.scenarioDecisionItemStates.values()].filter(
+      (item) => item.workspace_id === workspaceId,
+    );
   }
 
   async recordThesisDecision(
@@ -1767,6 +2135,305 @@ test('POST /research-runs rejects x-workspace-id mismatches', async () => {
         'workspace_b',
       ),
     isException(BadRequestException),
+  );
+});
+
+test('DELETE /research-runs/:id removes the selected run and later workspace runs', async () => {
+  const { journal, jobs, researchRuns, signals } = buildHarness();
+  for (let index = 1; index <= 5; index += 1) {
+    const runId = `run_${index}`;
+    journal.researchRuns.set(key(runId, 'workspace_a'), {
+      id: runId,
+      run_id: runId,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      asset_class: 'crypto',
+      market_type: 'spot',
+      timeframe: '2026-05-12',
+      status: 'completed',
+      started_at: `2026-05-12T0${index}:00:00.000Z`,
+      completed_at: `2026-05-12T0${index}:30:00.000Z`,
+      thesis_id: `thesis_${index}`,
+      signal_snapshot_id: `signal_snapshot_${index}`,
+      market_snapshot_id: `market_snapshot_${index}`,
+      degradation_reasons: [],
+      missing_core_data: [],
+      missing_optional_data: [],
+    });
+    const signalId = `signal_${index}`;
+    journal.signalSnapshots.set(key(`signal_snapshot_${index}`, 'workspace_a'), {
+      id: `signal_snapshot_${index}`,
+      workspace_id: 'workspace_a',
+      research_run_id: runId,
+      symbol: 'BTC/USDT',
+      captured_at: `2026-05-12T0${index}:15:00.000Z`,
+      signal_ids: [signalId],
+      payload: { signal_ids: [signalId] },
+    });
+    journal.signals.push({
+      id: signalId,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      signal_type: 'technical',
+      direction: 'bullish',
+      confidence: 0.5,
+      observed_at: `2026-05-12T0${index}:10:00.000Z`,
+      source: 'test',
+      source_timestamp: `2026-05-12T0${index}:10:00.000Z`,
+      summary: `Signal ${index}`,
+    });
+  }
+  journal.researchRuns.set(key('run_3', 'workspace_b'), {
+    id: 'run_3',
+    run_id: 'run_3',
+    workspace_id: 'workspace_b',
+    symbol: 'ETH/USDT',
+    asset_class: 'crypto',
+    market_type: 'spot',
+    status: 'completed',
+    started_at: '2026-05-12T03:00:00.000Z',
+    completed_at: '2026-05-12T03:30:00.000Z',
+    degradation_reasons: [],
+    missing_core_data: [],
+    missing_optional_data: [],
+  });
+  journal.signalSnapshots.set(key('signal_snapshot_b', 'workspace_b'), {
+    id: 'signal_snapshot_b',
+    workspace_id: 'workspace_b',
+    research_run_id: 'run_3',
+    symbol: 'BTC/USDT',
+    captured_at: '2026-05-12T03:15:00.000Z',
+    signal_ids: ['signal_b'],
+    payload: { signal_ids: ['signal_b'] },
+  });
+  journal.signals.push({
+    id: 'signal_b',
+    workspace_id: 'workspace_b',
+    symbol: 'BTC/USDT',
+    signal_type: 'technical',
+    direction: 'bearish',
+    confidence: 0.4,
+    observed_at: '2026-05-12T03:10:00.000Z',
+    source: 'test',
+    source_timestamp: '2026-05-12T03:10:00.000Z',
+    summary: 'Workspace B signal',
+  });
+  await jobs.enqueueResearchRun({
+    ...engineRequest('run_4'),
+    analysis_date: '2026-05-12',
+  });
+
+  const remove = (
+    researchRuns as unknown as {
+      remove?: (
+        id: string,
+        userId?: string,
+        workspaceHeader?: string,
+      ) => Promise<{
+        removed: boolean;
+        workspace_id: string;
+        requested_run_id: string;
+        deleted_count: number;
+        deleted_run_ids: string[];
+      }>;
+    }
+  ).remove;
+
+  assert.equal(typeof remove, 'function');
+  if (!remove) {
+    assert.fail('ResearchRunsService.remove is not implemented.');
+  }
+  const result = await remove.bind(researchRuns)(
+    'run_2',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(result.removed, true);
+  assert.equal(result.workspace_id, 'workspace_a');
+  assert.equal(result.requested_run_id, 'run_2');
+  assert.equal(result.deleted_count, 4);
+  assert.deepEqual(result.deleted_run_ids, ['run_2', 'run_3', 'run_4', 'run_5']);
+  assert.notEqual(await journal.getResearchRun('run_1', 'workspace_a'), null);
+  assert.equal(await journal.getResearchRun('run_2', 'workspace_a'), null);
+  assert.equal(await journal.getResearchRun('run_5', 'workspace_a'), null);
+  assert.notEqual(await journal.getResearchRun('run_3', 'workspace_b'), null);
+  assert.deepEqual(
+    (await researchRuns.list({ limit: 100 }, 'user_1', 'workspace_a')).map(
+      (run) => run.id,
+    ),
+    ['run_1'],
+  );
+  assert.deepEqual(
+    (await signals.list('BTC/USDT', 100, 'user_1', 'workspace_a')).map(
+      (signal) => signal.id,
+    ),
+    ['signal_1'],
+  );
+  assert.deepEqual(
+    (await signals.list('BTC/USDT', 100, 'user_1', 'workspace_b')).map(
+      (signal) => signal.id,
+    ),
+    ['signal_b'],
+  );
+  await assert.rejects(
+    () => jobs.getJobStatus('run_4'),
+    isException(NotFoundException),
+  );
+});
+
+test('DELETE /research-runs removes all current workspace run data and jobs', async () => {
+  const { journal, jobs, researchRuns, signals } = buildHarness();
+  for (const workspaceId of ['workspace_a', 'workspace_b']) {
+    for (let index = 1; index <= 2; index += 1) {
+      const runId = `${workspaceId}_run_${index}`;
+      const thesisId = `${workspaceId}_thesis_${index}`;
+      const signalSnapshotId = `${workspaceId}_signal_snapshot_${index}`;
+      const signalId = `${workspaceId}_signal_${index}`;
+      journal.researchRuns.set(key(runId, workspaceId), {
+        id: runId,
+        run_id: runId,
+        workspace_id: workspaceId,
+        symbol: workspaceId === 'workspace_a' ? 'BTC/USDT' : 'ETH/USDT',
+        asset_class: 'crypto',
+        market_type: 'spot',
+        timeframe: '2026-05-12',
+        status: 'completed',
+        started_at: `2026-05-12T0${index}:00:00.000Z`,
+        completed_at: `2026-05-12T0${index}:30:00.000Z`,
+        thesis_id: thesisId,
+        signal_snapshot_id: signalSnapshotId,
+        market_snapshot_id: `${workspaceId}_market_snapshot_${index}`,
+        degradation_reasons: [],
+        missing_core_data: [],
+        missing_optional_data: [],
+      });
+      journal.theses.set(key(thesisId, workspaceId), {
+        id: thesisId,
+        workspace_id: workspaceId,
+        research_run_id: runId,
+        symbol: workspaceId === 'workspace_a' ? 'BTC/USDT' : 'ETH/USDT',
+        direction: 'long',
+        setup_type: 'breakout',
+        confidence: 0.7,
+        created_at: '2026-05-12T00:00:00.000Z',
+        payload: {},
+      });
+      journal.signalSnapshots.set(key(signalSnapshotId, workspaceId), {
+        id: signalSnapshotId,
+        workspace_id: workspaceId,
+        research_run_id: runId,
+        symbol: workspaceId === 'workspace_a' ? 'BTC/USDT' : 'ETH/USDT',
+        captured_at: `2026-05-12T0${index}:15:00.000Z`,
+        signal_ids: [signalId],
+        payload: { signal_ids: [signalId] },
+      });
+      journal.signals.push({
+        id: signalId,
+        workspace_id: workspaceId,
+        symbol: workspaceId === 'workspace_a' ? 'BTC/USDT' : 'ETH/USDT',
+        signal_type: 'technical',
+        direction: 'bullish',
+        confidence: 0.5,
+        observed_at: `2026-05-12T0${index}:10:00.000Z`,
+        source: 'test',
+        source_timestamp: `2026-05-12T0${index}:10:00.000Z`,
+        summary: `Signal ${index}`,
+      });
+    }
+  }
+  journal.signals.push(
+    {
+      id: 'workspace_a_orphan_signal',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      signal_type: 'technical',
+      direction: 'neutral',
+      confidence: 0.3,
+      observed_at: '2026-05-12T09:10:00.000Z',
+      source: 'test',
+      source_timestamp: '2026-05-12T09:10:00.000Z',
+      summary: 'Workspace A standalone signal',
+    },
+    {
+      id: 'workspace_b_orphan_signal',
+      workspace_id: 'workspace_b',
+      symbol: 'BTC/USDT',
+      signal_type: 'technical',
+      direction: 'neutral',
+      confidence: 0.3,
+      observed_at: '2026-05-12T09:10:00.000Z',
+      source: 'test',
+      source_timestamp: '2026-05-12T09:10:00.000Z',
+      summary: 'Workspace B standalone signal',
+    },
+  );
+  await jobs.enqueueResearchRun({
+    ...engineRequest('workspace_a_job_only'),
+    workspace_id: 'workspace_a',
+    analysis_date: '2026-05-12',
+  });
+
+  const removeWorkspaceData = (
+    researchRuns as unknown as {
+      removeWorkspaceData?: (
+        userId?: string,
+        workspaceHeader?: string,
+      ) => Promise<{
+        removed: boolean;
+        workspace_id: string;
+        requested_run_id: string;
+        deleted_count: number;
+        deleted_run_ids: string[];
+      }>;
+    }
+  ).removeWorkspaceData;
+
+  assert.equal(typeof removeWorkspaceData, 'function');
+  if (!removeWorkspaceData) {
+    assert.fail('ResearchRunsService.removeWorkspaceData is not implemented.');
+  }
+  const result = await removeWorkspaceData.bind(researchRuns)(
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(result.removed, true);
+  assert.equal(result.workspace_id, 'workspace_a');
+  assert.equal(result.requested_run_id, '*');
+  assert.equal(result.deleted_count, 3);
+  assert.deepEqual(result.deleted_run_ids, [
+    'workspace_a_run_1',
+    'workspace_a_run_2',
+    'workspace_a_job_only',
+  ]);
+  assert.deepEqual(
+    (await researchRuns.list({ limit: 100 }, 'user_1', 'workspace_a')).map(
+      (run) => run.id,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    (await signals.list('BTC/USDT', 100, 'user_1', 'workspace_a')).map(
+      (signal) => signal.id,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    (await researchRuns.list({ limit: 100 }, 'user_1', 'workspace_b')).map(
+      (run) => run.id,
+    ),
+    ['workspace_b_run_2', 'workspace_b_run_1'],
+  );
+  assert.deepEqual(
+    (await signals.list('BTC/USDT', 100, 'user_1', 'workspace_b')).map(
+      (signal) => signal.id,
+    ),
+    ['workspace_b_orphan_signal'],
+  );
+  await assert.rejects(
+    () => jobs.getJobStatus('workspace_a_job_only'),
+    isException(NotFoundException),
   );
 });
 
@@ -2858,7 +3525,7 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
   const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
   const expectedRoutes: Array<[string, string[]]> = [
     ['/market-data/ohlcv', ['get']],
-    ['/research-runs', ['get', 'post']],
+    ['/research-runs', ['get', 'post', 'delete']],
     ['/research-runs/{id}', ['get']],
     ['/research-runs/{id}/events', ['get']],
     ['/research-runs/{id}/snapshots', ['get']],
@@ -2917,6 +3584,19 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/performance/trend', ['get']],
     ['/performance/health', ['get']],
     ['/scenarios/monitor', ['get']],
+    ['/scenarios/{id}/evaluations', ['get', 'post']],
+    ['/scenario-evaluations/{id}', ['get']],
+    ['/scenario-reliability', ['get']],
+    ['/scenario-reliability/{symbol}', ['get']],
+    ['/scenario-reliability/rebuild', ['post']],
+    ['/scenarios/{id}/playbook', ['get', 'post']],
+    ['/playbooks/{id}', ['get']],
+    ['/playbooks/{id}/backtests', ['get', 'post']],
+    ['/backtests/{id}', ['get']],
+    ['/backtests/{id}/events', ['get']],
+    ['/scenario-decision/workbench', ['get']],
+    ['/scenario-decision/items/{id}/resolve', ['post']],
+    ['/scenario-decision/items/{id}/snooze', ['post']],
     ['/operations/health', ['get']],
     ['/operations/provider-health', ['get']],
     ['/operations/llm-calls', ['get']],
@@ -11767,12 +12447,154 @@ test('scenario monitor combines scenarios with price and alert context', async (
   assert.match(monitor.items[0]?.trigger_summary ?? '', /latest price 171/);
 });
 
+test('scenario read surfaces tolerate missing optional lifecycle tables', async () => {
+  const {
+    backtests,
+    journal,
+    playbooks,
+    scenarioDecisionWorkbench,
+    scenarioEvaluations,
+    scenarios,
+    theses,
+  } = buildHarness();
+  journal.theses.set(key('thesis_optional_lifecycle', 'workspace_a'), {
+    id: 'thesis_optional_lifecycle',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    direction: 'long',
+    setup_type: 'breakout',
+    confidence: 0.62,
+    created_at: '2026-06-29T00:00:00.000Z',
+    thesis_text: 'Watch BNB confirmation.',
+  });
+  journal.scenarios.set(key('thesis_optional_lifecycle', 'workspace_a'), [
+    {
+      id: 'scenario_optional_lifecycle',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_optional_lifecycle',
+      scenario_name: 'Confirmation setup',
+      condition: 'Daily close above 580 confirms continuation.',
+      probability_band: 'medium',
+      suggested_user_action: 'Watch confirmation.',
+      payload: {
+        horizon: 'short_term',
+        trigger_spec: { type: 'price_above', level: 580 },
+      },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_optional_lifecycle', 'workspace_a'), {
+    id: 'snap_bnb_optional_lifecycle',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    captured_at: '2026-06-29T00:00:00.000Z',
+    current_price: 579,
+    source: 'test',
+  });
+  journal.listScenarioEvaluations = async () => {
+    throw missingRelationError('scenario_evaluations');
+  };
+  journal.listScenarioEvaluationsForReliability = async () => {
+    throw missingRelationError('scenario_evaluations');
+  };
+  journal.listTradePlaybooksForScenario = async () => {
+    throw missingRelationError('trade_playbooks');
+  };
+  journal.listTradePlaybooks = async () => {
+    throw missingRelationError('trade_playbooks');
+  };
+  journal.listBacktestRunsForPlaybook = async () => {
+    throw missingRelationError('backtest_runs');
+  };
+  journal.listBacktestRuns = async () => {
+    throw missingRelationError('backtest_runs');
+  };
+  journal.listBacktestTradeEvents = async () => {
+    throw missingRelationError('backtest_trade_events');
+  };
+  journal.listScenarioDecisionItemStates = async () => {
+    throw missingRelationError('scenario_decision_item_states');
+  };
+
+  const detailScenarios = await theses.scenarios(
+    'thesis_optional_lifecycle',
+    'user_1',
+    'workspace_a',
+  );
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+  const workbench = await scenarioDecisionWorkbench.workbench(
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(detailScenarios.length, 1);
+  assert.equal(detailScenarios[0]?.id, 'scenario_optional_lifecycle');
+  assert.equal(detailScenarios[0]?.latest_evaluation, null);
+  assert.equal(detailScenarios[0]?.latest_playbook, null);
+  assert.equal(detailScenarios[0]?.latest_backtest, null);
+  assert.equal(detailScenarios[0]?.reliability_profile, null);
+  assert.equal(monitor.total_scenarios, 1);
+  assert.equal(workbench.workspace_id, 'workspace_a');
+  assert.deepEqual(
+    await scenarioEvaluations.listForScenario(
+      'scenario_optional_lifecycle',
+      'user_1',
+      'workspace_a',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    await playbooks.listForScenario(
+      'scenario_optional_lifecycle',
+      'user_1',
+      'workspace_a',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    await backtests.listForPlaybook('playbook_missing', 'user_1', 'workspace_a'),
+    [],
+  );
+});
+
+test('scenario lifecycle enrichment rethrows non-missing table failures', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_lifecycle_failure', 'workspace_a'), {
+    id: 'thesis_lifecycle_failure',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    thesis_text: 'Watch BTC.',
+  });
+  journal.scenarios.set(key('thesis_lifecycle_failure', 'workspace_a'), [
+    {
+      id: 'scenario_lifecycle_failure',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_lifecycle_failure',
+      condition: 'Wait for confirmation.',
+      payload: {},
+    },
+  ]);
+  journal.listScenarioEvaluations = async () => {
+    throw new Error('database connection dropped');
+  };
+
+  await assert.rejects(
+    () =>
+      theses.scenarios('thesis_lifecycle_failure', 'user_1', 'workspace_a'),
+    /database connection dropped/,
+  );
+});
+
 test('scenario response exposes normalized decision and provenance fields', async () => {
   const { journal, theses } = buildHarness();
   journal.theses.set(key('thesis_scenario_fields', 'workspace_a'), {
     id: 'thesis_scenario_fields',
     workspace_id: 'workspace_a',
     symbol: 'BNB/USDT',
+    direction: 'long',
     thesis_text: 'Watch BNB breakout.',
   });
   journal.scenarios.set(key('thesis_scenario_fields', 'workspace_a'), [
@@ -11800,6 +12622,29 @@ test('scenario response exposes normalized decision and provenance fields', asyn
         source: ['legacy_source'],
       },
     },
+    {
+      id: 'scenario_invalidation_fields',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_scenario_fields',
+      scenario_name: 'Invalidation guardrail',
+      direction: 'bearish risk',
+      thesis_impact: 'high',
+      condition: 'Daily close below 580 invalidates continuation.',
+      expected_market_behavior: 'Thesis quality deteriorates.',
+      probability_band: 'low',
+      invalidation: 'Invalid if price reclaims 620.',
+      evidence: ['Support failed with rising sell volume.'],
+      watch_triggers: ['Daily close below 580'],
+      impact_on_thesis: 'Invalidates the current thesis if confirmed.',
+      risk_map: ['Continuation thesis fails'],
+      suggested_user_action: 'Reassess the long thesis.',
+      as_of: '2026-06-05',
+      timeframe: '1D',
+      source: ['market_report'],
+      payload: {
+        relation_to_thesis: null,
+      },
+    },
   ]);
 
   const scenarios = await theses.scenarios(
@@ -11811,6 +12656,7 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.equal(scenarios[0]?.scenario_name, 'Breakout confirmation');
   assert.equal(scenarios[0]?.direction, 'bullish');
   assert.equal(scenarios[0]?.thesis_impact, 'strengthens thesis');
+  assert.equal(scenarios[0]?.relation_to_thesis, 'supports');
   assert.equal(scenarios[0]?.suggested_user_action, 'Watch for close confirmation.');
   assert.equal(scenarios[0]?.condition, 'Daily close above 620 confirms continuation.');
   assert.deepEqual(scenarios[0]?.evidence, ['Price reclaimed 600 with rising volume.']);
@@ -11822,6 +12668,1288 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.deepEqual(scenarios[0]?.source, ['market_report', 'quant_signal_text']);
   assert.equal(scenarios[0]?.runtime_decision.playbook_source, 'missing');
   assert.equal(scenarios[0]?.runtime_decision.recommended_action, 'review');
+  assert.equal(scenarios[1]?.relation_to_thesis, 'invalidates');
+});
+
+test('scenario response preserves scenario recommendation and derives evaluation snapshot', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_recommendation_contract',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_scenario_recommendation_contract',
+    scenario_name: 'Breakout confirmation',
+    condition: 'Wait for reclaim confirmation.',
+    payload: {
+      horizon: 'short_term',
+      scenario_recommendation: {
+        version: 'scenario_recommendation.v1',
+        generated_at: '2026-06-27T00:00:00.000Z',
+        source: 'llm',
+        action: 'consider_long',
+        action_bias: 'long',
+        confidence: 0.74,
+        summary: 'Consider long only after reclaim confirmation.',
+        thesis_link: 'Supports the current bullish thesis if reclaim holds.',
+        required_conditions: [],
+        invalidation_conditions: [],
+        wait_for: ['4h close above resistance'],
+        hard_gates: [
+          {
+            id: 'fresh_market_data',
+            label: 'Fresh market data',
+            status: 'pending',
+            reason: 'Waiting for current candle close.',
+          },
+        ],
+        blocking_reasons: ['No close confirmation yet.'],
+        risk_notes: ['Failed reclaim can trap breakout entries.'],
+        evidence_refs: [],
+        valid_until: '2026-06-30T00:00:00.000Z',
+        evaluation_readiness: 'ready',
+        evaluation_window: {
+          starts_at: '2026-06-27T00:00:00.000Z',
+          ends_at: '2026-06-30T00:00:00.000Z',
+          horizon: 'short_term',
+          metric_hint: 'trigger_then_mfe_mae',
+        },
+      },
+    },
+  });
+
+  assert.equal(response.scenario_recommendation?.action, 'consider_long');
+  assert.deepEqual(response.scenario_recommendation?.blocking_reasons, [
+    'No close confirmation yet.',
+  ]);
+  assert.deepEqual(response.scenario_recommendation?.hard_gates, [
+    {
+      id: 'fresh_market_data',
+      label: 'Fresh market data',
+      status: 'pending',
+      reason: 'Waiting for current candle close.',
+    },
+  ]);
+  assert.deepEqual(response.scenario_recommendation?.evaluation_window, {
+    starts_at: '2026-06-27T00:00:00.000Z',
+    ends_at: '2026-06-30T00:00:00.000Z',
+    horizon: 'short_term',
+    metric_hint: 'trigger_then_mfe_mae',
+  });
+  assert.equal(response.evaluation_snapshot?.readiness, 'ready');
+  assert.equal(
+    response.evaluation_snapshot?.planned_evaluation_at,
+    '2026-06-30T00:00:00.000Z',
+  );
+  assert.equal(response.evaluation_snapshot?.expected_horizon, 'short_term');
+  assert.equal(response.evaluation_snapshot?.outcome, 'pending');
+});
+
+test('scenario response treats missing or invalid recommendations as not ready', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_legacy_recommendation_contract',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_scenario_recommendation_contract',
+    scenario_name: 'Legacy branch',
+    condition: 'Legacy scenario without recommendation.',
+    payload: {
+      scenario_recommendation: {
+        version: 'legacy',
+        action: 'entry_long_now',
+      },
+    },
+  });
+
+  assert.equal(response.scenario_recommendation, null);
+  assert.equal(response.evaluation_snapshot?.readiness, 'needs_review');
+  assert.equal(response.evaluation_snapshot?.planned_evaluation_at, null);
+  assert.equal(response.evaluation_snapshot?.outcome, 'not_ready');
+  assert.deepEqual(response.evaluation_snapshot?.notes, [
+    'Scenario recommendation is missing.',
+  ]);
+});
+
+test('scenario response derives a safe recommendation from legacy Vietnamese trigger text', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_legacy_vietnamese_trigger',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_legacy_vietnamese_trigger',
+    scenario_name: 'Confirmation setup',
+    condition: 'Giá đóng cửa ngày trên $580 kèm khối lượng cao.',
+    invalidation: 'Giá đóng cửa ngày dưới $546 với ATR và khối lượng cao.',
+    suggested_user_action: 'Watch confirmation - không mua ngay.',
+    evidence: ['RSI >35'],
+    risk_map: ['FOMO entry risk'],
+    horizon: 'short_term',
+    timeframe: '4H',
+  }, {
+    id: 'thesis_legacy_vietnamese_trigger',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+  });
+
+  assert.equal(response.trigger_spec?.type, 'price_above');
+  assert.equal(response.trigger_spec?.level, 580);
+  assert.equal(response.scenario_recommendation?.source, 'derived_v1');
+  assert.equal(response.scenario_recommendation?.action, 'wait');
+  assert.equal(response.scenario_recommendation?.action_bias, 'neutral');
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.type, 'price_above');
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.level, 580);
+  assert.equal(response.scenario_recommendation?.invalidation_conditions[0]?.type, 'price_below');
+  assert.equal(response.scenario_recommendation?.invalidation_conditions[0]?.level, 546);
+  assert.equal(response.scenario_recommendation?.evaluation_readiness, 'ready');
+  assert.equal(response.evaluation_snapshot?.outcome, 'pending');
+});
+
+test('scenario response does not parse RSI thresholds as legacy price triggers', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_legacy_rsi_threshold',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_legacy_rsi_threshold',
+    scenario_name: 'Bounce watch',
+    condition: 'RSI=28 oversold + volume thấp 0.0x trung bình.',
+    expected_behavior: 'Giá hồi phục nhưng không vượt $580.',
+    invalidation: 'Giá đóng cửa dưới $530 với volume cao.',
+    watch_triggers: [
+      'Giá chạm $540-$530 kèm volume tăng đột biến',
+      'RSI vượt 35',
+    ],
+    suggested_user_action: 'Watch confirmation — không mua.',
+    horizon: 'short_term',
+    timeframe: '4H',
+  }, {
+    id: 'thesis_legacy_rsi_threshold',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+  });
+
+  assert.equal(response.trigger_spec?.type, 'price_in_zone');
+  assert.equal(response.trigger_spec?.zone_low, 530);
+  assert.equal(response.trigger_spec?.zone_high, 540);
+  assert.equal(response.trigger_spec?.level, undefined);
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.type, 'price_in_zone');
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.zone_low, 530);
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.zone_high, 540);
+});
+
+test('scenario evaluation response preserves result and evidence fields', () => {
+  const evaluation = toScenarioEvaluationResponse({
+    id: 'eval_btc_reclaim',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_btc_reclaim',
+    thesis_id: 'thesis_btc',
+    research_run_id: 'run_btc',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    horizon: 'short_term',
+    evaluated_at: '2026-07-01T00:00:00.000Z',
+    evaluation_window: {
+      starts_at: '2026-06-29T00:00:00.000Z',
+      ends_at: '2026-07-01T00:00:00.000Z',
+    },
+    result: 'hit',
+    trigger_hit: true,
+    invalidation_hit: false,
+    target_hit: null,
+    start_price: 61000,
+    end_price: 63200,
+    max_favorable_excursion: 0.045,
+    max_adverse_excursion: 0.012,
+    data_quality: 'complete',
+    warnings: [],
+    evidence: { trigger_price: 62000 },
+  });
+
+  assert.equal(evaluation.version, 'scenario_evaluation.v1');
+  assert.equal(evaluation.result, 'hit');
+  assert.equal(evaluation.data_quality, 'complete');
+  assert.equal(evaluation.evidence.trigger_price, 62000);
+});
+
+test('journal stores scenario lifecycle artifacts by workspace', async () => {
+  const { journal } = buildHarness();
+
+  await journal.saveScenarioEvaluation({
+    id: 'scenario_eval_1',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_1',
+    thesis_id: 'thesis_1',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    result: 'hit',
+    data_quality: 'complete',
+    evidence: { trigger_hit_at: '2026-07-01T00:00:00.000Z' },
+  }, 'workspace_a');
+  await journal.saveTradePlaybook({
+    id: 'playbook_1',
+    workspace_id: 'workspace_a',
+    source_scenario_id: 'scenario_1',
+    source_thesis_id: 'thesis_1',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    direction: 'long',
+    horizon: 'short_term',
+  }, 'workspace_a');
+  await journal.saveBacktestRun({
+    id: 'backtest_1',
+    workspace_id: 'workspace_a',
+    playbook_id: 'playbook_1',
+    status: 'completed',
+    assumptions: { version: 'backtest_assumption_set.v1' },
+    result: { trade_count: 1 },
+    warnings: [],
+    data_quality: 'complete',
+  }, 'workspace_a');
+  await journal.saveBacktestTradeEvents('backtest_1', [
+    { id: 'event_2', event_index: 2, event_type: 'exit' },
+    { id: 'event_1', event_index: 1, event_type: 'entry' },
+  ], 'workspace_a');
+
+  const evaluations = await journal.listScenarioEvaluations('scenario_1', 'workspace_a');
+  const playbooks = await journal.listTradePlaybooksForScenario('scenario_1', 'workspace_a');
+  const backtests = await journal.listBacktestRunsForPlaybook('playbook_1', 'workspace_a');
+  const events = await journal.listBacktestTradeEvents('backtest_1', 'workspace_a');
+
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0]?.result, 'hit');
+  assert.equal(playbooks.length, 1);
+  assert.equal(backtests.length, 1);
+  assert.deepEqual(events.map((event) => event.event_type), ['entry', 'exit']);
+  assert.equal(
+    (await journal.listScenarioEvaluations('scenario_1', 'workspace_b')).length,
+    0,
+  );
+});
+
+test('scenario evaluation service marks hit when trigger occurs before invalidation', async () => {
+  const { scenarioEvaluations } = buildHarness();
+  seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
+    scenarioId: 'scenario_eval_hit',
+    thesisId: 'thesis_eval_hit',
+    symbol: 'BTC/USDT',
+  });
+  scenarioEvaluations.setOhlcvForTest([
+    candle('2026-06-29T00:00:00.000Z', 61000, 61800, 60900, 61600),
+    candle('2026-06-30T00:00:00.000Z', 61600, 62600, 61500, 62400),
+  ]);
+
+  const response = await scenarioEvaluations.evaluateScenario(
+    'scenario_eval_hit',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.result, 'hit');
+  assert.equal(response.trigger_hit, true);
+  assert.equal(response.invalidation_hit, false);
+  assert.equal(response.data_quality, 'complete');
+});
+
+test('scenario evaluation service marks inconclusive when OHLCV is missing', async () => {
+  const { scenarioEvaluations } = buildHarness();
+  seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
+    scenarioId: 'scenario_eval_missing_ohlcv',
+    thesisId: 'thesis_eval_missing_ohlcv',
+    symbol: 'BTC/USDT',
+  });
+  scenarioEvaluations.setOhlcvForTest([]);
+
+  const response = await scenarioEvaluations.evaluateScenario(
+    'scenario_eval_missing_ohlcv',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.result, 'inconclusive');
+  assert.equal(response.data_quality, 'insufficient');
+  assert.equal(response.warnings.includes('missing_ohlcv'), true);
+});
+
+test('scenario evaluation service uses derived legacy trigger and invalidation', async () => {
+  const { journal, scenarioEvaluations } = buildHarness();
+  const thesisId = 'thesis_eval_legacy_text';
+  const scenarioId = 'scenario_eval_legacy_text';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Confirmation setup',
+      condition: 'Giá đóng cửa ngày trên $580 kèm khối lượng cao.',
+      invalidation: 'Giá đóng cửa ngày dưới $546 với ATR và khối lượng cao.',
+      suggested_user_action: 'Watch confirmation - không mua ngay.',
+      evidence: ['RSI >35'],
+      horizon: 'short_term',
+      timeframe: '4H',
+    },
+  ]);
+  scenarioEvaluations.setOhlcvForTest([
+    candle('2026-06-29T00:00:00.000Z', 560, 575, 555, 570),
+    candle('2026-06-30T00:00:00.000Z', 570, 585, 568, 582),
+  ]);
+
+  const response = await scenarioEvaluations.evaluateScenario(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.result, 'hit');
+  assert.equal(response.data_quality, 'complete');
+  assert.equal(response.trigger_hit, true);
+  assert.equal(response.invalidation_hit, false);
+  assert.deepEqual(response.warnings, []);
+});
+
+test('scenario evaluation service refuses an unmatured evaluation window', async () => {
+  const { scenarioEvaluations } = buildHarness();
+  seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
+    scenarioId: 'scenario_eval_future_window',
+    thesisId: 'thesis_eval_future_window',
+    symbol: 'BTC/USDT',
+    evaluationWindowEndsAt: '2026-07-03T00:00:00.000Z',
+  });
+
+  await assert.rejects(
+    () => scenarioEvaluations.evaluateScenario(
+      'scenario_eval_future_window',
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
+test('scenario evaluation stores grouping metadata for reliability profiles', async () => {
+  const { scenarioEvaluations } = buildHarness();
+  seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
+    scenarioId: 'scenario_eval_metadata',
+    thesisId: 'thesis_eval_metadata',
+    symbol: 'BTC/USDT',
+  });
+  scenarioEvaluations.setOhlcvForTest([
+    candle('2026-06-24T00:00:00.000Z', 61000, 61800, 60900, 61600),
+    candle('2026-06-25T00:00:00.000Z', 61600, 62600, 61500, 62400),
+  ]);
+
+  const response = await scenarioEvaluations.evaluateScenario(
+    'scenario_eval_metadata',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.evidence.relation_to_thesis, 'supports');
+  assert.equal(response.evidence.action_bias, 'long');
+  assert.equal(response.evidence.setup_type, 'breakout');
+});
+
+test('scenario reliability hides rates below sample size and counts inconclusive', async () => {
+  const { journal, scenarioReliability } = buildHarness();
+  for (const index of [1, 2, 3, 4]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_small_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: `scenario_small_${index}`,
+      thesis_id: `thesis_small_${index}`,
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      result: index === 4 ? 'inconclusive' : 'hit',
+      data_quality: index === 4 ? 'insufficient' : 'complete',
+      evidence: { relation_to_thesis: 'supports', action_bias: 'long' },
+    }, 'workspace_a');
+  }
+
+  const profiles = await scenarioReliability.profile(
+    { symbol: 'BTC/USDT', market_type: 'spot', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(profiles[0]?.sample_size, 4);
+  assert.equal(profiles[0]?.hit_rate, null);
+  assert.equal(profiles[0]?.inconclusive_rate, null);
+  assert.equal(
+    profiles[0]?.data_quality_notes.includes('Not enough history.'),
+    true,
+  );
+});
+
+test('scenario monitor and thesis detail expose aggregated reliability profiles', async () => {
+  const { journal, scenarios, theses } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_reliability_surface',
+    thesisId: 'thesis_reliability_surface',
+    symbol: 'BTC/USDT',
+  });
+  for (const index of [1, 2, 3, 4, 5]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_surface_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: `scenario_surface_${index}`,
+      thesis_id: `thesis_surface_${index}`,
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      result: index === 5 ? 'invalidated' : 'hit',
+      data_quality: 'complete',
+      evidence: {
+        relation_to_thesis: 'supports',
+        action_bias: 'long',
+        setup_type: 'breakout',
+      },
+    }, 'workspace_a');
+  }
+
+  const monitor = await scenarios.monitor({ limit: 10 }, 'user_1', 'workspace_a');
+  const detail = await theses.scenarios(
+    'thesis_reliability_surface',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(monitor.items[0]?.scenario.reliability_profile?.sample_size, 5);
+  assert.equal(monitor.items[0]?.scenario.reliability_profile?.hit_rate, 0.8);
+  assert.equal(detail[0]?.reliability_profile?.sample_size, 5);
+  assert.equal(detail[0]?.reliability_profile?.hit_rate, 0.8);
+});
+
+test('scenario monitor and thesis detail expose latest backtest trade events', async () => {
+  const { journal, scenarios, theses } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_backtest_surface',
+    thesisId: 'thesis_backtest_surface',
+    symbol: 'BTC/USDT',
+  });
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_backtest_surface'),
+    source_scenario_id: 'scenario_backtest_surface',
+    source_thesis_id: 'thesis_backtest_surface',
+  }, 'workspace_a');
+  await journal.saveBacktestRun({
+    id: 'backtest_surface',
+    workspace_id: 'workspace_a',
+    playbook_id: 'playbook_backtest_surface',
+    status: 'completed',
+    assumptions: { version: 'backtest_assumption_set.v1' },
+    result: { trade_count: 1 },
+    warnings: [],
+    data_quality: 'complete',
+  }, 'workspace_a');
+  await journal.saveBacktestTradeEvents('backtest_surface', [
+    {
+      id: 'surface_exit',
+      event_index: 2,
+      event_type: 'exit',
+      event_time: '2026-06-02T00:00:00.000Z',
+      price: 63100,
+    },
+    {
+      id: 'surface_entry',
+      event_index: 1,
+      event_type: 'entry',
+      event_time: '2026-06-01T00:00:00.000Z',
+      price: 62000,
+    },
+  ], 'workspace_a');
+
+  const monitor = await scenarios.monitor({ limit: 10 }, 'user_1', 'workspace_a');
+  const detail = await theses.scenarios(
+    'thesis_backtest_surface',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.deepEqual(
+    monitor.items[0]?.scenario.latest_backtest?.trade_events.map(
+      (event) => event.event_type,
+    ),
+    ['entry', 'exit'],
+  );
+  assert.deepEqual(
+    detail[0]?.latest_backtest?.trade_events.map((event) => event.event_type),
+    ['entry', 'exit'],
+  );
+});
+
+test('playbook compiler rejects missing invalidation and compiles valid long scenario', async () => {
+  const { playbooks } = buildHarness();
+  const missingInvalidation = await playbooks.compileScenario(
+    scenarioLifecycleRecord({
+      scenarioId: 'scenario_no_invalidation',
+      thesisId: 'thesis_no_invalidation',
+      invalidationConditions: [],
+    }),
+    { id: 'thesis_no_invalidation', symbol: 'BTC/USDT', market_type: 'spot' },
+    'workspace_a',
+  );
+  const valid = await playbooks.compileScenario(
+    scenarioLifecycleRecord({
+      scenarioId: 'scenario_valid_playbook',
+      thesisId: 'thesis_valid_playbook',
+    }),
+    { id: 'thesis_valid_playbook', symbol: 'BTC/USDT', market_type: 'spot' },
+    'workspace_a',
+  );
+
+  assert.equal(missingInvalidation.eligible, false);
+  assert.equal(
+    missingInvalidation.rejection_reasons.includes('Missing invalidation.'),
+    true,
+  );
+  assert.equal(valid.eligible, true);
+  assert.equal(valid.playbook?.direction, 'long');
+  assert.equal(valid.playbook?.entry.level, 62000);
+});
+
+test('playbook compiler enriches compile-by-id with reliability context', async () => {
+  const { journal, playbooks } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_playbook_reliability',
+    thesisId: 'thesis_playbook_reliability',
+    symbol: 'BTC/USDT',
+  });
+  for (const index of [1, 2, 3, 4, 5]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_playbook_reliability_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: `scenario_playbook_eval_${index}`,
+      thesis_id: `thesis_playbook_eval_${index}`,
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      result: 'hit',
+      data_quality: 'complete',
+      evidence: {
+        relation_to_thesis: 'supports',
+        action_bias: 'long',
+        setup_type: 'breakout',
+      },
+    }, 'workspace_a');
+  }
+
+  const report = await playbooks.compileScenarioById(
+    'scenario_playbook_reliability',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, true);
+  assert.equal(report.playbook?.reliability_context?.sample_size, 5);
+  assert.equal(report.playbook?.reliability_context?.hit_rate, 1);
+});
+
+test('playbook compiler uses thesis target zones when scenario has no targets', async () => {
+  const { playbooks } = buildHarness();
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_playbook_thesis_targets',
+    thesisId: 'thesis_playbook_thesis_targets',
+  });
+  scenario.payload = {
+    ...record(scenario.payload),
+    targets: undefined,
+    target_zones: undefined,
+  };
+
+  const report = await playbooks.compileScenario(
+    scenario,
+    {
+      id: 'thesis_playbook_thesis_targets',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      target_zones: ['First target 63200', 'Second target 65000'],
+    },
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, true);
+  assert.deepEqual(
+    report.playbook?.targets.map((target) => target.level),
+    [63200, 65000],
+  );
+});
+
+test('playbook compiler rejects derived watch-only scenario without missing structure blockers', async () => {
+  const { journal, playbooks } = buildHarness();
+  const thesisId = 'thesis_compile_legacy_watch';
+  const scenarioId = 'scenario_compile_legacy_watch';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Confirmation setup',
+      condition: 'Giá đóng cửa ngày trên $580 kèm khối lượng cao.',
+      invalidation: 'Giá đóng cửa ngày dưới $546 với ATR và khối lượng cao.',
+      suggested_user_action: 'Watch confirmation - không mua ngay.',
+      evidence: ['RSI >35'],
+      horizon: 'short_term',
+      timeframe: '4H',
+    },
+  ]);
+  await journal.saveMarketSnapshot({
+    id: 'market_compile_legacy_watch',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+    current_price: 570,
+    captured_at: new Date().toISOString(),
+  }, 'workspace_a');
+
+  const report = await playbooks.compileScenarioById(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, false);
+  assert.equal(
+    report.rejection_reasons.includes('Direction is not actionable.'),
+    true,
+  );
+  assert.equal(
+    report.rejection_reasons.includes('Missing scenario recommendation.'),
+    false,
+  );
+  assert.equal(report.rejection_reasons.includes('Missing trigger.'), false);
+  assert.equal(report.rejection_reasons.includes('Missing invalidation.'), false);
+  assert.equal(
+    report.rejection_reasons.includes('Runtime decision has unresolved blockers.'),
+    false,
+  );
+});
+
+test('playbook compiler compiles derived directional scenario without runtime snapshot', async () => {
+  const { journal, playbooks } = buildHarness();
+  const thesisId = 'thesis_compile_legacy_short';
+  const scenarioId = 'scenario_compile_legacy_short';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+    target_zones: ['First target 500', 'Second target 480'],
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Long liquidation continuation',
+      condition: 'L/S ratio crowded and daily trend remains weak.',
+      expected_behavior: 'Gia pha vo $530, giam xuong vung $500-$480 trong 1-3 tuan.',
+      invalidation: 'Gia dong cua tren $560 vo hieu hoa nhanh giam.',
+      suggested_user_action: 'Reassess - chuan bi chuyen sang Sell stance neu xac nhan pha vo $530.',
+      watch_triggers: ['Gia dong cua duoi $530 voi volume cao.'],
+      evidence: ['Long/Short ratio crowded'],
+      risk_map: ['Short squeeze risk'],
+      horizon: 'short_term',
+      timeframe: '4H',
+    },
+  ]);
+
+  const report = await playbooks.compileScenarioById(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, true);
+  assert.equal(report.playbook?.direction, 'short');
+  assert.equal(report.playbook?.entry.level, 530);
+  assert.equal(report.playbook?.invalidation.level, 560);
+  assert.deepEqual(
+    report.playbook?.targets.map((target) => target.level),
+    [500, 480],
+  );
+});
+
+test('playbook compiler compiles directional watch confirmation scenarios', async () => {
+  const { journal, playbooks } = buildHarness();
+  const thesisId = 'thesis_compile_watch_confirmation_directional';
+  const scenarioId = 'scenario_compile_watch_confirmation_directional';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'spot',
+    target_zones: ['Target zone $500-$510'],
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Break support and test lower demand',
+      direction: 'bearish',
+      condition: 'Support at $546 breaks with stronger sell volume.',
+      expected_behavior: 'Price breaks below $546 and tests $500-$510.',
+      invalidation: 'Price recovers above $570 and holds for three sessions.',
+      suggested_user_action: 'watch confirmation, not an exchange order',
+      watch_triggers: ['Daily close below $546 with volume >1.2x average.'],
+      evidence: ['Long/Short ratio is crowded long.'],
+      risk_map: ['Short squeeze risk.'],
+      horizon: 'short_term',
+      timeframe: '1D',
+    },
+  ]);
+
+  const report = await playbooks.compileScenarioById(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, true);
+  assert.equal(report.playbook?.direction, 'short');
+  assert.equal(report.playbook?.entry.level, 546);
+  assert.equal(report.playbook?.invalidation.level, 570);
+  assert.equal(
+    report.rejection_reasons.includes('Recommendation is not directional.'),
+    false,
+  );
+});
+
+test('scenario reliability does not attach mismatched relation or action profiles', async () => {
+  const { journal, scenarioReliability } = buildHarness();
+  for (const index of [1, 2, 3, 4, 5]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_reliability_mismatch_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: `scenario_reliability_mismatch_${index}`,
+      thesis_id: `thesis_reliability_mismatch_${index}`,
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      result: 'hit',
+      data_quality: 'complete',
+      evidence: {
+        relation_to_thesis: 'supports',
+        action_bias: 'long',
+        setup_type: 'breakout',
+      },
+    }, 'workspace_a');
+  }
+
+  const profile = await scenarioReliability.profileForScenario(
+    toScenarioResponse(
+      scenarioLifecycleRecord({
+        scenarioId: 'scenario_reliability_short',
+        thesisId: 'thesis_reliability_short',
+        actionBias: 'short',
+      }),
+      {
+        id: 'thesis_reliability_short',
+        symbol: 'BTC/USDT',
+        market_type: 'spot',
+        setup_type: 'breakout',
+      },
+    ),
+    { id: 'thesis_reliability_short', symbol: 'BTC/USDT', market_type: 'spot' },
+    'workspace_a',
+  );
+
+  assert.equal(profile, null);
+});
+
+test('backtest service stores assumptions and lets fees change result', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_fee'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 63200, 61900, 63100),
+  ]);
+
+  const noFee = await backtests.createBacktest(
+    'playbook_backtest_fee',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+  const withFee = await backtests.createBacktest(
+    'playbook_backtest_fee',
+    { fee_bps: 20, slippage_bps: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(noFee.assumptions.version, 'backtest_assumption_set.v1');
+  assert.notEqual(
+    noFee.result.total_return_pct,
+    withFee.result.total_return_pct,
+  );
+});
+
+test('backtest fill policy and sizing assumptions change simulated results', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_policy'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 61900),
+    candle('2026-06-02T00:00:00.000Z', 61900, 63200, 61800, 61950),
+  ]);
+
+  const touch = await backtests.createBacktest(
+    'playbook_backtest_policy',
+    { fill_policy: 'touch', fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+  const closeConfirmed = await backtests.createBacktest(
+    'playbook_backtest_policy',
+    { fill_policy: 'close_confirmed', fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+  const fixedFraction = await backtests.createBacktest(
+    'playbook_backtest_policy',
+    {
+      fill_policy: 'touch',
+      sizing_policy: 'fixed_fraction',
+      risk_fraction: 0.1,
+      fee_bps: 0,
+      slippage_bps: 0,
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(touch.result.trade_count, 1);
+  assert.equal(closeConfirmed.result.trade_count, 0);
+  assert.ok(
+    Math.abs(fixedFraction.result.total_return_pct ?? 0) <
+      Math.abs(touch.result.total_return_pct ?? 0),
+  );
+});
+
+test('backtest touch fill uses candle open when price gaps through entry level', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_gap_touch'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 62500, 63000, 62400, 62800),
+    candle('2026-06-02T00:00:00.000Z', 62800, 63300, 62700, 63200),
+  ]);
+
+  const result = await backtests.createBacktest(
+    'playbook_backtest_gap_touch',
+    { fill_policy: 'touch', fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(result.result.trade_count, 1);
+  assert.equal(result.trade_events[0]?.price, 62500);
+  assert.equal(result.trade_events[0]?.details.fill_reason, 'gap_through_open');
+});
+
+test('backtest touch fill supports zone entries', async () => {
+  const { backtests, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_backtest_zone_entry');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'price in zone 61500-62000',
+    level: null,
+    zone_low: 61500,
+    zone_high: 62000,
+  };
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 62500, 62600, 61900, 62100),
+    candle('2026-06-02T00:00:00.000Z', 62100, 63200, 62000, 63100),
+  ]);
+
+  const result = await backtests.createBacktest(
+    'playbook_backtest_zone_entry',
+    { fill_policy: 'touch', fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(result.result.trade_count, 1);
+  assert.equal(result.warnings.includes('missing_numeric_entry'), false);
+  assert.equal(result.trade_events[0]?.price, 62000);
+  assert.equal(result.trade_events[0]?.details.fill_reason, 'touch_zone');
+});
+
+test('backtest exits on target or invalidation before the final candle', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_target'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 63300, 61900, 62100),
+    candle('2026-06-03T00:00:00.000Z', 62100, 62200, 61000, 61100),
+  ]);
+
+  const target = await backtests.createBacktest(
+    'playbook_backtest_target',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_stop'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 62300, 59900, 62200),
+    candle('2026-06-03T00:00:00.000Z', 62200, 63500, 62100, 63400),
+  ]);
+
+  const invalidation = await backtests.createBacktest(
+    'playbook_backtest_stop',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(target.trade_events[1]?.details.exit_reason, 'target');
+  assert.equal(target.trade_events[1]?.price, 63200);
+  assert.equal(target.result.total_return_pct, 1.94);
+  assert.equal(invalidation.trade_events[1]?.details.exit_reason, 'invalidation');
+  assert.equal(invalidation.trade_events[1]?.price, 60000);
+  assert.equal(invalidation.result.total_return_pct, -3.23);
+});
+
+test('backtest detail and events endpoint expose ordered trade events', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_events'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 63200, 61900, 63100),
+  ]);
+
+  const created = await backtests.createBacktest(
+    'playbook_backtest_events',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+  const detail = await backtests.getBacktest(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+  const events = await backtests.listTradeEvents(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.deepEqual(
+    detail.trade_events.map((event) => event.event_type),
+    ['entry', 'exit'],
+  );
+  assert.deepEqual(
+    events.map((event) => event.event_type),
+    ['entry', 'exit'],
+  );
+  assert.equal(detail.trade_events[0]?.version, 'backtest_trade_event.v1');
+  assert.equal(detail.trade_events[0]?.details.fill_policy, 'touch');
+});
+
+test('scenario decision workbench prioritizes triggered and due items', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_workbench_triggered',
+    thesisId: 'thesis_workbench_triggered',
+    symbol: 'BTC/USDT',
+  });
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_workbench_triggered',
+    thesisId: 'thesis_workbench_triggered',
+  });
+  scenario.runtime_decision = {
+    version: 'scenario_runtime_decision.v1',
+    trigger_status: 'triggered',
+    validity_status: 'valid',
+    recommended_action: 'entry_long_now',
+    blocking_reasons: [],
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    trigger_spec: {
+      type: 'price_above',
+      level: 62000,
+      timeframe: '1d',
+      candle_close_required: false,
+    },
+  };
+  journal.scenarios.set(key('thesis_workbench_triggered', 'workspace_a'), [scenario]);
+  journal.marketSnapshots.set(key('snap_workbench_triggered', 'workspace_a'), {
+    id: 'snap_workbench_triggered',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    captured_at: new Date().toISOString(),
+    current_price: 62500,
+    source: 'binance',
+    payload: {},
+  });
+  await journal.saveScenarioEvaluation({
+    id: 'eval_workbench_due',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_workbench_due',
+    thesis_id: 'thesis_workbench_due',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    horizon: 'short_term',
+    result: 'inconclusive',
+    data_quality: 'insufficient',
+    evidence: {},
+  }, 'workspace_a');
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_workbench'), 'workspace_a');
+  await journal.saveBacktestRun({
+    id: 'backtest_workbench',
+    workspace_id: 'workspace_a',
+    playbook_id: 'playbook_workbench',
+    status: 'completed',
+    assumptions: { version: 'backtest_assumption_set.v1' },
+    result: { trade_count: 1 },
+    warnings: [],
+    data_quality: 'complete',
+  }, 'workspace_a');
+
+  const response = await scenarioDecisionWorkbench.workbench(
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.items[0]?.type, 'active_scenario');
+  assert.equal(response.items.some((item) => item.type === 'evaluation_due'), true);
+  assert.equal(response.items.some((item) => item.type === 'evaluation_inconclusive'), true);
+  assert.equal(response.items.some((item) => item.type === 'backtest_ready'), true);
+});
+
+test('scenario decision workbench deduplicates repeated inconclusive evaluations', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  for (const index of [1, 2]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_workbench_duplicate_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: 'scenario_workbench_duplicate',
+      thesis_id: 'thesis_workbench_duplicate',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      evaluated_at: `2026-06-0${index}T00:00:00.000Z`,
+      result: 'inconclusive',
+      data_quality: 'insufficient',
+      warnings: [`warning_${index}`],
+      evidence: {},
+    }, 'workspace_a');
+  }
+
+  const response = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+  const items = response.items.filter((item) =>
+    item.type === 'evaluation_inconclusive' &&
+    item.scenario_id === 'scenario_workbench_duplicate'
+  );
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.id, 'evaluation_inconclusive:eval_workbench_duplicate_2');
+  assert.deepEqual(items[0]?.blockers, ['warning_2']);
+});
+
+test('scenario decision workbench recomputes active scenarios from latest market snapshot', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_workbench_market_triggered',
+    thesisId: 'thesis_workbench_market_triggered',
+    symbol: 'BTC/USDT',
+  });
+  const scenarios = journal.scenarios.get(key('thesis_workbench_market_triggered', 'workspace_a')) ?? [];
+  const scenario = record(scenarios[0]);
+  scenario.payload = {
+    ...record(scenario.payload),
+    trigger_spec: {
+      type: 'price_above',
+      level: 62000,
+      timeframe: '1d',
+      candle_close_required: false,
+    },
+  };
+  journal.scenarios.set(key('thesis_workbench_market_triggered', 'workspace_a'), [scenario]);
+  journal.marketSnapshots.set(key('snap_workbench_market_triggered', 'workspace_a'), {
+    id: 'snap_workbench_market_triggered',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    captured_at: new Date().toISOString(),
+    current_price: 62500,
+    source: 'binance',
+    payload: {},
+  });
+
+  const response = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+  const item = response.items.find((candidate) =>
+    candidate.id === 'active_scenario:scenario_workbench_market_triggered'
+  );
+
+  assert.ok(item);
+  assert.equal(item.priority, 100);
+  assert.equal(item.next_action, 'Review triggered scenario.');
+});
+
+test('scenario decision workbench surfaces changed reliability profiles', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  for (const index of [1, 2, 3, 4, 5]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_workbench_reliability_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: `scenario_workbench_reliability_${index}`,
+      thesis_id: `thesis_workbench_reliability_${index}`,
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      result: index === 5 ? 'invalidated' : 'hit',
+      data_quality: 'complete',
+      evidence: {
+        relation_to_thesis: 'supports',
+        action_bias: 'long',
+        setup_type: 'breakout',
+      },
+    }, 'workspace_a');
+  }
+
+  const response = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+  const item = response.items.find((candidate) => candidate.type === 'reliability_changed');
+
+  assert.ok(item);
+  assert.equal(item.priority, 40);
+  assert.equal(item.title, 'Reliability updated BTC/USDT');
+  assert.equal(item.next_action, 'Review reliability lessons before trusting similar setups.');
+});
+
+test('scenario decision workbench includes due evaluations for inactive scenarios', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_workbench_due_inactive',
+    thesisId: 'thesis_workbench_due_inactive',
+    symbol: 'BTC/USDT',
+  });
+
+  const response = await scenarioDecisionWorkbench.workbench(
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(response.items[0]?.type, 'evaluation_due');
+  assert.equal(response.items[0]?.scenario_id, 'scenario_workbench_due_inactive');
+});
+
+test('scenario decision resolve and snooze return queue item contract and update visibility', async () => {
+  const { journal, scenarioDecisionWorkbench } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_workbench_mutation',
+    thesisId: 'thesis_workbench_mutation',
+    symbol: 'BTC/USDT',
+  });
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_workbench_mutation',
+    thesisId: 'thesis_workbench_mutation',
+  });
+  scenario.runtime_decision = {
+    ...record(scenario.runtime_decision),
+    trigger_status: 'triggered',
+    recommended_action: 'entry_long_now',
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    trigger_spec: {
+      type: 'price_above',
+      level: 62000,
+      timeframe: '1d',
+      candle_close_required: false,
+    },
+  };
+  journal.scenarios.set(key('thesis_workbench_mutation', 'workspace_a'), [scenario]);
+  journal.marketSnapshots.set(key('snap_workbench_mutation', 'workspace_a'), {
+    id: 'snap_workbench_mutation',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    captured_at: new Date().toISOString(),
+    current_price: 62500,
+    source: 'binance',
+    payload: {},
+  });
+
+  const before = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+  const active = before.items.find((item) => item.type === 'active_scenario');
+  assert.ok(active);
+
+  const resolved = await scenarioDecisionWorkbench.resolveItem(
+    active.id,
+    'user_1',
+    'workspace_a',
+  );
+  const afterResolve = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+
+  assert.equal(resolved.version, 'scenario_decision_queue_item.v1');
+  assert.equal(resolved.type, 'active_scenario');
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(afterResolve.items.some((item) => item.id === active.id), false);
+
+  const due = before.items.find((item) => item.type === 'evaluation_due');
+  assert.ok(due);
+  const snoozed = await scenarioDecisionWorkbench.snoozeItem(
+    due.id,
+    '2026-07-05T00:00:00.000Z',
+    'user_1',
+    'workspace_a',
+  );
+  const afterSnooze = await scenarioDecisionWorkbench.workbench('user_1', 'workspace_a');
+  assert.equal(snoozed.version, 'scenario_decision_queue_item.v1');
+  assert.equal(snoozed.status, 'snoozed');
+  assert.equal(afterSnooze.items.some((item) => item.id === due.id), false);
+});
+
+test('scenario decision state schema is workspace isolated', () => {
+  const schema = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-schema.sql'),
+    'utf8',
+  );
+  const repository = readFileSync(
+    join(process.cwd(), 'src', 'database', 'postgres-journal.repository.ts'),
+    'utf8',
+  );
+  const prismaSchema = readFileSync(
+    join(process.cwd(), '..', '..', 'packages', 'database', 'prisma', 'schema.prisma'),
+    'utf8',
+  );
+
+  assert.equal(
+    /CREATE TABLE IF NOT EXISTS scenario_decision_item_states \([^;]+PRIMARY KEY \(workspace_id, id\)/s.test(schema),
+    true,
+  );
+  assert.equal(repository.includes('ON CONFLICT (workspace_id, id)'), true);
+  assert.equal(repository.includes('private async ensureScenarioLifecycleSchema'), true);
+  assert.ok(
+    (repository.match(/await this\.ensureScenarioLifecycleSchema\(\);/g) ?? []).length >= 16,
+  );
+  for (const tableName of [
+    'scenario_evaluations',
+    'trade_playbooks',
+    'backtest_runs',
+    'backtest_trade_events',
+    'scenario_decision_item_states',
+  ]) {
+    assert.equal(repository.includes(`CREATE TABLE IF NOT EXISTS ${tableName}`), true);
+  }
+  for (const modelName of [
+    'ScenarioEvaluation',
+    'TradePlaybook',
+    'BacktestRun',
+    'BacktestTradeEvent',
+    'ScenarioDecisionItemState',
+  ]) {
+    assert.equal(prismaSchema.includes(`model ${modelName}`), true);
+  }
+  assert.equal(prismaSchema.includes('@@id([workspaceId, id])'), true);
 });
 
 test('scenario response extracts legacy source timeframe block from action text', async () => {
@@ -12065,11 +14193,137 @@ test('scenario runtime decision blocks entry now when an entry condition fails',
 
   const runtime = monitor.items[0]?.scenario.runtime_decision;
   assert.equal(runtime?.trigger_status, 'triggered');
-  assert.equal(runtime?.recommended_action, 'consider_long');
+  assert.equal(runtime?.recommended_action, 'wait');
   assert.deepEqual(runtime?.failed_conditions, ['price_above:630']);
   assert.equal(
     runtime?.blocking_reasons.includes('failed_condition:price_above:630'),
     true,
+  );
+});
+
+test('scenario runtime decision does not consider action while hard gates are pending', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_hard_gate_runtime', 'workspace_a'), {
+    id: 'thesis_hard_gate_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  journal.scenarios.set(key('thesis_hard_gate_runtime', 'workspace_a'), [
+    runtimeScenarioFixture({
+      id: 'scenario_hard_gate_runtime',
+      thesisId: 'thesis_hard_gate_runtime',
+      validUntil: '2999-01-01T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      scenarioRecommendation: {
+        version: 'scenario_recommendation.v1',
+        action: 'entry_long_now',
+        action_bias: 'long',
+        confidence: 0.82,
+        blocking_reasons: ['Waiting for candle close confirmation.'],
+        hard_gates: [
+          {
+            id: 'candle_close',
+            label: 'Candle close confirmation',
+            status: 'pending',
+            reason: 'Current candle has not closed.',
+          },
+        ],
+      },
+    }),
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_hard_gate_runtime', 'workspace_a'), {
+    id: 'snap_bnb_hard_gate_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  const runtime = monitor.items[0]?.scenario.runtime_decision;
+  assert.equal(runtime?.trigger_status, 'triggered');
+  assert.equal(runtime?.validity_status, 'valid');
+  assert.equal(runtime?.recommended_action, 'wait');
+  assert.equal(
+    runtime?.blocking_reasons.includes('Waiting for candle close confirmation.'),
+    true,
+  );
+  assert.equal(
+    runtime?.blocking_reasons.includes(
+      'Hard gate not passed: Candle close confirmation.',
+    ),
+    true,
+  );
+});
+
+test('scenario runtime decision prefers top-level recommendation over stale payload recommendation', async () => {
+  const { journal, scenarios } = buildHarness();
+  journal.theses.set(key('thesis_recommendation_priority_runtime', 'workspace_a'), {
+    id: 'thesis_recommendation_priority_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch BNB reclaim.',
+  });
+  const fixture = runtimeScenarioFixture({
+    id: 'scenario_recommendation_priority_runtime',
+    thesisId: 'thesis_recommendation_priority_runtime',
+    validUntil: '2999-01-01T00:00:00.000Z',
+    preferred: 'entry_long_now',
+    confidence: 0.82,
+    scenarioRecommendation: {
+      version: 'scenario_recommendation.v1',
+      action: 'entry_long_now',
+      action_bias: 'long',
+      confidence: 0.82,
+      blocking_reasons: ['Payload blocker should not win.'],
+    },
+  });
+  fixture.scenario_recommendation = {
+    version: 'scenario_recommendation.v1',
+    action: 'entry_long_now',
+    action_bias: 'long',
+    confidence: 0.82,
+    blocking_reasons: [],
+    hard_gates: [
+      {
+        id: 'fresh_market_data',
+        label: 'Fresh market data',
+        status: 'passed',
+        reason: 'Snapshot is current.',
+      },
+    ],
+  };
+  journal.scenarios.set(key('thesis_recommendation_priority_runtime', 'workspace_a'), [
+    fixture,
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_recommendation_priority_runtime', 'workspace_a'), {
+    id: 'snap_bnb_recommendation_priority_runtime',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 621,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+
+  const monitor = await scenarios.monitor(
+    { symbol: 'BNB/USDT', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  const runtime = monitor.items[0]?.scenario.runtime_decision;
+  assert.equal(runtime?.recommended_action, 'entry_long_now');
+  assert.equal(
+    runtime?.blocking_reasons.includes('Payload blocker should not win.'),
+    false,
   );
 });
 
@@ -12106,7 +14360,9 @@ test('scenario runtime decision downgrades entry when price is overextended', as
   );
 
   assert.equal(
-    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('overextended'),
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes(
+      'Price is overextended from trigger.',
+    ),
     true,
   );
   assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'overextended');
@@ -12149,7 +14405,9 @@ test('scenario runtime decision honors custom overextended threshold', async () 
   assert.equal(monitor.items[0]?.scenario.runtime_decision.validity_status, 'valid');
   assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'entry_long_now');
   assert.equal(
-    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('overextended'),
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes(
+      'Price is overextended from trigger.',
+    ),
     false,
   );
 });
@@ -12228,7 +14486,9 @@ test('scenario runtime decision marks stale crossed triggers as stale review', a
   assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'stale');
   assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'review');
   assert.equal(
-    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes('stale_market_data'),
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes(
+      'Market data is stale.',
+    ),
     true,
   );
 });
@@ -12268,6 +14528,12 @@ test('scenario runtime decision does not default neutral bias into long actions'
 
   assert.equal(monitor.items[0]?.scenario.runtime_decision.trigger_status, 'near_trigger');
   assert.equal(monitor.items[0]?.scenario.runtime_decision.recommended_action, 'review');
+  assert.equal(
+    monitor.items[0]?.scenario.runtime_decision.blocking_reasons.includes(
+      'Scenario action bias is not actionable.',
+    ),
+    true,
+  );
 });
 
 test('alert scheduler status and manual run are workspace scoped', async () => {
@@ -12576,6 +14842,7 @@ function runtimeScenarioFixture(input: {
   actionBias?: string;
   avoidIf?: JsonRecord[];
   entryConditions?: JsonRecord[];
+  scenarioRecommendation?: JsonRecord;
 }): JsonRecord {
   return {
     id: input.id,
@@ -12620,6 +14887,9 @@ function runtimeScenarioFixture(input: {
         ],
         rationale: 'Fixture playbook.',
       },
+      ...(input.scenarioRecommendation
+        ? { scenario_recommendation: input.scenarioRecommendation }
+        : {}),
     },
   };
 }
@@ -12725,6 +14995,219 @@ async function waitForJobStatus(
   throw new Error(
     `Timed out waiting for job ${id} to reach ${expectedStatus}; current status is ${status.status}`,
   );
+}
+
+function seedScenarioLifecycleFixture(
+  journal: FakeJournalRepository,
+  options: {
+    scenarioId: string;
+    thesisId: string;
+    symbol: string;
+    workspaceId?: string;
+    evaluationWindowStartsAt?: string;
+    evaluationWindowEndsAt?: string;
+  },
+): void {
+  const workspaceId = options.workspaceId ?? 'workspace_a';
+  journal.theses.set(key(options.thesisId, workspaceId), {
+    id: options.thesisId,
+    workspace_id: workspaceId,
+    symbol: options.symbol,
+    market_type: 'spot',
+    direction: 'long',
+    setup_type: 'breakout',
+    created_at: '2026-06-29T00:00:00.000Z',
+  });
+  journal.scenarios.set(key(options.thesisId, workspaceId), [
+    scenarioLifecycleRecord({
+      scenarioId: options.scenarioId,
+      thesisId: options.thesisId,
+      symbol: options.symbol,
+      workspaceId,
+      evaluationWindowStartsAt: options.evaluationWindowStartsAt,
+      evaluationWindowEndsAt: options.evaluationWindowEndsAt,
+    }),
+  ]);
+}
+
+function scenarioLifecycleRecord(
+  options: {
+    scenarioId: string;
+    thesisId: string;
+    symbol?: string;
+    workspaceId?: string;
+    invalidationConditions?: JsonRecord[];
+    actionBias?: 'long' | 'short' | 'neutral' | 'unknown';
+    evaluationWindowStartsAt?: string;
+    evaluationWindowEndsAt?: string;
+  },
+): JsonRecord {
+  const symbol = options.symbol ?? 'BTC/USDT';
+  const workspaceId = options.workspaceId ?? 'workspace_a';
+  const actionBias = options.actionBias ?? 'long';
+  const requiredConditions = [
+    {
+      type: 'price_above',
+      level: 62000,
+      timeframe: '1d',
+      candle_close_required: false,
+    },
+  ];
+  const invalidationConditions = options.invalidationConditions ?? [
+    {
+      type: 'price_below',
+      level: 60000,
+      timeframe: '1d',
+      candle_close_required: false,
+    },
+  ];
+  const recommendation = {
+    version: 'scenario_recommendation.v1',
+    generated_at: '2026-06-29T00:00:00.000Z',
+    source: 'derived_v1',
+    action: actionBias === 'short' ? 'consider_short' : 'consider_long',
+    action_bias: actionBias,
+    confidence: 0.72,
+    summary: `${symbol} reclaims the trigger zone.`,
+    thesis_link: 'Supports the parent long thesis.',
+    required_conditions: requiredConditions,
+    invalidation_conditions: invalidationConditions,
+    wait_for: ['Price trades through 62000.'],
+    hard_gates: [
+      {
+        id: 'liquidity',
+        label: 'Liquidity available',
+        status: 'passed',
+        reason: 'Recent candles are available.',
+      },
+    ],
+    blocking_reasons: [],
+    risk_notes: ['Size only after trigger confirmation.'],
+    evidence_refs: [
+      {
+        type: 'scenario',
+        id: options.scenarioId,
+        field: 'condition',
+        label: 'Trigger condition',
+        supports: 'price reclaim',
+      },
+    ],
+    valid_until: '2026-07-03T00:00:00.000Z',
+    evaluation_readiness: 'ready',
+    evaluation_window: {
+      starts_at: options.evaluationWindowStartsAt ?? '2026-06-24T00:00:00.000Z',
+      ends_at: options.evaluationWindowEndsAt ?? '2026-06-28T00:00:00.000Z',
+      horizon: 'short_term',
+      metric_hint: 'trigger_then_mfe_mae',
+    },
+  };
+  return {
+    id: options.scenarioId,
+    workspace_id: workspaceId,
+    thesis_id: options.thesisId,
+    scenario_name: `${symbol} reclaim scenario`,
+    direction: 'Bullish continuation',
+    relation_to_thesis: 'supports',
+    probability_band: 'base',
+    suggested_user_action: 'Wait for the reclaim trigger.',
+    condition: 'Price reclaims 62000.',
+    expected_behavior: 'Continuation after reclaim.',
+    invalidation: 'Price loses 60000.',
+    evidence: ['Breakout structure'],
+    risk_map: ['False breakout'],
+    horizon: 'short_term',
+    scenario_recommendation: recommendation,
+    runtime_decision: {
+      version: 'scenario_runtime_decision.v1',
+      evaluated_at: '2026-06-29T00:00:00.000Z',
+      trigger_status: 'watching',
+      validity_status: 'valid',
+      recommended_action: 'consider_long',
+      confidence: 0.72,
+      matched_conditions: [],
+      failed_conditions: [],
+      blocking_reasons: [],
+      risk_notes: ['Trigger is not confirmed yet.'],
+      evidence_refs: recommendation.evidence_refs,
+      source: 'rule_engine_from_decision_playbook',
+      playbook_source: 'recommendation',
+      status_reason: 'Waiting for trigger.',
+      distance_to_trigger: 0.02,
+      llm_recommendation: null,
+      final_decision: {
+        action: 'consider_long',
+        reason: 'Scenario is valid and near trigger.',
+        overrides: [],
+      },
+    },
+    payload: {
+      horizon: 'short_term',
+      relation_to_thesis: 'supports',
+      scenario_recommendation: recommendation,
+    },
+  };
+}
+
+function tradePlaybookFixture(id: string): JsonRecord {
+  return {
+    version: 'trade_playbook.v1',
+    id,
+    workspace_id: 'workspace_a',
+    source_scenario_id: 'scenario_backtest_fee',
+    source_thesis_id: 'thesis_backtest_fee',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    direction: 'long',
+    horizon: 'short_term',
+    entry: {
+      type: 'level',
+      level: 62000,
+      summary: 'Enter on reclaim of 62000.',
+    },
+    invalidation: {
+      level: 60000,
+      summary: 'Exit if price loses 60000.',
+    },
+    targets: [
+      {
+        label: 'Target 1',
+        level: 63200,
+        priority: 1,
+      },
+    ],
+    no_trade_conditions: ['No trade without trigger confirmation.'],
+    risk_context: ['False breakout risk.'],
+    sizing_policy: 'fixed_notional',
+    evidence_refs: [
+      {
+        type: 'scenario',
+        id: 'scenario_backtest_fee',
+        field: 'condition',
+        label: 'Scenario trigger',
+        supports: 'entry level',
+      },
+    ],
+    reliability_context: null,
+    compile_warnings: [],
+    created_at: '2026-06-29T00:00:00.000Z',
+  };
+}
+
+function candle(
+  time: string,
+  open: number,
+  high: number,
+  low: number,
+  close: number,
+){
+  return {
+    time,
+    open,
+    high,
+    low,
+    close,
+    volume: 1000,
+  };
 }
 
 function buildHarness() {
@@ -12837,6 +15320,8 @@ function buildHarness() {
     },
   } as unknown as MarketPriceService;
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
+  const scenarioOhlcv = new MarketOhlcvService();
+  const backtestOhlcv = new MarketOhlcvService();
   const researchContinuity = new ResearchContinuityService(
     journal,
     audit,
@@ -12848,6 +15333,11 @@ function buildHarness() {
     new NoopContinuityMarkdownExporter(),
   );
   const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
+  const scenarioReliability = new ScenarioReliabilityService(
+    journal,
+    auth,
+    workspaces,
+  );
   return {
     audit,
     auth,
@@ -12872,6 +15362,7 @@ function buildHarness() {
       journal,
       auth,
       workspaces,
+      scenarioReliability,
       undefined,
     ),
     watchlists,
@@ -12884,7 +15375,27 @@ function buildHarness() {
       thesisEngine,
     ),
     performance: new PerformanceService(journal, auth, workspaces),
-    scenarios: new ScenariosService(journal, auth, workspaces),
+    scenarios: new ScenariosService(journal, auth, workspaces, scenarioReliability),
+    scenarioEvaluations: new ScenarioEvaluationService(
+      journal,
+      auth,
+      workspaces,
+      scenarioOhlcv,
+    ),
+    scenarioReliability,
+    playbooks: new PlaybookCompilerService(
+      journal,
+      auth,
+      workspaces,
+      scenarioReliability,
+    ),
+    backtests: new BacktestService(journal, auth, workspaces, backtestOhlcv),
+    scenarioDecisionWorkbench: new ScenarioDecisionWorkbenchService(
+      journal,
+      auth,
+      workspaces,
+      scenarioReliability,
+    ),
     operations: new OperationsService(journal, audit, settings, auth, workspaces),
     workbench: new WorkbenchService(journal, auth, workspaces),
   };
@@ -12905,6 +15416,40 @@ function buildMarketDataHarness() {
 
 function key(id: string, workspaceId: string): string {
   return `${workspaceId}:${id}`;
+}
+
+function missingRelationError(table: string): Error & { code: string } {
+  const error = new Error(`relation "${table}" does not exist`) as Error & {
+    code: string;
+  };
+  error.code = '42P01';
+  return error;
+}
+
+function compareRunChainOrder(left: JsonRecord, right: JsonRecord): number {
+  return (
+    runChainTimestamp(left) - runChainTimestamp(right) ||
+    String(left.id ?? left.run_id ?? '').localeCompare(
+      String(right.id ?? right.run_id ?? ''),
+    )
+  );
+}
+
+function runChainTimestamp(run: JsonRecord): number {
+  const value = String(run.started_at ?? run.created_at ?? '');
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function removeArrayItems<T>(
+  items: T[],
+  predicate: (item: T) => boolean,
+): void {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index]!)) {
+      items.splice(index, 1);
+    }
+  }
 }
 
 function record(value: unknown): JsonRecord {

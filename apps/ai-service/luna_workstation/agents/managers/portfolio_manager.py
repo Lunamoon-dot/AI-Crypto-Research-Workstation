@@ -27,9 +27,10 @@ from luna_workstation.agents.utils.structured import (
 from luna_workstation.agents.utils.rating import normalize_rating, parse_rating_label
 from luna_workstation.agents.utils.thesis_json import (
     extract_trade_thesis_json,
+    render_trade_thesis_json_block,
     strip_trade_thesis_json_block,
 )
-from luna_workstation.domain import ThesisCandidate
+from luna_workstation.domain import ThesisCandidate, research_item_texts
 from luna_workstation.exceptions import LLMOutputError
 
 
@@ -77,6 +78,20 @@ def _rating_from_artifacts(*texts: str) -> str:
     return "Hold"
 
 
+def _fallback_manual_confirmation() -> str:
+    return (
+        "Manual confirmation required: rerun Portfolio Manager or wait for an "
+        "explicit Setup Planner confirmation before changing exposure."
+    )
+
+
+def _fallback_manual_invalidation() -> str:
+    return (
+        "Invalid if a regenerated Portfolio Manager thesis supersedes this "
+        "fallback or upstream risk evidence contradicts the fallback stance."
+    )
+
+
 def _deterministic_pm_fallback(
     *,
     symbol: str,
@@ -90,33 +105,82 @@ def _deterministic_pm_fallback(
     confirmation = _extract_markdown_field(
         setup_proposal,
         "Confirmation",
+    ) or _fallback_manual_confirmation()
+    invalidation = _extract_markdown_field(
+        setup_proposal,
+        "Invalidation",
+    ) or _fallback_manual_invalidation()
+    entry_zone = _extract_markdown_field(setup_proposal, "Entry") or (
+        "No new exposure from deterministic fallback; wait for Portfolio Manager "
+        "rerun or explicit setup confirmation."
     )
-    invalidation = _extract_markdown_field(setup_proposal, "Invalidation")
     target_zones = _extract_markdown_list_field(
         setup_proposal,
         "Target",
     ) or _extract_markdown_list_field(setup_proposal, "Objective")
     missing_data = _extract_markdown_list_field(setup_proposal, "Missing Data")
     missing_data.append(f"Portfolio Manager LLM unavailable: {type(error).__name__}.")
+    action_summary = (
+        "Portfolio Manager LLM unavailable; using completed upstream artifacts "
+        "as a low-confidence manual-review thesis."
+    )
+    investment_thesis = (
+        "This deterministic fallback is assembled from the Research Manager "
+        "stance, Setup Planner output, and risk debate after the Portfolio "
+        "Manager model call failed."
+    )
+    candidate = ThesisCandidate(
+        schema_version="thesis_candidate.v1",
+        rating=rating,
+        direction=_direction_for_rating(rating),
+        confidence=0.2,
+        market_type=market_type,
+        action_summary=action_summary,
+        investment_thesis=investment_thesis,
+        confirmation_condition=confirmation,
+        invalidation=invalidation,
+        entry_zone=entry_zone,
+        target_zones=target_zones,
+        key_reasons=[
+            (
+                "Fallback uses Research Manager stance, Setup Planner output, "
+                "and risk debate because Portfolio Manager LLM failed."
+            )
+        ],
+        risks=[
+            (
+                "Portfolio Manager judgment is unavailable; treat this as a "
+                "manual-review artifact until rerun."
+            )
+        ],
+        monitor_next=[
+            confirmation,
+            invalidation,
+            "Rerun Portfolio Manager when provider connectivity recovers.",
+        ],
+        supporting_evidence=[],
+        missing_data=missing_data,
+    )
     lines = [
         f"**Portfolio Manager deterministic fallback: {symbol} ({market_type})**",
         "",
         f"**Rating**: {rating}",
         "",
-        "**Research Summary**: Portfolio Manager LLM unavailable; "
-        "using the Research Manager stance, Setup Planner levels, and risk debate.",
+        f"**Research Summary**: {action_summary}",
         "",
-        "**Investment Thesis**: This is a deterministic fallback assembled from "
-        "completed upstream artifacts after the Portfolio Manager model call failed.",
+        f"**Investment Thesis**: {investment_thesis}",
     ]
     if confirmation:
         lines.extend(["", f"**Confirmation**: {confirmation}"])
     if invalidation:
         lines.extend(["", f"**Invalidation**: {invalidation}"])
+    if entry_zone:
+        lines.extend(["", f"**Entry Zone**: {entry_zone}"])
     if target_zones:
         lines.extend(["", f"**Target Zones**: {'; '.join(target_zones)}"])
     if missing_data:
         lines.extend(["", f"**Missing Data**: {'; '.join(missing_data)}"])
+    lines.extend(["", render_trade_thesis_json_block(candidate.model_dump(mode="json"))])
     return "\n".join(lines)
 
 
@@ -168,7 +232,33 @@ def _validated_candidate_json_block(text: str) -> str:
         candidate = ThesisCandidate.model_validate_json(candidate_json)
     except Exception:
         return ""
+    if not _candidate_has_explicit_core_contract(candidate):
+        return ""
     return json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False)
+
+
+def _candidate_has_explicit_core_contract(candidate: ThesisCandidate) -> bool:
+    if "schema_version" not in candidate.model_fields_set:
+        return False
+    if not str(candidate.schema_version or "").strip():
+        return False
+    if not normalize_rating(candidate.rating):
+        return False
+    if not candidate.direction.strip():
+        return False
+    if candidate.confidence is None:
+        return False
+    if not candidate.action_summary.strip():
+        return False
+    if not candidate.confirmation_condition.strip():
+        return False
+    if not candidate.invalidation.strip():
+        return False
+    reason_texts = [
+        *research_item_texts(candidate.key_reasons),
+        *research_item_texts(candidate.risks),
+    ]
+    return any(text.strip() for text in reason_texts) or bool(candidate.missing_data)
 
 
 def _get_feedback_context(config) -> str:
@@ -357,8 +447,12 @@ Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing d
                 error=exc,
             )
             candidate_call_source = "deterministic_fallback"
-        final_trade_summary_json = extract_trade_thesis_json(rendered_trade_decision)
-        if candidate_call_source != "structured":
+        final_trade_summary_json = ""
+        if candidate_call_source == "structured":
+            final_trade_summary_json = extract_trade_thesis_json(
+                rendered_trade_decision
+            )
+        else:
             validated_candidate_json = _validated_candidate_json_block(
                 rendered_trade_decision
             )

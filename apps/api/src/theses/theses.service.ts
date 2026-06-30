@@ -24,6 +24,8 @@ import {
   toThesisReviewResponse,
 } from '../contracts/frontend-contract';
 import { clampListLimit } from '../common/query-limit';
+import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
+import { ScenarioReliabilityService } from '../scenarios/scenario-reliability.service';
 
 @Injectable()
 export class ThesesService {
@@ -32,6 +34,7 @@ export class ThesesService {
     private readonly journal: JournalRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
+    private readonly reliability: ScenarioReliabilityService,
     @Optional()
     private readonly sqliteSync?: SqliteJournalSyncService,
   ) {}
@@ -67,14 +70,21 @@ export class ThesesService {
     const thesis = await this.journal.getThesis(id, workspaceId);
     if (thesis) {
       const scenarios = await this.journal.listScenarios(id, workspaceId);
-      return scenarios.map(toScenarioResponse);
+      const enriched = await Promise.all(
+        scenarios.map((scenario) =>
+          this.enrichScenarioLifecycle(scenario, thesis, workspaceId),
+        ),
+      );
+      return enriched.map((scenario) => toScenarioResponse(scenario, thesis));
     }
     const sqlite = await this.sqliteSync?.exportThesis(id);
     const sqliteThesis = sqlite ? thesisFromExport(sqlite, id, workspaceId) : null;
     if (!sqliteThesis) {
       throw new NotFoundException(`Thesis ${id} not found`);
     }
-    return scenariosFromExport(sqlite!, id, workspaceId).map(toScenarioResponse);
+    return scenariosFromExport(sqlite!, id, workspaceId).map((scenario) =>
+      toScenarioResponse(scenario, sqliteThesis),
+    );
   }
 
   async decide(
@@ -142,6 +152,54 @@ export class ThesesService {
   ): Promise<JsonRecord | null> {
     const exported = await this.sqliteSync?.exportThesis(id);
     return exported ? thesisFromExport(exported, id, workspaceId) : null;
+  }
+
+  private async enrichScenarioLifecycle(
+    scenario: JsonRecord,
+    thesis: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const scenarioId = stringField(scenario.id);
+    if (!scenarioId) {
+      return scenario;
+    }
+    const baseResponse = toScenarioResponse(scenario, thesis);
+    const [evaluations, playbooks, reliabilityProfile] = await Promise.all([
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listScenarioEvaluations(scenarioId, workspaceId),
+      ),
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listTradePlaybooksForScenario(scenarioId, workspaceId),
+      ),
+      this.reliability.profileForScenario(baseResponse, thesis, workspaceId),
+    ]);
+    const latestPlaybook = playbooks[0] ?? null;
+    const backtests = latestPlaybook
+      ? await optionalScenarioLifecycleRows(() =>
+          this.journal.listBacktestRunsForPlaybook(
+            String(latestPlaybook.id ?? ''),
+            workspaceId,
+          ),
+        )
+      : [];
+    const latestBacktest = backtests[0] ?? null;
+    const tradeEvents = latestBacktest
+      ? await optionalScenarioLifecycleRows(() =>
+          this.journal.listBacktestTradeEvents(
+            String(latestBacktest.id ?? ''),
+            workspaceId,
+          ),
+        )
+      : [];
+    return {
+      ...scenario,
+      latest_evaluation: evaluations[0] ?? null,
+      latest_playbook: latestPlaybook,
+      latest_backtest: latestBacktest
+        ? { ...latestBacktest, trade_events: tradeEvents }
+        : null,
+      reliability_profile: reliabilityProfile,
+    };
   }
 
 }

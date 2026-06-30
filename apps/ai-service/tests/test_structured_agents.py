@@ -24,6 +24,7 @@ from luna_workstation.agents.schemas import (
     ScenarioHorizon,
     ScenarioItem,
     ScenarioPlan,
+    ScenarioRelationToThesis,
     SetupAction,
     SetupProposal,
     TraderAction,
@@ -37,7 +38,10 @@ from luna_workstation.agents.planners.setup_planner import (
     create_setup_planner,
     create_trader,
 )
-from luna_workstation.agents.planners.scenario_planner import create_scenario_planner
+from luna_workstation.agents.planners.scenario_planner import (
+    create_scenario_planner,
+    render_scenario_reliability_digest,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +265,51 @@ class TestPortfolioManagerAgent:
         assert payload["spot_notes"] == ""
         assert payload["perp_notes"] == ""
 
+    def test_free_text_fallback_rejects_partial_trade_thesis_json_block(self):
+        partial_json = {
+            "text": "Single research item, not the thesis candidate contract.",
+            "supporting_evidence": [
+                {
+                    "text": "Reasoning-only debate evidence.",
+                    "evidence_kind": "reasoning",
+                    "source_artifact": "research_debate",
+                }
+            ],
+        }
+        plain_response = (
+            "**Portfolio Manager's Final Research Thesis: ETH/USDT (Spot)**\n"
+            "**Stance**: Underweight - avoid new longs.\n"
+            "**Research Summary**: Avoid long until reclaim confirmation.\n"
+            "**Investment Thesis**: Trend and risk evidence favor patience.\n"
+            "**Confirmation**: Daily close back above 1850 with spot volume.\n"
+            "**Invalidation**: Daily close below 1715.\n"
+            "**Target Zones**: 1650; 1580.\n\n"
+            "TRADE_THESIS_JSON:\n"
+            "```json\n"
+            f"{json.dumps(partial_json)}\n"
+            "```"
+        )
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.return_value = MagicMock(content=plain_response)
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert result["final_trade_candidate_source"] == "free_text_fallback"
+        assert payload["rating"] == "Underweight"
+        assert payload["direction"] == "avoid"
+        assert payload["action_summary"] == "Avoid long until reclaim confirmation."
+        assert (
+            payload["confirmation_condition"]
+            == "Daily close back above 1850 with spot volume."
+        )
+        assert payload["invalidation"] == "Daily close below 1715."
+        assert "text" not in payload
+
     def test_llm_failure_falls_back_to_prior_artifacts(self):
         structured = MagicMock()
         structured.invoke.side_effect = TimeoutError("provider timed out")
@@ -274,6 +323,9 @@ class TestPortfolioManagerAgent:
 
         assert "**Rating**: Underweight" in result["final_trade_decision"]
         assert "deterministic fallback" in result["final_trade_decision"]
+        assert result["final_trade_candidate_source"] == "portfolio_decision_json_block"
+        assert payload["schema_version"] == "thesis_candidate.v1"
+        assert payload["confidence"] is not None
         assert payload["rating"] == "Underweight"
         assert payload["direction"] == "avoid"
         assert (
@@ -281,6 +333,32 @@ class TestPortfolioManagerAgent:
             == "Daily close back above 1850 with spot volume."
         )
         assert payload["invalidation"] == "Daily close below 1715."
+
+    def test_llm_failure_fallback_builds_valid_candidate_when_levels_are_missing(self):
+        structured = MagicMock()
+        structured.invoke.side_effect = TimeoutError("provider timed out")
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+        llm.invoke.side_effect = TimeoutError("provider timed out")
+        state = _make_pm_state()
+        state["trader_investment_plan"] = "**Setup Stance**: Hold\nWatch only."
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(state)
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert result["final_trade_candidate_source"] == "portfolio_decision_json_block"
+        assert result["final_trade_candidate_schema_version"] == "thesis_candidate.v1"
+        assert "TRADE_THESIS_JSON" not in result["final_trade_decision"]
+        assert payload["schema_version"] == "thesis_candidate.v1"
+        assert payload["confidence"] is not None
+        assert payload["confirmation_condition"]
+        assert payload["invalidation"]
+        assert payload["key_reasons"]
+        assert payload["risks"]
+        assert payload["missing_data"] == [
+            "Portfolio Manager LLM unavailable: LLMOutputError."
+        ]
 
     def test_prompt_includes_current_price_context(self):
         captured = {}
@@ -600,6 +678,78 @@ def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
 
 @pytest.mark.unit
 class TestScenarioPlannerAgent:
+    def test_scenario_reliability_digest_renders_compact_aggregates(self):
+        digest = render_scenario_reliability_digest(
+            {
+                "profiles": [
+                    {
+                        "symbol": "BTC/USDT",
+                        "market_type": "spot",
+                        "horizon": "short_term",
+                        "relation_to_thesis": "supports",
+                        "action_bias": "long",
+                        "sample_size": 12,
+                        "hit_rate": 0.58,
+                        "invalidation_rate": 0.17,
+                        "mixed_rate": 0.08,
+                        "data_quality_notes": ["Enough history"],
+                        "recent_lessons": ["Breakout branches need volume follow-through."],
+                        "raw_scenarios": ["do not include this raw row"],
+                    }
+                ]
+            }
+        )
+
+        assert "Scenario reliability digest" in digest
+        assert "BTC/USDT spot short_term" in digest
+        assert "hit_rate=58%" in digest
+        assert "Breakout branches need volume follow-through." in digest
+        assert "raw_scenarios" not in digest
+        assert "do not include this raw row" not in digest
+
+    def test_structured_prompt_includes_reliability_digest_without_raw_history(self):
+        captured = {}
+        llm = _structured_scenario_llm(captured)
+        scenario_planner = create_scenario_planner(llm)
+
+        scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight if reclaim confirms.",
+                "final_trade_decision": "Watch reclaim and invalidation.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+                "scenario_reliability_digest": {
+                    "profiles": [
+                        {
+                            "symbol": "BTC/USDT",
+                            "market_type": "spot",
+                            "horizon": "short_term",
+                            "relation_to_thesis": "supports",
+                            "action_bias": "long",
+                            "sample_size": 12,
+                            "hit_rate": 0.58,
+                            "invalidation_rate": 0.17,
+                            "mixed_rate": 0.08,
+                            "recent_lessons": ["Require volume confirmation."],
+                            "raw_scenarios": ["raw scenario history should stay out"],
+                        }
+                    ]
+                },
+            }
+        )
+
+        prompt = captured["prompt"][1]["content"]
+        assert "Scenario reliability digest" in prompt
+        assert "hit_rate=58%" in prompt
+        assert "Require volume confirmation." in prompt
+        assert "raw_scenarios" not in prompt
+        assert "raw scenario history should stay out" not in prompt
+
     def test_scenario_plan_renders_horizon_identity(self):
         plan = ScenarioPlan(
             setup_type="agent_debate",
@@ -610,6 +760,7 @@ class TestScenarioPlannerAgent:
                     scenario_name="Short-term reclaim",
                     direction="bullish risk",
                     thesis_impact="medium",
+                    relation_to_thesis=ScenarioRelationToThesis.SUPPORTS,
                     condition="If price reclaims resistance with volume.",
                     expected_behavior="Fast tactical reaction toward prior highs.",
                     evidence=["Volume: improving"],
@@ -630,6 +781,7 @@ class TestScenarioPlannerAgent:
 
         assert "**Horizon**: short_term" in markdown
         assert "**Horizon Window**: 24-72h" in markdown
+        assert "**Relation to Thesis**: supports" in markdown
 
     def test_structured_output_normalizes_exactly_three_horizons(self):
         captured = {}
@@ -879,6 +1031,140 @@ class TestScenarioPlannerAgent:
 
         prompt_text = "\n".join(message["content"] for message in captured["prompt"])
         assert "Write your entire response in Vietnamese" in prompt_text
+
+    def test_prompt_requests_structured_scenario_recommendation(self):
+        captured = {}
+        llm = _structured_scenario_llm(captured)
+        scenario_planner = create_scenario_planner(llm)
+
+        scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight only after reclaim confirmation.",
+                "final_trade_decision": "Wait for reclaim and invalidation guardrail.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        prompt_text = "\n".join(message["content"] for message in captured["prompt"])
+        assert "scenario_recommendation" in prompt_text
+        assert "hard_gates" in prompt_text
+        assert "blocking_reasons" in prompt_text
+        assert "evaluation_window" in prompt_text
+        assert "instead of inventing an entry" in prompt_text
+
+    def test_free_text_fallback_validates_scenario_plan_json_block(self):
+        payload = {
+            "setup_type": "agent_debate",
+            "scenarios": [
+                {
+                    "horizon": "short_term",
+                    "timeframe_label": "24-72h",
+                    "scenario_name": "Short squeeze relief branch",
+                    "direction": "bullish risk",
+                    "thesis_impact": "medium",
+                    "relation_to_thesis": "challenges",
+                    "condition": "If BTC reclaims 63500 with spot CVD improving.",
+                    "expected_behavior": "Fast relief toward the rejection zone.",
+                    "evidence": ["RSI: oversold", "Funding: negative"],
+                    "watch_triggers": ["Reclaim 63500", "Spot CVD turns positive"],
+                    "impact_on_thesis": "Challenges the avoid-long thesis tactically.",
+                    "probability_band": "medium",
+                    "invalidation": "Invalid below 61000 with volume.",
+                    "risk_factors": ["False reclaim risk"],
+                    "suggested_action": "watch confirmation",
+                    "as_of": "2026-06-10",
+                    "timeframe": "4H",
+                    "source": ["market_report"],
+                },
+                {
+                    "horizon": "mid_term",
+                    "timeframe_label": "1-3w",
+                    "scenario_name": "Trend continuation branch",
+                    "direction": "bearish risk",
+                    "thesis_impact": "high",
+                    "relation_to_thesis": "supports",
+                    "condition": "If BTC rejects 64500 and loses 61000.",
+                    "expected_behavior": "Continuation toward lower liquidity.",
+                    "evidence": ["Trend: bearish"],
+                    "watch_triggers": ["Reject 64500", "Lose 61000"],
+                    "impact_on_thesis": "Supports staying underweight.",
+                    "probability_band": "medium",
+                    "invalidation": "Invalid above 66000 daily close.",
+                    "risk_factors": ["Oversold bounce risk"],
+                    "suggested_action": "avoid longs",
+                    "as_of": "2026-06-10",
+                    "timeframe": "1D",
+                    "source": ["market_report"],
+                },
+                {
+                    "horizon": "long_term",
+                    "timeframe_label": "1-3m",
+                    "scenario_name": "Structural recovery branch",
+                    "direction": "neutral",
+                    "thesis_impact": "medium",
+                    "relation_to_thesis": "invalidates",
+                    "condition": "If macro risk fades and BTC reclaims 70000.",
+                    "expected_behavior": "Thesis shifts from defensive to review.",
+                    "evidence": ["Macro data: missing"],
+                    "watch_triggers": ["Reclaim 70000", "Macro risk improves"],
+                    "impact_on_thesis": "Would supersede the current defensive stance.",
+                    "probability_band": "low",
+                    "invalidation": "Invalid if BTC remains below 61000.",
+                    "risk_factors": ["Macro data remains missing"],
+                    "suggested_action": "review thesis",
+                    "as_of": "2026-06-10",
+                    "timeframe": "1W",
+                    "source": ["market_report"],
+                },
+            ],
+        }
+        plain_response = (
+            "Readable scenario notes should not be the persistence contract.\n\n"
+            "SCENARIO_PLAN_JSON:\n"
+            "```json\n"
+            f"{json.dumps(payload)}\n"
+            "```"
+        )
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.return_value = MagicMock(content=plain_response)
+        scenario_planner = create_scenario_planner(llm)
+
+        result = scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Underweight until reclaim confirms.",
+                "final_trade_decision": "Avoid longs unless 63500 reclaims.",
+                "market_report": "Price is below resistance on 4H.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+            }
+        )
+
+        plan = ScenarioPlan.model_validate_json(result["scenario_plan_json"])
+        assert [scenario.horizon for scenario in plan.scenarios] == [
+            ScenarioHorizon.SHORT_TERM,
+            ScenarioHorizon.MID_TERM,
+            ScenarioHorizon.LONG_TERM,
+        ]
+        assert plan.scenarios[0].relation_to_thesis == ScenarioRelationToThesis.CHALLENGES
+        assert plan.scenarios[1].relation_to_thesis == ScenarioRelationToThesis.SUPPORTS
+        assert plan.scenarios[2].relation_to_thesis == ScenarioRelationToThesis.INVALIDATES
+        assert "SCENARIO_PLAN_JSON" not in result["scenario_plan"]
+        assert "Short squeeze relief branch" in result["scenario_plan"]
+        assert "Readable scenario notes" not in result["scenario_plan"]
+        assert "SCENARIO_PLAN_JSON" in llm.invoke.call_args.args[0]
 
     def test_structured_output_replaces_unsupported_calendar_dates(self):
         captured = {}

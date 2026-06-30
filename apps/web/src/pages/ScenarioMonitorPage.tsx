@@ -193,6 +193,61 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
         <span>{vm.actionDetail || 'Review scenario context.'}</span>
       </div>
 
+      <div className="scenario-monitor-facts scenario-recommendation-grid">
+        <div className="scenario-monitor-fact">
+          <span>Recommendation</span>
+          <p>{vm.recommendationSummary || vm.actionLabel}</p>
+          <p className="small muted">{vm.runtimeSource || 'Derived from scenario contract'}</p>
+        </div>
+        <div className="scenario-monitor-fact">
+          <span>Evaluation</span>
+          <p>{vm.evaluationLabel}</p>
+          <p className="small muted">{vm.evaluationDetail}</p>
+        </div>
+        <div className="scenario-monitor-fact">
+          <span>Reliability</span>
+          <p>{vm.reliabilityLabel}</p>
+          <p className="small muted">{vm.reliabilityDetail}</p>
+        </div>
+        <div className="scenario-monitor-fact">
+          <span>Playbook</span>
+          <p>{vm.playbookLabel}</p>
+          <p className="small muted">{vm.backtestLabel}</p>
+          {vm.backtestEvents.length ? (
+            <ul className="scenario-watch-list">
+              {vm.backtestEvents.map((event) => (
+                <li key={event}>{event}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+
+      {vm.hardGates.length ? (
+        <div className="scenario-field">
+          <span>Hard gates</span>
+          <ul className="scenario-watch-list">
+            {vm.hardGates.slice(0, 4).map((gate) => (
+              <li key={`${gate.label}-${gate.status}`}>
+                <strong>{gate.label}</strong>: {gate.status}
+                {gate.reason ? <span className="muted"> - {gate.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {vm.blockingReasons.length ? (
+        <div className="scenario-field">
+          <span>Blocking reasons</span>
+          <ul className="scenario-watch-list">
+            {vm.blockingReasons.slice(0, 4).map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {expected ? (
         <div className="scenario-field">
           <span>Expected market behavior</span>

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Scenario Planner creates conditional market scenarios for the current thesis. It does not create trade commands. It maps what would confirm, invalidate, neutralize, or contradict the thesis.
+Scenario Planner creates a fixed-horizon conditional market map for the current thesis. It does not create trade commands. It maps what would support, challenge, invalidate, or neutralize the thesis across short-term, mid-term, and long-term branches.
 
 ## Code
 
@@ -20,11 +20,13 @@ Scenario Planner creates conditional market scenarios for the current thesis. It
 - `trade_date` or `analysis_date`
 - `investment_plan`
 - `final_trade_decision`
+- optional `scenario_continuity_handoff` from Portfolio Manager
 - `market_report`
 - `sentiment_report`
 - `news_report`
 - `fundamentals_report`
 - `quant_signal_text` or `signal_text`
+- `quant_signal` for current price anchor
 - `setup_type`
 
 ## What it does
@@ -33,31 +35,40 @@ Scenario Planner creates conditional market scenarios for the current thesis. It
 2. Validates requested `setup_type` against `TemplateRegistry`.
 3. If required template coverage is too weak, degrades to `agent_debate`.
 4. Builds date-grounding instruction.
-5. Calls structured LLM for `ScenarioPlan` when provider supports structured output.
-6. Grounds unsupported calendar dates by replacing invented/unsupported dates with `prior`.
-7. Renders the structured plan to markdown.
-8. Returns both markdown and JSON plan.
-9. If structured output fails, falls back to free-text scenario prompt.
-10. Journal bridge persists scenarios from JSON first, or parses markdown fallback.
+5. Renders Portfolio Manager's `scenario_continuity_handoff` as prior-memory guidance when available.
+6. Calls structured LLM once per horizon when provider supports structured output:
+   - `short_term` with `24-72h`
+   - `mid_term` with `1-3w`
+   - `long_term` with `1-3m`
+7. Normalizes the horizon results into exactly one scenario per horizon.
+8. Creates deterministic horizon fallback scenarios when an individual horizon call is missing or unusable.
+9. Grounds unsupported calendar dates by replacing invented/unsupported dates with `prior`.
+10. Enriches missing `as_of`, `timeframe`, and `source` from source context.
+11. Renders the structured plan to markdown.
+12. Returns both markdown and JSON plan.
+13. If structured output fails completely, falls back to free-text scenario prompt with a `SCENARIO_PLAN_JSON` block.
+14. Journal bridge persists scenarios from JSON first, or parses markdown fallback.
 
 ## Scenario coverage
 
-Prompt asks for exactly 3-4 scenarios covering:
+Current structured path produces exactly three scenarios:
 
-- directional confirmation
-- invalidation / adverse path
-- neutral / wait
-- contradiction branch when debate shows conflict
+- one `short_term` tactical branch (`24-72h`)
+- one `mid_term` thesis follow-through branch (`1-3w`)
+- one `long_term` structural branch (`1-3m`)
 
-The post-processing caps structured scenario count to 4.
+Each branch can support, challenge, invalidate, or stay neutral to the thesis via `relation_to_thesis`.
 
 ## Scenario fields
 
 Each `ScenarioItem` includes:
 
+- `horizon`
+- `timeframe_label`
 - `scenario_name`
 - `direction`
 - `thesis_impact`
+- `relation_to_thesis`
 - `condition`
 - `expected_behavior`
 - `evidence`
@@ -70,6 +81,9 @@ Each `ScenarioItem` includes:
 - `as_of`
 - `timeframe`
 - `source`
+- optional `scenario_recommendation`
+
+`scenario_recommendation` is versioned as `scenario_recommendation.v1` when present. It can include action intent, bias, confidence, required conditions, invalidation conditions, hard gates, blocking reasons, risk notes, evidence refs, validity window, evaluation readiness, and evaluation window.
 
 ## Template behavior
 
@@ -100,7 +114,9 @@ Scenario Planner may use analysis date as run anchor, but must not attach a spec
 - Produces conditional market scenarios, not trade commands.
 - Scenario title must not be probability.
 - Suggested action should be review/watch/reassess style, not imperative exchange order.
+- Structured recommendation should prefer wait/consider/review guidance with blockers and gates when actionability is incomplete.
 - Uses `guard_untrusted_context` for PM decision, investment plan, and research reports.
+- Does not use raw Research Continuity memory; only the PM-authored `scenario_continuity_handoff` is allowed, and it is prior memory only.
 - `fail_open=True` means scenario failure should not fail the whole research run.
 
 ## Output
@@ -117,4 +133,5 @@ Scenario Planner may use analysis date as run anchor, but must not attach a spec
 
 - Journal scenario persistence.
 - UI scenario surfaces.
+- Scenario Monitor and runtime evaluator.
 - Research continuity / later review flows when scenarios are saved.

@@ -210,7 +210,60 @@ test('scenario radar ignores missing runtime decisions for primary actions', () 
   assert.equal(source.includes('hasRuntimeDecision'), true);
   assert.equal(source.includes("playbook_source !== 'missing'"), true);
   assert.equal(source.includes('runtime_decision_missing'), true);
-  assert.equal(source.includes('actionLabel: runtimeAction || action.label'), true);
+  assert.equal(
+    source.includes("actionLabel: runtimeAction || recommendationAction || action.label || 'Review'"),
+    true,
+  );
+});
+
+test('scenario radar renders recommendation state from shared view model', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const viewModelSource = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes('<span>Recommendation</span>'), true);
+  assert.equal(pageSource.includes('Hard gates'), true);
+  assert.equal(pageSource.includes('Blocking reasons'), true);
+  assert.equal(pageSource.includes('<span>Evaluation</span>'), true);
+  assert.equal(pageSource.includes('<span>Reliability</span>'), true);
+  assert.equal(pageSource.includes('<span>Playbook</span>'), true);
+  assert.equal(viewModelSource.includes('scenario.scenario_recommendation'), true);
+  assert.equal(viewModelSource.includes('recommendationSummary'), true);
+  assert.equal(viewModelSource.includes('evaluationLabel'), true);
+  assert.equal(viewModelSource.includes('reliabilityLabel'), true);
+  assert.equal(viewModelSource.includes('playbookLabel'), true);
+  assert.equal(viewModelSource.includes('backtestLabel'), true);
+  assert.equal(viewModelSource.includes('backtestEvents'), true);
+  assert.equal(pageSource.includes('vm.backtestEvents'), true);
+});
+
+test('scenario radar exposes lifecycle actions on persisted scenario cards', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const styles = readFileSync(
+    new URL('../src/styles/index.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes('evaluateScenarioDecisionItem'), true);
+  assert.equal(pageSource.includes('compileScenarioDecisionPlaybook'), true);
+  assert.equal(pageSource.includes('createScenarioDecisionBacktest'), true);
+  assert.equal(pageSource.includes('ScenarioLifecycleActions'), true);
+  assert.equal(pageSource.includes('persistedScenarioId'), true);
+  assert.equal(pageSource.includes('Compile a playbook before running a backtest.'), true);
+  assert.equal(pageSource.includes('Playbook rejected.'), true);
+  assert.equal(pageSource.includes('rejection_reasons'), true);
+  assert.equal(pageSource.includes('queryKeys.scenarioDecisionWorkbench()'), true);
+  assert.equal(pageSource.includes('queryKeys.thesisScenarios(thesisId)'), true);
+  assert.equal(styles.includes('.scenario-lifecycle-actions'), true);
+  assert.equal(styles.includes('.scenario-action-result-warning'), true);
 });
 
 test('scenario radar supplements missing scenario branches from thesis boundaries', () => {
@@ -250,4 +303,27 @@ test('scenario radar exposes local horizon filters', () => {
   assert.equal(source.includes('scenarioHorizonOptions'), true);
   assert.equal(source.includes("setScenarioHorizonFilter('all')"), true);
   assert.equal(source.includes('scenarioHorizon(scenario)'), true);
+});
+
+test('scenario radar signals relation to the current thesis', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const styles = readFileSync(
+    new URL('../src/styles/index.css', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('thesis={thesis}'), true);
+  assert.equal(source.includes('scenarioThesisRelation'), true);
+  assert.equal(source.includes('scenario-thesis-link'), true);
+  assert.equal(source.includes('scenario.relation_to_thesis'), true);
+  assert.equal(source.includes('current LONG thesis'), true);
+  assert.equal(source.includes('label: `Supports ${thesisLabel}`'), true);
+  assert.equal(source.includes('label: `Challenges ${thesisLabel}`'), true);
+  assert.equal(source.includes('label: `Invalidates ${thesisLabel}`'), true);
+  assert.equal(source.includes('scenario.thesis_impact'), true);
+  assert.equal(styles.includes('.scenario-thesis-link'), true);
+  assert.equal(styles.includes('.scenario-thesis-link-risk'), true);
 });

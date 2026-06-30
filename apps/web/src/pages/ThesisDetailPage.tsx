@@ -2,11 +2,19 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ClipboardCheck,
   Download,
   GitBranch,
+  ListChecks,
+  Play,
   Target,
 } from 'lucide-react';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
+import {
+  compileScenarioDecisionPlaybook,
+  createScenarioDecisionBacktest,
+  evaluateScenarioDecisionItem,
+} from '@/services/scenario-decision';
 import {
   getThesis,
   getThesisScenarios,
@@ -36,13 +44,34 @@ import {
 } from './thesis-detail-tabs';
 import { scenarioDetailViewModel, scenarioHorizon } from './scenario-view-model';
 import type {
+  BacktestRunResponse,
   JsonRecord,
+  PlaybookCompileReportResponse,
+  ScenarioEvaluationResponse,
   ScenarioHorizon,
   ScenarioResponse,
   ThesisResponse,
 } from '@/types';
 
 type ScenarioHorizonFilter = 'all' | ScenarioHorizon;
+type ScenarioLifecycleAction = 'evaluate' | 'compile' | 'backtest';
+type ScenarioLifecycleRequest = {
+  action: ScenarioLifecycleAction;
+  scenario: ScenarioResponse;
+};
+type ScenarioLifecycleResult =
+  | ScenarioEvaluationResponse
+  | PlaybookCompileReportResponse
+  | BacktestRunResponse;
+type ScenarioActionFeedback = {
+  tone: 'constructive' | 'warning' | 'risk' | 'primary';
+  message: string;
+  details: string[];
+};
+type PendingScenarioAction = {
+  action: ScenarioLifecycleAction;
+  key: string;
+};
 const SCENARIO_HORIZON_FILTER_ORDER: ScenarioHorizon[] = [
   'short_term',
   'mid_term',
@@ -80,6 +109,8 @@ export function ThesisDetailPage() {
   const [exportingBundle, setExportingBundle] = useState(false);
   const [exportError, setExportError] = useState('');
   const [scenarioHorizonFilter, setScenarioHorizonFilter] = useState<ScenarioHorizonFilter>('all');
+  const [scenarioActionFeedback, setScenarioActionFeedback] = useState<Record<string, ScenarioActionFeedback>>({});
+  const [pendingScenarioAction, setPendingScenarioAction] = useState<PendingScenarioAction | null>(null);
 
   const decisionMutation = useMutation({
     mutationFn: () =>
@@ -119,6 +150,55 @@ export function ThesisDetailPage() {
       setReviewMfe('');
       setReviewMae('');
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesis(thesisId) });
+    },
+  });
+  const scenarioLifecycleMutation = useMutation({
+    mutationFn: async (request: ScenarioLifecycleRequest): Promise<ScenarioLifecycleResult> => {
+      const scenarioId = persistedScenarioId(request.scenario);
+      if (!scenarioId) {
+        throw new Error('Derived thesis boundary scenarios cannot be actioned.');
+      }
+      if (request.action === 'evaluate') {
+        return evaluateScenarioDecisionItem(scenarioId, auth);
+      }
+      if (request.action === 'compile') {
+        return compileScenarioDecisionPlaybook(scenarioId, auth);
+      }
+      const playbookId = request.scenario.latest_playbook?.id;
+      if (!playbookId) {
+        throw new Error('Compile a playbook before running a backtest.');
+      }
+      return createScenarioDecisionBacktest(playbookId, auth);
+    },
+    onMutate: (request) => {
+      const key = scenarioActionKey(request.scenario);
+      setPendingScenarioAction({ action: request.action, key });
+      setScenarioActionFeedback((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    },
+    onSuccess: (result, request) => {
+      setScenarioActionFeedback((current) => ({
+        ...current,
+        [scenarioActionKey(request.scenario)]: scenarioLifecycleFeedback(request.action, result),
+      }));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.thesisScenarios(thesisId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scenarioDecisionWorkbench() });
+    },
+    onError: (error, request) => {
+      setScenarioActionFeedback((current) => ({
+        ...current,
+        [scenarioActionKey(request.scenario)]: {
+          tone: 'risk',
+          message: errorMessage(error),
+          details: [],
+        },
+      }));
+    },
+    onSettled: () => {
+      setPendingScenarioAction(null);
     },
   });
   const scenarioCards = thesisQuery.data
@@ -435,7 +515,17 @@ export function ThesisDetailPage() {
                 <ScenarioRadarCard
                   index={index}
                   key={scenario.id ?? scenario.condition}
+                  lifecycle={{
+                    canRun: Boolean(persistedScenarioId(scenario)),
+                    feedback: scenarioActionFeedback[scenarioActionKey(scenario)],
+                    onAction: (action) => scenarioLifecycleMutation.mutate({ action, scenario }),
+                    pendingAction:
+                      pendingScenarioAction?.key === scenarioActionKey(scenario)
+                        ? pendingScenarioAction.action
+                        : null,
+                  }}
                   scenario={scenario}
+                  thesis={thesis}
                 />
               ))}
             </div>
@@ -677,12 +767,105 @@ function biasTone(bias: string): ThesisTone {
   return 'default';
 }
 
+function scenarioActionKey(scenario: ScenarioResponse): string {
+  return scenario.id || `${scenario.thesis_id}:${scenario.condition}`;
+}
+
+function persistedScenarioId(scenario: ScenarioResponse): string | null {
+  if (!scenario.id) {
+    return null;
+  }
+  if (
+    scenario.id.includes(':') &&
+    stringValue(scenario.payload.source_context) === 'thesis_brief'
+  ) {
+    return null;
+  }
+  return scenario.id;
+}
+
+function scenarioLifecycleFeedback(
+  action: ScenarioLifecycleAction,
+  result: ScenarioLifecycleResult,
+): ScenarioActionFeedback {
+  if (action === 'evaluate') {
+    const evaluation = result as ScenarioEvaluationResponse;
+    return {
+      tone: scenarioEvaluationTone(evaluation.result),
+      message: `Evaluation ${titleCaseValue(evaluation.result)} recorded.`,
+      details: [
+        `Data quality: ${titleCaseValue(evaluation.data_quality)}`,
+        ...evaluation.warnings.map(scenarioFeedbackText),
+      ],
+    };
+  }
+
+  if (action === 'compile') {
+    const report = result as PlaybookCompileReportResponse;
+    if (!report.eligible) {
+      return {
+        tone: 'warning',
+        message: 'Playbook rejected.',
+        details: report.rejection_reasons.map(scenarioFeedbackText),
+      };
+    }
+    return {
+      tone: 'constructive',
+      message: 'Playbook compiled.',
+      details: [
+        report.playbook ? `${titleCaseValue(report.playbook.direction)} ${report.playbook.horizon}` : '',
+        ...report.warnings.map(scenarioFeedbackText),
+      ].filter(Boolean),
+    };
+  }
+
+  const backtest = result as BacktestRunResponse;
+  return {
+    tone: backtest.status === 'completed'
+      ? 'constructive'
+      : backtest.status === 'failed'
+        ? 'risk'
+        : 'warning',
+    message: `Backtest ${titleCaseValue(backtest.status)}.`,
+    details: [
+      `Trades: ${backtest.result.trade_count}`,
+      backtest.result.total_return_pct === null
+        ? ''
+        : `Return: ${backtest.result.total_return_pct.toFixed(2)}%`,
+      ...backtest.warnings.map(scenarioFeedbackText),
+    ].filter(Boolean),
+  };
+}
+
+function scenarioEvaluationTone(result: ScenarioEvaluationResponse['result']): ScenarioActionFeedback['tone'] {
+  if (result === 'hit' || result === 'mixed') {
+    return 'constructive';
+  }
+  if (result === 'invalidated' || result === 'missed') {
+    return 'risk';
+  }
+  return 'warning';
+}
+
+function scenarioFeedbackText(value: string): string {
+  return cleanScenarioText(value).replace(/_/g, ' ');
+}
+
 function ScenarioRadarCard({
   scenario,
   index,
+  thesis,
+  lifecycle,
 }: {
   scenario: ScenarioResponse;
   index: number;
+  thesis: ThesisResponse;
+  lifecycle: {
+    canRun: boolean;
+    feedback: ScenarioActionFeedback | undefined;
+    onAction: (action: ScenarioLifecycleAction) => void;
+    pendingAction: ScenarioLifecycleAction | null;
+  };
 }) {
   const vm = scenarioDetailViewModel(scenario, index);
   const band = cleanScenarioText(scenario.probability_band) || 'scenario';
@@ -697,15 +880,16 @@ function ScenarioRadarCard({
     : stringList(scenario.payload.risk_map ?? scenario.payload.risk_factors);
   const scenarioName = vm.title || scenarioDisplayName(scenario, condition, expected, action, index);
   const summary = scenarioSummary(scenario.payload, condition, expected);
-  const direction = scenarioDirection(scenario.payload, scenarioName, condition, expected, action);
+  const direction = scenarioDirection(scenario, scenarioName, condition, expected, action);
   const directionToneValue = scenarioDirectionTone(direction);
-  const impactLabel = scenarioImpactLabel(scenario.payload, expected, riskMap);
+  const impactLabel = scenarioImpactLabel(scenario, expected, riskMap);
   const impactToneValue = scenarioImpactTone(impactLabel);
   const evidence = vm.evidence.length > 0 ? vm.evidence : scenarioEvidence(scenario.payload);
   const watchTriggers = vm.watchTriggers.length > 0
     ? vm.watchTriggers
     : scenarioWatchTriggers(scenario.payload, condition, invalidation);
   const impactOnThesis = vm.impactOnThesis || expected;
+  const thesisRelation = scenarioThesisRelation(thesis, scenario);
 
   return (
     <article className={`scenario-card scenario-card-${directionToneValue}`}>
@@ -726,6 +910,14 @@ function ScenarioRadarCard({
             {titleCaseValue(impactLabel)} impact
           </span>
         </div>
+      </div>
+
+      <div className={`scenario-thesis-link scenario-thesis-link-${thesisRelation.tone}`}>
+        <span>
+          <GitBranch aria-hidden size={13} />
+          {thesisRelation.label}
+        </span>
+        <strong>{thesisRelation.detail}</strong>
       </div>
 
       <div className="scenario-meta-row" aria-label="Scenario provenance">
@@ -767,6 +959,77 @@ function ScenarioRadarCard({
         <StructuredRichText dense value={actionText} />
       </div>
 
+      <div className="scenario-decision-grid">
+        <div className="scenario-field">
+          <span>Recommendation</span>
+          <StructuredRichText
+            dense
+            value={vm.recommendationSummary || vm.actionLabel}
+          />
+        </div>
+
+        <div className="scenario-field">
+          <span>Evaluation</span>
+          <p>{vm.evaluationLabel}</p>
+          <p className="small muted">{vm.evaluationDetail}</p>
+        </div>
+      </div>
+
+      <div className="scenario-decision-grid">
+        <div className="scenario-field">
+          <span>Reliability</span>
+          <p>{vm.reliabilityLabel}</p>
+          <p className="small muted">{vm.reliabilityDetail}</p>
+        </div>
+
+        <div className="scenario-field">
+          <span>Playbook</span>
+          <p>{vm.playbookLabel}</p>
+          <p className="small muted">{vm.backtestLabel}</p>
+          {vm.backtestEvents.length ? (
+            <ul className="scenario-watch-list">
+              {vm.backtestEvents.map((event) => (
+                <li key={event}>{event}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+
+      {lifecycle.canRun ? (
+        <ScenarioLifecycleActions
+          feedback={lifecycle.feedback}
+          hasPlaybook={Boolean(scenario.latest_playbook?.id)}
+          onAction={lifecycle.onAction}
+          pendingAction={lifecycle.pendingAction}
+        />
+      ) : null}
+
+      {vm.hardGates.length ? (
+        <div className="scenario-field">
+          <span>Hard gates</span>
+          <ul className="scenario-watch-list">
+            {vm.hardGates.slice(0, 4).map((gate) => (
+              <li key={`${gate.label}-${gate.status}`}>
+                <strong>{gate.label}</strong>: {gate.status}
+                {gate.reason ? <span className="muted"> - {gate.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {vm.blockingReasons.length ? (
+        <div className="scenario-field">
+          <span>Blocking reasons</span>
+          <ul className="scenario-watch-list">
+            {vm.blockingReasons.slice(0, 4).map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="scenario-field">
         <span>Impact on thesis</span>
         <StructuredRichText dense value={impactOnThesis || 'No thesis impact recorded.'} />
@@ -804,6 +1067,145 @@ function ScenarioMeta({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function ScenarioLifecycleActions({
+  feedback,
+  hasPlaybook,
+  onAction,
+  pendingAction,
+}: {
+  feedback: ScenarioActionFeedback | undefined;
+  hasPlaybook: boolean;
+  onAction: (action: ScenarioLifecycleAction) => void;
+  pendingAction: ScenarioLifecycleAction | null;
+}) {
+  const pending = Boolean(pendingAction);
+  return (
+    <div className="scenario-lifecycle">
+      <div className="scenario-lifecycle-actions" aria-label="Scenario lifecycle actions">
+        <button
+          className="button primary"
+          disabled={pending}
+          onClick={() => onAction('evaluate')}
+          type="button"
+        >
+          <ClipboardCheck aria-hidden size={14} />
+          {pendingAction === 'evaluate' ? 'Evaluating' : 'Evaluate'}
+        </button>
+        <button
+          className="button ghost"
+          disabled={pending}
+          onClick={() => onAction('compile')}
+          type="button"
+        >
+          <ListChecks aria-hidden size={14} />
+          {pendingAction === 'compile' ? 'Compiling' : 'Compile playbook'}
+        </button>
+        <button
+          className="button ghost"
+          disabled={pending || !hasPlaybook}
+          onClick={() => onAction('backtest')}
+          title={hasPlaybook ? undefined : 'Requires compiled playbook'}
+          type="button"
+        >
+          <Play aria-hidden size={14} />
+          {pendingAction === 'backtest' ? 'Running' : 'Run backtest'}
+        </button>
+      </div>
+      {feedback ? (
+        <div className={`scenario-action-result scenario-action-result-${feedback.tone}`}>
+          <strong>{feedback.message}</strong>
+          {feedback.details.length > 0 ? (
+            <ul className="scenario-watch-list">
+              {feedback.details.slice(0, 5).map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type ScenarioThesisRelationTone = 'constructive' | 'warning' | 'risk' | 'primary';
+
+function scenarioThesisRelation(
+  thesis: ThesisResponse,
+  scenario: ScenarioResponse,
+): {
+  label: string;
+  detail: string;
+  tone: ScenarioThesisRelationTone;
+} {
+  const thesisLabel = thesisRelationLabel(thesis);
+  if (scenario.relation_to_thesis === 'invalidates') {
+    return {
+      label: `Invalidates ${thesisLabel}`,
+      detail: 'Guardrail for when this thesis should stop being treated as active.',
+      tone: 'risk',
+    };
+  }
+
+  if (scenario.relation_to_thesis === 'supports') {
+    return {
+      label: `Supports ${thesisLabel}`,
+      detail: 'Confirmation path that would make the current thesis stronger.',
+      tone: 'constructive',
+    };
+  }
+
+  if (scenario.relation_to_thesis === 'challenges') {
+    return {
+      label: `Challenges ${thesisLabel}`,
+      detail: 'Stress-test branch against the current thesis, not a separate thesis.',
+      tone: 'warning',
+    };
+  }
+
+  return {
+    label: `Linked to ${thesisLabel}`,
+    detail: 'Conditional checkpoint attached to this thesis.',
+    tone: 'primary',
+  };
+}
+
+function thesisRelationLabel(thesis: ThesisResponse): string {
+  const stance = directionalStance(
+    thesis.direction ||
+      thesis.summary.direction ||
+      thesis.market_bias ||
+      thesis.summary.market_bias,
+  );
+  if (stance === 'bullish') {
+    return 'current LONG thesis';
+  }
+  if (stance === 'bearish') {
+    return 'current SHORT thesis';
+  }
+  if (stance === 'neutral') {
+    return 'current WATCH thesis';
+  }
+  return 'current thesis';
+}
+
+function directionalStance(value: string): 'bullish' | 'bearish' | 'neutral' | 'unknown' {
+  const normalized = value.toLowerCase();
+  if (textIncludesAny(normalized, ['long', 'bull', 'buy', 'overweight', 'upside'])) {
+    return 'bullish';
+  }
+  if (textIncludesAny(normalized, ['short', 'bear', 'sell', 'underweight', 'downside'])) {
+    return 'bearish';
+  }
+  if (textIncludesAny(normalized, ['watch', 'neutral', 'range', 'sideways', 'no trade', 'wait', 'defensive'])) {
+    return 'neutral';
+  }
+  return 'unknown';
+}
+
+function textIncludesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
 }
 
 function scenarioHorizonOptions(scenarios: ScenarioResponse[]): ScenarioHorizon[] {
@@ -1185,6 +1587,7 @@ function buildBoundaryScenario(
       ? thesis.market_bias || thesis.direction || 'neutral'
       : 'risk',
     thesis_impact: boundary.branchType === 'confirmation' ? 'medium' : 'high',
+    relation_to_thesis: boundary.branchType === 'confirmation' ? 'supports' : 'invalidates',
     probability_band: 'base',
     suggested_user_action: boundary.suggestedAction,
     condition: boundary.condition,
@@ -1205,6 +1608,7 @@ function buildBoundaryScenario(
     last_evaluated_at: null,
     trigger_spec: null,
     decision_playbook: null,
+    scenario_recommendation: null,
     runtime_decision: {
       version: 'scenario_runtime_decision.v1',
       evaluated_at: '',
@@ -1228,6 +1632,23 @@ function buildBoundaryScenario(
         overrides: ['runtime_decision_missing'],
       },
     },
+    evaluation_snapshot: {
+      version: 'scenario_evaluation_snapshot.v1',
+      readiness: 'needs_review',
+      planned_evaluation_at: null,
+      expected_horizon: 'unknown',
+      trigger_observed: null,
+      invalidation_observed: null,
+      max_favorable_excursion: null,
+      max_adverse_excursion: null,
+      outcome: 'not_ready',
+      notes: ['Scenario recommendation is missing.'],
+    },
+    latest_evaluation: null,
+    evaluation_state: 'not_ready',
+    reliability_profile: null,
+    latest_playbook: null,
+    latest_backtest: null,
     payload: {
       branchType: boundary.branchType,
       source_context: 'thesis_brief',
@@ -1300,14 +1721,17 @@ function scenarioSummary(payload: JsonRecord, condition: string, expected: strin
 }
 
 function scenarioDirection(
-  payload: JsonRecord,
+  scenario: ScenarioResponse,
   name: string,
   condition: string,
   expected: string,
   action: string,
 ): string {
+  const payload = scenario.payload;
   const explicit = cleanScenarioText(
-    stringValue(payload.direction) || stringValue(payload.scenario_direction),
+    scenario.direction ||
+      stringValue(payload.direction) ||
+      stringValue(payload.scenario_direction),
   );
   if (explicit) {
     return explicit;
@@ -1361,9 +1785,11 @@ function scenarioDirectionTone(value: string): ScenarioTone {
   return 'primary';
 }
 
-function scenarioImpactLabel(payload: JsonRecord, expected: string, risks: string[]): string {
+function scenarioImpactLabel(scenario: ScenarioResponse, expected: string, risks: string[]): string {
+  const payload = scenario.payload;
   const explicit = cleanScenarioText(
-    stringValue(payload.thesis_impact) ||
+    scenario.thesis_impact ||
+      stringValue(payload.thesis_impact) ||
       stringValue(payload.impact) ||
       stringValue(payload.impact_level),
   ).toLowerCase();

@@ -13,9 +13,11 @@ import {
   toScenarioResponse,
   toThesisResponse,
 } from '../contracts/frontend-contract';
+import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { evaluateScenario } from './scenario-evaluator';
 import { evaluateScenarioRuntimeDecision } from './scenario-runtime-evaluator';
+import { ScenarioReliabilityService } from './scenario-reliability.service';
 
 @Injectable()
 export class ScenariosService {
@@ -24,6 +26,7 @@ export class ScenariosService {
     private readonly journal: JournalRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
+    private readonly reliability: ScenarioReliabilityService,
   ) {}
 
   async monitor(
@@ -55,7 +58,17 @@ export class ScenariosService {
         ),
       ]);
       for (const scenario of scenarios) {
-        const item = buildScenarioMonitorItem(thesis, scenario, snapshot, alerts[0] ?? null);
+        const enrichedScenario = await this.enrichScenarioLifecycle(
+          scenario,
+          thesis,
+          workspaceId,
+        );
+        const item = buildScenarioMonitorItem(
+          thesis,
+          enrichedScenario,
+          snapshot,
+          alerts[0] ?? null,
+        );
         if (!statusFilter || item.status === statusFilter) {
           items.push(item);
         }
@@ -80,6 +93,54 @@ export class ScenariosService {
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
     await this.workspaces.assertAccess(user, workspaceId, 'viewer');
     return workspaceId;
+  }
+
+  private async enrichScenarioLifecycle(
+    scenario: JsonRecord,
+    thesis: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const scenarioId = nullableString(scenario.id);
+    if (!scenarioId) {
+      return scenario;
+    }
+    const baseResponse = toScenarioResponse(scenario, thesis);
+    const [evaluations, playbooks, reliabilityProfile] = await Promise.all([
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listScenarioEvaluations(scenarioId, workspaceId),
+      ),
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listTradePlaybooksForScenario(scenarioId, workspaceId),
+      ),
+      this.reliability.profileForScenario(baseResponse, thesis, workspaceId),
+    ]);
+    const latestPlaybook = playbooks[0] ?? null;
+    const backtests = latestPlaybook
+      ? await optionalScenarioLifecycleRows(() =>
+          this.journal.listBacktestRunsForPlaybook(
+            String(latestPlaybook.id ?? ''),
+            workspaceId,
+          ),
+        )
+      : [];
+    const latestBacktest = backtests[0] ?? null;
+    const tradeEvents = latestBacktest
+      ? await optionalScenarioLifecycleRows(() =>
+          this.journal.listBacktestTradeEvents(
+            String(latestBacktest.id ?? ''),
+            workspaceId,
+          ),
+        )
+      : [];
+    return {
+      ...scenario,
+      latest_evaluation: evaluations[0] ?? null,
+      latest_playbook: latestPlaybook,
+      latest_backtest: latestBacktest
+        ? { ...latestBacktest, trade_events: tradeEvents }
+        : null,
+      reliability_profile: reliabilityProfile,
+    };
   }
 }
 
@@ -130,7 +191,7 @@ function buildScenarioMonitorItem(
       ? condition
       : `${condition}${condition ? ' | ' : ''}latest price ${formatNumber(currentPrice)}`,
     risk_count: stringList(scenario.risk_map ?? payload.risk_map ?? payload.risk_factors).length,
-    scenario: toScenarioResponse(evaluatedScenario),
+    scenario: toScenarioResponse(evaluatedScenario, thesis),
     thesis: toThesisResponse(thesis),
     latest_market_snapshot: snapshot ? toMarketSnapshotResponse(snapshot) : null,
     latest_alert: latestAlert ? toAlertResponse(latestAlert) : null,

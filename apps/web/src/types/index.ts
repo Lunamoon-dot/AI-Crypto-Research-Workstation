@@ -72,6 +72,14 @@ export interface ResearchRunQueuedResponse {
   result?: JsonRecord;
 }
 
+export interface ResearchRunDeletionResponse {
+  removed: boolean;
+  workspace_id: string;
+  requested_run_id: string;
+  deleted_count: number;
+  deleted_run_ids: string[];
+}
+
 export interface JobStatusResponse {
   id: string;
   run_id: string;
@@ -354,12 +362,283 @@ export type ScenarioRecommendedAction =
   | 'exit'
   | 'review';
 
+export type ScenarioRecommendationAction = ScenarioRecommendedAction;
+export type ScenarioRecommendationBias = 'long' | 'short' | 'neutral' | 'unknown';
+
+export type ScenarioEvaluationReadiness =
+  | 'ready'
+  | 'missing_trigger'
+  | 'missing_invalidation'
+  | 'missing_time_window'
+  | 'not_actionable'
+  | 'needs_review';
+
 export interface ScenarioEvidenceRef {
   type: string;
   id: string | null;
   field: string;
   label: string;
   supports: string;
+}
+
+export interface ScenarioDecisionCondition {
+  type:
+    | 'price_above'
+    | 'price_below'
+    | 'price_in_zone'
+    | 'price_reclaim_level'
+    | 'price_reject_level'
+    | 'volume_above_average'
+    | 'overextended_from_trigger';
+  level?: number;
+  zone_low?: number;
+  zone_high?: number;
+  timeframe?: string;
+  candle_close_required?: boolean;
+  lookback_periods?: number;
+  multiplier?: number;
+  threshold_pct?: number;
+}
+
+export interface ScenarioRecommendationGate {
+  id: string;
+  label: string;
+  status: 'passed' | 'failed' | 'pending' | 'unknown';
+  reason: string;
+}
+
+export interface ScenarioRecommendation {
+  version: 'scenario_recommendation.v1';
+  generated_at: string | null;
+  source: 'llm' | 'derived_v1';
+  action: ScenarioRecommendationAction;
+  action_bias: ScenarioRecommendationBias;
+  confidence: number;
+  summary: string;
+  thesis_link: string;
+  required_conditions: ScenarioDecisionCondition[];
+  invalidation_conditions: ScenarioDecisionCondition[];
+  wait_for: string[];
+  hard_gates: ScenarioRecommendationGate[];
+  blocking_reasons: string[];
+  risk_notes: string[];
+  evidence_refs: ScenarioEvidenceRef[];
+  valid_until: string | null;
+  evaluation_readiness: ScenarioEvaluationReadiness;
+  evaluation_window: {
+    starts_at: string | null;
+    ends_at: string | null;
+    horizon: ScenarioHorizon;
+    metric_hint: 'trigger_then_mfe_mae' | 'avoidance_check' | 'manual_review';
+  };
+}
+
+export interface ScenarioEvaluationSnapshot {
+  version: 'scenario_evaluation_snapshot.v1';
+  readiness: ScenarioEvaluationReadiness;
+  planned_evaluation_at: string | null;
+  expected_horizon: ScenarioHorizon;
+  trigger_observed: boolean | null;
+  invalidation_observed: boolean | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  outcome: 'pending' | 'not_ready' | 'inconclusive';
+  notes: string[];
+}
+
+export type ScenarioEvaluationResult =
+  | 'hit'
+  | 'invalidated'
+  | 'missed'
+  | 'mixed'
+  | 'inconclusive';
+
+export type ScenarioEvaluationDataQuality =
+  | 'complete'
+  | 'partial'
+  | 'insufficient';
+
+export type ScenarioEvaluationState =
+  | 'not_ready'
+  | 'pending'
+  | 'due'
+  | 'evaluated'
+  | 'inconclusive';
+
+export interface ScenarioEvaluationResponse {
+  version: 'scenario_evaluation.v1';
+  id: string;
+  workspace_id: string;
+  scenario_id: string;
+  thesis_id: string;
+  research_run_id: string | null;
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  horizon: string;
+  evaluated_at: string;
+  evaluation_window: {
+    starts_at: string | null;
+    ends_at: string | null;
+  };
+  result: ScenarioEvaluationResult;
+  trigger_hit: boolean | null;
+  invalidation_hit: boolean | null;
+  target_hit: boolean | null;
+  start_price: number | null;
+  end_price: number | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  data_quality: ScenarioEvaluationDataQuality;
+  warnings: string[];
+  evidence: JsonRecord;
+}
+
+export interface ScenarioReliabilityProfileResponse {
+  version: 'scenario_reliability_profile.v1';
+  workspace_id: string;
+  symbol: string | null;
+  market_type: 'spot' | 'perp' | 'mixed';
+  horizon: string;
+  relation_to_thesis: string;
+  action_bias: string;
+  setup_type: string | null;
+  sample_size: number;
+  hit_rate: number | null;
+  invalidation_rate: number | null;
+  mixed_rate: number | null;
+  inconclusive_rate: number | null;
+  average_mfe: number | null;
+  average_mae: number | null;
+  data_quality_notes: string[];
+  recent_lessons: string[];
+  generated_at: string;
+}
+
+export interface TradePlaybookResponse {
+  version: 'trade_playbook.v1';
+  id: string;
+  workspace_id: string;
+  source_scenario_id: string;
+  source_thesis_id: string;
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  direction: 'long' | 'short' | 'avoid';
+  horizon: string;
+  entry: {
+    type: 'level' | 'zone' | 'condition';
+    condition: string;
+    level: number | null;
+    zone_low: number | null;
+    zone_high: number | null;
+  };
+  invalidation: {
+    condition: string;
+    level: number | null;
+  };
+  targets: Array<{
+    label: string;
+    level: number | null;
+    rationale: string;
+  }>;
+  no_trade_conditions: string[];
+  risk_context: string[];
+  sizing_policy: {
+    mode: 'manual_context_only';
+    notes: string[];
+  };
+  evidence_refs: JsonRecord[];
+  reliability_context: JsonRecord | null;
+  compile_warnings: string[];
+  created_at: string;
+}
+
+export interface PlaybookCompileReportResponse {
+  version: 'playbook_compile_report.v1';
+  eligible: boolean;
+  playbook: TradePlaybookResponse | null;
+  rejection_reasons: string[];
+  warnings: string[];
+}
+
+export interface BacktestAssumptionSetResponse {
+  version: 'backtest_assumption_set.v1';
+  fee_bps: number;
+  slippage_bps: number;
+  fill_policy: 'touch' | 'close_confirmed' | 'next_open';
+  sizing_policy: 'fixed_notional' | 'fixed_fraction';
+  starting_equity: number;
+  risk_fraction: number | null;
+  timeframe: string;
+  start_at: string;
+  end_at: string;
+}
+
+export interface BacktestRunResponse {
+  version: 'backtest_run.v1';
+  id: string;
+  workspace_id: string;
+  playbook_id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'partial';
+  assumptions: BacktestAssumptionSetResponse;
+  result: {
+    total_return_pct: number | null;
+    max_drawdown_pct: number | null;
+    trade_count: number;
+    win_rate: number | null;
+    profit_factor: number | null;
+  };
+  warnings: string[];
+  data_quality: 'complete' | 'partial' | 'insufficient';
+  trade_events: BacktestTradeEventResponse[];
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface BacktestTradeEventResponse {
+  version: 'backtest_trade_event.v1';
+  id: string;
+  workspace_id: string;
+  backtest_run_id: string;
+  event_index: number;
+  event_type: string;
+  event_time: string;
+  price: number | null;
+  details: JsonRecord;
+}
+
+export type ScenarioDecisionQueueItemType =
+  | 'active_scenario'
+  | 'evaluation_due'
+  | 'evaluation_inconclusive'
+  | 'reliability_changed'
+  | 'playbook_candidate'
+  | 'backtest_ready';
+
+export interface ScenarioDecisionQueueItemResponse {
+  version: 'scenario_decision_queue_item.v1';
+  id: string;
+  workspace_id: string;
+  type: ScenarioDecisionQueueItemType;
+  priority: number;
+  title: string;
+  summary: string;
+  scenario_id: string | null;
+  thesis_id: string | null;
+  playbook_id: string | null;
+  backtest_id: string | null;
+  status: 'open' | 'snoozed' | 'resolved';
+  blockers: string[];
+  next_action: string;
+  due_at: string | null;
+  created_at: string;
+}
+
+export interface ScenarioDecisionWorkbenchResponse {
+  version: 'scenario_decision_workspace.v1';
+  workspace_id: string;
+  generated_at: string;
+  total_open: number;
+  items: ScenarioDecisionQueueItemResponse[];
 }
 
 export interface ScenarioRuntimeDecision {
@@ -393,6 +672,7 @@ export interface ScenarioResponse {
   scenario_name: string;
   direction: string;
   thesis_impact: string;
+  relation_to_thesis: ScenarioRelationToThesis;
   probability_band: string;
   suggested_user_action: string;
   condition: string;
@@ -413,11 +693,19 @@ export interface ScenarioResponse {
   last_evaluated_at: string | null;
   trigger_spec: JsonRecord | null;
   decision_playbook: JsonRecord | null;
+  scenario_recommendation: ScenarioRecommendation | null;
   runtime_decision: ScenarioRuntimeDecision;
+  evaluation_snapshot: ScenarioEvaluationSnapshot | null;
+  latest_evaluation: ScenarioEvaluationResponse | null;
+  evaluation_state: ScenarioEvaluationState;
+  reliability_profile: ScenarioReliabilityProfileResponse | null;
+  latest_playbook: TradePlaybookResponse | null;
+  latest_backtest: BacktestRunResponse | null;
   payload: JsonRecord;
 }
 
 export type ScenarioHorizon = 'short_term' | 'mid_term' | 'long_term' | 'unknown';
+export type ScenarioRelationToThesis = 'supports' | 'challenges' | 'invalidates' | 'neutral';
 
 export interface ThesisDecisionResponse {
   id: string | null;

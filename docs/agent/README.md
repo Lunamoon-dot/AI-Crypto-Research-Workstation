@@ -23,7 +23,7 @@ Folder nay mo ta tung agent/node trong LunaCrypto research workflow: no nhan inp
    - Neutral Analyst
 5. Final decision and derived artifacts:
    - Portfolio Manager
-   - Scenario Planner
+   - Scenario Planner (short/mid/long horizon map)
    - Trade Thesis
 
 `Trade Thesis` khong phai agent LLM rieng trong `agents/`; no la builder trong graph, nhung UI hien thi nhu mot node nen van co file rieng.
@@ -32,14 +32,15 @@ Folder nay mo ta tung agent/node trong LunaCrypto research workflow: no nhan inp
 
 Workflow duoc wire trong `apps/ai-service/luna_workstation/graph/setup.py`.
 
-- Cac analyst dau tien chay song song tu `START`.
-- Sau khi tat ca analyst xong, bull/bear debate moi bat dau.
+- Cac analyst duoc chon chay song song tu `START`.
+- Sau khi tat ca selected analyst xong, bull/bear debate moi bat dau.
 - Bull/Bear debate lap theo conditional logic den khi Research Manager duoc goi.
 - Setup Planner chay sau Research Manager.
 - Risk debate chay sau Setup Planner.
-- Portfolio Manager chot final trade decision.
-- Scenario Planner chay sau Portfolio Manager va duoc cau hinh `fail_open=True`, tuc la loi scenario khong lam fail toan run.
+- Portfolio Manager chot final trade decision, emits `final_trade_summary_json`, candidate metadata, va optional `scenario_continuity_handoff`.
+- Scenario Planner chay sau Portfolio Manager, tao mot plan gom 3 horizon (`short_term`, `mid_term`, `long_term`), va duoc cau hinh `fail_open=True`, tuc la loi scenario khong lam fail toan run.
 - Trade Thesis duoc build trong run completion tu `final_state` sau khi graph ket thuc.
+- Research Continuity prior memory chi di vao Scenario Planner qua `scenario_continuity_handoff` do Portfolio Manager viet; Scenario Planner khong dung raw `latest_continuity_context`.
 
 ## Common analyst behavior
 

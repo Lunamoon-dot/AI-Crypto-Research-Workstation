@@ -8,6 +8,7 @@ LLM.  When critical fields are missing the planner degrades to the generic
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import re
 from datetime import datetime
@@ -65,6 +66,19 @@ _DATE_REFERENCE_RE = re.compile(
 )
 _TIMEFRAME_REFERENCE_RE = re.compile(
     r"\b(1m|5m|15m|1h|4h|1d|1w|1M|daily|weekly|monthly)\b",
+    re.IGNORECASE,
+)
+_SCENARIO_PLAN_JSON_MARKER = "SCENARIO_PLAN_JSON"
+_SCENARIO_PLAN_JSON_BLOCK_RE = re.compile(
+    rf"{_SCENARIO_PLAN_JSON_MARKER}\s*:?\s*```(?:json)?\s*(.*?)```",
+    re.IGNORECASE | re.DOTALL,
+)
+_FENCED_CODE_BLOCK_RE = re.compile(
+    r"```(?:json)?\s*(.*?)```",
+    re.IGNORECASE | re.DOTALL,
+)
+_SCENARIO_PLAN_JSON_KEY_RE = re.compile(
+    r'"(?:setup_type|scenarios|scenario_name|watch_triggers)"\s*:',
     re.IGNORECASE,
 )
 
@@ -408,6 +422,149 @@ def _normalize_horizon_plan(
     return ScenarioPlan(setup_type=setup_type or "agent_debate", scenarios=scenarios)
 
 
+def _normalize_free_text_json_plan(
+    plan: ScenarioPlan,
+    *,
+    setup_type: str,
+    analysis_date: str,
+    research_reports: dict[str, str],
+    state: dict,
+) -> ScenarioPlan:
+    horizon_plans = [
+        ScenarioPlan(setup_type=plan.setup_type or setup_type, scenarios=[scenario])
+        for scenario in plan.scenarios[:3]
+    ]
+    return _normalize_horizon_plan(
+        horizon_plans,
+        setup_type=plan.setup_type or setup_type,
+        analysis_date=analysis_date,
+        research_reports=research_reports,
+        state=state,
+    )
+
+
+def _extract_scenario_plan_json(text: str | None) -> str:
+    if not text:
+        return ""
+    match = _SCENARIO_PLAN_JSON_BLOCK_RE.search(text)
+    if match:
+        return _extract_json_object_text(match.group(1))
+    marker_index = text.upper().find(_SCENARIO_PLAN_JSON_MARKER)
+    if marker_index >= 0:
+        tail = text[marker_index + len(_SCENARIO_PLAN_JSON_MARKER) :]
+        return _extract_json_object_text(tail)
+    for block in _FENCED_CODE_BLOCK_RE.finditer(text):
+        candidate = _extract_json_object_text(block.group(1))
+        if _looks_like_scenario_plan_json(candidate):
+            return candidate
+    return ""
+
+
+def _strip_scenario_plan_json_block(text: str | None) -> str:
+    if not text:
+        return ""
+    stripped = _SCENARIO_PLAN_JSON_BLOCK_RE.sub("", text).strip()
+    marker_index = stripped.upper().find(_SCENARIO_PLAN_JSON_MARKER)
+    if marker_index >= 0:
+        stripped = stripped[:marker_index].strip()
+    stripped = _FENCED_CODE_BLOCK_RE.sub(
+        _strip_scenario_plan_json_code_block,
+        stripped,
+    ).strip()
+    return stripped
+
+
+def _strip_scenario_plan_json_code_block(match: re.Match[str]) -> str:
+    candidate = _extract_json_object_text(match.group(1))
+    return "" if _looks_like_scenario_plan_json(candidate) else match.group(0)
+
+
+def _extract_json_object_text(raw: str | None) -> str:
+    if not raw:
+        return ""
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(raw):
+        if char != "{":
+            continue
+        try:
+            loaded, end = decoder.raw_decode(raw[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(loaded, dict):
+            return raw[index : index + end].strip()
+    return _extract_balanced_json_object_text(raw)
+
+
+def _extract_balanced_json_object_text(raw: str) -> str:
+    start = raw.find("{")
+    if start < 0:
+        return ""
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(raw)):
+        char = raw[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and in_string:
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : index + 1].strip()
+    return ""
+
+
+def _looks_like_scenario_plan_json(raw: str | None) -> bool:
+    return bool(raw and _SCENARIO_PLAN_JSON_KEY_RE.search(raw))
+
+
+def _validated_free_text_json_plan(
+    text: str,
+    *,
+    setup_type: str,
+    analysis_date: str,
+    research_reports: dict[str, str],
+    state: dict,
+    source_evidence: str,
+) -> ScenarioPlan | None:
+    candidate_json = _extract_scenario_plan_json(text)
+    if not candidate_json:
+        return None
+    try:
+        plan = ScenarioPlan.model_validate_json(candidate_json)
+    except Exception as exc:
+        logger.warning("ScenarioPlanner: invalid SCENARIO_PLAN_JSON block: %s", exc)
+        return None
+    plan = _normalize_free_text_json_plan(
+        plan,
+        setup_type=setup_type,
+        analysis_date=analysis_date,
+        research_reports=research_reports,
+        state=state,
+    )
+    plan = _ground_scenario_plan_dates(
+        plan,
+        evidence_text=source_evidence,
+        analysis_date=analysis_date,
+    )
+    return _enrich_scenario_plan_provenance(
+        plan,
+        analysis_date=analysis_date,
+        research_reports=research_reports,
+        state=state,
+    )
+
+
 def _render_scenario_continuity_handoff(handoff: object) -> str:
     if not isinstance(handoff, dict) or not handoff:
         return ""
@@ -428,6 +585,71 @@ def _render_scenario_continuity_handoff(handoff: object) -> str:
         if value:
             lines.append(f"- {key}: {value}")
     return "\n".join(lines)
+
+
+def render_scenario_reliability_digest(digest: object) -> str:
+    if isinstance(digest, dict):
+        profiles = digest.get("profiles") or digest.get("items") or []
+    elif isinstance(digest, list):
+        profiles = digest
+    else:
+        profiles = []
+    if not isinstance(profiles, list) or not profiles:
+        return ""
+
+    lines = [
+        "Scenario reliability digest (workspace-scoped outcome history; compact aggregates only):"
+    ]
+    for profile in profiles[:5]:
+        if not isinstance(profile, dict):
+            continue
+        symbol = _compact_text(profile.get("symbol") or "unknown")
+        market_type = _compact_text(profile.get("market_type") or "mixed")
+        horizon = _compact_text(profile.get("horizon") or "unknown")
+        relation = _compact_text(profile.get("relation_to_thesis") or "unknown")
+        action_bias = _compact_text(profile.get("action_bias") or "unknown")
+        sample_size = profile.get("sample_size")
+        rates = [
+            f"hit_rate={_compact_pct(profile.get('hit_rate'))}",
+            f"invalidation_rate={_compact_pct(profile.get('invalidation_rate'))}",
+            f"mixed_rate={_compact_pct(profile.get('mixed_rate'))}",
+        ]
+        notes = _compact_list(profile.get("data_quality_notes"), limit=2)
+        lessons = _compact_list(profile.get("recent_lessons"), limit=2)
+        line = (
+            f"- {symbol} {market_type} {horizon} relation={relation} "
+            f"bias={action_bias} sample_size={sample_size}; "
+            f"{'; '.join(rates)}"
+        )
+        if notes:
+            line += f"; notes={notes}"
+        if lessons:
+            line += f"; lessons={lessons}"
+        lines.append(line[:700])
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _compact_pct(value: object) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value) * 100:.0f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _compact_list(value: object, *, limit: int) -> str:
+    if not isinstance(value, list):
+        return ""
+    return "; ".join(
+        _compact_text(item)
+        for item in value[:limit]
+        if _compact_text(item)
+    )
+
+
+def _compact_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:180]
 
 
 def _date_grounding_instruction(analysis_date: str) -> str:
@@ -513,6 +735,10 @@ def create_scenario_planner(llm, config=None):
         scenario_handoff = _render_scenario_continuity_handoff(
             state.get("scenario_continuity_handoff")
         )
+        scenario_reliability = render_scenario_reliability_digest(
+            state.get("scenario_reliability_digest")
+            or state.get("scenario_reliability_profiles")
+        )
 
         research_reports = {
             k: state.get(k, "")
@@ -569,7 +795,13 @@ def create_scenario_planner(llm, config=None):
                                 "decision card: named scenario first, concise evidence, "
                                 "concrete watch triggers, action, and impact on thesis. "
                                 "Never use probability as the scenario title, and never "
-                                "issue imperative buy/sell commands."
+                                "issue imperative buy/sell commands. Populate "
+                                "scenario_recommendation when enough structure exists: "
+                                "use wait/consider/review guidance, explicit hard_gates, "
+                                "blocking_reasons, evidence_refs, invalidation_conditions, "
+                                "and an evaluation_window. If the scenario is not "
+                                "actionable, set action to wait or review and explain the "
+                                "blockers instead of inventing an entry."
                                 f"{language_instruction}"
                                 f"\n\n{date_grounding}"
                                 f"\n\nHorizon policy: {horizon.value}. "
@@ -593,6 +825,7 @@ def create_scenario_planner(llm, config=None):
                                 "plan, and Portfolio Manager decision as the primary "
                                 "evidence layer. Do not use raw continuity memory.\n\n"
                                 f"{scenario_handoff}\n\n"
+                                f"{scenario_reliability}\n\n"
                                 "Portfolio Manager decision (truncated):\n"
                                 f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
                                 f"Investment plan:\n{guard_untrusted_context('investment_plan', investment_plan)}\n\n"
@@ -663,15 +896,96 @@ For each scenario, describe:
 - Evidence chips and watch triggers
 - Probability assessment
 - Impact on the investment thesis
+- Relationship to the current thesis: supports / challenges / invalidates / neutral
 - Recommended response (review / watch / reassess - not buy/sell commands)
 - Source, timeframe, and as_of when available
 {language_instruction}
 Keep the section labels above exactly in English for persistence parsing; write
 the scenario names and field content in the requested output language.
 
+For providers that return free text instead of native structured output, write
+the readable Markdown scenario map first, then append this exact
+machine-readable block. Keep exactly three scenarios: one short_term, one
+mid_term, and one long_term. Use valid JSON only inside the block; no comments,
+tables, ellipses, or trailing commas. Field names must stay in English, while
+field values may use the requested output language.
+
+SCENARIO_PLAN_JSON:
+```json
+{{
+  "setup_type": "{effective_setup or 'agent_debate'}",
+  "scenarios": [
+    {{
+      "horizon": "short_term",
+      "timeframe_label": "24-72h",
+      "scenario_name": "named short-term scenario",
+      "direction": "neutral",
+      "thesis_impact": "medium",
+      "relation_to_thesis": "challenges",
+      "condition": "specific short-term trigger with observed levels or thresholds",
+      "expected_behavior": "expected market behavior if the trigger occurs",
+      "evidence": ["metric or source-backed evidence chip"],
+      "watch_triggers": ["observable trigger to monitor"],
+      "impact_on_thesis": "how this branch affects the current thesis",
+      "probability_band": "medium",
+      "invalidation": "specific condition invalidating this branch",
+      "risk_factors": ["risk or contradiction"],
+      "suggested_action": "watch confirmation, not an exchange order",
+      "as_of": "{analysis_date or 'not recorded'}",
+      "timeframe": "4H | 1D | 1W | not recorded",
+      "source": ["market_report"]
+    }},
+    {{
+      "horizon": "mid_term",
+      "timeframe_label": "1-3w",
+      "scenario_name": "named medium-term scenario",
+      "direction": "neutral",
+      "thesis_impact": "medium",
+      "relation_to_thesis": "supports",
+      "condition": "specific medium-term trigger with observed levels or thresholds",
+      "expected_behavior": "expected market behavior if the trigger occurs",
+      "evidence": ["metric or source-backed evidence chip"],
+      "watch_triggers": ["observable trigger to monitor"],
+      "impact_on_thesis": "how this branch affects the current thesis",
+      "probability_band": "medium",
+      "invalidation": "specific condition invalidating this branch",
+      "risk_factors": ["risk or contradiction"],
+      "suggested_action": "watch confirmation, not an exchange order",
+      "as_of": "{analysis_date or 'not recorded'}",
+      "timeframe": "1D | 1W | not recorded",
+      "source": ["market_report"]
+    }},
+    {{
+      "horizon": "long_term",
+      "timeframe_label": "1-3m",
+      "scenario_name": "named long-term scenario",
+      "direction": "neutral",
+      "thesis_impact": "medium",
+      "relation_to_thesis": "invalidates",
+      "condition": "specific long-term structural trigger with observed levels or thresholds",
+      "expected_behavior": "expected market behavior if the trigger occurs",
+      "evidence": ["metric or source-backed evidence chip"],
+      "watch_triggers": ["observable trigger to monitor"],
+      "impact_on_thesis": "how this branch affects the current thesis",
+      "probability_band": "low",
+      "invalidation": "specific condition invalidating this branch",
+      "risk_factors": ["risk or contradiction"],
+      "suggested_action": "review thesis, not an exchange order",
+      "as_of": "{analysis_date or 'not recorded'}",
+      "timeframe": "1D | 1W | not recorded",
+      "source": ["market_report"]
+    }}
+  ]
+}}
+```
+
 {_TEMPLATE_LINE}
 
 Base your scenarios on the research reports and investment plan below.
+
+{scenario_handoff}
+
+{scenario_reliability}
 
 Research Reports:
 {guard_untrusted_context("research_reports", reports_block)}
@@ -686,9 +1000,31 @@ Investment Plan:
             evidence_text=source_evidence,
             analysis_date=analysis_date,
         )
+        plan = _validated_free_text_json_plan(
+            content,
+            setup_type=effective_setup,
+            analysis_date=analysis_date,
+            research_reports=research_reports,
+            state=state,
+            source_evidence=source_evidence,
+        )
+        if plan is not None:
+            markdown = render_scenario_plan(plan)
+            return {
+                "messages": [AIMessage(content=markdown)],
+                "scenario_plan": markdown,
+                "scenario_plan_json": plan.model_dump_json(),
+                "sender": name,
+                # Phase 5: persist template enforcement metadata even in fallback
+                "setup_type": effective_setup,
+                "requested_setup_type": requested_setup,
+                "template_degraded": validation["is_degraded"],
+                "missing_template_fields": validation["missing_fields"],
+            }
+        stripped_content = _strip_scenario_plan_json_block(content)
         return {
-            "messages": [AIMessage(content=content)],
-            "scenario_plan": content,
+            "messages": [AIMessage(content=stripped_content)],
+            "scenario_plan": stripped_content,
             "scenario_plan_json": "",
             "sender": name,
             # Phase 5: persist template enforcement metadata even in fallback

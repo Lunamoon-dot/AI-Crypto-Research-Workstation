@@ -111,6 +111,13 @@ export const navGroups: NavigationGroup[] = [
         href: routes.scenarios,
         icon: Radar,
       },
+      {
+        id: 'scenario-decision',
+        label: 'Decision Queue',
+        title: 'Scenario decision workbench',
+        href: routes.scenarioDecision,
+        icon: ClipboardList,
+      },
     ],
   },
   {

@@ -26,6 +26,7 @@ import {
   JournalRunWorkspaceResponse,
   ResearchRunArtifactsResponse,
   ResearchRunDebateResponse,
+  ResearchRunDeletionResponse,
   ResearchRunQueuedResponse,
   ResearchRunSnapshotsResponse,
   SignalDetailResponse,
@@ -53,6 +54,8 @@ import { normalizeWorkspaceSymbol } from '../workspaces/workspace-metadata';
 const ORPHANED_JOB_REASON = 'orphaned_job_state';
 const ANALYST_KEYS = ['market', 'news', 'social', 'onchain'] as const;
 const ANALYST_KEY_SET = new Set<string>(ANALYST_KEYS);
+const WORKSPACE_RUN_DELETE_BATCH_LIMIT = 100;
+const WORKSPACE_JOB_DELETE_BATCH_LIMIT = 200;
 type JobStatus = Awaited<ReturnType<JobsService['getJobStatus']>>;
 
 @Injectable()
@@ -237,6 +240,78 @@ export class ResearchRunsService {
     const workspaceId = await this.resolveWorkspaceAccess(userId, workspaceHeader);
     const run = await this.getRawRunOrThrow(id, workspaceId);
     return toResearchRunResponse(run);
+  }
+
+  async remove(
+    id: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchRunDeletionResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const run = await this.journal.getResearchRun(id, workspaceId);
+    if (!run) {
+      throw new NotFoundException(`Research run ${id} not found`);
+    }
+    const result = await this.journal.removeResearchRunCascade(id, workspaceId);
+    await this.jobs.removeResearchRunJobs(result.deleted_run_ids);
+    return result;
+  }
+
+  async removeWorkspaceData(
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ResearchRunDeletionResponse> {
+    const workspaceId = await this.resolveWorkspaceAccess(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    const deletedRunIds = new Set<string>();
+
+    for (;;) {
+      const runs = await this.journal.listResearchRuns(
+        { limit: WORKSPACE_RUN_DELETE_BATCH_LIMIT },
+        workspaceId,
+      );
+      const targetRunId = oldestResearchRunId(runs);
+      if (!targetRunId) {
+        break;
+      }
+      const result = await this.journal.removeResearchRunCascade(
+        targetRunId,
+        workspaceId,
+      );
+      for (const runId of result.deleted_run_ids) {
+        deletedRunIds.add(runId);
+      }
+      await this.jobs.removeResearchRunJobs(result.deleted_run_ids);
+    }
+
+    const deletedSignalIds = await this.journal.removeWorkspaceSignals(workspaceId);
+    await this.removeRemainingWorkspaceJobs(workspaceId, deletedRunIds);
+    const sqliteReset = await this.sqliteSync?.removeWorkspaceRunData(workspaceId);
+    const deletedSqliteRowCount = sqliteReset
+      ? Object.values(sqliteReset.deleted_rows).reduce(
+          (total, count) => total + count,
+          0,
+        )
+      : 0;
+
+    const deleted_run_ids = [...deletedRunIds];
+    return {
+      removed:
+        deleted_run_ids.length > 0 ||
+        deletedSignalIds.length > 0 ||
+        deletedSqliteRowCount > 0,
+      workspace_id: workspaceId,
+      requested_run_id: '*',
+      deleted_count: deleted_run_ids.length,
+      deleted_run_ids,
+    };
   }
 
   async events(id: string, userId?: string, workspaceHeader?: string) {
@@ -438,7 +513,7 @@ export class ResearchRunsService {
       snapshots,
       debate,
       thesis: thesis ? toThesisResponse(thesis) : null,
-      scenarios: scenarios.map(toScenarioResponse),
+      scenarios: scenarios.map((scenario) => toScenarioResponse(scenario, thesis)),
       artifacts: buildResearchRunArtifacts(run),
     };
   }
@@ -577,7 +652,7 @@ export class ResearchRunsService {
         agent_opinions: agentOpinions.map(toAgentOpinionResponse),
       },
       thesis: thesis ? toThesisResponse(thesis) : null,
-      scenarios: scenarios.map(toScenarioResponse),
+      scenarios: scenarios.map((scenario) => toScenarioResponse(scenario, thesis)),
       artifacts: buildResearchRunArtifacts(run),
     };
   }
@@ -623,6 +698,26 @@ export class ResearchRunsService {
       })
       .map(toSignalDetailResponse);
     return [...details, ...sqliteSignals];
+  }
+
+  private async removeRemainingWorkspaceJobs(
+    workspaceId: string,
+    deletedRunIds: Set<string>,
+  ): Promise<void> {
+    for (;;) {
+      const jobs = await this.jobs.listJobStatuses(
+        workspaceId,
+        WORKSPACE_JOB_DELETE_BATCH_LIMIT,
+      );
+      const runIds = uniqueStrings(jobs.map((job) => job.run_id));
+      if (runIds.length === 0) {
+        return;
+      }
+      await this.jobs.removeResearchRunJobs(runIds);
+      for (const runId of runIds) {
+        deletedRunIds.add(runId);
+      }
+    }
   }
 }
 
@@ -738,6 +833,22 @@ function compareRunRecency(left: JsonRecord, right: JsonRecord): number {
     runRecencyTimestamp(right) - runRecencyTimestamp(left) ||
     (stringField(right.id ?? right.run_id) ?? '').localeCompare(
       stringField(left.id ?? left.run_id) ?? '',
+    )
+  );
+}
+
+function oldestResearchRunId(runs: JsonRecord[]): string | null {
+  const oldest = runs
+    .filter((run) => stringField(run.id ?? run.run_id))
+    .sort(compareRunAge)[0];
+  return oldest ? stringField(oldest.id ?? oldest.run_id) : null;
+}
+
+function compareRunAge(left: JsonRecord, right: JsonRecord): number {
+  return (
+    runRecencyTimestamp(left) - runRecencyTimestamp(right) ||
+    (stringField(left.id ?? left.run_id) ?? '').localeCompare(
+      stringField(right.id ?? right.run_id) ?? '',
     )
   );
 }

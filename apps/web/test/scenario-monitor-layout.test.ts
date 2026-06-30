@@ -40,6 +40,32 @@ test('scenario monitor shows runtime decision provenance', () => {
   assert.equal(viewModelSource.includes('playbookSourceLabel'), true);
 });
 
+test('scenario monitor renders recommendation sections', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ScenarioMonitorPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const viewModelSource = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes('<span>Recommendation</span>'), true);
+  assert.equal(pageSource.includes('Hard gates'), true);
+  assert.equal(pageSource.includes('Blocking reasons'), true);
+  assert.equal(pageSource.includes('<span>Evaluation</span>'), true);
+  assert.equal(pageSource.includes('<span>Reliability</span>'), true);
+  assert.equal(pageSource.includes('<span>Playbook</span>'), true);
+  assert.equal(viewModelSource.includes('recommendationSummary'), true);
+  assert.equal(viewModelSource.includes('hardGates'), true);
+  assert.equal(viewModelSource.includes('evaluationLabel'), true);
+  assert.equal(viewModelSource.includes('latest_evaluation'), true);
+  assert.equal(viewModelSource.includes('reliabilityLabel'), true);
+  assert.equal(viewModelSource.includes('backtestLabel'), true);
+  assert.equal(viewModelSource.includes('backtestEvents'), true);
+  assert.equal(pageSource.includes('vm.backtestEvents'), true);
+});
+
 test('scenario view model tolerates missing runtime decision', () => {
   const viewModelSource = readFileSync(
     new URL('../src/pages/scenario-view-model.ts', import.meta.url),

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { GenerateResearchContinuityDto } from '../research-continuity/dto/research-continuity.dto';
 import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
@@ -40,6 +40,14 @@ export class ResearchRunsController {
     return this.researchRuns.create(dto, userId, workspaceId);
   }
 
+  @Delete()
+  removeWorkspaceData(
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.removeWorkspaceData(userId, workspaceId);
+  }
+
   @Get(':id')
   get(
     @Param('id') id: string,
@@ -47,6 +55,15 @@ export class ResearchRunsController {
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.researchRuns.get(id, userId, workspaceId);
+  }
+
+  @Delete(':id')
+  remove(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.researchRuns.remove(id, userId, workspaceId);
   }
 
   @Get(':id/events')

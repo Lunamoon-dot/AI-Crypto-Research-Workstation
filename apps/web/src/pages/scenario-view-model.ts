@@ -27,7 +27,16 @@ export interface ScenarioViewModel {
   validityStatus: string;
   runtimeReason: string;
   runtimeSource: string;
+  recommendationSummary: string;
   blockingReasons: string[];
+  hardGates: Array<{ label: string; status: string; reason: string }>;
+  evaluationLabel: string;
+  evaluationDetail: string;
+  reliabilityLabel: string;
+  reliabilityDetail: string;
+  playbookLabel: string;
+  backtestLabel: string;
+  backtestEvents: string[];
 }
 
 export function scenarioMonitorViewModel(scenario: ScenarioResponse): ScenarioViewModel {
@@ -47,15 +56,29 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
   const runtimeAction = hasRuntimeDecision
     ? actionLabel(runtimeDecision.recommended_action)
     : '';
+  const recommendation = scenario.scenario_recommendation;
+  const recommendationAction = recommendation
+    ? actionLabel(recommendation.action)
+    : '';
+  const recommendationBlockers = recommendation
+    ? cleanList(recommendation.blocking_reasons)
+    : ['Scenario recommendation is missing.'];
+  const runtimeBlockers = hasRuntimeDecision
+    ? runtimeDecision.blocking_reasons.map(cleanText).filter(Boolean)
+    : [];
+  const latestEvaluation = scenario.latest_evaluation;
+  const reliability = scenario.reliability_profile;
+  const playbook = scenario.latest_playbook;
+  const backtest = scenario.latest_backtest;
   return {
     title: cleanText(scenario.scenario_name) || cleanText(scenario.condition).slice(0, 90) || fallbackTitle,
     condition: cleanText(scenario.condition) || 'No trigger condition recorded.',
     expected: cleanText(scenario.expected_behavior),
     evidence: cleanList(scenario.evidence),
     watchTriggers: cleanList(scenario.watch_triggers),
-    actionLabel: runtimeAction || action.label,
+    actionLabel: runtimeAction || recommendationAction || action.label || 'Review',
     actionDetail: action.detail,
-    actionTone: actionTone(runtimeAction || action.label),
+    actionTone: actionTone(runtimeAction || recommendationAction || action.label),
     impactOnThesis: cleanText(scenario.impact_on_thesis),
     riskMap: cleanList(scenario.risk_map),
     asOf: cleanText(scenario.as_of) || 'not recorded',
@@ -83,8 +106,50 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
     runtimeSource: hasRuntimeDecision
       ? playbookSourceLabel(runtimeDecision.playbook_source)
       : '',
-    blockingReasons: hasRuntimeDecision
-      ? runtimeDecision.blocking_reasons.map(cleanText).filter(Boolean)
+    recommendationSummary: cleanText(recommendation?.summary),
+    blockingReasons: cleanList([...runtimeBlockers, ...recommendationBlockers]),
+    hardGates: (recommendation?.hard_gates ?? [])
+      .map((gate) => ({
+        label: cleanText(gate.label || gate.id),
+        status: statusLabel(gate.status),
+        reason: cleanText(gate.reason),
+      }))
+      .filter((gate) => gate.label),
+    evaluationLabel: scenarioEvaluationLabel(scenario),
+    evaluationDetail: latestEvaluation
+      ? [
+          latestEvaluation.data_quality,
+          latestEvaluation.trigger_hit === null
+            ? ''
+            : `trigger ${latestEvaluation.trigger_hit ? 'hit' : 'missed'}`,
+          latestEvaluation.invalidation_hit === null
+            ? ''
+            : `invalidation ${latestEvaluation.invalidation_hit ? 'hit' : 'clear'}`,
+        ].filter(Boolean).join(' | ')
+      : evaluationLabel(
+          scenario.evaluation_snapshot?.readiness ??
+            recommendation?.evaluation_readiness ??
+            'needs_review',
+        ),
+    reliabilityLabel: reliability
+      ? reliability.hit_rate === null
+        ? `${reliability.sample_size} samples`
+        : `${formatPct(reliability.hit_rate)} hit rate`
+      : 'No reliability profile',
+    reliabilityDetail: reliability
+      ? cleanList([
+          ...reliability.data_quality_notes,
+          ...reliability.recent_lessons,
+        ]).slice(0, 2).join(' | ')
+      : 'Evaluation history has not reached this scenario group yet.',
+    playbookLabel: playbook
+      ? `${actionLabel(playbook.direction)} playbook`
+      : 'No playbook',
+    backtestLabel: backtest
+      ? `${statusLabel(backtest.status)} backtest | ${backtest.result.trade_count} trades`
+      : 'No backtest',
+    backtestEvents: backtest?.trade_events?.length
+      ? backtest.trade_events.slice(0, 5).map(formatBacktestEvent)
       : [],
   };
 }
@@ -204,9 +269,8 @@ function cleanText(value: unknown): string {
 }
 
 function actionLabel(value: string): string {
-  return value
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const label = value.replaceAll('_', ' ').trim();
+  return label ? label[0].toUpperCase() + label.slice(1) : 'Review';
 }
 
 function statusLabel(value: string): string {
@@ -221,4 +285,65 @@ function playbookSourceLabel(value: string): string {
     return 'Rule evaluator / derived playbook';
   }
   return 'No runtime playbook';
+}
+
+function evaluationLabel(value: string): string {
+  if (value === 'ready') {
+    return 'Ready for evaluation';
+  }
+  if (value === 'missing_trigger') {
+    return 'Missing trigger';
+  }
+  if (value === 'missing_invalidation') {
+    return 'Missing invalidation';
+  }
+  if (value === 'missing_time_window') {
+    return 'Missing time window';
+  }
+  if (value === 'not_actionable') {
+    return 'Not actionable';
+  }
+  return 'Needs review';
+}
+
+function scenarioEvaluationLabel(scenario: ScenarioResponse): string {
+  if (scenario.latest_evaluation) {
+    return statusLabel(scenario.latest_evaluation.result);
+  }
+  if (scenario.evaluation_state === 'due') {
+    return 'Evaluation due';
+  }
+  if (scenario.evaluation_state === 'pending') {
+    return 'Evaluation pending';
+  }
+  if (scenario.evaluation_state === 'not_ready') {
+    return 'Not ready';
+  }
+  if (scenario.evaluation_state === 'inconclusive') {
+    return 'Inconclusive';
+  }
+  return evaluationLabel(
+    scenario.evaluation_snapshot?.readiness ??
+      scenario.scenario_recommendation?.evaluation_readiness ??
+      'needs_review',
+  );
+}
+
+function formatPct(value: number): string {
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function formatBacktestEvent(
+  event: NonNullable<ScenarioResponse['latest_backtest']>['trade_events'][number],
+): string {
+  const price = typeof event.price === 'number'
+    ? `@ ${event.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+    : '';
+  const policy = cleanText(event.details.fill_policy);
+  return [
+    statusLabel(event.event_type),
+    event.event_time,
+    price,
+    policy ? `fill ${policy}` : '',
+  ].filter(Boolean).join(' | ');
 }

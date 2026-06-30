@@ -202,6 +202,70 @@ def test_scenarios_from_structured_plan_preserves_horizon_payload():
     assert rows[0].template_metadata["timeframe_label"] == "1-3w"
 
 
+def test_scenarios_from_structured_plan_preserves_recommendation_payload():
+    recommendation = {
+        "version": "scenario_recommendation.v1",
+        "generated_at": "2026-06-27T00:00:00.000Z",
+        "source": "llm",
+        "action": "consider_long",
+        "action_bias": "long",
+        "confidence": 0.74,
+        "summary": "Consider long only after reclaim confirmation.",
+        "thesis_link": "Supports the current bullish thesis if reclaim holds.",
+        "required_conditions": [],
+        "invalidation_conditions": [],
+        "wait_for": ["4h close above resistance"],
+        "hard_gates": [
+            {
+                "id": "fresh_market_data",
+                "label": "Fresh market data",
+                "status": "pending",
+                "reason": "Waiting for current candle close.",
+            }
+        ],
+        "blocking_reasons": ["No close confirmation yet."],
+        "risk_notes": ["Failed reclaim can trap breakout entries."],
+        "evidence_refs": [],
+        "valid_until": "2026-06-30T00:00:00.000Z",
+        "evaluation_readiness": "ready",
+        "evaluation_window": {
+            "starts_at": "2026-06-27T00:00:00.000Z",
+            "ends_at": "2026-06-30T00:00:00.000Z",
+            "horizon": "short_term",
+            "metric_hint": "trigger_then_mfe_mae",
+        },
+    }
+    plan = ScenarioPlan(
+        setup_type="agent_debate",
+        scenarios=[
+            ScenarioItem(
+                horizon=ScenarioHorizon.SHORT_TERM,
+                timeframe_label="24-72h",
+                scenario_name="Reclaim confirmation",
+                direction="bullish risk",
+                thesis_impact="medium",
+                condition="Reclaim resistance on 4h close.",
+                expected_behavior="Continuation if reclaim holds.",
+                evidence=["Resistance: 620"],
+                watch_triggers=["4h close above resistance"],
+                impact_on_thesis="Supports the current bullish thesis if reclaim holds.",
+                probability_band="medium",
+                invalidation="Invalid below support.",
+                risk_factors=["Failed reclaim can trap breakout entries."],
+                suggested_action="wait",
+                as_of="2026-06-27",
+                timeframe="4H",
+                source=["market_report"],
+                scenario_recommendation=recommendation,
+            ),
+        ],
+    )
+
+    rows = scenarios_from_structured_plan(plan, "thesis_x")
+
+    assert rows[0].scenario_recommendation == recommendation
+
+
 def test_scenarios_from_structured_plan_extracts_as_of_from_timeframe():
     plan = ScenarioPlan(
         setup_type="agent_debate",

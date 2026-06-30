@@ -1,4 +1,5 @@
 import type { JsonRecord } from '../database/journal.types';
+import { priceTriggerSpecFromText } from './scenario-text-conditions';
 
 export type ScenarioStatus =
   | 'watching'
@@ -15,6 +16,7 @@ export type ScenarioStatus =
 export type ScenarioTriggerType =
   | 'price_above'
   | 'price_below'
+  | 'price_in_zone'
   | 'price_reclaim_level'
   | 'price_reject_level'
   | 'volume_confirmation';
@@ -44,7 +46,9 @@ export function evaluateScenario(
   nowIso: string,
 ): ScenarioEvaluation {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
-  const triggerSpec = triggerSpecFromValue(payload.trigger_spec) ?? inferPriceTrigger(scenario, payload);
+  const triggerSpec = triggerSpecFromValue(scenario.trigger_spec)
+    ?? triggerSpecFromValue(payload.trigger_spec)
+    ?? inferPriceTrigger(scenario, payload);
   if (!triggerSpec) {
     return {
       status: 'needs_review',
@@ -64,7 +68,7 @@ export function evaluateScenario(
       trigger_spec: triggerSpec,
     };
   }
-  const target = triggerSpec.level ?? triggerSpec.zone_high ?? triggerSpec.zone_low ?? null;
+  const target = triggerTarget(triggerSpec, currentPrice);
   if (target === null || target <= 0) {
     return {
       status: 'needs_review',
@@ -75,15 +79,9 @@ export function evaluateScenario(
     };
   }
   const distance = Number((Math.abs(currentPrice - target) / target).toFixed(4));
-  const wantsAbove = ['price_above', 'price_reclaim_level'].includes(triggerSpec.type);
-  const triggered = wantsAbove ? currentPrice >= target : currentPrice <= target;
-  const side = wantsAbove
-    ? currentPrice < target
-      ? 'below'
-      : 'above'
-    : currentPrice > target
-      ? 'above'
-      : 'below';
+  const triggerState = triggerStatus(triggerSpec, currentPrice, target);
+  const triggered = triggerState.triggered;
+  const side = triggerState.side;
   if (triggered) {
     return {
       status: 'triggered',
@@ -112,29 +110,32 @@ export function evaluateScenario(
 }
 
 function inferPriceTrigger(scenario: JsonRecord, payload: JsonRecord): ScenarioTriggerSpec | null {
-  const text = [
+  const trigger = priceTriggerSpecFromText([
+    scenario.watch_triggers,
+    payload.watch_triggers,
+    payload.watchTriggers,
+    payload.watch,
     scenario.condition,
     payload.condition,
+    scenario.expected_behavior,
     scenario.expected_market_behavior,
     payload.expected_behavior,
-  ]
-    .map((item) => stringValue(item))
-    .join(' ');
-  const levelMatch = text.match(/\b(?:above|over|reclaim(?:s)?|vuot|tren)\s+\$?(\d+(?:\.\d+)?)/i);
-  if (levelMatch) {
-    return { type: 'price_above', level: Number(levelMatch[1]) };
-  }
-  const belowMatch = text.match(/\b(?:below|under|break(?:s)? below|duoi)\s+\$?(\d+(?:\.\d+)?)/i);
-  if (belowMatch) {
-    return { type: 'price_below', level: Number(belowMatch[1]) };
-  }
-  return null;
+    payload.expected_market_behavior,
+  ]);
+  return trigger ? trigger as unknown as ScenarioTriggerSpec : null;
 }
 
 function triggerSpecFromValue(value: unknown): ScenarioTriggerSpec | null {
   const record = recordValue(value);
   const type = stringValue(record.type) as ScenarioTriggerType;
-  if (!['price_above', 'price_below', 'price_reclaim_level', 'price_reject_level', 'volume_confirmation'].includes(type)) {
+  if (![
+    'price_above',
+    'price_below',
+    'price_in_zone',
+    'price_reclaim_level',
+    'price_reject_level',
+    'volume_confirmation',
+  ].includes(type)) {
     return null;
   }
   return {
@@ -144,6 +145,60 @@ function triggerSpecFromValue(value: unknown): ScenarioTriggerSpec | null {
     zone_high: numberValue(record.zone_high) ?? undefined,
     timeframe: stringValue(record.timeframe) || undefined,
     confirmation: recordValue(record.confirmation),
+  };
+}
+
+function triggerTarget(
+  triggerSpec: ScenarioTriggerSpec,
+  currentPrice: number,
+): number | null {
+  if (typeof triggerSpec.level === 'number') {
+    return triggerSpec.level;
+  }
+  if (
+    triggerSpec.type === 'price_in_zone' &&
+    typeof triggerSpec.zone_low === 'number' &&
+    typeof triggerSpec.zone_high === 'number'
+  ) {
+    const low = Math.min(triggerSpec.zone_low, triggerSpec.zone_high);
+    const high = Math.max(triggerSpec.zone_low, triggerSpec.zone_high);
+    if (currentPrice < low) return low;
+    if (currentPrice > high) return high;
+    return currentPrice;
+  }
+  return triggerSpec.zone_high ?? triggerSpec.zone_low ?? null;
+}
+
+function triggerStatus(
+  triggerSpec: ScenarioTriggerSpec,
+  currentPrice: number,
+  target: number,
+): { triggered: boolean; side: string } {
+  if (
+    triggerSpec.type === 'price_in_zone' &&
+    typeof triggerSpec.zone_low === 'number' &&
+    typeof triggerSpec.zone_high === 'number'
+  ) {
+    const low = Math.min(triggerSpec.zone_low, triggerSpec.zone_high);
+    const high = Math.max(triggerSpec.zone_low, triggerSpec.zone_high);
+    if (currentPrice >= low && currentPrice <= high) {
+      return { triggered: true, side: 'inside' };
+    }
+    return {
+      triggered: false,
+      side: currentPrice < target ? 'below' : 'above',
+    };
+  }
+  const wantsAbove = ['price_above', 'price_reclaim_level'].includes(triggerSpec.type);
+  return {
+    triggered: wantsAbove ? currentPrice >= target : currentPrice <= target,
+    side: wantsAbove
+      ? currentPrice < target
+        ? 'below'
+        : 'above'
+      : currentPrice > target
+        ? 'above'
+        : 'below',
   };
 }
 

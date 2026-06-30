@@ -371,6 +371,96 @@ model Scenario {
   @@map("scenarios")
 }
 
+model ScenarioEvaluation {
+  id                       String    @id
+  workspaceId              String    @map("workspace_id")
+  scenarioId               String    @map("scenario_id")
+  thesisId                 String    @map("thesis_id")
+  researchRunId            String?   @map("research_run_id")
+  symbol                   String
+  marketType               String    @default("spot") @map("market_type")
+  horizon                  String    @default("unknown")
+  evaluatedAt              DateTime  @default(now()) @map("evaluated_at") @db.Timestamptz(6)
+  evaluationWindow         Json      @default("{}") @map("evaluation_window")
+  result                   String
+  triggerHit               Boolean?  @map("trigger_hit")
+  invalidationHit          Boolean?  @map("invalidation_hit")
+  targetHit                Boolean?  @map("target_hit")
+  startPrice               Float?    @map("start_price")
+  endPrice                 Float?    @map("end_price")
+  maxFavorableExcursion    Float?    @map("max_favorable_excursion")
+  maxAdverseExcursion      Float?    @map("max_adverse_excursion")
+  dataQuality              String    @default("insufficient") @map("data_quality")
+  warningsJson             Json      @default("[]") @map("warnings_json")
+  evidenceJson             Json      @default("{}") @map("evidence_json")
+  payloadJson              Json      @default("{}") @map("payload_json")
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, scenarioId, evaluatedAt(sort: Desc)], map: "idx_scenario_evaluations_scenario")
+  @@map("scenario_evaluations")
+}
+
+model TradePlaybook {
+  id               String   @id
+  workspaceId      String   @map("workspace_id")
+  sourceScenarioId String   @map("source_scenario_id")
+  sourceThesisId   String   @map("source_thesis_id")
+  symbol           String
+  marketType       String   @map("market_type")
+  direction        String
+  horizon          String   @default("unknown")
+  payloadJson      Json     @default("{}") @map("payload_json")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, sourceScenarioId, createdAt(sort: Desc)], map: "idx_trade_playbooks_scenario")
+  @@map("trade_playbooks")
+}
+
+model BacktestRun {
+  id              String    @id
+  workspaceId     String    @map("workspace_id")
+  playbookId      String    @map("playbook_id")
+  status          String
+  assumptionsJson Json      @default("{}") @map("assumptions_json")
+  resultJson      Json      @default("{}") @map("result_json")
+  warningsJson    Json      @default("[]") @map("warnings_json")
+  dataQuality     String    @default("insufficient") @map("data_quality")
+  payloadJson     Json      @default("{}") @map("payload_json")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, playbookId, createdAt(sort: Desc)], map: "idx_backtest_runs_playbook")
+  @@map("backtest_runs")
+}
+
+model BacktestTradeEvent {
+  id            String   @id
+  workspaceId   String   @map("workspace_id")
+  backtestRunId String   @map("backtest_run_id")
+  eventIndex    Int      @map("event_index")
+  eventType     String   @map("event_type")
+  eventTime     DateTime @default(now()) @map("event_time") @db.Timestamptz(6)
+  price         Float?
+  payloadJson   Json     @default("{}") @map("payload_json")
+
+  @@index([workspaceId, backtestRunId, eventIndex], map: "idx_backtest_trade_events_run")
+  @@map("backtest_trade_events")
+}
+
+model ScenarioDecisionItemState {
+  id          String
+  workspaceId String    @map("workspace_id")
+  status      String
+  dueAt       DateTime? @map("due_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  payloadJson Json      @default("{}") @map("payload_json")
+
+  @@id([workspaceId, id])
+  @@map("scenario_decision_item_states")
+}
+
 model Signal {
   id              String    @id
   workspaceId     String    @default("local") @map("workspace_id")

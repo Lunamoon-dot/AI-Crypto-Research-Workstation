@@ -1,9 +1,37 @@
 import { JsonRecord } from '../database/journal.types';
 import type {
+  ScenarioDecisionCondition,
   ScenarioDecisionPlaybook,
+  ScenarioEvaluationReadiness,
+  ScenarioEvaluationSnapshot,
+  ScenarioEvidenceRef,
+  ScenarioRecommendation,
   ScenarioRuntimeDecision,
 } from '../scenarios/scenario-decision.types';
+import type {
+  ScenarioEvaluationResponse,
+  ScenarioEvaluationState,
+} from '../scenarios/scenario-evaluation.types';
+import type { ScenarioReliabilityProfileResponse } from '../scenarios/scenario-reliability.types';
+import type {
+  PlaybookCompileReportResponse,
+  TradePlaybookResponse,
+} from '../playbooks/playbook.types';
+import type {
+  BacktestRunResponse,
+  BacktestTradeEventResponse,
+} from '../backtests/backtest.types';
+import type {
+  ScenarioDecisionQueueItemResponse,
+  ScenarioDecisionWorkbenchResponse,
+} from '../scenario-decision/scenario-decision.types';
 import { researchItemTextList } from './research-evidence';
+import {
+  decisionConditionFromRecord,
+  derivePriceConditionFromText,
+  normalizeScenarioConditionText,
+  priceTriggerSpecFromText,
+} from '../scenarios/scenario-text-conditions';
 
 export interface WorkspacePermissionDto {
   user_id: string;
@@ -19,6 +47,14 @@ export interface ResearchRunQueuedResponse {
   queue_backend: 'bullmq' | 'memory' | 'inline';
   permission: WorkspacePermissionDto;
   result?: JsonRecord;
+}
+
+export interface ResearchRunDeletionResponse {
+  removed: boolean;
+  workspace_id: string;
+  requested_run_id: string;
+  deleted_count: number;
+  deleted_run_ids: string[];
 }
 
 export interface ResearchRunResponse {
@@ -265,6 +301,7 @@ export interface ScenarioResponse {
   scenario_name: string;
   direction: string;
   thesis_impact: string;
+  relation_to_thesis: ScenarioRelationToThesis;
   probability_band: string;
   suggested_user_action: string;
   condition: string;
@@ -285,11 +322,19 @@ export interface ScenarioResponse {
   last_evaluated_at: string | null;
   trigger_spec: JsonRecord | null;
   decision_playbook: ScenarioDecisionPlaybook | null;
+  scenario_recommendation: ScenarioRecommendation | null;
   runtime_decision: ScenarioRuntimeDecision;
+  evaluation_snapshot: ScenarioEvaluationSnapshot | null;
+  latest_evaluation: ScenarioEvaluationResponse | null;
+  evaluation_state: ScenarioEvaluationState;
+  reliability_profile: ScenarioReliabilityProfileResponse | null;
+  latest_playbook: TradePlaybookResponse | null;
+  latest_backtest: BacktestRunResponse | null;
   payload: JsonRecord;
 }
 
 export type ScenarioHorizon = 'short_term' | 'mid_term' | 'long_term' | 'unknown';
+export type ScenarioRelationToThesis = 'supports' | 'challenges' | 'invalidates' | 'neutral';
 
 export interface ThesisDecisionResponse {
   id: string | null;
@@ -1779,58 +1824,159 @@ function thesisValidationSeverityValue(value: unknown): ThesisValidationSeverity
   return 'info';
 }
 
-export function toScenarioResponse(scenario: JsonRecord): ScenarioResponse {
+export function toScenarioResponse(
+  scenario: JsonRecord,
+  thesis?: JsonRecord | null,
+): ScenarioResponse {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   const legacyMeta = legacyScenarioMeta(payload, scenario);
   const horizon = scenarioHorizonValue(scenario.horizon ?? payload.horizon);
   const decisionPlaybook = scenarioDecisionPlaybookValue(
     scenario.decision_playbook ?? payload.decision_playbook,
   );
+  const rawScenarioRecommendation = scenarioRecommendationValue(
+    scenario.scenario_recommendation ?? payload.scenario_recommendation,
+  );
+  const latestEvaluation = scenarioEvaluationResponseValue(
+    scenario.latest_evaluation ?? payload.latest_evaluation,
+  );
+  const scenarioName = firstScenarioString(scenario.scenario_name, payload.scenario_name, payload.scenarioName);
+  const direction = firstScenarioString(scenario.direction, payload.direction, payload.scenario_direction);
+  const thesisImpact = firstScenarioString(scenario.thesis_impact, payload.thesis_impact);
+  const suggestedUserAction = cleanScenarioAction(
+    firstScenarioString(scenario.suggested_user_action, payload.suggested_user_action, payload.suggested_action),
+  );
+  const condition = cleanScenarioBlock(
+    firstScenarioString(scenario.condition, payload.condition),
+  );
+  const expectedBehavior = cleanScenarioBlock(
+    firstScenarioString(
+      scenario.expected_behavior,
+      scenario.expected_market_behavior,
+      payload.expected_behavior,
+      payload.expected_market_behavior,
+    ),
+  );
+  const impactOnThesis = firstScenarioString(scenario.impact_on_thesis, payload.impact_on_thesis);
+  const riskMap = firstScenarioStringList(scenario.risk_map, payload.risk_map, payload.risk_factors);
+  const watchTriggers = firstScenarioStringList(
+    scenario.watch_triggers,
+    payload.watch_triggers,
+    payload.watchTriggers,
+    payload.watch,
+  );
+  const asOf = firstScenarioString(
+    scenario.as_of,
+    payload.as_of,
+    payload.asOf,
+    payload.source_timestamp,
+    legacyMeta.as_of,
+  );
+  const timeframe = firstScenarioString(
+    scenario.timeframe,
+    payload.timeframe,
+    payload.time_frame,
+    legacyMeta.timeframe,
+  );
+  const source = firstScenarioStringList(
+    scenario.source,
+    payload.source,
+    payload.sources,
+    payload.source_artifacts,
+    legacyMeta.source,
+  );
+  const triggerSpec = nullableRecord(scenario.trigger_spec ?? payload.trigger_spec)
+    ?? priceTriggerSpecFromText([condition, ...watchTriggers, expectedBehavior]);
+  const scenarioRecommendation = rawScenarioRecommendation ?? derivedScenarioRecommendation({
+    scenario,
+    horizon,
+    scenarioName,
+    direction,
+    thesisImpact,
+    suggestedUserAction,
+    condition,
+    expectedBehavior,
+    invalidation: firstScenarioString(scenario.invalidation, payload.invalidation),
+    evidence: firstScenarioStringList(scenario.evidence, payload.evidence, payload.evidence_items),
+    watchTriggers,
+    impactOnThesis,
+    riskMap,
+    asOf,
+    timeframe,
+    triggerSpec,
+  });
   return {
     id: nullableString(scenario.id),
     workspace_id: stringValue(scenario.workspace_id, 'local'),
     thesis_id: stringValue(scenario.thesis_id),
-    scenario_name: firstScenarioString(scenario.scenario_name, payload.scenario_name, payload.scenarioName),
-    direction: firstScenarioString(scenario.direction, payload.direction, payload.scenario_direction),
-    thesis_impact: firstScenarioString(scenario.thesis_impact, payload.thesis_impact),
-    probability_band: firstScenarioString(scenario.probability_band, payload.probability_band),
-    suggested_user_action: cleanScenarioAction(
-      firstScenarioString(scenario.suggested_user_action, payload.suggested_user_action, payload.suggested_action),
-    ),
-    condition: cleanScenarioBlock(
-      firstScenarioString(scenario.condition, payload.condition),
-    ),
-    expected_behavior: cleanScenarioBlock(
+    scenario_name: scenarioName,
+    direction,
+    thesis_impact: thesisImpact,
+    relation_to_thesis: scenarioRelationToThesisValue(
       firstScenarioString(
-        scenario.expected_behavior,
-        scenario.expected_market_behavior,
-        payload.expected_behavior,
-        payload.expected_market_behavior,
+        scenario.relation_to_thesis,
+        payload.relation_to_thesis,
+        payload.relationToThesis,
       ),
+      {
+        thesis,
+        branchType: firstScenarioString(payload.branchType, payload.branch_type),
+        direction,
+        thesisImpact,
+        scenarioName,
+        condition,
+        expectedBehavior,
+        impactOnThesis,
+        suggestedUserAction,
+        riskMap,
+      },
     ),
+    probability_band: firstScenarioString(scenario.probability_band, payload.probability_band),
+    suggested_user_action: suggestedUserAction,
+    condition,
+    expected_behavior: expectedBehavior,
     invalidation: firstScenarioString(scenario.invalidation, payload.invalidation),
     evidence: firstScenarioStringList(scenario.evidence, payload.evidence, payload.evidence_items),
-    watch_triggers: firstScenarioStringList(
-      scenario.watch_triggers,
-      payload.watch_triggers,
-      payload.watchTriggers,
-      payload.watch,
-    ),
-    impact_on_thesis: firstScenarioString(scenario.impact_on_thesis, payload.impact_on_thesis),
-    risk_map: firstScenarioStringList(scenario.risk_map, payload.risk_map, payload.risk_factors),
-    as_of: firstScenarioString(scenario.as_of, payload.as_of, payload.asOf, payload.source_timestamp, legacyMeta.as_of),
-    timeframe: firstScenarioString(scenario.timeframe, payload.timeframe, payload.time_frame, legacyMeta.timeframe),
+    watch_triggers: watchTriggers,
+    impact_on_thesis: impactOnThesis,
+    risk_map: riskMap,
+    as_of: asOf,
+    timeframe,
     horizon,
     timeframe_label: nullableString(scenario.timeframe_label ?? payload.timeframe_label),
-    source: firstScenarioStringList(scenario.source, payload.source, payload.sources, payload.source_artifacts, legacyMeta.source),
+    source,
     status: firstScenarioString(scenario.status, payload.status, 'watching'),
     status_reason: firstScenarioString(scenario.status_reason, payload.status_reason),
     distance_to_trigger: nullableNumber(scenario.distance_to_trigger ?? payload.distance_to_trigger),
     last_evaluated_at: nullableString(scenario.last_evaluated_at ?? payload.last_evaluated_at),
-    trigger_spec: nullableRecord(scenario.trigger_spec ?? payload.trigger_spec),
+    trigger_spec: triggerSpec,
     decision_playbook: decisionPlaybook,
+    scenario_recommendation: scenarioRecommendation,
     runtime_decision: scenarioRuntimeDecisionValue(
       scenario.runtime_decision ?? payload.runtime_decision,
+    ),
+    evaluation_snapshot: scenarioEvaluationSnapshotValue(
+      scenario.evaluation_snapshot ?? payload.evaluation_snapshot,
+      scenarioRecommendation,
+      horizon,
+    ),
+    latest_evaluation: latestEvaluation,
+    evaluation_state: scenarioEvaluationState(
+      latestEvaluation,
+      scenarioEvaluationSnapshotValue(
+        scenario.evaluation_snapshot ?? payload.evaluation_snapshot,
+        scenarioRecommendation,
+        horizon,
+      ),
+    ),
+    reliability_profile: scenarioReliabilityProfileValue(
+      scenario.reliability_profile ?? payload.reliability_profile,
+    ),
+    latest_playbook: tradePlaybookValue(
+      scenario.latest_playbook ?? payload.latest_playbook,
+    ),
+    latest_backtest: backtestRunValue(
+      scenario.latest_backtest ?? payload.latest_backtest,
     ),
     payload,
   };
@@ -1841,6 +1987,356 @@ function scenarioHorizonValue(value: unknown): ScenarioHorizon {
     return value;
   }
   return 'unknown';
+}
+
+export function toScenarioEvaluationResponse(
+  value: JsonRecord,
+): ScenarioEvaluationResponse {
+  return {
+    version: 'scenario_evaluation.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    scenario_id: stringValue(value.scenario_id),
+    thesis_id: stringValue(value.thesis_id),
+    research_run_id: nullableString(value.research_run_id),
+    symbol: stringValue(value.symbol),
+    market_type: marketTypeValue(value.market_type),
+    horizon: stringValue(value.horizon, 'unknown'),
+    evaluated_at: stringValue(value.evaluated_at, new Date().toISOString()),
+    evaluation_window: scenarioEvaluationWindowValue(value.evaluation_window),
+    result: scenarioEvaluationResultValue(value.result),
+    trigger_hit: nullableBoolean(value.trigger_hit),
+    invalidation_hit: nullableBoolean(value.invalidation_hit),
+    target_hit: nullableBoolean(value.target_hit),
+    start_price: nullableNumber(value.start_price),
+    end_price: nullableNumber(value.end_price),
+    max_favorable_excursion: nullableNumber(value.max_favorable_excursion),
+    max_adverse_excursion: nullableNumber(value.max_adverse_excursion),
+    data_quality: scenarioEvaluationDataQualityValue(value.data_quality),
+    warnings: stringList(value.warnings ?? value.warnings_json),
+    evidence: recordValue(value.evidence ?? value.evidence_json),
+  };
+}
+
+export function toScenarioReliabilityProfileResponse(
+  value: JsonRecord,
+): ScenarioReliabilityProfileResponse {
+  return {
+    version: 'scenario_reliability_profile.v1',
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    symbol: nullableString(value.symbol),
+    market_type: reliabilityMarketTypeValue(value.market_type),
+    horizon: stringValue(value.horizon, 'unknown'),
+    relation_to_thesis: stringValue(value.relation_to_thesis, 'unknown'),
+    action_bias: stringValue(value.action_bias, 'unknown'),
+    setup_type: nullableString(value.setup_type),
+    sample_size: Math.max(0, Math.trunc(numberValue(value.sample_size, 0))),
+    hit_rate: nullableNumber(value.hit_rate),
+    invalidation_rate: nullableNumber(value.invalidation_rate),
+    mixed_rate: nullableNumber(value.mixed_rate),
+    inconclusive_rate: nullableNumber(value.inconclusive_rate),
+    average_mfe: nullableNumber(value.average_mfe),
+    average_mae: nullableNumber(value.average_mae),
+    data_quality_notes: stringList(value.data_quality_notes),
+    recent_lessons: stringList(value.recent_lessons),
+    generated_at: stringValue(value.generated_at, new Date().toISOString()),
+  };
+}
+
+export function toTradePlaybookResponse(value: JsonRecord): TradePlaybookResponse {
+  const entry = recordValue(value.entry);
+  const invalidation = recordValue(value.invalidation);
+  const sizingPolicy = recordValue(value.sizing_policy);
+  return {
+    version: 'trade_playbook.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    source_scenario_id: stringValue(value.source_scenario_id),
+    source_thesis_id: stringValue(value.source_thesis_id),
+    symbol: stringValue(value.symbol),
+    market_type: marketTypeValue(value.market_type),
+    direction: playbookDirectionValue(value.direction),
+    horizon: stringValue(value.horizon, 'unknown'),
+    entry: {
+      type: playbookEntryTypeValue(entry.type),
+      condition: stringValue(entry.condition),
+      level: nullableNumber(entry.level),
+      zone_low: nullableNumber(entry.zone_low),
+      zone_high: nullableNumber(entry.zone_high),
+    },
+    invalidation: {
+      condition: stringValue(invalidation.condition),
+      level: nullableNumber(invalidation.level),
+    },
+    targets: arrayRecords(value.targets).map((target) => ({
+      label: stringValue(target.label),
+      level: nullableNumber(target.level),
+      rationale: stringValue(target.rationale),
+    })),
+    no_trade_conditions: stringList(value.no_trade_conditions),
+    risk_context: stringList(value.risk_context),
+    sizing_policy: {
+      mode: 'manual_context_only',
+      notes: stringList(sizingPolicy.notes),
+    },
+    evidence_refs: arrayRecords(value.evidence_refs),
+    reliability_context: nullableRecord(value.reliability_context),
+    compile_warnings: stringList(value.compile_warnings),
+    created_at: stringValue(value.created_at, new Date().toISOString()),
+  };
+}
+
+export function toPlaybookCompileReportResponse(
+  value: JsonRecord,
+): PlaybookCompileReportResponse {
+  const playbook = tradePlaybookValue(value.playbook);
+  return {
+    version: 'playbook_compile_report.v1',
+    eligible: booleanValue(value.eligible, Boolean(playbook)),
+    playbook,
+    rejection_reasons: stringList(value.rejection_reasons),
+    warnings: stringList(value.warnings),
+  };
+}
+
+export function toBacktestRunResponse(value: JsonRecord): BacktestRunResponse {
+  const assumptions = recordValue(value.assumptions);
+  const result = recordValue(value.result);
+  return {
+    version: 'backtest_run.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    playbook_id: stringValue(value.playbook_id),
+    status: backtestStatusValue(value.status),
+    assumptions: {
+      version: 'backtest_assumption_set.v1',
+      fee_bps: numberValue(assumptions.fee_bps, 0),
+      slippage_bps: numberValue(assumptions.slippage_bps, 0),
+      fill_policy: backtestFillPolicyValue(assumptions.fill_policy),
+      sizing_policy: backtestSizingPolicyValue(assumptions.sizing_policy),
+      starting_equity: numberValue(assumptions.starting_equity, 10_000),
+      risk_fraction: nullableNumber(assumptions.risk_fraction),
+      timeframe: stringValue(assumptions.timeframe, '1d'),
+      start_at: stringValue(assumptions.start_at),
+      end_at: stringValue(assumptions.end_at),
+    },
+    result: {
+      total_return_pct: nullableNumber(result.total_return_pct),
+      max_drawdown_pct: nullableNumber(result.max_drawdown_pct),
+      trade_count: Math.max(0, Math.trunc(numberValue(result.trade_count, 0))),
+      win_rate: nullableNumber(result.win_rate),
+      profit_factor: nullableNumber(result.profit_factor),
+    },
+    warnings: stringList(value.warnings ?? value.warnings_json),
+    data_quality: backtestDataQualityValue(value.data_quality),
+    trade_events: arrayRecords(value.trade_events).map(toBacktestTradeEventResponse),
+    created_at: stringValue(value.created_at, new Date().toISOString()),
+    completed_at: nullableString(value.completed_at),
+  };
+}
+
+export function toBacktestTradeEventResponse(
+  value: JsonRecord,
+): BacktestTradeEventResponse {
+  const details = { ...value };
+  delete details.version;
+  delete details.id;
+  delete details.workspace_id;
+  delete details.backtest_run_id;
+  delete details.event_index;
+  delete details.event_type;
+  delete details.event_time;
+  delete details.price;
+  return {
+    version: 'backtest_trade_event.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    backtest_run_id: stringValue(value.backtest_run_id),
+    event_index: Math.max(0, Math.trunc(numberValue(value.event_index, 0))),
+    event_type: stringValue(value.event_type, 'event'),
+    event_time: stringValue(value.event_time),
+    price: nullableNumber(value.price),
+    details,
+  };
+}
+
+export function toScenarioDecisionQueueItemResponse(
+  value: JsonRecord,
+): ScenarioDecisionQueueItemResponse {
+  return {
+    version: 'scenario_decision_queue_item.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    type: scenarioDecisionQueueItemTypeValue(value.type),
+    priority: Math.trunc(numberValue(value.priority, 0)),
+    title: stringValue(value.title),
+    summary: stringValue(value.summary),
+    scenario_id: nullableString(value.scenario_id),
+    thesis_id: nullableString(value.thesis_id),
+    playbook_id: nullableString(value.playbook_id),
+    backtest_id: nullableString(value.backtest_id),
+    status: scenarioDecisionItemStatusValue(value.status),
+    blockers: stringList(value.blockers),
+    next_action: stringValue(value.next_action),
+    due_at: nullableString(value.due_at),
+    created_at: stringValue(value.created_at, new Date().toISOString()),
+  };
+}
+
+export function toScenarioDecisionWorkbenchResponse(
+  value: JsonRecord,
+): ScenarioDecisionWorkbenchResponse {
+  const items = arrayRecords(value.items).map(toScenarioDecisionQueueItemResponse);
+  return {
+    version: 'scenario_decision_workspace.v1',
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    generated_at: stringValue(value.generated_at, new Date().toISOString()),
+    total_open: Math.max(0, Math.trunc(numberValue(value.total_open, items.length))),
+    items,
+  };
+}
+
+function scenarioRelationToThesisValue(
+  explicit: string,
+  context: {
+    thesis?: JsonRecord | null;
+    branchType: string;
+    direction: string;
+    thesisImpact: string;
+    scenarioName: string;
+    condition: string;
+    expectedBehavior: string;
+    impactOnThesis: string;
+    suggestedUserAction: string;
+    riskMap: string[];
+  },
+): ScenarioRelationToThesis {
+  const normalizedExplicit = normalizeRelationToThesis(explicit);
+  if (normalizedExplicit) {
+    return normalizedExplicit;
+  }
+
+  const branchType = context.branchType.toLowerCase();
+  const relationText = [
+    context.thesisImpact,
+    context.scenarioName,
+    context.condition,
+    context.expectedBehavior,
+    context.impactOnThesis,
+    context.suggestedUserAction,
+    ...context.riskMap,
+  ].join(' ').toLowerCase();
+  const thesisStance = directionalStance(
+    context.thesis?.direction,
+    recordValue(context.thesis?.summary).direction,
+    context.thesis?.market_bias,
+    recordValue(context.thesis?.summary).market_bias,
+  );
+  const scenarioStance = directionalStance(context.direction);
+
+  if (
+    branchType === 'invalidation' ||
+    includesAny(relationText, [
+      'invalidates',
+      'invalidated',
+      'cancels',
+      'cancel the current thesis',
+    ])
+  ) {
+    return 'invalidates';
+  }
+
+  if (
+    includesAny(relationText, [
+      'challenge',
+      'challenges',
+      'weakens',
+      'weaken',
+      'reassess',
+      'reduce',
+      'downgrade',
+      'deteriorates',
+    ]) ||
+    stancesOppose(thesisStance, scenarioStance)
+  ) {
+    return 'challenges';
+  }
+
+  if (
+    branchType === 'confirmation' ||
+    includesAny(relationText, [
+      'supports',
+      'supporting',
+      'strengthen',
+      'strengthens',
+      'confirms',
+      'confirmation',
+      'follow-through',
+    ]) ||
+    stancesAlign(thesisStance, scenarioStance)
+  ) {
+    return 'supports';
+  }
+
+  return 'neutral';
+}
+
+function normalizeRelationToThesis(value: string): ScenarioRelationToThesis | null {
+  const normalized = value.toLowerCase().replaceAll('-', '_').replace(/\s+/g, '_');
+  if (['supports', 'support', 'supports_thesis', 'confirmation'].includes(normalized)) {
+    return 'supports';
+  }
+  if (['challenges', 'challenge', 'weakens', 'opposes', 'stress_test'].includes(normalized)) {
+    return 'challenges';
+  }
+  if (['invalidates', 'invalidate', 'invalidated', 'cancels', 'canceled'].includes(normalized)) {
+    return 'invalidates';
+  }
+  if (['neutral', 'linked', 'watch', 'wait'].includes(normalized)) {
+    return 'neutral';
+  }
+  return null;
+}
+
+type DirectionalStance = 'bullish' | 'bearish' | 'neutral' | 'unknown';
+
+function directionalStance(...values: unknown[]): DirectionalStance {
+  const normalized = values.map((value) => stringValue(value)).join(' ').toLowerCase();
+  if (includesAny(normalized, ['long', 'bull', 'buy', 'overweight', 'upside'])) {
+    return 'bullish';
+  }
+  if (includesAny(normalized, ['short', 'bear', 'sell', 'underweight', 'downside'])) {
+    return 'bearish';
+  }
+  if (
+    includesAny(normalized, [
+      'watch',
+      'neutral',
+      'range',
+      'sideways',
+      'no trade',
+      'wait',
+      'defensive',
+    ])
+  ) {
+    return 'neutral';
+  }
+  return 'unknown';
+}
+
+function stancesAlign(left: DirectionalStance, right: DirectionalStance): boolean {
+  return left !== 'unknown' && left !== 'neutral' && left === right;
+}
+
+function stancesOppose(left: DirectionalStance, right: DirectionalStance): boolean {
+  return (
+    (left === 'bullish' && right === 'bearish') ||
+    (left === 'bearish' && right === 'bullish')
+  );
+}
+
+function includesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
 }
 
 export function toThesisDecisionResponse(
@@ -2616,6 +3112,14 @@ function numberValue(value: unknown, fallback = 0): number {
   return nullableNumber(value) ?? fallback;
 }
 
+function boundedNumber(value: unknown, fallback = 0): number {
+  const parsed = nullableNumber(value);
+  if (parsed === null) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, parsed));
+}
+
 function stringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
@@ -2624,6 +3128,15 @@ function stringList(value: unknown): string[] {
   }
   const text = nullableString(value);
   return text ? [text] : [];
+}
+
+function arrayRecords(value: unknown): JsonRecord[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is JsonRecord =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+    : [];
 }
 
 function firstStringList(...values: unknown[]): string[] {
@@ -2753,6 +3266,616 @@ function scenarioDecisionPlaybookValue(
     : null;
 }
 
+function scenarioRecommendationValue(value: unknown): ScenarioRecommendation | null {
+  const record = recordValue(value);
+  if (record.version !== 'scenario_recommendation.v1') {
+    return null;
+  }
+  const action = scenarioRecommendationActionValue(record.action);
+  const bias = scenarioRecommendationBiasValue(record.action_bias);
+  const readiness = scenarioEvaluationReadinessValue(record.evaluation_readiness);
+  const window = recordValue(record.evaluation_window);
+  if (!action || !bias || !readiness || Object.keys(window).length === 0) {
+    return null;
+  }
+  return {
+    version: 'scenario_recommendation.v1',
+    generated_at: nullableString(record.generated_at),
+    source: stringValue(record.source) === 'llm' ? 'llm' : 'derived_v1',
+    action,
+    action_bias: bias,
+    confidence: boundedNumber(record.confidence, 0.5),
+    summary: stringValue(record.summary),
+    thesis_link: stringValue(record.thesis_link),
+    required_conditions: scenarioDecisionConditionList(record.required_conditions),
+    invalidation_conditions: scenarioDecisionConditionList(record.invalidation_conditions),
+    wait_for: stringList(record.wait_for),
+    hard_gates: scenarioRecommendationGateList(record.hard_gates),
+    blocking_reasons: stringList(record.blocking_reasons),
+    risk_notes: stringList(record.risk_notes),
+    evidence_refs: scenarioEvidenceRefList(record.evidence_refs),
+    valid_until: nullableString(record.valid_until),
+    evaluation_readiness: readiness,
+    evaluation_window: {
+      starts_at: nullableString(window.starts_at),
+      ends_at: nullableString(window.ends_at),
+      horizon: scenarioHorizonValue(window.horizon),
+      metric_hint: scenarioEvaluationMetricHintValue(window.metric_hint),
+    },
+  };
+}
+
+function derivedScenarioRecommendation(input: {
+  scenario: JsonRecord;
+  horizon: ScenarioHorizon;
+  scenarioName: string;
+  direction: string;
+  thesisImpact: string;
+  suggestedUserAction: string;
+  condition: string;
+  expectedBehavior: string;
+  invalidation: string;
+  evidence: string[];
+  watchTriggers: string[];
+  impactOnThesis: string;
+  riskMap: string[];
+  asOf: string;
+  timeframe: string;
+  triggerSpec: JsonRecord | null;
+}): ScenarioRecommendation | null {
+  const triggerCondition =
+    decisionConditionFromRecord(input.triggerSpec) ??
+    derivePriceConditionFromText([
+      input.condition,
+      ...input.watchTriggers,
+      input.expectedBehavior,
+    ].join(' '));
+  const invalidationCondition = derivePriceConditionFromText(input.invalidation);
+  if (!triggerCondition && !invalidationCondition) {
+    return null;
+  }
+  const actionBias = derivedScenarioActionBias(input, triggerCondition);
+  const action = derivedScenarioAction(input.suggestedUserAction, actionBias);
+  const blockingReasons: string[] = [];
+  if (!triggerCondition) {
+    blockingReasons.push('Missing trigger.');
+  }
+  if (!invalidationCondition) {
+    blockingReasons.push('Missing invalidation.');
+  }
+  if (actionBias === 'neutral' || actionBias === 'unknown') {
+    blockingReasons.push('Scenario is watch-only or not directional.');
+  }
+  const evidenceRefs: ScenarioEvidenceRef[] = [];
+  if (triggerCondition) {
+    evidenceRefs.push({
+      type: 'scenario',
+      id: nullableString(input.scenario.id),
+      field: 'condition',
+      label: 'Derived trigger condition',
+      supports: input.condition || input.watchTriggers[0] || 'Derived from scenario text.',
+    });
+  }
+  if (invalidationCondition) {
+    evidenceRefs.push({
+      type: 'scenario',
+      id: nullableString(input.scenario.id),
+      field: 'invalidation',
+      label: 'Derived invalidation condition',
+      supports: input.invalidation,
+    });
+  }
+  return {
+    version: 'scenario_recommendation.v1',
+    generated_at: nullableString(input.asOf),
+    source: 'derived_v1',
+    action,
+    action_bias: actionBias,
+    confidence: actionBias === 'neutral' || actionBias === 'unknown' ? 0.45 : 0.55,
+    summary: input.suggestedUserAction || input.condition || input.scenarioName,
+    thesis_link: input.impactOnThesis || input.thesisImpact,
+    required_conditions: triggerCondition ? [triggerCondition] : [],
+    invalidation_conditions: invalidationCondition ? [invalidationCondition] : [],
+    wait_for: input.watchTriggers.length > 0
+      ? input.watchTriggers
+      : stringList(input.condition),
+    hard_gates: [],
+    blocking_reasons: blockingReasons,
+    risk_notes: input.riskMap,
+    evidence_refs: evidenceRefs,
+    valid_until: null,
+    evaluation_readiness: derivedEvaluationReadiness(
+      Boolean(triggerCondition),
+      Boolean(invalidationCondition),
+    ),
+    evaluation_window: {
+      starts_at: null,
+      ends_at: null,
+      horizon: input.horizon,
+      metric_hint: actionBias === 'neutral' ? 'avoidance_check' : 'trigger_then_mfe_mae',
+    },
+  };
+}
+
+function derivedEvaluationReadiness(
+  hasTrigger: boolean,
+  hasInvalidation: boolean,
+): ScenarioEvaluationReadiness {
+  if (!hasTrigger) {
+    return 'missing_trigger';
+  }
+  if (!hasInvalidation) {
+    return 'missing_invalidation';
+  }
+  return 'ready';
+}
+
+function derivedScenarioAction(
+  suggestedUserAction: string,
+  actionBias: ScenarioRecommendation['action_bias'],
+): ScenarioRecommendation['action'] {
+  const actionText = normalizeScenarioConditionText(suggestedUserAction);
+  if (actionText.match(/\b(wait|watch|review|theo doi|cho|quan sat)\b/)) {
+    return 'wait';
+  }
+  if (actionText.match(/\b(avoid|khong mua|khong ban|no trade)\b/)) {
+    return 'avoid';
+  }
+  if (actionBias === 'short') {
+    return 'consider_short';
+  }
+  if (actionBias === 'long') {
+    return 'consider_long';
+  }
+  return 'review';
+}
+
+function derivedScenarioActionBias(
+  input: {
+    direction: string;
+    suggestedUserAction: string;
+    condition: string;
+    expectedBehavior: string;
+  },
+  triggerCondition: ScenarioDecisionCondition | null,
+): ScenarioRecommendation['action_bias'] {
+  const actionText = normalizeScenarioConditionText(input.suggestedUserAction);
+  if (
+    actionText.match(/\b(short|sell|ban|entry short|consider short)\b/) &&
+    !actionText.match(/\b(khong ban|not sell|do not sell|no trade|avoid)\b/)
+  ) {
+    return 'short';
+  }
+  if (
+    actionText.match(/\b(long|buy|mua|dca|entry long|consider long)\b/) &&
+    !actionText.match(/\b(khong mua|not buy|do not buy|no trade|avoid)\b/)
+  ) {
+    return 'long';
+  }
+  const explicitDirection = normalizeScenarioConditionText(input.direction);
+  if (explicitDirection.match(/\b(short|bear|bearish|giam)\b/)) {
+    return 'short';
+  }
+  if (explicitDirection.match(/\b(long|bull|bullish|tang)\b/)) {
+    return 'long';
+  }
+  if (actionText.match(/\b(watch|wait|review|theo doi|cho|quan sat|khong mua|khong ban|no trade|avoid)\b/)) {
+    return 'neutral';
+  }
+  const directionText = normalizeScenarioConditionText(
+    [
+      input.direction,
+      input.condition,
+      input.expectedBehavior,
+    ].join(' '),
+  );
+  if (directionText.match(/\b(short|bear|bearish|breakdown|reject|giam|pha vo)\b/)) {
+    return 'short';
+  }
+  if (directionText.match(/\b(long|bull|bullish|breakout|reclaim|tang|phuc hoi)\b/)) {
+    return 'long';
+  }
+  if (triggerCondition?.type === 'price_below' || triggerCondition?.type === 'price_reject_level') {
+    return 'short';
+  }
+  if (triggerCondition?.type === 'price_above' || triggerCondition?.type === 'price_reclaim_level') {
+    return 'long';
+  }
+  return 'unknown';
+}
+
+function scenarioEvaluationSnapshotValue(
+  value: unknown,
+  recommendation: ScenarioRecommendation | null,
+  horizon: ScenarioHorizon,
+): ScenarioEvaluationSnapshot {
+  const record = recordValue(value);
+  if (record.version === 'scenario_evaluation_snapshot.v1') {
+    return {
+      version: 'scenario_evaluation_snapshot.v1',
+      readiness:
+        scenarioEvaluationReadinessValue(record.readiness) ??
+        recommendation?.evaluation_readiness ??
+        'needs_review',
+      planned_evaluation_at: nullableString(record.planned_evaluation_at),
+      expected_horizon: scenarioHorizonValue(record.expected_horizon),
+      trigger_observed: nullableBoolean(record.trigger_observed),
+      invalidation_observed: nullableBoolean(record.invalidation_observed),
+      max_favorable_excursion: nullableNumber(record.max_favorable_excursion),
+      max_adverse_excursion: nullableNumber(record.max_adverse_excursion),
+      outcome: scenarioEvaluationOutcomeValue(record.outcome),
+      notes: stringList(record.notes),
+    };
+  }
+  return {
+    version: 'scenario_evaluation_snapshot.v1',
+    readiness: recommendation?.evaluation_readiness ?? 'needs_review',
+    planned_evaluation_at: recommendation?.evaluation_window.ends_at ?? null,
+    expected_horizon: horizon,
+    trigger_observed: null,
+    invalidation_observed: null,
+    max_favorable_excursion: null,
+    max_adverse_excursion: null,
+    outcome: recommendation ? 'pending' : 'not_ready',
+    notes: recommendation ? [] : ['Scenario recommendation is missing.'],
+  };
+}
+
+function scenarioDecisionConditionList(value: unknown): ScenarioDecisionCondition[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const conditions: ScenarioDecisionCondition[] = [];
+  for (const item of value) {
+      const record = recordValue(item);
+      const type = scenarioDecisionConditionTypeValue(record.type);
+      if (!type) {
+        continue;
+      }
+      const condition: ScenarioDecisionCondition = { type };
+      const level = nullableNumber(record.level);
+      const zoneLow = nullableNumber(record.zone_low);
+      const zoneHigh = nullableNumber(record.zone_high);
+      const timeframe = nullableString(record.timeframe);
+      const candleCloseRequired = nullableBoolean(record.candle_close_required);
+      const lookbackPeriods = nullableNumber(record.lookback_periods);
+      const multiplier = nullableNumber(record.multiplier);
+      const thresholdPct = nullableNumber(record.threshold_pct);
+      if (level !== null) condition.level = level;
+      if (zoneLow !== null) condition.zone_low = zoneLow;
+      if (zoneHigh !== null) condition.zone_high = zoneHigh;
+      if (timeframe !== null) condition.timeframe = timeframe;
+      if (candleCloseRequired !== null) {
+        condition.candle_close_required = candleCloseRequired;
+      }
+      if (lookbackPeriods !== null) condition.lookback_periods = lookbackPeriods;
+      if (multiplier !== null) condition.multiplier = multiplier;
+      if (thresholdPct !== null) condition.threshold_pct = thresholdPct;
+      conditions.push(condition);
+  }
+  return conditions;
+}
+
+function scenarioRecommendationGateList(
+  value: unknown,
+): ScenarioRecommendation['hard_gates'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      const record = recordValue(item);
+      const status = scenarioRecommendationGateStatusValue(record.status);
+      return status
+        ? {
+            id: stringValue(record.id),
+            label: stringValue(record.label),
+            status,
+            reason: stringValue(record.reason),
+          }
+        : null;
+    })
+    .filter(
+      (item): item is ScenarioRecommendation['hard_gates'][number] =>
+        item !== null && Boolean(item.id || item.label),
+    );
+}
+
+function scenarioEvidenceRefList(value: unknown): ScenarioEvidenceRef[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      const record = recordValue(item);
+      return {
+        type: stringValue(record.type),
+        id: nullableString(record.id),
+        field: stringValue(record.field),
+        label: stringValue(record.label),
+        supports: stringValue(record.supports),
+      };
+    })
+    .filter((item) => item.field || item.label || item.supports);
+}
+
+function scenarioRecommendationActionValue(
+  value: unknown,
+): ScenarioRecommendation['action'] | null {
+  const action = stringValue(value);
+  if (
+    action === 'wait' ||
+    action === 'consider_long' ||
+    action === 'consider_short' ||
+    action === 'entry_long_now' ||
+    action === 'entry_short_now' ||
+    action === 'avoid' ||
+    action === 'reduce' ||
+    action === 'exit' ||
+    action === 'review'
+  ) {
+    return action;
+  }
+  return null;
+}
+
+function scenarioRecommendationBiasValue(
+  value: unknown,
+): ScenarioRecommendation['action_bias'] | null {
+  const bias = stringValue(value);
+  if (bias === 'long' || bias === 'short' || bias === 'neutral' || bias === 'unknown') {
+    return bias;
+  }
+  return null;
+}
+
+function scenarioEvaluationReadinessValue(
+  value: unknown,
+): ScenarioEvaluationReadiness | null {
+  const readiness = stringValue(value);
+  if (
+    readiness === 'ready' ||
+    readiness === 'missing_trigger' ||
+    readiness === 'missing_invalidation' ||
+    readiness === 'missing_time_window' ||
+    readiness === 'not_actionable' ||
+    readiness === 'needs_review'
+  ) {
+    return readiness;
+  }
+  return null;
+}
+
+function scenarioEvaluationMetricHintValue(
+  value: unknown,
+): ScenarioRecommendation['evaluation_window']['metric_hint'] {
+  const metric = stringValue(value);
+  if (
+    metric === 'trigger_then_mfe_mae' ||
+    metric === 'avoidance_check' ||
+    metric === 'manual_review'
+  ) {
+    return metric;
+  }
+  return 'manual_review';
+}
+
+function scenarioEvaluationOutcomeValue(
+  value: unknown,
+): ScenarioEvaluationSnapshot['outcome'] {
+  const outcome = stringValue(value);
+  if (outcome === 'pending' || outcome === 'not_ready' || outcome === 'inconclusive') {
+    return outcome;
+  }
+  return 'not_ready';
+}
+
+function scenarioEvaluationResponseValue(
+  value: unknown,
+): ScenarioEvaluationResponse | null {
+  const record = recordValue(value);
+  return record.version === 'scenario_evaluation.v1' || record.id
+    ? toScenarioEvaluationResponse(record)
+    : null;
+}
+
+function scenarioReliabilityProfileValue(
+  value: unknown,
+): ScenarioReliabilityProfileResponse | null {
+  const record = recordValue(value);
+  return record.version === 'scenario_reliability_profile.v1' || record.sample_size
+    ? toScenarioReliabilityProfileResponse(record)
+    : null;
+}
+
+function tradePlaybookValue(value: unknown): TradePlaybookResponse | null {
+  const record = recordValue(value);
+  return record.version === 'trade_playbook.v1' || record.id
+    ? toTradePlaybookResponse(record)
+    : null;
+}
+
+function backtestRunValue(value: unknown): BacktestRunResponse | null {
+  const record = recordValue(value);
+  return record.version === 'backtest_run.v1' || record.id
+    ? toBacktestRunResponse(record)
+    : null;
+}
+
+function scenarioEvaluationState(
+  latestEvaluation: ScenarioEvaluationResponse | null,
+  snapshot: ScenarioEvaluationSnapshot,
+): ScenarioEvaluationState {
+  if (latestEvaluation) {
+    return latestEvaluation.result === 'inconclusive'
+      ? 'inconclusive'
+      : 'evaluated';
+  }
+  if (snapshot.outcome === 'not_ready' || snapshot.readiness !== 'ready') {
+    return 'not_ready';
+  }
+  const planned = nullableString(snapshot.planned_evaluation_at);
+  if (!planned) {
+    return 'pending';
+  }
+  const plannedMs = Date.parse(planned);
+  return Number.isFinite(plannedMs) && plannedMs <= Date.now() ? 'due' : 'pending';
+}
+
+function scenarioEvaluationWindowValue(
+  value: unknown,
+): ScenarioEvaluationResponse['evaluation_window'] {
+  const record = recordValue(value);
+  return {
+    starts_at: nullableString(record.starts_at),
+    ends_at: nullableString(record.ends_at),
+  };
+}
+
+function scenarioEvaluationResultValue(value: unknown): ScenarioEvaluationResponse['result'] {
+  const result = stringValue(value);
+  if (
+    result === 'hit' ||
+    result === 'invalidated' ||
+    result === 'missed' ||
+    result === 'mixed' ||
+    result === 'inconclusive'
+  ) {
+    return result;
+  }
+  return 'inconclusive';
+}
+
+function scenarioEvaluationDataQualityValue(
+  value: unknown,
+): ScenarioEvaluationResponse['data_quality'] {
+  const quality = stringValue(value);
+  if (quality === 'complete' || quality === 'partial' || quality === 'insufficient') {
+    return quality;
+  }
+  return 'insufficient';
+}
+
+function marketTypeValue(value: unknown): 'spot' | 'perp' {
+  return value === 'perp' ? 'perp' : 'spot';
+}
+
+function reliabilityMarketTypeValue(value: unknown): 'spot' | 'perp' | 'mixed' {
+  if (value === 'perp' || value === 'mixed') {
+    return value;
+  }
+  return 'spot';
+}
+
+function playbookDirectionValue(value: unknown): TradePlaybookResponse['direction'] {
+  if (value === 'short' || value === 'avoid') {
+    return value;
+  }
+  return 'long';
+}
+
+function playbookEntryTypeValue(value: unknown): TradePlaybookResponse['entry']['type'] {
+  if (value === 'zone' || value === 'condition') {
+    return value;
+  }
+  return 'level';
+}
+
+function backtestStatusValue(value: unknown): BacktestRunResponse['status'] {
+  if (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'partial'
+  ) {
+    return value;
+  }
+  return 'failed';
+}
+
+function backtestFillPolicyValue(
+  value: unknown,
+): BacktestRunResponse['assumptions']['fill_policy'] {
+  if (value === 'close_confirmed' || value === 'next_open') {
+    return value;
+  }
+  return 'touch';
+}
+
+function backtestSizingPolicyValue(
+  value: unknown,
+): BacktestRunResponse['assumptions']['sizing_policy'] {
+  return value === 'fixed_fraction' ? 'fixed_fraction' : 'fixed_notional';
+}
+
+function backtestDataQualityValue(
+  value: unknown,
+): BacktestRunResponse['data_quality'] {
+  if (value === 'complete' || value === 'partial' || value === 'insufficient') {
+    return value;
+  }
+  return 'insufficient';
+}
+
+function scenarioDecisionQueueItemTypeValue(
+  value: unknown,
+): ScenarioDecisionQueueItemResponse['type'] {
+  if (
+    value === 'active_scenario' ||
+    value === 'evaluation_due' ||
+    value === 'evaluation_inconclusive' ||
+    value === 'reliability_changed' ||
+    value === 'playbook_candidate' ||
+    value === 'backtest_ready'
+  ) {
+    return value;
+  }
+  return 'active_scenario';
+}
+
+function scenarioDecisionItemStatusValue(
+  value: unknown,
+): ScenarioDecisionQueueItemResponse['status'] {
+  if (value === 'snoozed' || value === 'resolved') {
+    return value;
+  }
+  return 'open';
+}
+
+function scenarioDecisionConditionTypeValue(
+  value: unknown,
+): ScenarioDecisionCondition['type'] | null {
+  const type = stringValue(value);
+  if (
+    type === 'price_above' ||
+    type === 'price_below' ||
+    type === 'price_in_zone' ||
+    type === 'price_reclaim_level' ||
+    type === 'price_reject_level' ||
+    type === 'volume_above_average' ||
+    type === 'overextended_from_trigger'
+  ) {
+    return type;
+  }
+  return null;
+}
+
+function scenarioRecommendationGateStatusValue(
+  value: unknown,
+): ScenarioRecommendation['hard_gates'][number]['status'] | null {
+  const status = stringValue(value);
+  if (
+    status === 'passed' ||
+    status === 'failed' ||
+    status === 'pending' ||
+    status === 'unknown'
+  ) {
+    return status;
+  }
+  return null;
+}
+
 function scenarioRuntimeDecisionValue(value: unknown): ScenarioRuntimeDecision {
   const record = recordValue(value);
   if (record.version === 'scenario_runtime_decision.v1') {
@@ -2781,6 +3904,26 @@ function scenarioRuntimeDecisionValue(value: unknown): ScenarioRuntimeDecision {
       overrides: ['runtime_decision_missing'],
     },
   };
+}
+
+function nullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(normalized)) {
+    return false;
+  }
+  return null;
 }
 
 function booleanValue(value: unknown, fallback = false): boolean {

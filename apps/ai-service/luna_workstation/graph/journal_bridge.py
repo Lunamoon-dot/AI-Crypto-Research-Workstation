@@ -617,6 +617,11 @@ def scenarios_from_structured_plan(
                 source=source[:8],
                 horizon=item.horizon.value if item.horizon else "unknown",
                 timeframe_label=item.timeframe_label,
+                scenario_recommendation=(
+                    item.scenario_recommendation.model_dump(mode="json")
+                    if item.scenario_recommendation
+                    else None
+                ),
                 template_metadata={
                     "horizon": item.horizon.value if item.horizon else "unknown",
                     "timeframe_label": item.timeframe_label,
@@ -681,11 +686,11 @@ def _parse_scenario_plan(
         timeframe = _extract_markdown_section(block, _TIMEFRAME_SECTION_PATTERN)
         source_raw = _extract_markdown_section(block, _SOURCE_SECTION_PATTERN)
         clean_action, legacy_as_of, legacy_source, legacy_timeframe = (
-            _extract_legacy_source_timeframe_as_of(action)
+            _extract_legacy_source_timeframe_as_of(action or "")
         )
         horizon, timeframe_label = _scenario_horizon_metadata(
-            horizon_raw,
-            timeframe_label_raw,
+            horizon_raw or "",
+            timeframe_label_raw or "",
             block_index if apply_ordered_horizons else None,
         )
 
@@ -760,6 +765,11 @@ def _parse_scenario_plan(
                     prob_band = ScenarioProbabilityBand.LOW
 
         risk_items = _split_list_section(risk_raw)
+        parsed_as_of, parsed_timeframe, parsed_source = _normalize_scenario_provenance(
+            as_of or legacy_as_of or "",
+            timeframe or legacy_timeframe or "",
+            _split_list_section(source_raw) or legacy_source,
+        )
 
         scenario = Scenario(
             id=str(uuid.uuid4()),
@@ -774,11 +784,9 @@ def _parse_scenario_plan(
             impact_on_thesis=impact or "",
             risk_map=risk_items[:8],
             suggested_user_action=clean_action or "review",
-            **_scenario_provenance_kwargs(
-                as_of or legacy_as_of or "",
-                timeframe or legacy_timeframe or "",
-                _split_list_section(source_raw) or legacy_source,
-            ),
+            as_of=parsed_as_of,
+            timeframe=parsed_timeframe,
+            source=parsed_source[:8],
             horizon=horizon,
             timeframe_label=timeframe_label,
             template_metadata={
@@ -789,21 +797,6 @@ def _parse_scenario_plan(
         scenarios.append(scenario)
 
     return scenarios
-
-
-def _scenario_provenance_kwargs(
-    as_of: str,
-    timeframe: str,
-    source: list[str],
-) -> dict[str, object]:
-    normalized_as_of, normalized_timeframe, normalized_source = (
-        _normalize_scenario_provenance(as_of, timeframe, source)
-    )
-    return {
-        "as_of": normalized_as_of,
-        "timeframe": normalized_timeframe,
-        "source": normalized_source[:8],
-    }
 
 
 def _normalize_scenario_provenance(

@@ -98,6 +98,8 @@ export const queryKeys = {
     ['thesis-scenarios', queryIdentity(), id] as const,
   scenarioMonitor: (filters: Record<string, unknown>) =>
     scopedFilters('scenario-monitor', filters),
+  scenarioDecisionWorkbench: () =>
+    scopedResource('scenario-decision-workbench'),
   signalsRoot: () => scopedResource('signals'),
   signals: (filters: Record<string, unknown>) =>
     scopedFilters('signals', filters),

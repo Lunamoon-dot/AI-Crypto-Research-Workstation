@@ -506,6 +506,94 @@ CREATE TABLE IF NOT EXISTS scenarios (
 CREATE INDEX IF NOT EXISTS idx_scenarios_workspace_thesis
 ON scenarios(workspace_id, thesis_id);
 
+CREATE TABLE IF NOT EXISTS scenario_evaluations (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    thesis_id TEXT NOT NULL,
+    research_run_id TEXT,
+    symbol TEXT NOT NULL,
+    market_type TEXT NOT NULL DEFAULT 'spot',
+    horizon TEXT NOT NULL DEFAULT 'unknown',
+    evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    evaluation_window JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result TEXT NOT NULL,
+    trigger_hit BOOLEAN,
+    invalidation_hit BOOLEAN,
+    target_hit BOOLEAN,
+    start_price DOUBLE PRECISION,
+    end_price DOUBLE PRECISION,
+    max_favorable_excursion DOUBLE PRECISION,
+    max_adverse_excursion DOUBLE PRECISION,
+    data_quality TEXT NOT NULL DEFAULT 'insufficient',
+    warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenario_evaluations_scenario
+ON scenario_evaluations(workspace_id, scenario_id, evaluated_at DESC);
+
+CREATE TABLE IF NOT EXISTS trade_playbooks (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    source_scenario_id TEXT NOT NULL,
+    source_thesis_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    market_type TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    horizon TEXT NOT NULL DEFAULT 'unknown',
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trade_playbooks_scenario
+ON trade_playbooks(workspace_id, source_scenario_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backtest_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    playbook_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    assumptions_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    data_quality TEXT NOT NULL DEFAULT 'insufficient',
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_runs_playbook
+ON backtest_runs(workspace_id, playbook_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS backtest_trade_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    backtest_run_id TEXT NOT NULL,
+    event_index INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    event_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+    price DOUBLE PRECISION,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_trade_events_run
+ON backtest_trade_events(workspace_id, backtest_run_id, event_index ASC);
+
+CREATE TABLE IF NOT EXISTS scenario_decision_item_states (
+    id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    due_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (workspace_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS signals (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',

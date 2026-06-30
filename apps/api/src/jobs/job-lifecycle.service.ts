@@ -313,6 +313,35 @@ export class JobLifecycleService implements OnModuleDestroy {
     });
   }
 
+  async remove(idOrRunId: string): Promise<boolean> {
+    const existing = await this.get(idOrRunId);
+    if (!existing) {
+      return false;
+    }
+    this.records.delete(existing.id);
+    this.aliases.delete(existing.run_id);
+    if (existing.queue_job_id) {
+      this.aliases.delete(existing.queue_job_id);
+    }
+    if (!this.shouldUsePostgres()) {
+      return true;
+    }
+    try {
+      await this.ensureSchema();
+      await this.pool!.query(
+        `DELETE FROM research_jobs
+         WHERE id = $1 OR run_id = $1 OR queue_job_id = $1`,
+        [idOrRunId],
+      );
+      return true;
+    } catch (error) {
+      if (this.disablePostgresForLocalFallback(error)) {
+        return true;
+      }
+      throw error;
+    }
+  }
+
   private async update(
     idOrRunId: string,
     update: JobLifecycleUpdate,

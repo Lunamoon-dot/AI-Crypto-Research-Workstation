@@ -15,6 +15,12 @@ export interface SqliteJournalSyncResult {
   tables: Record<string, number>;
 }
 
+export interface SqliteJournalWorkspaceResetResult {
+  workspace_id: string;
+  sqlite_path: string;
+  deleted_rows: Record<string, number>;
+}
+
 export interface SqliteJournalSyncOptions {
   sqlitePath?: string;
   publishSignals?: boolean;
@@ -350,6 +356,16 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
     }
     return exported;
   }
+
+  async removeWorkspaceRunData(
+    workspaceId: string,
+    sqlitePath = resolveSqlitePath(),
+  ): Promise<SqliteJournalWorkspaceResetResult | null> {
+    if (!existsSync(sqlitePath)) {
+      return null;
+    }
+    return deleteSqliteWorkspaceRunData(sqlitePath, workspaceId);
+  }
 }
 
 function rowsForSync(
@@ -410,6 +426,40 @@ async function exportSqliteJournal(
       }
       try {
         resolve(JSON.parse(stdout) as ExportedJournal);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function deleteSqliteWorkspaceRunData(
+  sqlitePath: string,
+  workspaceId: string,
+): Promise<SqliteJournalWorkspaceResetResult> {
+  const command = resolvePythonSyncCommand();
+  const scriptPath = resolveDeleteScriptPath();
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [scriptPath, sqlitePath, workspaceId], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || `SQLite reset exited with code ${code}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as SqliteJournalWorkspaceResetResult);
       } catch (error) {
         reject(error);
       }
@@ -511,6 +561,41 @@ function resolveExportScriptPath(): string {
   }
   throw new Error(
     `SQLite export script not found. Checked: ${candidates.join(', ')}`,
+  );
+}
+
+function resolveDeleteScriptPath(): string {
+  const configured = process.env.SQLITE_JOURNAL_DELETE_SCRIPT?.trim();
+  if (configured) {
+    if (existsSync(configured)) {
+      return configured;
+    }
+    throw new Error(`Configured SQLite delete script was not found at ${configured}`);
+  }
+
+  const candidates = unique([
+    join(process.cwd(), 'apps', 'api', 'scripts', 'delete-sqlite-journal-run-data.py'),
+    join(process.cwd(), 'scripts', 'delete-sqlite-journal-run-data.py'),
+    join(__dirname, '..', '..', 'scripts', 'delete-sqlite-journal-run-data.py'),
+    join(
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      '..',
+      'apps',
+      'api',
+      'scripts',
+      'delete-sqlite-journal-run-data.py',
+    ),
+  ]);
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found) {
+    return found;
+  }
+  throw new Error(
+    `SQLite delete script not found. Checked: ${candidates.join(', ')}`,
   );
 }
 

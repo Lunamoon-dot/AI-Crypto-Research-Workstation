@@ -799,19 +799,21 @@ class JournalService:
         _conn=None,
     ) -> None:
         market_type = getattr(run, "market_type", "spot")
-        missing_core = [
-            code for item in run.missing_core_data if (code := _core_reason_code(item))
-        ]
-        missing_optional = [
-            code
-            for item in run.missing_optional_data
-            if (code := _optional_reason_code(item))
-        ]
-        reasons = [
-            code
-            for item in run.degradation_reasons
-            if (code := _degradation_reason_code(item, market_type=market_type))
-        ]
+        missing_core: list[str] = []
+        for item in run.missing_core_data:
+            core_code = _core_reason_code(item)
+            if core_code:
+                missing_core.append(core_code)
+        missing_optional: list[str] = []
+        for item in run.missing_optional_data:
+            optional_code = _optional_reason_code(item)
+            if optional_code:
+                missing_optional.append(optional_code)
+        reasons: list[str] = []
+        for item in run.degradation_reasons:
+            degradation_code = _degradation_reason_code(item, market_type=market_type)
+            if degradation_code:
+                reasons.append(degradation_code)
 
         if not (run.symbol or "").strip():
             missing_core.append("symbol_invalid")
@@ -825,17 +827,15 @@ class JournalService:
             missing_core.append("thesis_row_missing")
 
         if thesis:
-            missing_optional.extend(
-                code
-                for item in thesis.stale_or_missing_data
-                if (code := _optional_reason_code(item))
-            )
+            for item in thesis.stale_or_missing_data:
+                thesis_code = _optional_reason_code(item)
+                if thesis_code:
+                    missing_optional.append(thesis_code)
         if debate:
-            missing_optional.extend(
-                code
-                for item in debate.missing_data
-                if (code := _optional_reason_code(item))
-            )
+            for item in debate.missing_data:
+                debate_code = _optional_reason_code(item)
+                if debate_code:
+                    missing_optional.append(debate_code)
         for scenario in scenarios or []:
             metadata = scenario.template_metadata or {}
             if metadata.get("template_degraded"):
@@ -1076,19 +1076,21 @@ def _optional_reason_code(value: Any) -> str | None:
 
 def _sanitize_run_quality(run: ResearchRun) -> ResearchRun:
     market_type = getattr(run, "market_type", "spot")
-    missing_core = [
-        code for item in run.missing_core_data if (code := _core_reason_code(item))
-    ]
-    missing_optional = [
-        code
-        for item in run.missing_optional_data
-        if (code := _optional_reason_code(item))
-    ]
-    degradation_reasons = [
-        code
-        for item in run.degradation_reasons
-        if (code := _degradation_reason_code(item, market_type=market_type))
-    ]
+    missing_core: list[str] = []
+    for item in run.missing_core_data:
+        core_code = _core_reason_code(item)
+        if core_code:
+            missing_core.append(core_code)
+    missing_optional: list[str] = []
+    for item in run.missing_optional_data:
+        optional_code = _optional_reason_code(item)
+        if optional_code:
+            missing_optional.append(optional_code)
+    degradation_reasons: list[str] = []
+    for item in run.degradation_reasons:
+        degradation_code = _degradation_reason_code(item, market_type=market_type)
+        if degradation_code:
+            degradation_reasons.append(degradation_code)
     if missing_core:
         degradation_reasons.extend(missing_core)
     run.missing_core_data = _dedupe(missing_core)

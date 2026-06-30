@@ -207,25 +207,28 @@ export class WorkbenchService {
           snapshot,
           nowIso,
         );
-        evaluated.push(toScenarioResponse({
-          ...scenario,
-          status: evaluation.status,
-          status_reason: evaluation.status_reason,
-          distance_to_trigger: evaluation.distance_to_trigger,
-          last_evaluated_at: evaluation.last_evaluated_at,
-          trigger_spec: evaluation.trigger_spec,
-          decision_playbook: recordValue(payload.decision_playbook),
-          runtime_decision: runtimeDecision,
-          payload: {
-            ...payload,
+        evaluated.push(toScenarioResponse(
+          {
+            ...scenario,
             status: evaluation.status,
             status_reason: evaluation.status_reason,
             distance_to_trigger: evaluation.distance_to_trigger,
             last_evaluated_at: evaluation.last_evaluated_at,
             trigger_spec: evaluation.trigger_spec,
+            decision_playbook: recordValue(payload.decision_playbook),
             runtime_decision: runtimeDecision,
+            payload: {
+              ...payload,
+              status: evaluation.status,
+              status_reason: evaluation.status_reason,
+              distance_to_trigger: evaluation.distance_to_trigger,
+              last_evaluated_at: evaluation.last_evaluated_at,
+              trigger_spec: evaluation.trigger_spec,
+              runtime_decision: runtimeDecision,
+            },
           },
-        }));
+          thesis,
+        ));
       }
     }
     return evaluated

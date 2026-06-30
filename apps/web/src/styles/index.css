@@ -4543,6 +4543,53 @@ a {
   gap: 7px;
 }
 
+.scenario-thesis-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border-left: 2px solid rgba(98, 240, 223, 0.38);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 8px 10px;
+}
+
+.scenario-thesis-link span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.scenario-thesis-link strong {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.scenario-thesis-link-constructive {
+  border-left-color: rgba(52, 211, 153, 0.72);
+}
+
+.scenario-thesis-link-warning {
+  border-left-color: rgba(215, 181, 109, 0.74);
+}
+
+.scenario-thesis-link-risk {
+  border-left-color: rgba(255, 93, 103, 0.76);
+}
+
 .scenario-meta-row {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.7fr) minmax(0, 1.5fr);
@@ -4623,6 +4670,58 @@ a {
   font-size: 12px;
   font-weight: 650;
   line-height: 1.45;
+}
+
+.scenario-lifecycle {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid rgba(89, 97, 112, 0.38);
+  padding-top: 10px;
+}
+
+.scenario-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-lifecycle-actions .button {
+  min-height: 34px;
+}
+
+.scenario-action-result {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(89, 97, 112, 0.58);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 9px 10px;
+}
+
+.scenario-action-result > strong {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.scenario-action-result-constructive {
+  border-color: rgba(69, 244, 200, 0.34);
+  background: rgba(69, 244, 200, 0.06);
+}
+
+.scenario-action-result-warning {
+  border-color: rgba(226, 188, 114, 0.38);
+  background: rgba(226, 188, 114, 0.06);
+}
+
+.scenario-action-result-risk {
+  border-color: rgba(255, 96, 123, 0.38);
+  background: rgba(255, 96, 123, 0.06);
+}
+
+.scenario-action-result-primary {
+  border-color: rgba(98, 240, 223, 0.28);
+  background: rgba(98, 240, 223, 0.05);
 }
 
 .scenario-field {
@@ -4748,6 +4847,19 @@ a {
 .scenario-monitor-list {
   display: grid;
   gap: 12px;
+}
+
+.scenario-queue-empty {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.scenario-queue-empty p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .scenario-monitor-header {
@@ -5100,7 +5212,9 @@ a {
 .workflow-org-scroll {
   min-width: 0;
   overflow-x: auto;
-  padding: 12px 14px 18px;
+  overflow-y: clip;
+  padding: 24px 14px 22px;
+  scroll-padding: 24px 14px 22px;
 }
 
 .workflow-org-canvas {
@@ -5115,7 +5229,7 @@ a {
     linear-gradient(90deg, rgba(119, 130, 147, 0.026) 1px, transparent 1px),
     rgba(11, 13, 18, 0.26);
   background-size: 28px 28px;
-  padding: 26px 32px 34px;
+  padding: 34px 32px 38px;
 }
 
 .workflow-org-row {
@@ -5268,6 +5382,7 @@ a {
 }
 
 .workflow-connector-blocked,
+.workflow-connector-interrupted,
 .workflow-connector-missing,
 .workflow-connector-pending {
   --workflow-connector-color: rgba(215, 181, 109, 0.28);
@@ -5406,6 +5521,7 @@ a {
 }
 
 .workflow-state-blocked,
+.workflow-state-interrupted,
 .workflow-state-missing,
 .workflow-state-pending {
   border-color: rgba(215, 181, 109, 0.34);

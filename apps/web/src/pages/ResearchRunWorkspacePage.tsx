@@ -386,6 +386,8 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
           ...(workspace.thesis?.summary.missing_data ?? []),
         ])
       : [];
+  const latestFailure = latestRunFailureEvent(workspace.events);
+  const failureReason = latestFailure ? runFailureMessage(latestFailure) : '';
   const workflowStages: WorkflowVisualizationStage[] = visiblePipelineStages.map(
     (stage) => {
       const stageOpinions = workspace.debate.agent_opinions.filter((item) =>
@@ -403,6 +405,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
         thesisReady: Boolean(workspace.thesis),
         runFailed,
         runTerminal,
+        runFailureDetail: failureReason,
       });
       const detail = pipelineStageDetail({
         stage,
@@ -433,8 +436,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
     workspace.events,
     runTerminal,
   );
-  const latestFailure = latestRunFailureEvent(workspace.events);
-  const failureReason = latestFailure ? runFailureMessage(latestFailure) : '';
   const failedStageLabel = workflowStageTimings.find(
     (timing) => timing.event_state === 'failed',
   )?.label;
@@ -1414,6 +1415,7 @@ function resolvePipelineStageState({
   thesisReady,
   runFailed,
   runTerminal,
+  runFailureDetail,
 }: {
   stage: PipelineStage;
   events: ResearchRunEventResponse[];
@@ -1424,6 +1426,7 @@ function resolvePipelineStageState({
   thesisReady: boolean;
   runFailed: boolean;
   runTerminal: boolean;
+  runFailureDetail: string;
 }) {
   if (
     stageHasReadyOpinion(stage.key, opinionCount) ||
@@ -1459,9 +1462,9 @@ function resolvePipelineStageState({
   if (running) {
     if (runFailed) {
       return {
-        label: 'failed',
-        badgeClass: 'badge risk',
-        detail: 'Interrupted before completion',
+        label: 'interrupted',
+        badgeClass: 'badge warning',
+        detail: runFailureDetail || 'Interrupted before completion',
       };
     }
 
@@ -1927,14 +1930,23 @@ function uniqueEventIds(events: ResearchRunEventResponse[]): string[] {
 }
 
 function latestRunFailureEvent(events: ResearchRunEventResponse[]) {
-  return [...events].reverse().find((event) => event.event_type === 'run.failed');
+  return [...events]
+    .reverse()
+    .find((event) =>
+      ['run.failed', 'run.timed_out', 'run.cancelled'].includes(event.event_type),
+    );
 }
 
 function runFailureMessage(event: ResearchRunEventResponse): string {
   const error = stringValue(event.payload.error);
+  const result = recordValue(event.payload.result);
+  const resultError = stringValue(result.error);
   const errorType = stringValue(event.payload.error_type);
+  const errorCode = stringValue(event.payload.error_code);
   const message = event.message || 'Research run failed.';
-  return [errorType, error || message].filter(Boolean).join(': ');
+  return [errorType || errorCode, error || resultError || message]
+    .filter(Boolean)
+    .join(': ');
 }
 
 function eventMatchesAliases(
@@ -2028,4 +2040,10 @@ function stringValue(value: unknown): string {
     return '';
   }
   return String(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

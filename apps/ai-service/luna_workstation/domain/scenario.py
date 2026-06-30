@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,7 @@ class Scenario(BaseModel):
     source: list[str] = Field(default_factory=list)
     horizon: str = "unknown"
     timeframe_label: str = ""
+    scenario_recommendation: dict[str, Any] | None = None
     # Phase 5: template enforcement metadata
     template_metadata: dict = Field(
         default_factory=dict,

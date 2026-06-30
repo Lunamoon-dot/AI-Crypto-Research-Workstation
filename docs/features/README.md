@@ -1,6 +1,6 @@
 # Feature Registry
 
-Last updated: 2026-05-30
+Last updated: 2026-06-29
 
 Use this page to find long-lived feature plans. Feature docs capture intent,
 scope, decisions, and verification rules; code and tests remain the executable
@@ -35,6 +35,7 @@ Rules:
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
 | Research Data Foundation | [research-data-foundation/README.md](research-data-foundation/README.md) | draft | Data gap ledger and source strategy for market, derivatives, on-chain, news, social, and provenance. |
 | Research Continuity | [research-continuity/v2.0/implementation-plan.md](research-continuity/v2.0/implementation-plan.md) | implemented | Timeline and item lifecycle explorer as the graph-ready continuity substrate. |
+| Scenario Decision System | [scenario-decision-system/README.md](scenario-decision-system/README.md) | draft | Master product spec for scenario recommendation, evaluation, reliability memory, playbooks, backtests, and workbench. |
 | Scenario Horizon Planner | [scenario-horizon-planner/v1/implementation-plan.md](scenario-horizon-planner/v1/implementation-plan.md) | goal-ready | Keep one Scenario Planner node while specializing outputs into short, mid, and long horizon branches. |
 
 ## Status Labels

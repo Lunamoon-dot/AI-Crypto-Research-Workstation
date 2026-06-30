@@ -1,4 +1,8 @@
 import type { JsonRecord } from '../database/journal.types';
+import {
+  derivePriceConditionFromText,
+  normalizeScenarioConditionText,
+} from './scenario-text-conditions';
 import type {
   ScenarioActionBias,
   ScenarioDecisionCondition,
@@ -14,6 +18,11 @@ const DEFAULT_NEAR_TRIGGER_THRESHOLD_PCT = 2;
 const DEFAULT_OVEREXTENDED_THRESHOLD_PCT = 2.5;
 const ENTRY_NOW_CONFIDENCE_THRESHOLD = 0.7;
 const MARKET_STALE_MINUTES = 90;
+const MARKET_STALE_REASON = 'Market data is stale.';
+const MISSING_PRICE_REASON = 'Market price is missing.';
+const OVEREXTENDED_REASON = 'Price is overextended from trigger.';
+const NON_ACTIONABLE_BIAS_REASON = 'Scenario action bias is not actionable.';
+const LOW_CONFIDENCE_REASON = 'Recommendation confidence is below entry threshold.';
 
 type TriggerTarget =
   | { kind: 'level'; level: number; direction: 'above' | 'below' }
@@ -27,6 +36,14 @@ export function evaluateScenarioRuntimeDecision(
 ): ScenarioRuntimeDecision {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   const playbook = normalizedPlaybook(scenario, payload, nowIso);
+  const recommendation = recordValue(
+    scenario.scenario_recommendation ?? payload.scenario_recommendation,
+  );
+  const recommendationConfidence = nullableNumber(recommendation.confidence);
+  const effectiveConfidence =
+    recommendationConfidence === null
+      ? playbook.confidence
+      : Math.min(playbook.confidence, recommendationConfidence);
   const currentPrice = nullableNumber(snapshot?.current_price);
   const staleMarketData = marketIsStale(snapshot, nowIso);
   const triggerTarget = primaryTriggerTarget(playbook);
@@ -79,34 +96,60 @@ export function evaluateScenarioRuntimeDecision(
     overrides.push(validity.reason);
   }
   if (staleMarketData) {
-    blockingReasons.push('stale_market_data');
+    blockingReasons.push(MARKET_STALE_REASON);
     overrides.push('stale_market_data');
   }
   if (currentPrice === null) {
-    blockingReasons.push('missing_market_data');
+    blockingReasons.push(MISSING_PRICE_REASON);
     overrides.push('missing_market_data');
   }
   if (!hasInvalidation) {
-    blockingReasons.push('missing_invalidation');
+    blockingReasons.push('Recommendation is missing invalidation condition.');
     overrides.push('missing_invalidation');
   }
   if (playbook.evidence_refs.length === 0) {
-    blockingReasons.push('missing_evidence_refs');
+    blockingReasons.push('Recommendation is missing evidence references.');
     overrides.push('missing_evidence_refs');
   }
   if (overextended) {
-    blockingReasons.push('overextended');
+    blockingReasons.push(OVEREXTENDED_REASON);
     overrides.push('overextended');
   }
-  blockingReasons.push(...conditionBlockers);
-  overrides.push(...conditionBlockers);
+  if (playbook.action_bias === 'neutral' || playbook.action_bias === 'unknown') {
+    blockingReasons.push(NON_ACTIONABLE_BIAS_REASON);
+    overrides.push('non_actionable_bias');
+  }
+  if (
+    isEntryAction(playbook.preferred_action_if_triggered) &&
+    effectiveConfidence < ENTRY_NOW_CONFIDENCE_THRESHOLD
+  ) {
+    blockingReasons.push(LOW_CONFIDENCE_REASON);
+    overrides.push('low_confidence');
+  }
+  if (
+    isEntryAction(playbook.preferred_action_if_triggered) &&
+    !entryActionMatchesBias(
+      playbook.preferred_action_if_triggered,
+      playbook.action_bias,
+    )
+  ) {
+    blockingReasons.push('Scenario action bias does not match entry direction.');
+    overrides.push('action_bias_mismatch');
+  }
+  const recommendationBlockers = recommendationBlockingReasons(recommendation);
+  blockingReasons.push(...recommendationBlockers.reasons);
+  overrides.push(...recommendationBlockers.overrides);
+  if (triggerStatus === 'triggered') {
+    blockingReasons.push(...conditionBlockers);
+    overrides.push(...conditionBlockers);
+  }
 
   const uniqueBlockers = uniqueStrings(blockingReasons);
   const uniqueOverrides = uniqueStrings(overrides);
   const recommendedAction = finalAction({
     actionBias: playbook.action_bias,
     blockingReasons: uniqueBlockers,
-    confidence: playbook.confidence,
+    confidence: effectiveConfidence,
     fallback: playbook.fallback_action,
     preferred: playbook.preferred_action_if_triggered,
     triggerStatus,
@@ -127,7 +170,7 @@ export function evaluateScenarioRuntimeDecision(
     trigger_status: triggerStatus,
     validity_status: validity.status,
     recommended_action: recommendedAction,
-    confidence: confidenceAfterGates(playbook.confidence, uniqueBlockers),
+    confidence: confidenceAfterGates(effectiveConfidence, uniqueBlockers),
     matched_conditions: uniqueStrings(matchedConditions),
     failed_conditions: uniqueStrings(failedConditions),
     blocking_reasons: uniqueBlockers,
@@ -151,7 +194,7 @@ function normalizedPlaybook(
   payload: JsonRecord,
   nowIso: string,
 ): ScenarioDecisionPlaybook {
-  const raw = recordValue(payload.decision_playbook ?? scenario.decision_playbook);
+  const raw = recordValue(scenario.decision_playbook ?? payload.decision_playbook);
   if (raw.version === 'scenario_decision_playbook.v1') {
     return {
       version: 'scenario_decision_playbook.v1',
@@ -282,13 +325,19 @@ function finalAction(input: {
   ) {
     return 'review';
   }
+  if (input.actionBias === 'neutral' || input.actionBias === 'unknown') {
+    return 'review';
+  }
   if (
-    input.blockingReasons.includes('missing_market_data') ||
-    input.blockingReasons.includes('stale_market_data')
+    input.blockingReasons.includes(MISSING_PRICE_REASON) ||
+    input.blockingReasons.includes(MARKET_STALE_REASON)
   ) {
     return 'review';
   }
   if (input.triggerStatus === 'near_trigger') {
+    if (input.blockingReasons.length > 0) {
+      return safeBlockedAction(input.fallback);
+    }
     if (
       input.validityStatus === 'valid' &&
       input.confidence >= ENTRY_NOW_CONFIDENCE_THRESHOLD
@@ -301,17 +350,25 @@ function finalAction(input: {
     return input.fallback;
   }
   if (input.blockingReasons.length > 0) {
-    return directionalConsiderAction(input.actionBias);
+    return safeBlockedAction(input.fallback);
   }
   if (
     input.confidence >= ENTRY_NOW_CONFIDENCE_THRESHOLD &&
-    (input.preferred === 'entry_long_now' ||
-      input.preferred === 'entry_short_now') &&
+    isEntryAction(input.preferred) &&
     entryActionMatchesBias(input.preferred, input.actionBias)
   ) {
     return input.preferred;
   }
   return directionalConsiderAction(input.actionBias);
+}
+
+function safeBlockedAction(
+  fallback: ScenarioRecommendedAction,
+): ScenarioRecommendedAction {
+  if (fallback === 'wait' || fallback === 'avoid' || fallback === 'review') {
+    return fallback;
+  }
+  return 'review';
 }
 
 function directionalConsiderAction(
@@ -334,6 +391,10 @@ function entryActionMatchesBias(
     (action === 'entry_long_now' && actionBias === 'long') ||
     (action === 'entry_short_now' && actionBias === 'short')
   );
+}
+
+function isEntryAction(action: ScenarioRecommendedAction): boolean {
+  return action === 'entry_long_now' || action === 'entry_short_now';
 }
 
 function triggerStatusFor(input: {
@@ -396,11 +457,14 @@ function validityStatusFor(
   if (invalidationHit) {
     return { status: 'invalidated', reason: 'invalidation_hit' };
   }
+  if (currentPrice === null) {
+    return { status: 'needs_review', reason: MISSING_PRICE_REASON };
+  }
   if (staleMarketData) {
-    return { status: 'needs_review', reason: 'stale_market_data' };
+    return { status: 'needs_review', reason: MARKET_STALE_REASON };
   }
   if (overextended) {
-    return { status: 'overextended', reason: 'overextended' };
+    return { status: 'overextended', reason: OVEREXTENDED_REASON };
   }
   return { status: 'valid', reason: 'valid' };
 }
@@ -512,19 +576,8 @@ function primaryTriggerTarget(playbook: ScenarioDecisionPlaybook): TriggerTarget
 }
 
 function parsePriceCondition(value: string): ScenarioDecisionCondition[] {
-  const above = value.match(
-    /\b(?:above|over|reclaim(?:s)?|tren|vuot)\s+\$?(\d+(?:\.\d+)?)/i,
-  );
-  if (above) {
-    return [{ type: 'price_above', level: Number(above[1]) }];
-  }
-  const below = value.match(
-    /\b(?:below|under|break(?:s)? below|duoi|mat)\s+\$?(\d+(?:\.\d+)?)/i,
-  );
-  if (below) {
-    return [{ type: 'price_below', level: Number(below[1]) }];
-  }
-  return [];
+  const condition = derivePriceConditionFromText(value);
+  return condition ? [condition] : [];
 }
 
 function marketIsStale(snapshot: JsonRecord | null, nowIso: string): boolean {
@@ -565,12 +618,43 @@ function confidenceAfterGates(confidence: number, blockers: string[]): number {
     return confidence;
   }
   if (
-    blockers.includes('missing_evidence_refs') ||
-    blockers.includes('missing_invalidation')
+    blockers.includes('Recommendation is missing evidence references.') ||
+    blockers.includes('Recommendation is missing invalidation condition.')
   ) {
     return Math.min(confidence, 0.5);
   }
   return Math.min(confidence, 0.65);
+}
+
+function recommendationBlockingReasons(recommendation: JsonRecord): {
+  reasons: string[];
+  overrides: string[];
+} {
+  const reasons: string[] = [];
+  const overrides: string[] = [];
+  for (const reason of stringList(recommendation.blocking_reasons)) {
+    reasons.push(reason);
+    overrides.push('recommendation_blocking_reason');
+  }
+  const gates = Array.isArray(recommendation.hard_gates)
+    ? recommendation.hard_gates
+    : [];
+  for (const item of gates) {
+    const gate = recordValue(item);
+    const status = stringValue(gate.status, 'unknown');
+    const label = stringValue(gate.label, stringValue(gate.id, 'Unnamed gate'));
+    if (status === 'passed') {
+      continue;
+    }
+    if (status === 'failed') {
+      reasons.push(`Hard gate failed: ${label}.`);
+      overrides.push(`hard_gate_failed:${stringValue(gate.id, label)}`);
+      continue;
+    }
+    reasons.push(`Hard gate not passed: ${label}.`);
+    overrides.push(`hard_gate_not_passed:${stringValue(gate.id, label)}`);
+  }
+  return { reasons, overrides };
 }
 
 function conditionList(value: unknown): ScenarioDecisionCondition[] {
@@ -643,12 +727,12 @@ function inferredActionBias(
     payload.expected_behavior,
   ]
     .map((item) => stringValue(item))
-    .join(' ')
-    .toLowerCase();
-  if (/\b(short|bear|below|breakdown|reject)\b/.test(text)) {
+    .join(' ');
+  const normalizedText = normalizeScenarioConditionText(text);
+  if (/\b(short|bear|bearish|below|breakdown|reject|giam|pha vo)\b/.test(normalizedText)) {
     return 'short';
   }
-  if (/\b(long|bull|above|breakout|reclaim)\b/.test(text)) {
+  if (/\b(long|bull|bullish|above|breakout|reclaim|tang|phuc hoi)\b/.test(normalizedText)) {
     return 'long';
   }
   return 'unknown';
