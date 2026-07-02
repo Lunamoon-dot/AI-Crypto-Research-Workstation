@@ -6,6 +6,7 @@ import {
 import type {
   ScenarioActionBias,
   ScenarioDecisionCondition,
+  ScenarioDecisionConditionRole,
   ScenarioDecisionPlaybook,
   ScenarioEvidenceRef,
   ScenarioRecommendedAction,
@@ -46,7 +47,8 @@ export function evaluateScenarioRuntimeDecision(
       : Math.min(playbook.confidence, recommendationConfidence);
   const currentPrice = nullableNumber(snapshot?.current_price);
   const staleMarketData = marketIsStale(snapshot, nowIso);
-  const triggerTarget = primaryTriggerTarget(playbook);
+  const entryConditions = runtimeEntryConditions(playbook.entry_conditions);
+  const triggerTarget = primaryTriggerTarget(entryConditions);
   const triggerStatus = triggerStatusFor({
     currentPrice,
     nearThresholdPct: playbook.near_trigger_threshold_pct,
@@ -67,7 +69,7 @@ export function evaluateScenarioRuntimeDecision(
   const hasInvalidation =
     playbook.invalidation_conditions.length > 0 || invalidationText.length > 0;
 
-  for (const condition of playbook.entry_conditions) {
+  for (const condition of entryConditions) {
     const result = conditionResult(condition, currentPrice);
     const label = conditionLabel(condition);
     if (result === 'matched') {
@@ -82,7 +84,12 @@ export function evaluateScenarioRuntimeDecision(
     }
   }
 
-  const overextended = isOverextended(playbook, currentPrice, triggerTarget);
+  const overextended = isOverextended(
+    playbook,
+    currentPrice,
+    triggerTarget,
+    entryConditions,
+  );
   const validity = validityStatusFor(
     playbook,
     currentPrice,
@@ -473,6 +480,7 @@ function isOverextended(
   playbook: ScenarioDecisionPlaybook,
   currentPrice: number | null,
   triggerTarget: TriggerTarget,
+  entryConditions: ScenarioDecisionCondition[],
 ): boolean {
   if (
     currentPrice === null ||
@@ -482,7 +490,11 @@ function isOverextended(
   ) {
     return false;
   }
-  if (conditionResult(playbook.entry_conditions[0], currentPrice) !== 'matched') {
+  if (
+    !entryConditions.some(
+      (condition) => conditionResult(condition, currentPrice) === 'matched',
+    )
+  ) {
     return false;
   }
   const threshold =
@@ -532,7 +544,13 @@ function conditionResult(
 }
 
 function conditionFromTriggerSpec(spec: JsonRecord): ScenarioDecisionCondition {
+  const id = stringValue(spec.id);
+  const label = stringValue(spec.label);
+  const role = scenarioDecisionConditionRoleValue(spec.role);
   return {
+    id: id || undefined,
+    label: label || undefined,
+    role: role ?? undefined,
     type: conditionTypeValue(spec.type),
     level: nullableNumber(spec.level) ?? undefined,
     zone_low: nullableNumber(spec.zone_low) ?? undefined,
@@ -545,8 +563,10 @@ function conditionFromTriggerSpec(spec: JsonRecord): ScenarioDecisionCondition {
   };
 }
 
-function primaryTriggerTarget(playbook: ScenarioDecisionPlaybook): TriggerTarget {
-  for (const condition of playbook.entry_conditions) {
+function primaryTriggerTarget(
+  conditions: ScenarioDecisionCondition[],
+): TriggerTarget {
+  for (const condition of conditions) {
     if (typeof condition.level === 'number' && condition.level > 0) {
       return {
         kind: 'level',
@@ -573,6 +593,17 @@ function primaryTriggerTarget(playbook: ScenarioDecisionPlaybook): TriggerTarget
     }
   }
   return null;
+}
+
+function runtimeEntryConditions(
+  conditions: ScenarioDecisionCondition[],
+): ScenarioDecisionCondition[] {
+  return conditions.filter((condition) => {
+    if (condition.role === undefined) {
+      return true;
+    }
+    return condition.role === 'trigger' || condition.role === 'entry';
+  });
 }
 
 function parsePriceCondition(value: string): ScenarioDecisionCondition[] {
@@ -667,6 +698,24 @@ function conditionList(value: unknown): ScenarioDecisionCondition[] {
   return Array.isArray(value)
     ? value.map((item) => conditionFromTriggerSpec(recordValue(item)))
     : [];
+}
+
+function scenarioDecisionConditionRoleValue(
+  value: unknown,
+): ScenarioDecisionConditionRole | null {
+  const role = stringValue(value);
+  if (
+    role === 'watch' ||
+    role === 'trigger' ||
+    role === 'confirmation' ||
+    role === 'entry' ||
+    role === 'invalidation' ||
+    role === 'target' ||
+    role === 'avoid'
+  ) {
+    return role;
+  }
+  return null;
 }
 
 function evidenceRefList(value: unknown): ScenarioEvidenceRef[] {

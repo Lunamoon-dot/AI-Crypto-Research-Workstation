@@ -6,6 +6,7 @@ import type {
   EvidenceBundleResponse,
   GenerateResearchContinuityRequest,
   GenerateResearchContinuityResponse,
+  MarketChartInterval,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
   ResearchContinuityRepairPreviewRequest,
@@ -23,6 +24,10 @@ import type {
   ResearchContinuityTimelineResponse,
   ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
+  ScenarioChartProjectionResponse,
+  ScenarioDecisionConditionRole,
+  ScenarioEventResponse,
+  ScenarioLiveStateResponse,
   SignalCountResponse,
   SignalDetailResponse,
   SignalResponse,
@@ -385,6 +390,9 @@ export interface ScenarioEvidenceRef {
 }
 
 export interface ScenarioDecisionCondition {
+  id?: string;
+  label?: string;
+  role?: ScenarioDecisionConditionRole;
   type:
     | 'price_above'
     | 'price_below'
@@ -552,6 +560,15 @@ export interface TradePlaybookResponse {
   evidence_refs: JsonRecord[];
   reliability_context: JsonRecord | null;
   compile_warnings: string[];
+  compiler_version: 'playbook_compiler.v2';
+  source_hashes: {
+    scenario: string;
+    decision_playbook: string;
+    recommendation: string;
+    runtime_decision: string;
+  };
+  status: 'current' | 'stale' | 'superseded';
+  stale_reasons: string[];
   created_at: string;
 }
 
@@ -1011,6 +1028,37 @@ export function createApiClient(request: ApiTransport) {
       request<PlaybookCompileReportResponse>(
         `/scenarios/${encodeURIComponent(id)}/playbook`,
         { method: 'POST' },
+      ),
+    getScenarioLiveState: (scenarioId: string) =>
+      request<ScenarioLiveStateResponse>(
+        `/scenarios/${encodeURIComponent(scenarioId)}/live`,
+        {},
+      ),
+    refreshScenarioLiveState: (scenarioId: string) =>
+      request<ScenarioLiveStateResponse>(
+        `/scenarios/${encodeURIComponent(scenarioId)}/live/refresh`,
+        { method: 'POST' },
+      ),
+    listScenarioEvents: (
+      scenarioId: string,
+      params: { limit?: number } = {},
+    ) =>
+      request<ScenarioEventResponse[]>(
+        `/scenarios/${encodeURIComponent(scenarioId)}/events`,
+        { query: { limit: params.limit ?? 50 } },
+      ),
+    getScenarioChartProjection: (
+      scenarioId: string,
+      params: { interval?: MarketChartInterval; limit?: number } = {},
+    ) =>
+      request<ScenarioChartProjectionResponse>(
+        `/scenarios/${encodeURIComponent(scenarioId)}/chart`,
+        {
+          query: {
+            interval: params.interval ?? '15m',
+            limit: params.limit ?? 200,
+          },
+        },
       ),
     listScenarioPlaybooks: (id: string) =>
       request<TradePlaybookResponse[]>(

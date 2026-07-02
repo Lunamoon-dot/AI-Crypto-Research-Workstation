@@ -1186,6 +1186,59 @@ export const openApiDocument = {
         ),
       },
     },
+    '/scenarios/{id}/live': {
+      get: {
+        operationId: 'getScenarioLiveState',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Derived scenario live state.',
+          'ScenarioLiveStateResponse',
+        ),
+      },
+    },
+    '/scenarios/{id}/live/refresh': {
+      post: {
+        operationId: 'refreshScenarioLiveState',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Refreshed scenario live state with persisted transition events.',
+          'ScenarioLiveStateResponse',
+          '201',
+        ),
+      },
+    },
+    '/scenarios/{id}/events': {
+      get: {
+        operationId: 'listScenarioEvents',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id'), limitParameter(50, 200)],
+        responses: jsonArrayResponse(
+          'Persisted scenario live events.',
+          'ScenarioEventResponse',
+        ),
+      },
+    },
+    '/scenarios/{id}/chart': {
+      get: {
+        operationId: 'getScenarioChartProjection',
+        tags: ['scenarios'],
+        parameters: [
+          pathParameter('id'),
+          queryParameter('interval', {
+            type: 'string',
+            enum: ['1m', '5m', '15m', '1h', '4h', '1d'],
+            default: '15m',
+          }),
+          limitParameter(200, 1000),
+        ],
+        responses: jsonResponse(
+          'Derived scenario chart projection.',
+          'ScenarioChartProjectionResponse',
+        ),
+      },
+    },
     '/scenarios/{id}/evaluations': {
       get: {
         operationId: 'listScenarioEvaluations',
@@ -2216,7 +2269,7 @@ export const openApiDocument = {
       },
       TradePlaybookResponse: {
         type: 'object',
-        required: ['version', 'id', 'workspace_id', 'source_scenario_id', 'source_thesis_id', 'symbol', 'market_type', 'direction', 'horizon', 'entry', 'invalidation', 'targets', 'no_trade_conditions', 'risk_context', 'sizing_policy', 'evidence_refs', 'compile_warnings', 'created_at'],
+        required: ['version', 'id', 'workspace_id', 'source_scenario_id', 'source_thesis_id', 'symbol', 'market_type', 'direction', 'horizon', 'entry', 'invalidation', 'targets', 'no_trade_conditions', 'risk_context', 'sizing_policy', 'evidence_refs', 'compile_warnings', 'compiler_version', 'source_hashes', 'status', 'stale_reasons', 'created_at'],
         properties: {
           version: { type: 'string', enum: ['trade_playbook.v1'] },
           id: { type: 'string' },
@@ -2241,6 +2294,19 @@ export const openApiDocument = {
             ],
           },
           compile_warnings: { type: 'array', items: { type: 'string' } },
+          compiler_version: { type: 'string', enum: ['playbook_compiler.v2'] },
+          source_hashes: {
+            type: 'object',
+            required: ['scenario', 'decision_playbook', 'recommendation', 'runtime_decision'],
+            properties: {
+              scenario: { type: 'string' },
+              decision_playbook: { type: 'string' },
+              recommendation: { type: 'string' },
+              runtime_decision: { type: 'string' },
+            },
+          },
+          status: { type: 'string', enum: ['current', 'stale', 'superseded'] },
+          stale_reasons: { type: 'array', items: { type: 'string' } },
           created_at: { type: 'string' },
         },
       },
@@ -3353,6 +3419,144 @@ export const openApiDocument = {
           total_scenarios: { type: 'integer' },
           status_counts: { type: 'object', additionalProperties: { type: 'integer' } },
           items: { type: 'array', items: { $ref: '#/components/schemas/ScenarioMonitorItemResponse' } },
+        },
+      },
+      ScenarioConditionEvaluationResponse: {
+        type: 'object',
+        required: ['id', 'label', 'role', 'type', 'status', 'reason', 'level', 'zone_low', 'zone_high', 'source'],
+        properties: {
+          id: { type: 'string' },
+          label: { type: 'string' },
+          role: { type: 'string', enum: ['watch', 'trigger', 'confirmation', 'entry', 'invalidation', 'target', 'avoid'] },
+          type: { type: 'string' },
+          status: { type: 'string', enum: ['passed', 'failed', 'pending', 'unknown'] },
+          reason: { type: 'string' },
+          level: { type: ['number', 'null'] },
+          zone_low: { type: ['number', 'null'] },
+          zone_high: { type: ['number', 'null'] },
+          source: { type: 'string', enum: ['decision_playbook', 'trade_playbook', 'runtime'] },
+        },
+      },
+      ScenarioTargetProgressResponse: {
+        type: 'object',
+        required: ['label', 'level', 'status', 'hit_at', 'rationale'],
+        properties: {
+          label: { type: 'string' },
+          level: { type: ['number', 'null'] },
+          status: { type: 'string', enum: ['pending', 'hit', 'skipped', 'unknown'] },
+          hit_at: { type: ['string', 'null'] },
+          rationale: { type: 'string' },
+        },
+      },
+      ScenarioEventResponse: {
+        type: 'object',
+        required: ['version', 'id', 'workspace_id', 'scenario_id', 'thesis_id', 'event_type', 'event_time', 'summary', 'payload', 'created_at'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_event.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          scenario_id: { type: 'string' },
+          thesis_id: { type: ['string', 'null'] },
+          event_type: {
+            type: 'string',
+            enum: [
+              'scenario.generated',
+              'scenario.near_trigger',
+              'scenario.triggered',
+              'scenario.condition_passed',
+              'scenario.condition_failed',
+              'scenario.target_hit',
+              'scenario.weakened',
+              'scenario.invalidated',
+              'scenario.expired',
+              'scenario.overextended',
+            ],
+          },
+          event_time: { type: 'string' },
+          summary: { type: 'string' },
+          payload: { $ref: '#/components/schemas/JsonRecord' },
+          created_at: { type: 'string' },
+        },
+      },
+      ScenarioLiveStateResponse: {
+        type: 'object',
+        required: ['version', 'scenario_id', 'workspace_id', 'evaluated_at', 'current_price', 'trigger_status', 'validity_status', 'recommended_action', 'distance_to_trigger', 'condition_evaluations', 'target_progress', 'blockers', 'commentary', 'latest_event'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_live_state.v1'] },
+          scenario_id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          evaluated_at: { type: 'string' },
+          current_price: { type: ['number', 'null'] },
+          trigger_status: { type: 'string' },
+          validity_status: { type: 'string' },
+          recommended_action: { type: 'string' },
+          distance_to_trigger: { type: ['number', 'null'] },
+          condition_evaluations: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ScenarioConditionEvaluationResponse' },
+          },
+          target_progress: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ScenarioTargetProgressResponse' },
+          },
+          blockers: { type: 'array', items: { type: 'string' } },
+          commentary: { type: 'string' },
+          latest_event: {
+            anyOf: [
+              { $ref: '#/components/schemas/ScenarioEventResponse' },
+              { type: 'null' },
+            ],
+          },
+        },
+      },
+      ScenarioChartOverlay: {
+        type: 'object',
+        required: ['id', 'type', 'role', 'source', 'label', 'status'],
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: ['horizontal_line', 'price_zone', 'event_marker'] },
+          role: { type: 'string' },
+          source: { type: 'string', enum: ['decision_playbook', 'trade_playbook', 'runtime'] },
+          price: { type: 'number' },
+          price_low: { type: 'number' },
+          price_high: { type: 'number' },
+          time: { type: 'string' },
+          label: { type: 'string' },
+          status: { type: 'string', enum: ['active', 'passed', 'failed', 'blocked', 'unknown'] },
+        },
+      },
+      ScenarioChartProjectionResponse: {
+        type: 'object',
+        required: ['version', 'workspace_id', 'scenario_id', 'thesis_id', 'mode', 'symbol', 'market_type', 'interval', 'generated_at', 'source_versions', 'candles', 'overlays', 'live_state', 'warnings'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_chart_projection.v1'] },
+          workspace_id: { type: 'string' },
+          scenario_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          mode: { type: 'string', enum: ['watch', 'trade', 'indicator', 'event', 'narrative'] },
+          symbol: { type: 'string' },
+          market_type: { type: 'string', enum: ['spot', 'perp'] },
+          interval: { type: 'string', enum: ['1m', '5m', '15m', '1h', '4h', '1d'] },
+          generated_at: { type: 'string' },
+          source_versions: {
+            type: 'object',
+            required: ['decision_playbook_source', 'trade_playbook_id', 'trade_playbook_status'],
+            properties: {
+              decision_playbook_source: { type: 'string', enum: ['llm', 'derived_v1', 'missing'] },
+              trade_playbook_id: { type: ['string', 'null'] },
+              trade_playbook_status: { type: 'string', enum: ['current', 'stale', 'superseded', 'missing'] },
+            },
+          },
+          candles: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MarketOhlcvCandleResponse' },
+          },
+          overlays: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ScenarioChartOverlay' },
+          },
+          live_state: { $ref: '#/components/schemas/ScenarioLiveStateResponse' },
+          warnings: { type: 'array', items: { type: 'string' } },
         },
       },
       ProviderHealthResponse: {

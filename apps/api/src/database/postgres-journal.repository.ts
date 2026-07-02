@@ -42,6 +42,7 @@ type CreatedPayloadRow = PayloadRow & {
 export class PostgresJournalRepository implements JournalRepository, OnModuleDestroy {
   private readonly pool?: Pool;
   private scenarioLifecycleSchemaReady = false;
+  private scenarioLifecycleSchemaPromise: Promise<void> | null = null;
   private signalEvaluationSchemaReady = false;
 
   constructor(databaseUrl = process.env.DATABASE_URL) {
@@ -1913,6 +1914,77 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     );
   }
 
+  async saveScenarioEvent(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(input.id, `scenario_event_${randomUUID().replaceAll('-', '')}`);
+    const eventTime = stringValue(input.event_time, new Date().toISOString());
+    const payload = recordValue(input.payload);
+    const saved = await this.one(
+      `INSERT INTO scenario_events
+       (id, workspace_id, scenario_id, thesis_id, event_type, event_time, summary, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         summary = EXCLUDED.summary,
+         payload_json = EXCLUDED.payload_json
+       RETURNING payload_json || jsonb_build_object(
+         'version', 'scenario_event.v1',
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'event_type', event_type,
+         'event_time', event_time,
+         'summary', summary,
+         'payload', payload_json,
+         'created_at', created_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.scenario_id, ''),
+        nullableString(input.thesis_id),
+        stringValue(input.event_type, 'scenario.generated'),
+        eventTime,
+        stringValue(input.summary, ''),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario event was not persisted.');
+    }
+    return saved;
+  }
+
+  async listScenarioEvents(
+    scenarioId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'version', 'scenario_event.v1',
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'event_type', event_type,
+         'event_time', event_time,
+         'summary', summary,
+         'payload', payload_json,
+         'created_at', created_at
+       ) AS payload_json
+       FROM scenario_events
+       WHERE workspace_id = $1 AND scenario_id = $2
+       ORDER BY event_time DESC, id DESC
+       LIMIT $3`,
+      [workspaceId, scenarioId, Math.max(1, Math.min(500, Math.trunc(limit)))],
+    );
+  }
+
   async saveBacktestRun(
     input: JsonRecord,
     workspaceId: string,
@@ -3235,6 +3307,19 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     if (this.scenarioLifecycleSchemaReady) {
       return;
     }
+    if (this.scenarioLifecycleSchemaPromise) {
+      await this.scenarioLifecycleSchemaPromise;
+      return;
+    }
+    this.scenarioLifecycleSchemaPromise = this.createScenarioLifecycleSchema();
+    try {
+      await this.scenarioLifecycleSchemaPromise;
+    } finally {
+      this.scenarioLifecycleSchemaPromise = null;
+    }
+  }
+
+  private async createScenarioLifecycleSchema(): Promise<void> {
     const pool = this.requirePool();
     await pool.query(`
       CREATE TABLE IF NOT EXISTS scenario_evaluations (
@@ -3281,6 +3366,20 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       );
       CREATE INDEX IF NOT EXISTS idx_trade_playbooks_scenario
         ON trade_playbooks(workspace_id, source_scenario_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS scenario_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        thesis_id TEXT,
+        event_type TEXT NOT NULL,
+        event_time TIMESTAMPTZ NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_scenario_events_scenario
+        ON scenario_events(workspace_id, scenario_id, event_time DESC, id DESC);
 
       CREATE TABLE IF NOT EXISTS backtest_runs (
         id TEXT PRIMARY KEY,
@@ -3534,6 +3633,12 @@ function nullableString(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+function recordValue(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
 }
 
 function numberValue(value: unknown): number | null {

@@ -365,6 +365,12 @@ export interface JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   listTradePlaybooks(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  saveScenarioEvent(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  listScenarioEvents(
+    scenarioId: string,
+    workspaceId: string,
+    limit: number,
+  ): Promise<JsonRecord[]>;
   saveBacktestRun(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   getBacktestRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listBacktestRunsForPlaybook(

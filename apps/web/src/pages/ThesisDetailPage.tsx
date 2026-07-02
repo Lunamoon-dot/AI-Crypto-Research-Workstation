@@ -7,9 +7,15 @@ import {
   GitBranch,
   ListChecks,
   Play,
+  RefreshCw,
   Target,
 } from 'lucide-react';
+import { ScenarioChart } from '@/components/scenarios/ScenarioChart';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
+import {
+  getScenarioChartProjection,
+  refreshScenarioLiveState,
+} from '@/services/scenario-chart';
 import {
   compileScenarioDecisionPlaybook,
   createScenarioDecisionBacktest,
@@ -24,7 +30,10 @@ import {
 import { normalizeThesisResponse } from '@/services/thesis-response-normalizer';
 import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
-import { useWorkspaceStore } from '@/store/useWorkspaceStore';
+import {
+  useWorkspaceStore,
+  type WorkspaceRequestContext,
+} from '@/store/useWorkspaceStore';
 import {
   ConfidenceBadge,
   DataQualityBadge,
@@ -50,6 +59,7 @@ import type {
   PlaybookCompileReportResponse,
   ScenarioEvaluationResponse,
   ScenarioHorizon,
+  ScenarioLiveStateResponse,
   ScenarioResponse,
   ThesisResponse,
 } from '@/types';
@@ -546,6 +556,7 @@ export function ThesisDetailPage() {
             <div className="scenario-radar-list">
               {filteredScenarioCards.map((scenario, index) => (
                 <ScenarioRadarCard
+                  auth={auth}
                   index={index}
                   key={scenario.id ?? scenario.condition}
                   lifecycle={{
@@ -969,11 +980,13 @@ function scenarioFeedbackText(value: string): string {
 }
 
 function ScenarioRadarCard({
+  auth,
   scenario,
   index,
   thesis,
   lifecycle,
 }: {
+  auth: WorkspaceRequestContext;
   scenario: ScenarioResponse;
   index: number;
   thesis: ThesisResponse;
@@ -984,7 +997,34 @@ function ScenarioRadarCard({
     pendingAction: ScenarioLifecycleAction | null;
   };
 }) {
+  const queryClient = useQueryClient();
   const vm = scenarioDetailViewModel(scenario, index);
+  const scenarioId = persistedScenarioId(scenario);
+  const chartQuery = useQuery({
+    enabled: Boolean(scenarioId),
+    queryKey: queryKeys.scenarioChart(scenarioId ?? 'derived-scenario', '15m'),
+    queryFn: () => getScenarioChartProjection(scenarioId ?? '', { interval: '15m', limit: 200 }, auth),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+  });
+  const refreshStateMutation = useMutation({
+    mutationFn: () => {
+      if (!scenarioId) {
+        throw new Error('Derived thesis boundary scenarios cannot refresh live state.');
+      }
+      return refreshScenarioLiveState(scenarioId, auth);
+    },
+    onSuccess: () => {
+      if (scenarioId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.scenarioChart(scenarioId, '15m'),
+        });
+      }
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.thesisScenarios(thesis.id ?? scenario.thesis_id),
+      });
+    },
+  });
   const band = cleanScenarioText(scenario.probability_band) || 'scenario';
   const action = [vm.actionLabel, vm.actionDetail].filter(Boolean).join(': ');
   const actionToneValue = vm.actionTone;
@@ -1007,7 +1047,9 @@ function ScenarioRadarCard({
     : scenarioWatchTriggers(scenario.payload, condition, invalidation);
   const impactOnThesis = vm.impactOnThesis || expected;
   const thesisRelation = scenarioThesisRelation(thesis, scenario);
-  const compileBlocker = compileBlockerForScenario(scenario);
+  const chartProjection = chartQuery.data ?? null;
+  const chartBlockers = chartProjection?.live_state.blockers ?? [];
+  const compileBlocker = compileBlockerForScenario(scenario, chartProjection?.live_state ?? null);
   const backtestBlocker = backtestBlockerForPlaybook(scenario.latest_playbook);
 
   return (
@@ -1123,6 +1165,40 @@ function ScenarioRadarCard({
           onAction={lifecycle.onAction}
           pendingAction={lifecycle.pendingAction}
         />
+      ) : null}
+
+      {scenarioId ? (
+        <div className="scenario-chart-panel">
+          <div className="scenario-chart-meta">
+            <span className="badge primary">Live state</span>
+            {chartBlockers.length > 0 ? (
+              <span className="badge warning">Review blockers</span>
+            ) : null}
+            <button
+              className="button ghost"
+              disabled={refreshStateMutation.isPending}
+              onClick={() => refreshStateMutation.mutate()}
+              type="button"
+            >
+              <RefreshCw aria-hidden size={14} />
+              {refreshStateMutation.isPending ? 'Refreshing' : 'Refresh state'}
+            </button>
+          </div>
+          <ScenarioChart
+            isLoading={chartQuery.isLoading}
+            projection={chartProjection}
+          />
+          {chartBlockers.length > 0 ? (
+            <ul className="scenario-watch-list">
+              {chartBlockers.slice(0, 4).map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          ) : null}
+          {refreshStateMutation.isError ? (
+            <span className="badge risk">{errorMessage(refreshStateMutation.error)}</span>
+          ) : null}
+        </div>
       ) : null}
 
       {vm.hardGates.length ? (
@@ -1252,12 +1328,17 @@ function ScenarioLifecycleActions({
   );
 }
 
-function compileBlockerForScenario(scenario: ScenarioResponse): string | null {
+function compileBlockerForScenario(
+  scenario: ScenarioResponse,
+  liveState: ScenarioLiveStateResponse | null = null,
+): string | null {
   const runtime = scenario.runtime_decision;
-  if (runtime.validity_status === 'invalidated') {
+  const validityStatus = liveState?.validity_status ?? runtime.validity_status;
+  const runtimeBlockers = liveState?.blockers ?? runtime.blocking_reasons;
+  if (validityStatus === 'invalidated') {
     return 'Scenario is invalidated.';
   }
-  if (runtime.validity_status === 'expired') {
+  if (validityStatus === 'expired') {
     return 'Scenario is expired.';
   }
   const recommendation = scenario.scenario_recommendation;
@@ -1268,12 +1349,18 @@ function compileBlockerForScenario(scenario: ScenarioResponse): string | null {
     recommendation.action_bias === 'neutral' ||
     recommendation.action_bias === 'unknown' ||
     recommendation.blocking_reasons.includes('Scenario is watch-only or not directional.') ||
-    runtime.blocking_reasons.includes('Scenario action bias is not actionable.')
+    runtimeBlockers.includes('Scenario action bias is not actionable.')
   ) {
     return 'Scenario is watch-only or not directional.';
   }
+  if (runtimeBlockers.length > 0) {
+    return scenarioFeedbackText(runtimeBlockers[0] ?? 'Runtime decision has unresolved blockers.');
+  }
   if (recommendation.action === 'avoid') {
     return 'Recommendation is not directional.';
+  }
+  if (recommendation.action === 'wait' || recommendation.action === 'review') {
+    return 'Recommendation action is wait/review.';
   }
   if (recommendation.hard_gates.some((gate) => gate.status !== 'passed')) {
     return 'Hard gates are pending.';

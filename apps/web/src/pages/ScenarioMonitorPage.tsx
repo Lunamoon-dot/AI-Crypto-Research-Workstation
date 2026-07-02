@@ -6,13 +6,16 @@ import { BentoGrid } from '@/components/research/bento';
 import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
+import { ScenarioChart } from '@/components/scenarios/ScenarioChart';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
+import { getScenarioChartProjection } from '@/services/scenario-chart';
 import { getScenarioMonitor } from '@/services/scenarios';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { scenarioMonitorViewModel } from './scenario-view-model';
+import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import type { ScenarioHorizon, ScenarioMonitorItemResponse } from '@/types';
 
 type Tone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
@@ -133,6 +136,7 @@ export function ScenarioMonitorPage() {
           <div className="scenario-monitor-list">
             {filteredItems.map((item) => (
               <ScenarioMonitorCard
+                auth={auth}
                 item={item}
                 key={item.scenario.id ?? item.trigger_summary}
               />
@@ -144,8 +148,22 @@ export function ScenarioMonitorPage() {
   );
 }
 
-function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
+function ScenarioMonitorCard({
+  auth,
+  item,
+}: {
+  auth: WorkspaceRequestContext;
+  item: ScenarioMonitorItemResponse;
+}) {
   const vm = scenarioMonitorViewModel(item.scenario);
+  const scenarioId = item.scenario.id ?? '';
+  const chartQuery = useQuery({
+    enabled: Boolean(scenarioId),
+    queryKey: queryKeys.scenarioChart(scenarioId || 'derived-scenario', '15m'),
+    queryFn: () => getScenarioChartProjection(scenarioId, { interval: '15m', limit: 160 }, auth),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+  });
   const condition = vm.condition;
   const actionToneValue = vm.actionTone;
   const expected = vm.expected;
@@ -192,6 +210,14 @@ function ScenarioMonitorCard({ item }: { item: ScenarioMonitorItemResponse }) {
         </span>
         <span>{vm.actionDetail || 'Review scenario context.'}</span>
       </div>
+
+      {scenarioId ? (
+        <ScenarioChart
+          compact
+          isLoading={chartQuery.isLoading}
+          projection={chartQuery.data ?? null}
+        />
+      ) : null}
 
       <div className="scenario-monitor-facts scenario-recommendation-grid">
         <div className="scenario-monitor-fact">

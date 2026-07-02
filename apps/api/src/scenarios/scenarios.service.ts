@@ -14,8 +14,16 @@ import {
   toThesisResponse,
 } from '../contracts/frontend-contract';
 import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
-import { WorkspacesService } from '../workspaces/workspaces.service';
+import { playbookSourceHashes } from '../playbooks/playbook-source-hash';
+import { WorkspacesService, WorkspaceRole } from '../workspaces/workspaces.service';
+import { ScenarioChartProjectionService } from './scenario-chart-projection.service';
+import type {
+  ScenarioChartProjectionResponse,
+  ScenarioEventResponse,
+  ScenarioLiveStateResponse,
+} from './scenario-chart.types';
 import { evaluateScenario } from './scenario-evaluator';
+import { ScenarioLiveStateService } from './scenario-live-state.service';
 import { evaluateScenarioRuntimeDecision } from './scenario-runtime-evaluator';
 import { ScenarioReliabilityService } from './scenario-reliability.service';
 import {
@@ -31,6 +39,8 @@ export class ScenariosService {
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
     private readonly reliability: ScenarioReliabilityService,
+    private readonly liveState: ScenarioLiveStateService,
+    private readonly chartProjection: ScenarioChartProjectionService,
   ) {}
 
   async monitor(
@@ -92,11 +102,61 @@ export class ScenariosService {
   private async resolveWorkspace(
     userId?: string,
     workspaceHeader?: string,
+    role: WorkspaceRole = 'viewer',
   ): Promise<string> {
     const user = this.auth.resolveUser(userId);
     const workspaceId = this.workspaces.resolveWorkspace(workspaceHeader);
-    await this.workspaces.assertAccess(user, workspaceId, 'viewer');
+    await this.workspaces.assertAccess(user, workspaceId, role);
     return workspaceId;
+  }
+
+  async getLiveState(
+    scenarioId: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioLiveStateResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    return this.liveState.getLiveState(scenarioId, workspaceId);
+  }
+
+  async refreshLiveState(
+    scenarioId: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioLiveStateResponse> {
+    const workspaceId = await this.resolveWorkspace(
+      userId,
+      workspaceHeader,
+      'editor',
+    );
+    return this.liveState.refreshLiveState(scenarioId, workspaceId);
+  }
+
+  async listScenarioEvents(
+    scenarioId: string,
+    limit: number,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioEventResponse[]> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const events = await this.journal.listScenarioEvents(
+      scenarioId,
+      workspaceId,
+      limit,
+    );
+    return events.map(toScenarioEventResponse);
+  }
+
+  async getChartProjection(
+    input: { scenarioId: string; interval?: string; limit?: string },
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioChartProjectionResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    return this.chartProjection.getProjection({
+      ...input,
+      workspaceId,
+    });
   }
 
   private async enrichScenarioLifecycle(
@@ -118,7 +178,7 @@ export class ScenariosService {
       ),
       this.reliability.profileForScenario(baseResponse, thesis, workspaceId),
     ]);
-    const latestPlaybook = playbooks[0] ?? null;
+    const latestPlaybook = playbookWithStaleness(playbooks[0] ?? null, baseResponse);
     const backtests = latestPlaybook
       ? await optionalScenarioLifecycleRows(() =>
           this.journal.listBacktestRunsForPlaybook(
@@ -294,4 +354,106 @@ function numberValue(value: unknown): number | null {
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(4);
+}
+
+function playbookWithStaleness(
+  playbook: JsonRecord | null,
+  response: ReturnType<typeof toScenarioResponse>,
+): JsonRecord | null {
+  if (!playbook) {
+    return null;
+  }
+  const storedHashes = recordValue(playbook.source_hashes);
+  if (Object.keys(storedHashes).length === 0) {
+    return playbook;
+  }
+  const currentHashes = playbookSourceHashes({
+    scenario: response.payload,
+    decisionPlaybook: response.decision_playbook,
+    recommendation: response.scenario_recommendation,
+    runtimeDecision: response.runtime_decision,
+  });
+  const staleReasons: string[] = [];
+  addStaleReason(
+    staleReasons,
+    storedHashes.scenario,
+    currentHashes.scenario,
+    'source_scenario_changed',
+  );
+  addStaleReason(
+    staleReasons,
+    storedHashes.decision_playbook,
+    currentHashes.decision_playbook,
+    'source_decision_playbook_changed',
+  );
+  addStaleReason(
+    staleReasons,
+    storedHashes.recommendation,
+    currentHashes.recommendation,
+    'source_recommendation_changed',
+  );
+  addStaleReason(
+    staleReasons,
+    storedHashes.runtime_decision,
+    currentHashes.runtime_decision,
+    'source_runtime_decision_changed',
+  );
+  if (staleReasons.length === 0) {
+    return {
+      ...playbook,
+      status: playbook.status ?? 'current',
+      stale_reasons: [],
+    };
+  }
+  return {
+    ...playbook,
+    status: 'stale',
+    stale_reasons: staleReasons,
+  };
+}
+
+function addStaleReason(
+  staleReasons: string[],
+  storedHash: unknown,
+  currentHash: string,
+  reason: string,
+): void {
+  const stored = nullableString(storedHash);
+  if (stored && stored !== currentHash) {
+    staleReasons.push(reason);
+  }
+}
+
+function toScenarioEventResponse(value: JsonRecord): ScenarioEventResponse {
+  return {
+    version: 'scenario_event.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    scenario_id: stringValue(value.scenario_id),
+    thesis_id: nullableString(value.thesis_id),
+    event_type: scenarioEventType(value.event_type),
+    event_time: stringValue(value.event_time),
+    summary: stringValue(value.summary),
+    payload: recordValue(value.payload),
+    created_at: stringValue(value.created_at),
+  };
+}
+
+function scenarioEventType(value: unknown): ScenarioEventResponse['event_type'] {
+  const eventType = stringValue(value);
+  if (
+    eventType === 'scenario.generated' ||
+    eventType === 'scenario.near_trigger' ||
+    eventType === 'scenario.triggered' ||
+    eventType === 'scenario.condition_passed' ||
+    eventType === 'scenario.condition_failed' ||
+    eventType === 'scenario.target_hit' ||
+    eventType === 'scenario.weakened' ||
+    eventType === 'scenario.invalidated' ||
+    eventType === 'scenario.expired' ||
+    eventType === 'scenario.overextended'
+  ) {
+    return eventType;
+  }
+  return 'scenario.generated';
 }

@@ -553,6 +553,21 @@ CREATE TABLE IF NOT EXISTS trade_playbooks (
 CREATE INDEX IF NOT EXISTS idx_trade_playbooks_scenario
 ON trade_playbooks(workspace_id, source_scenario_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS scenario_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    thesis_id TEXT,
+    event_type TEXT NOT NULL,
+    event_time TIMESTAMPTZ NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenario_events_scenario
+ON scenario_events(workspace_id, scenario_id, event_time DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS backtest_runs (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,

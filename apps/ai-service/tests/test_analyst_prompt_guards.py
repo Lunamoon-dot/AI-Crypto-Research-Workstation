@@ -23,6 +23,8 @@ def test_social_prompt_forbids_news_influencer_and_standalone_trade_signal():
 
 def test_onchain_prompt_forbids_proxy_overclaiming():
     assert "CCXT/CoinGecko proxies" in _ONCHAIN_SYSTEM_CONTENT
+    assert "Do not cite whale accumulation" in _ONCHAIN_SYSTEM_CONTENT
+    assert "short squeeze requires crowded short positioning" in _ONCHAIN_SYSTEM_CONTENT
     assert "not true network transaction NVT" in _ONCHAIN_SYSTEM_CONTENT
     assert "low turnover" in _ONCHAIN_SYSTEM_CONTENT
     assert "weak participation" in _ONCHAIN_SYSTEM_CONTENT

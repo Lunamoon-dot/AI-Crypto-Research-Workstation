@@ -4,6 +4,8 @@ import { MarketDataModule } from '../market-data/market-data.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ScenarioEvaluationService } from './scenario-evaluation.service';
 import { ScenarioEvaluationsController } from './scenario-evaluations.controller';
+import { ScenarioChartProjectionService } from './scenario-chart-projection.service';
+import { ScenarioLiveStateService } from './scenario-live-state.service';
 import { ScenarioReliabilityController } from './scenario-reliability.controller';
 import { ScenarioReliabilityService } from './scenario-reliability.service';
 import { ScenariosController } from './scenarios.controller';
@@ -19,8 +21,16 @@ import { ScenariosService } from './scenarios.service';
   providers: [
     ScenariosService,
     ScenarioEvaluationService,
+    ScenarioChartProjectionService,
+    ScenarioLiveStateService,
     ScenarioReliabilityService,
   ],
-  exports: [ScenariosService, ScenarioEvaluationService, ScenarioReliabilityService],
+  exports: [
+    ScenariosService,
+    ScenarioEvaluationService,
+    ScenarioChartProjectionService,
+    ScenarioLiveStateService,
+    ScenarioReliabilityService,
+  ],
 })
 export class ScenariosModule {}

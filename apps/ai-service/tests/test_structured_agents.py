@@ -1101,6 +1101,8 @@ class TestScenarioPlannerAgent:
         assert "blocking_reasons" in prompt_text
         assert "evaluation_window" in prompt_text
         assert "instead of inventing an entry" in prompt_text
+        assert "Crowded long positioning is long-liquidation risk" in prompt_text
+        assert "Do not cite whale accumulation" in prompt_text
 
     def test_free_text_fallback_validates_scenario_plan_json_block(self):
         payload = {

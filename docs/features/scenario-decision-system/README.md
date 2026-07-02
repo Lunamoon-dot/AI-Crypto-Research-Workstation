@@ -1,6 +1,6 @@
 # Scenario Decision System
 
-Last updated: 2026-06-29
+Last updated: 2026-07-02
 Status: draft master spec
 
 ## Purpose
@@ -65,6 +65,8 @@ At the product endpoint, the user sees:
 - Evaluation status after the horizon matures.
 - Historical reliability by asset, horizon, setup type, and recommendation type.
 - A manual playbook only when the scenario is structured enough to simulate.
+- A chart-backed monitoring surface that visualizes trigger, watch zone,
+  invalidation, target progress, blockers, and current market state.
 
 ## Product Boundary
 
@@ -392,6 +394,7 @@ Backtest Lab must consume playbooks, not scenario prose.
 | V4 | Trade Playbook Compiler | [V4 implementation plan](v4/implementation-plan.md) |
 | V5 | Backtest Lab | [V5 implementation plan](v5/implementation-plan.md) |
 | V6 | Scenario Decision Workbench | [V6 implementation plan](v6/implementation-plan.md) |
+| V7 | Visual Scenario Monitoring | [V7 implementation plan](v7/implementation-plan.md) |
 
 Each version must be independently valuable and testable. Do not skip from V1
 directly to V5. Without V2 and V3, Backtest Lab would be disconnected from the
@@ -1379,6 +1382,142 @@ V6 is done when:
 - Priority and blocking reasons are explicit.
 - The system remains auditable.
 
+### Exit Criteria To V7
+
+Move to V7 only when:
+
+- Scenario monitor and thesis detail can surface runtime decision, playbook,
+  evaluation, reliability, and backtest context.
+- Playbook compilation remains an explicit action and is not created inside
+  read calls.
+- Workbench and scenario cards preserve manual context language.
+
+## V7: Visual Scenario Monitoring
+
+Status: planned.
+
+### Goal
+
+Turn scenario decisions into chart-backed monitoring objects while preserving
+the boundary between research monitoring and execution.
+
+### User Outcome
+
+The operator can open a scenario and answer:
+
+```text
+Where is the watch zone?
+What exact trigger is being monitored?
+What invalidates the scenario?
+Which targets belong to the current playbook?
+Is the latest playbook current or stale?
+Which conditions passed, failed, or remain unknown?
+What live event changed the scenario state?
+```
+
+### Existing Inputs
+
+V7 is developed from:
+
+- Scenario Decision Workbench.
+- Scenario Runtime Evaluator.
+- Scenario Decision Playbook.
+- Trade Playbook.
+- Backtest Lab.
+- Market OHLCV API.
+- Existing frontend market realtime client.
+
+### New Capabilities Needed
+
+V7 should create:
+
+```text
+scenario_condition_role.v1
+scenario_live_state.v1
+scenario_event.v1
+scenario_chart_projection.v1
+```
+
+### Source Of Truth
+
+V7 must keep these boundaries:
+
+- Scenario Decision Playbook is the monitorable scenario contract.
+- Trade Playbook is the compiled manual trade artifact.
+- Chart projection is derived from scenario, runtime decision, and playbook
+  state.
+- Chart projection must not store a competing entry, stop, trigger, or target.
+- Read endpoints must not mutate lifecycle state.
+
+### API Surfaces
+
+Likely endpoints:
+
+```text
+GET /scenarios/:id/live
+GET /scenarios/:id/events
+GET /scenarios/:id/chart
+POST /scenarios/:id/live/refresh
+```
+
+### Web Surfaces
+
+V7 UI should show:
+
+- Compact chart inside scenario monitor cards.
+- Larger chart inside thesis scenario detail or a scenario chart panel.
+- Watch overlays from Decision Playbook.
+- Trade overlays from current Trade Playbook only.
+- Stale playbook badge when source hashes no longer match.
+- Deterministic commentary from runtime state.
+- No buy, sell, submit order, or auto-trade copy.
+
+### Tests
+
+Minimum tests:
+
+- Condition role normalization preserves watch, trigger, entry, invalidation,
+  target, and avoid roles.
+- Playbook compiler does not turn watch-only conditions into entries.
+- Stale playbooks are detected by source hashes.
+- Chart projection renders watch overlays from Decision Playbook.
+- Chart projection renders trade overlays only from current Trade Playbook.
+- Live refresh writes scenario events idempotently.
+- Web chart renders without execution copy.
+
+### Non-Goals
+
+V7 must not implement:
+
+- Order drafts.
+- Paper orders.
+- Paper positions.
+- Broker integration.
+- Automated execution.
+- Pattern scanner parity with Autochartist.
+- LLM reassessment on every price tick.
+
+### Definition Of Done
+
+V7 is done when:
+
+- Scenario cards can render chart-backed watch state.
+- Trigger, invalidation, target, current price, and blockers are visible.
+- Runtime decision and chart projection agree on current state.
+- Stale playbooks are visibly blocked from trade overlays.
+- Event history can explain major scenario state transitions.
+- The UI remains a monitoring surface, not an execution surface.
+
+### Exit Criteria To V8
+
+Move to Order Draft V8 only when:
+
+- Watch zones cannot be misread as entries.
+- Stale playbooks cannot produce current trade overlays.
+- Scenario live state and event history are stable enough to freeze into an
+  immutable order analysis snapshot.
+- Chart UI has no execution language.
+
 ## Version Dependencies
 
 ```text
@@ -1422,6 +1561,14 @@ V6 Scenario Decision Workbench
     V3 reliability
     V4 playbooks
     V5 backtests
+
+V7 Visual Scenario Monitoring
+  depends on:
+    V1 runtime decisions
+    V4 trade playbooks
+    V5 backtest events
+    V6 scenario workbench
+    Market OHLCV API
 ```
 
 ## Do Not Build Out Of Order
@@ -1527,6 +1674,13 @@ playbook.rejected
 backtest.started
 backtest.completed
 backtest.failed
+scenario.live_state.refreshed
+scenario.near_trigger
+scenario.triggered
+scenario.target_hit
+scenario.invalidated
+scenario.expired
+scenario.overextended
 ```
 
 Do not add all events in V1. Add them as each version creates the relevant

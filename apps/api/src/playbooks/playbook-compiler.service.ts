@@ -10,6 +10,7 @@ import {
   PlaybookCompileReportResponse,
   TradePlaybookResponse,
 } from './playbook.types';
+import { playbookSourceHashes } from './playbook-source-hash';
 import {
   toPlaybookCompileReportResponse,
   toScenarioResponse,
@@ -51,10 +52,9 @@ export class PlaybookCompilerService {
     }
     if (
       recommendation &&
-      ['wait', 'review'].includes(recommendation.action) &&
-      direction
+      ['wait', 'review'].includes(recommendation.action)
     ) {
-      warnings.push('Recommendation is wait/review; compiled as a conditional manual playbook only.');
+      rejectionReasons.push('Recommendation action is wait/review.');
     }
     if (response.runtime_decision.validity_status === 'expired') {
       rejectionReasons.push('Scenario is expired.');
@@ -87,6 +87,10 @@ export class PlaybookCompilerService {
       rejectionReasons.push('Missing invalidation.');
     }
     const rawTargets = targetList(targetSource(response, thesis));
+    const hasEntryCandidate = hasPriceEntryCondition(
+      recommendation?.required_conditions,
+      response.decision_playbook?.entry_conditions,
+    );
     const trigger = firstEntryCondition(
       direction,
       invalidation,
@@ -95,7 +99,11 @@ export class PlaybookCompilerService {
       response.decision_playbook?.entry_conditions,
     );
     if (!trigger) {
-      rejectionReasons.push('Missing trigger.');
+      rejectionReasons.push(
+        hasEntryCandidate
+          ? 'No coherent entry condition.'
+          : 'Missing entry or trigger condition.',
+      );
     }
     if (!direction) {
       rejectionReasons.push('Direction is not actionable.');
@@ -174,6 +182,15 @@ export class PlaybookCompilerService {
       evidence_refs: recommendation.evidence_refs,
       reliability_context: response.reliability_profile,
       compile_warnings: warnings,
+      compiler_version: 'playbook_compiler.v2',
+      source_hashes: playbookSourceHashes({
+        scenario: response.payload,
+        decisionPlaybook: response.decision_playbook,
+        recommendation,
+        runtimeDecision: response.runtime_decision,
+      }),
+      status: 'current',
+      stale_reasons: [],
       created_at: new Date().toISOString(),
     });
     const saved = await this.journal.saveTradePlaybook(
@@ -328,25 +345,35 @@ function firstEntryCondition(
   targets: TradePlaybookResponse['targets'],
   ...groups: Array<unknown[] | undefined>
 ): JsonRecord | null {
-  let fallback: JsonRecord | null = null;
   for (const group of groups) {
     for (const item of group ?? []) {
       const record = recordValue(item);
       if (!isPriceEntryCondition(record)) {
         continue;
       }
-      fallback ??= record;
       if (entryConditionIsCoherent(record, direction, invalidation, targets)) {
         return record;
       }
     }
   }
-  return fallback;
+  return null;
+}
+
+function hasPriceEntryCondition(...groups: Array<unknown[] | undefined>): boolean {
+  return groups.some((group) =>
+    (group ?? []).some((item) => isPriceEntryCondition(recordValue(item))),
+  );
 }
 
 function isPriceEntryCondition(condition: JsonRecord): boolean {
+  const role = String(condition.role ?? '');
+  if (role === 'watch' || role === 'confirmation' || role === 'avoid') {
+    return false;
+  }
   const type = String(condition.type ?? '');
   return (
+    role === 'entry' ||
+    role === 'trigger' ||
     type === 'price_above' ||
     type === 'price_below' ||
     type === 'price_in_zone' ||

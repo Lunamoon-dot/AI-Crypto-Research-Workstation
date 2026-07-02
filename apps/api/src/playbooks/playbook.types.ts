@@ -35,6 +35,15 @@ export interface TradePlaybookResponse {
   evidence_refs: JsonRecord[];
   reliability_context: JsonRecord | null;
   compile_warnings: string[];
+  compiler_version: 'playbook_compiler.v2';
+  source_hashes: {
+    scenario: string;
+    decision_playbook: string;
+    recommendation: string;
+    runtime_decision: string;
+  };
+  status: 'current' | 'stale' | 'superseded';
+  stale_reasons: string[];
   created_at: string;
 }
 

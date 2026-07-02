@@ -1,6 +1,7 @@
 import { JsonRecord } from '../database/journal.types';
 import type {
   ScenarioDecisionCondition,
+  ScenarioDecisionConditionRole,
   ScenarioDecisionPlaybook,
   ScenarioEvaluationReadiness,
   ScenarioEvaluationSnapshot,
@@ -2023,6 +2024,10 @@ export function toTradePlaybookResponse(value: JsonRecord): TradePlaybookRespons
     evidence_refs: arrayRecords(value.evidence_refs),
     reliability_context: nullableRecord(value.reliability_context),
     compile_warnings: stringList(value.compile_warnings),
+    compiler_version: 'playbook_compiler.v2',
+    source_hashes: playbookSourceHashesValue(value.source_hashes),
+    status: playbookStatusValue(value.status),
+    stale_reasons: stringList(value.stale_reasons),
     created_at: stringValue(value.created_at, new Date().toISOString()),
   };
 }
@@ -3040,6 +3045,11 @@ function boundedNumber(value: unknown, fallback = 0): number {
   return Math.max(0, Math.min(1, parsed));
 }
 
+function positiveNumber(value: unknown, fallback: number): number {
+  const parsed = nullableNumber(value);
+  return parsed !== null && parsed > 0 ? parsed : fallback;
+}
+
 function stringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
@@ -3181,9 +3191,46 @@ function scenarioDecisionPlaybookValue(
   value: unknown,
 ): ScenarioDecisionPlaybook | null {
   const record = recordValue(value);
-  return record.version === 'scenario_decision_playbook.v1'
-    ? (record as unknown as ScenarioDecisionPlaybook)
-    : null;
+  if (record.version !== 'scenario_decision_playbook.v1') {
+    return null;
+  }
+  const validityWindow = recordValue(record.validity_window);
+  return {
+    version: 'scenario_decision_playbook.v1',
+    source: stringValue(record.source) === 'llm' ? 'llm' : 'derived_v1',
+    generated_at: nullableString(record.generated_at),
+    generated_from_run_id: nullableString(record.generated_from_run_id),
+    action_bias: scenarioRecommendationBiasValue(record.action_bias) ?? 'unknown',
+    confidence: boundedNumber(record.confidence, 0.5),
+    preferred_action_if_triggered:
+      scenarioRecommendationActionValue(record.preferred_action_if_triggered) ??
+      'review',
+    fallback_action:
+      scenarioRecommendationActionValue(record.fallback_action) ?? 'wait',
+    near_trigger_threshold_pct: positiveNumber(
+      record.near_trigger_threshold_pct,
+      1.5,
+    ),
+    validity_window: {
+      valid_from: nullableString(validityWindow.valid_from),
+      valid_until: nullableString(validityWindow.valid_until),
+      timeframe: stringValue(validityWindow.timeframe, 'unknown'),
+      rationale: stringValue(validityWindow.rationale),
+      refresh_policy:
+        stringValue(validityWindow.refresh_policy) === 'manual_review'
+          ? 'manual_review'
+          : 'refresh_on_next_research_run',
+    },
+    entry_conditions: scenarioDecisionConditionList(record.entry_conditions),
+    avoid_if: scenarioDecisionConditionList(record.avoid_if),
+    invalidation_conditions: scenarioDecisionConditionList(
+      record.invalidation_conditions,
+    ),
+    wait_for: stringList(record.wait_for),
+    risk_notes: stringList(record.risk_notes),
+    evidence_refs: scenarioEvidenceRefList(record.evidence_refs),
+    rationale: stringValue(record.rationale),
+  };
 }
 
 function scenarioRecommendationValue(value: unknown): ScenarioRecommendation | null {
@@ -3456,6 +3503,9 @@ function scenarioDecisionConditionList(value: unknown): ScenarioDecisionConditio
         continue;
       }
       const condition: ScenarioDecisionCondition = { type };
+      const id = nullableString(record.id);
+      const label = nullableString(record.label);
+      const role = scenarioDecisionConditionRoleValue(record.role);
       const level = nullableNumber(record.level);
       const zoneLow = nullableNumber(record.zone_low);
       const zoneHigh = nullableNumber(record.zone_high);
@@ -3464,6 +3514,9 @@ function scenarioDecisionConditionList(value: unknown): ScenarioDecisionConditio
       const lookbackPeriods = nullableNumber(record.lookback_periods);
       const multiplier = nullableNumber(record.multiplier);
       const thresholdPct = nullableNumber(record.threshold_pct);
+      if (id !== null) condition.id = id;
+      if (label !== null) condition.label = label;
+      if (role !== null) condition.role = role;
       if (level !== null) condition.level = level;
       if (zoneLow !== null) condition.zone_low = zoneLow;
       if (zoneHigh !== null) condition.zone_high = zoneHigh;
@@ -3477,6 +3530,24 @@ function scenarioDecisionConditionList(value: unknown): ScenarioDecisionConditio
       conditions.push(condition);
   }
   return conditions;
+}
+
+function scenarioDecisionConditionRoleValue(
+  value: unknown,
+): ScenarioDecisionConditionRole | null {
+  const role = stringValue(value);
+  if (
+    role === 'watch' ||
+    role === 'trigger' ||
+    role === 'confirmation' ||
+    role === 'entry' ||
+    role === 'invalidation' ||
+    role === 'target' ||
+    role === 'avoid'
+  ) {
+    return role;
+  }
+  return null;
 }
 
 function scenarioRecommendationGateList(
@@ -3702,6 +3773,25 @@ function playbookEntryTypeValue(value: unknown): TradePlaybookResponse['entry'][
     return value;
   }
   return 'level';
+}
+
+function playbookSourceHashesValue(
+  value: unknown,
+): TradePlaybookResponse['source_hashes'] {
+  const record = recordValue(value);
+  return {
+    scenario: stringValue(record.scenario),
+    decision_playbook: stringValue(record.decision_playbook),
+    recommendation: stringValue(record.recommendation),
+    runtime_decision: stringValue(record.runtime_decision),
+  };
+}
+
+function playbookStatusValue(value: unknown): TradePlaybookResponse['status'] {
+  if (value === 'stale' || value === 'superseded') {
+    return value;
+  }
+  return 'current';
 }
 
 function backtestStatusValue(value: unknown): BacktestRunResponse['status'] {

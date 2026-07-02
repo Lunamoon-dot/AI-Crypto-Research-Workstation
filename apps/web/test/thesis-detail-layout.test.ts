@@ -296,10 +296,16 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
   assert.equal(pageSource.includes('playbookTargetsDetail'), true);
   assert.equal(pageSource.includes('backtestAssumptionsDetail'), true);
   assert.equal(pageSource.includes('compileBlockerForScenario'), true);
+  assert.equal(
+    pageSource.includes('compileBlockerForScenario(scenario, chartProjection?.live_state ?? null)'),
+    true,
+  );
   assert.equal(pageSource.includes('compileBlocker={compileBlocker}'), true);
+  assert.equal(pageSource.includes('const runtimeBlockers = liveState?.blockers'), true);
   assert.equal(pageSource.includes('disabled={pending || Boolean(compileBlocker)}'), true);
   assert.equal(pageSource.includes('title={compileBlocker ?? undefined}'), true);
   assert.equal(pageSource.includes('Scenario is invalidated.'), true);
+  assert.equal(pageSource.includes('Recommendation action is wait/review.'), true);
   assert.equal(pageSource.includes('Scenario is watch-only or not directional.'), true);
   assert.equal(pageSource.includes('backtestBlockerForPlaybook'), true);
   assert.equal(pageSource.includes('Requires numeric entry, invalidation, and target'), true);

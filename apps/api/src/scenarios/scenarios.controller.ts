@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Query } from '@nestjs/common';
+import { Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { ScenariosService } from './scenarios.service';
 
@@ -20,6 +20,54 @@ export class ScenariosController {
         status,
         limit: parseListLimit(limit, { defaultLimit: 100, maxLimit: 300 }),
       },
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Get(':id/live')
+  live(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.getLiveState(id, userId, workspaceId);
+  }
+
+  @Post(':id/live/refresh')
+  refreshLive(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.refreshLiveState(id, userId, workspaceId);
+  }
+
+  @Get(':id/events')
+  events(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.listScenarioEvents(
+      id,
+      parseListLimit(limit, { defaultLimit: 50, maxLimit: 200 }),
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Get(':id/chart')
+  chart(
+    @Param('id') id: string,
+    @Query('interval') interval?: string,
+    @Query('limit') limit?: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.getChartProjection(
+      { scenarioId: id, interval, limit },
       userId,
       workspaceId,
     );

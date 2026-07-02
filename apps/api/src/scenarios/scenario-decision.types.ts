@@ -48,7 +48,19 @@ export interface ScenarioEvidenceRef {
   supports: string;
 }
 
+export type ScenarioDecisionConditionRole =
+  | 'watch'
+  | 'trigger'
+  | 'confirmation'
+  | 'entry'
+  | 'invalidation'
+  | 'target'
+  | 'avoid';
+
 export interface ScenarioDecisionCondition {
+  id?: string;
+  label?: string;
+  role?: ScenarioDecisionConditionRole;
   type:
     | 'price_above'
     | 'price_below'
