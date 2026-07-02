@@ -17,7 +17,6 @@ Signal is the deterministic quant-evidence layer for a research run. It is not a
 - Snapshot builders: `apps/ai-service/luna_workstation/signals/snapshots.py`
 - Journal persistence: `apps/ai-service/luna_workstation/graph/journal_bridge.py`
 - Local signal reads: `apps/ai-service/luna_workstation/services/signal_service.py`
-- CLI: `apps/ai-service/cli/signals_cmd.py`
 - API: `apps/api/src/signals/`
 - API contract mapper: `apps/api/src/contracts/frontend-contract.ts`
 - Web client: `apps/web/src/services/signals.ts`
@@ -154,17 +153,6 @@ The web surface uses:
 
 - `SignalsPage`: groups signal records by research run or signal snapshot and shows direction/confidence summaries.
 - `SignalDetailPage`: shows provenance, source freshness, evidence payload, watch conditions, linked run, linked signal snapshot, and raw API JSON.
-
-## CLI
-
-The local CLI provides saved-signal inspection commands:
-
-- `lunacrypto signals latest <symbol>`
-- `lunacrypto signals snapshot <run_id>`
-- `lunacrypto signals list [symbol]`
-- `lunacrypto signals explain <signal_id>`
-
-Each command supports structured output modes where implemented, including JSON and plain text.
 
 ## Downstream consumers
 

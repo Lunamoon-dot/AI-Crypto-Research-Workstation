@@ -11,8 +11,8 @@ first-class research artifact.
 The current pipeline already has structured output support and post-build
 guards, but the readable `FULL THESIS` text is still ultimately produced by the
 Portfolio Manager LLM call and then persisted as `TradeThesis.thesis_text`.
-That is too weak for an artifact that downstream watchlists, continuity,
-calibration, and UI review treat as important.
+That is too weak for an artifact that downstream continuity, scenario/alert
+monitoring, calibration, and UI review treat as important.
 
 This feature changes the ownership boundary:
 
@@ -49,7 +49,7 @@ Thesis Validator = enforce artifact eligibility.
 Thesis Compiler = render inspectable thesis text deterministically.
 Research Continuity = track thesis changes after persistence.
 Calibration = evaluate saved thesis quality after time passes.
-Watchlist = monitor validated or degraded thesis rules.
+Scenario/Alert monitoring = surface validated or degraded thesis rules.
 ```
 
 This feature is not an automated trading system, not a PnL backtester, and not

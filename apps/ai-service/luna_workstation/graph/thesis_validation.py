@@ -203,7 +203,7 @@ class ThesisValidator:
                 message="Entry zone is missing.",
                 field="entry_zone",
             )
-        if not model.target_zones:
+        if not _has_objective_levels(model):
             _add_issue(
                 issues,
                 degradation_reasons,
@@ -306,12 +306,27 @@ def _contains_execution_instruction(candidate: ThesisCandidate) -> bool:
             candidate.invalidation,
             _text(candidate.entry_zone),
             *candidate.target_zones,
+            *candidate.profit_targets,
+            *candidate.downside_objectives,
+            *candidate.accumulation_zones,
+            *candidate.indicator_thresholds,
             *research_item_texts(candidate.key_reasons),
             *research_item_texts(candidate.risks),
             *research_item_texts(candidate.monitor_next),
         ]
     )
     return bool(_EXECUTION_INSTRUCTION_RE.search(text))
+
+
+def _has_objective_levels(candidate: ThesisCandidate) -> bool:
+    return any(
+        [
+            candidate.target_zones,
+            candidate.profit_targets,
+            candidate.downside_objectives,
+            candidate.accumulation_zones,
+        ]
+    )
 
 
 def _all_evidence(candidate: ThesisCandidate):

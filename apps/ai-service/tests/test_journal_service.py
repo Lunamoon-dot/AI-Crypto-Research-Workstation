@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from luna_workstation.domain import (
@@ -14,16 +16,24 @@ from luna_workstation.domain import (
     Signal,
     SignalDirection,
     SignalProvenance,
-    MarketBrief,
     MarketSnapshot,
     SignalSnapshot,
     ThesisDirection,
     TradeThesis,
     UserDecision,
     UserDecisionAction,
-    Watchlist,
 )
 from luna_workstation.services import JournalService
+from luna_workstation.signals.evaluation.models import (
+    SignalCalibratorVersion,
+    SignalModelAlert,
+    SignalModelMonitoringSnapshot,
+    SignalModelPromotion,
+    SignalModelRollback,
+    SignalObservation,
+    SignalOutcomeLabel,
+    SignalWeightVersion,
+)
 
 
 def _config(tmp_path):
@@ -79,7 +89,7 @@ def test_journal_service_persists_research_run_and_thesis(tmp_path):
     assert updated_run.config_hash == "fedcba9876543210"
 
 
-def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tmp_path):
+def test_journal_service_scopes_workspace_lists(tmp_path):
     db_path = tmp_path / "journal.sqlite"
     config_a = _config(tmp_path)
     config_a["journal"]["db_path"] = str(db_path)
@@ -110,14 +120,6 @@ def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tm
             provenance=SignalProvenance(source="test"),
         )
     )
-    watch_a = service_a.repo.save_watchlist(
-        Watchlist(name="default", workspace_id="workspace_a")
-    )
-    watch_b = service_b.repo.save_watchlist(
-        Watchlist(name="default", workspace_id="workspace_b")
-    )
-    service_a.repo.save_market_brief(MarketBrief(title="A", workspace_id="workspace_a"))
-    service_b.repo.save_market_brief(MarketBrief(title="B", workspace_id="workspace_b"))
     service_a.add_run_event(run_a.id, "run.note", "A")
     service_b.add_run_event(run_b.id, "run.note", "B")
 
@@ -127,14 +129,6 @@ def test_journal_service_scopes_workspace_lists_and_duplicate_watchlist_names(tm
     assert [thesis.id for thesis in service_b.list_theses()] == [thesis_b.id]
     assert [signal.id for signal in service_a.list_signals()] == [signal_a.id]
     assert [signal.id for signal in service_b.list_signals()] == [signal_b.id]
-    assert (
-        service_a.repo.list_watchlists(workspace_id="workspace_a")[0].id == watch_a.id
-    )
-    assert (
-        service_b.repo.list_watchlists(workspace_id="workspace_b")[0].id == watch_b.id
-    )
-    assert service_a.repo.list_market_briefs(workspace_id="workspace_a")[0].title == "A"
-    assert service_b.repo.list_market_briefs(workspace_id="workspace_b")[0].title == "B"
     assert service_a.list_timeline_events(workspace_id="workspace_a")[0].message == "A"
     assert service_b.list_timeline_events(workspace_id="workspace_b")[0].message == "B"
 
@@ -637,6 +631,238 @@ def test_journal_service_persists_market_and_signal_snapshots(tmp_path):
     assert loaded_run.signal_snapshot_id == signal_snapshot.id
     assert loaded_market.current_price == 100000.0
     assert loaded_signals.signal_ids == ["sig_1", "sig_2"]
+
+
+def test_quant_signal_bundle_persists_signal_observations(tmp_path):
+    service = JournalService(_config(tmp_path))
+    run = service.start_research_run(ResearchRun(symbol="BTC/USDT"))
+    signals = [
+        Signal(
+            symbol="BTC/USDT",
+            signal_type="quant_bias",
+            direction=SignalDirection.BULLISH,
+            confidence=0.7,
+            provenance=SignalProvenance(source="signal_engine"),
+            evidence={"availability": "valid", "market_regime": "trending"},
+        ),
+        Signal(
+            symbol="BTC/USDT",
+            signal_type="regime",
+            direction=SignalDirection.NEUTRAL,
+            confidence=0.0,
+            provenance=SignalProvenance(source="signal_engine"),
+            evidence={"availability": "valid", "data_quality": 1.0},
+        ),
+    ]
+    market_snapshot = MarketSnapshot(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+        current_price=100000.0,
+    )
+    signal_snapshot = SignalSnapshot(
+        research_run_id=run.id,
+        symbol="BTC/USDT",
+        signal_ids=[],
+        bullish_count=1,
+        neutral_count=1,
+    )
+
+    saved_run, _signals, _market, saved_snapshot = service.save_quant_signal_bundle(
+        run,
+        signals,
+        market_snapshot,
+        signal_snapshot,
+    )
+
+    observations = service.list_signal_observations(
+        signal_snapshot_id=saved_snapshot.id,
+    )
+
+    assert saved_run.signal_snapshot_id == saved_snapshot.id
+    assert len(observations) == 2
+    assert {observation.observation_kind for observation in observations} == {
+        "factor",
+        "composite",
+    }
+    regime = next(observation for observation in observations if observation.factor_name == "regime")
+    assert regime.directional_edge == 0.0
+
+
+def test_journal_service_persists_signal_model_artifacts_and_monitoring(tmp_path):
+    service = JournalService(_config(tmp_path))
+    now = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+    weight = SignalWeightVersion(
+        id="weight_1",
+        workspace_id=service.workspace_id,
+        version="signal_weights:v1:test",
+        status="candidate",
+        horizon_minutes=1440,
+    )
+    calibrator = SignalCalibratorVersion(
+        id="calibrator_1",
+        workspace_id=service.workspace_id,
+        version="signal_calibrator:v1:test",
+        weight_version=weight.version,
+        status="candidate",
+        horizon_minutes=1440,
+        publishable=False,
+    )
+    promotion = SignalModelPromotion(
+        id="promotion_1",
+        workspace_id=service.workspace_id,
+        to_weight_version=weight.version,
+        to_calibrator_version=calibrator.version,
+        promoted_by="user_1",
+        evidence_report_id="report_1",
+    )
+    snapshot = SignalModelMonitoringSnapshot(
+        id="monitor_1",
+        workspace_id=service.workspace_id,
+        window_start=now,
+        window_end=now,
+        active_weight_version=weight.version,
+        active_calibrator_version=calibrator.version,
+        status="insufficient_data",
+    )
+    alert = SignalModelAlert(
+        id="alert_1",
+        workspace_id=service.workspace_id,
+        alert_type="model_version_missing",
+        severity="info",
+        message="missing model",
+    )
+    rollback = SignalModelRollback(
+        id="rollback_1",
+        workspace_id=service.workspace_id,
+        from_weight_version="w2",
+        to_weight_version=weight.version,
+        from_calibrator_version="c2",
+        to_calibrator_version=calibrator.version,
+        reason="test",
+        evidence_snapshot_id=snapshot.id,
+        requested_by="user_1",
+    )
+
+    service.save_signal_weight_version(weight)
+    service.save_signal_calibrator_version(calibrator)
+    service.save_signal_model_promotion(promotion)
+    service.save_signal_monitoring_snapshot(snapshot)
+    service.save_signal_model_alert(alert)
+    service.save_signal_model_rollback(rollback)
+
+    assert service.list_signal_weight_versions()[0].version == weight.version
+    assert service.list_signal_calibrator_versions()[0].version == calibrator.version
+    assert service.list_signal_model_promotions()[0].to_weight_version == weight.version
+    assert service.list_signal_monitoring_snapshots()[0].id == snapshot.id
+    assert service.list_signal_model_alerts()[0].alert_type == alert.alert_type
+    assert service.list_signal_model_rollbacks()[0].to_weight_version == weight.version
+
+
+def test_journal_service_labels_matured_signal_outcomes_idempotently(tmp_path):
+    service = JournalService(_config(tmp_path))
+    observed_at = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+    observation = SignalObservation(
+        id="obs_label_1",
+        workspace_id=service.workspace_id,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        observed_at=observed_at,
+        observation_kind="factor",
+        factor_name="regime",
+        factor_family="price_structure",
+        direction="bullish",
+        directional_edge=0.8,
+        heuristic_strength=0.8,
+        detector_confidence=0.8,
+        data_quality=1.0,
+        availability="valid",
+    )
+    service.repo.save_signal_observations([observation])
+
+    def candle_loader(_observation, _horizon_minutes):
+        return [
+            {
+                "timestamp": (observed_at + timedelta(hours=1)).isoformat(),
+                "open": 100.0,
+                "high": 103.0,
+                "low": 99.0,
+                "close": 102.0,
+            }
+        ]
+
+    first = service.label_signal_outcomes(
+        horizon_minutes=1440,
+        candle_loader=candle_loader,
+        now=observed_at + timedelta(days=2),
+    )
+    second = service.label_signal_outcomes(
+        horizon_minutes=1440,
+        candle_loader=candle_loader,
+        now=observed_at + timedelta(days=2),
+        dry_run=True,
+    )
+
+    labels = service.list_signal_outcome_labels(horizon_minutes=1440)
+    assert first["labeled"] == 1
+    assert labels[0].label_status == "complete"
+    assert second["requested"] == 0
+
+
+def test_journal_service_trains_candidate_and_persists_monitoring_snapshot(tmp_path):
+    service = JournalService(_config(tmp_path))
+    now = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+    observation = SignalObservation(
+        id="obs_train_1",
+        workspace_id=service.workspace_id,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        observed_at=now,
+        observation_kind="factor",
+        factor_name="regime",
+        factor_family="price_structure",
+        direction="bullish",
+        directional_edge=0.8,
+        heuristic_strength=0.8,
+        detector_confidence=0.8,
+        data_quality=1.0,
+        availability="valid",
+        market_regime="trending",
+        volatility_regime="normal",
+    )
+    label = SignalOutcomeLabel(
+        id="label_train_1",
+        workspace_id=service.workspace_id,
+        observation_id=observation.id,
+        symbol=observation.symbol,
+        horizon_minutes=1440,
+        label_status="complete",
+        entry_price=100.0,
+        exit_price=103.0,
+        forward_return=0.03,
+        direction_label="up",
+        signal_direction="bullish",
+        signed_return=0.03,
+        direction_correct=True,
+        data_quality="complete",
+    )
+    service.repo.save_signal_observations([observation])
+    service.save_signal_outcome_labels([label])
+
+    candidate = service.train_signal_model_candidate(
+        horizon_minutes=1440,
+        min_train_samples=1,
+        min_calibration_samples=0,
+        min_oos_samples=0,
+        min_folds=0,
+    )
+    snapshot = service.build_signal_model_monitoring_snapshot(horizon_minutes=1440)
+
+    assert service.list_signal_weight_versions()[0].version == candidate.weight_version.version
+    assert service.list_signal_calibrator_versions()[0].version == candidate.calibrator_version.version
+    assert service.list_signal_monitoring_snapshots()[0].id == snapshot.id
+    assert "model_version_missing" in {
+        alert.alert_type for alert in service.list_signal_model_alerts()
+    }
 
 
 def test_journal_service_persists_observability_contract_records(tmp_path):

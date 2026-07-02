@@ -193,6 +193,10 @@ class ThesisCandidate(BaseModel):
     invalidation: str = ""
     entry_zone: str | None = None
     target_zones: list[str] = Field(default_factory=list)
+    profit_targets: list[str] = Field(default_factory=list)
+    downside_objectives: list[str] = Field(default_factory=list)
+    accumulation_zones: list[str] = Field(default_factory=list)
+    indicator_thresholds: list[str] = Field(default_factory=list)
     key_reasons: list[ResearchSummaryItem] = Field(default_factory=list)
     risks: list[ResearchSummaryItem] = Field(default_factory=list)
     monitor_next: list[ResearchSummaryItem] = Field(default_factory=list)
@@ -240,7 +244,15 @@ class ThesisCandidate(BaseModel):
             return max(min(number, 1.0), 0.0)
         return value
 
-    @field_validator("target_zones", "missing_data", mode="before")
+    @field_validator(
+        "target_zones",
+        "profit_targets",
+        "downside_objectives",
+        "accumulation_zones",
+        "indicator_thresholds",
+        "missing_data",
+        mode="before",
+    )
     @classmethod
     def _normalize_text_list(cls, value: Any) -> list[str]:
         if value is None:
@@ -461,6 +473,10 @@ class TradeThesisStructuredSummary(BaseModel):
     upside_catalyst: str = ""
     invalidation: str = ""
     target_zones: list[str] = Field(default_factory=list)
+    profit_targets: list[str] = Field(default_factory=list)
+    downside_objectives: list[str] = Field(default_factory=list)
+    accumulation_zones: list[str] = Field(default_factory=list)
+    indicator_thresholds: list[str] = Field(default_factory=list)
     key_reasons: list[ResearchSummaryItem] = Field(default_factory=list)
     risks: list[ResearchSummaryItem] = Field(default_factory=list)
     monitor_next: list[ResearchSummaryItem] = Field(default_factory=list)
@@ -627,6 +643,10 @@ class TradeThesisStructuredSummary(BaseModel):
 
     @field_validator(
         "target_zones",
+        "profit_targets",
+        "downside_objectives",
+        "accumulation_zones",
+        "indicator_thresholds",
         "missing_data",
         "missing_data_reason_codes",
         "degradation_reasons",
@@ -709,6 +729,10 @@ class TradeThesis(BaseModel):
     entry_zone: str | None = None
     invalidation_level: str | None = None
     target_zones: list[str] = Field(default_factory=list)
+    profit_targets: list[str] = Field(default_factory=list)
+    downside_objectives: list[str] = Field(default_factory=list)
+    accumulation_zones: list[str] = Field(default_factory=list)
+    indicator_thresholds: list[str] = Field(default_factory=list)
     risk_notes: list[str] = Field(default_factory=list)
     supporting_signal_ids: list[str] = Field(default_factory=list)
     contradicting_signal_ids: list[str] = Field(default_factory=list)

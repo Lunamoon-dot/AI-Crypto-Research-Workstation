@@ -335,28 +335,3 @@ class TestBuildFeedbackContext:
         assert "55%" in ctx
         assert "well_calibrated" in ctx
         assert "rsi_divergence" in ctx
-
-
-# ---------------------------------------------------------------------------
-# CLI command smoke tests
-# ---------------------------------------------------------------------------
-
-
-class TestEvaluateMaturedCli:
-    def test_matured_command_registered(self):
-        from cli.evaluate_cmd import evaluate_app
-
-        commands = [cmd.name for cmd in evaluate_app.registered_commands]
-        assert "matured" in commands
-
-    def test_trend_command_registered(self):
-        from cli.evaluate_cmd import evaluate_app
-
-        commands = [cmd.name for cmd in evaluate_app.registered_commands]
-        assert "trend" in commands
-
-    def test_health_command_registered(self):
-        from cli.evaluate_cmd import evaluate_app
-
-        commands = [cmd.name for cmd in evaluate_app.registered_commands]
-        assert "health" in commands

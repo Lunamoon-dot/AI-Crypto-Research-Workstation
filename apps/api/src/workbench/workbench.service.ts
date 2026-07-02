@@ -12,10 +12,8 @@ import {
   AttentionPriority,
   AttentionSeverity,
   AttentionSourceType,
-  BriefResponse,
   NotificationResponse,
   ScenarioResponse,
-  toBriefResponse,
   toScenarioResponse,
   WorkbenchAttentionResponse,
 } from '../contracts/frontend-contract';
@@ -60,7 +58,6 @@ export class WorkbenchService {
   ): Promise<WorkbenchAttentionResponse> {
     const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
     const now = new Date();
-    const today = localDateString(now);
     const normalizedLimit = normalizeLimit(limit);
     const [
       alerts,
@@ -68,9 +65,7 @@ export class WorkbenchService {
       runs,
       providerHealth,
       freshnessChecks,
-      briefs,
       outcomeReviews,
-      watchlists,
     ] = await Promise.all([
       this.journal.listAlerts(
         undefined,
@@ -83,15 +78,7 @@ export class WorkbenchService {
       this.journal.listResearchRuns({ limit: CANDIDATE_LIMIT }, workspaceId),
       this.journal.listProviderHealth(CANDIDATE_LIMIT),
       this.journal.listDataFreshnessChecks(CANDIDATE_LIMIT, workspaceId),
-      this.journal.listDailyBriefs(
-        undefined,
-        1,
-        workspaceId,
-        undefined,
-        today,
-      ),
       this.journal.listOutcomeReviews(undefined, 200, workspaceId),
-      this.journal.listWatchlists(CANDIDATE_LIMIT, workspaceId),
     ]);
 
     const thesisMap = new Map(
@@ -114,11 +101,6 @@ export class WorkbenchService {
       workspaceId,
       now.toISOString(),
     );
-    const latestBrief = briefs[0] ? toBriefResponse(briefs[0]) : null;
-    const briefActionDrafts = latestBrief
-      ? buildBriefActionDrafts(latestBrief)
-      : [];
-
     const drafts = [
       ...alerts.map((alert) => buildAlertDraft(alert, thesisMap)),
       ...buildThesisDrafts(theses, reviewedThesisIds, now),
@@ -126,37 +108,22 @@ export class WorkbenchService {
       ...runs.flatMap((run) => buildRunDraft(run)),
       ...providerHealth.flatMap((row) => buildProviderDraft(row)),
       ...freshnessChecks.flatMap((row) => buildFreshnessDraft(row)),
-      ...buildBriefDrafts(latestBrief, now),
-      ...briefActionDrafts,
-      ...buildWatchlistDrafts(watchlists, now),
     ];
 
     const items = dedupeDrafts(drafts)
       .map((draft) => finalizeItem(draft, workspaceId, now))
       .sort(compareAttentionItems)
       .slice(0, normalizedLimit);
-    const briefActions = dedupeDrafts(briefActionDrafts)
-      .map((draft) => finalizeItem(draft, workspaceId, now))
-      .sort(compareAttentionItems)
-      .slice(0, 5);
 
     return {
       workspace_id: workspaceId,
       generated_at: now.toISOString(),
       item_count: items.length,
       unresolved_count: items.filter((item) => item.status !== 'read').length,
-      latest_brief: latestBrief,
       active_scenarios: activeScenarios,
-      brief_actions: briefActions,
       queues: queueItems(items),
       items,
-      notifications: buildNotifications(
-        items,
-        alerts,
-        latestBrief,
-        watchlists,
-        runs,
-      ),
+      notifications: buildNotifications(items, alerts, runs),
     };
   }
 
@@ -252,7 +219,6 @@ function buildAlertDraft(
   thesisMap: Map<string, JsonRecord>,
 ): AttentionDraft {
   const thesisId = nullableString(alert.thesis_id);
-  const watchlistItemId = nullableString(alert.watchlist_item_id);
   const thesis = thesisId ? thesisMap.get(thesisId) : undefined;
   const alertType = stringValue(alert.alert_type, 'alert');
   const symbol = nullableString(alert.symbol ?? thesis?.symbol);
@@ -261,7 +227,7 @@ function buildAlertDraft(
     source: 'Alert',
     sourceId: nullableString(alert.id),
     symbol,
-    title: `${symbol ?? 'Watchlist'} ${humanize(alertType)}`,
+    title: `${symbol ?? 'Alert'} ${humanize(alertType)}`,
     summary: stringValue(alert.message, 'Unread alert needs review.'),
     status: nullableString(alert.read_at) ? 'read' : 'unread',
     severity: alertSeverity(alert),
@@ -270,9 +236,7 @@ function buildAlertDraft(
     hasInvalidation: alertType.includes('invalidat') || hasInvalidation(thesis),
     action: thesisId
       ? action('Review thesis', `/theses/${encodeURIComponent(thesisId)}`, 'thesis', thesisId)
-      : watchlistItemId
-        ? action('Open watchlists', '/watchlists', 'watchlist_item', watchlistItemId)
-        : action('Open alerts', '/alerts', 'alert', nullableString(alert.id)),
+      : action('Open alerts', '/alerts', 'alert', nullableString(alert.id)),
     payload: {
       alert_type: alertType,
       trigger_key: nullableString(alert.trigger_key),
@@ -496,156 +460,6 @@ function buildFreshnessDraft(
   ];
 }
 
-function buildBriefDrafts(
-  latestBrief: BriefResponse | null,
-  now: Date,
-): AttentionDraft[] {
-  const today = localDateString(now);
-  if (!latestBrief) {
-    return [
-      {
-        sourceType: 'brief',
-        source: 'Brief',
-        sourceId: null,
-        symbol: null,
-        title: 'Create today brief',
-        summary: 'No daily brief exists for this workspace yet. Generate one from the active watchlist.',
-        status: 'missing_brief',
-        severity: 'medium',
-        createdAt: now.toISOString(),
-        confidence: null,
-        hasInvalidation: false,
-        action: action('Create brief', '/watchlists', 'brief', null),
-        payload: { brief_date: null },
-      },
-    ];
-  }
-  if ((latestBrief.brief_date ?? '') < today) {
-    return [
-      {
-        sourceType: 'brief',
-        source: 'Brief',
-        sourceId: latestBrief.id,
-        symbol: null,
-        title: 'Daily brief is stale',
-        summary: `Latest brief is ${latestBrief.brief_date ?? 'undated'}; generate ${today} before using the workbench.`,
-        status: 'stale_brief',
-        severity: 'medium',
-        createdAt: latestBrief.created_at,
-        confidence: null,
-        hasInvalidation: false,
-        action: action('Create brief', '/watchlists', 'brief', latestBrief.id),
-        payload: { brief_date: latestBrief.brief_date },
-      },
-    ];
-  }
-  if (latestBrief.top_risks.length === 0 && latestBrief.thesis_updates.length === 0) {
-    return [];
-  }
-  return [
-    {
-      sourceType: 'brief',
-      source: 'Brief',
-      sourceId: latestBrief.id,
-      symbol: null,
-      title: 'Review today brief action list',
-      summary: latestBrief.summary || 'Daily brief is ready for review.',
-      status: 'brief_ready',
-      severity: 'info',
-      createdAt: latestBrief.created_at,
-      confidence: null,
-      hasInvalidation: latestBrief.top_risks.some((risk) =>
-        risk.toLowerCase().includes('invalidation'),
-      ),
-      action: action('Open brief', '/briefs/daily', 'brief', latestBrief.id),
-      payload: {
-        brief_date: latestBrief.brief_date,
-        action_count: latestBrief.top_risks.length + latestBrief.thesis_updates.length,
-      },
-    },
-  ];
-}
-
-function buildBriefActionDrafts(
-  latestBrief: BriefResponse,
-): AttentionDraft[] {
-  const thesisActions = latestBrief.thesis_updates.slice(0, 4).map((update) => ({
-    sourceType: 'brief' as const,
-    source: 'Brief',
-    sourceId: latestBrief.id,
-    symbol: update.symbol || null,
-    title: `${update.symbol} brief action`,
-    summary:
-      update.recent_alerts[0] ??
-      update.update ??
-      'Review the thesis update from today brief.',
-    status: update.status || 'brief_action',
-    severity: update.recent_alerts.length > 0 ? ('medium' as const) : ('low' as const),
-    createdAt: latestBrief.created_at,
-    confidence: update.confidence,
-    hasInvalidation: Boolean(update.invalidation_level),
-    action: action(
-      'Review thesis',
-      `/theses/${encodeURIComponent(update.thesis_id)}`,
-      'thesis',
-      update.thesis_id,
-    ),
-    payload: {
-      brief_id: latestBrief.id,
-      brief_date: latestBrief.brief_date,
-      invalidation_level: update.invalidation_level,
-    },
-  }));
-  const riskActions = latestBrief.top_risks.slice(0, 3).map((risk, index) => ({
-    sourceType: 'brief' as const,
-    source: 'Brief',
-    sourceId: latestBrief.id,
-    symbol: null,
-    title: `Brief risk ${index + 1}`,
-    summary: risk,
-    status: 'brief_risk',
-    severity: risk.toLowerCase().includes('alert')
-      ? ('medium' as const)
-      : ('low' as const),
-    createdAt: latestBrief.created_at,
-    confidence: null,
-    hasInvalidation: risk.toLowerCase().includes('invalidation'),
-    action: action('Open brief', '/briefs/daily', 'brief', latestBrief.id),
-    payload: {
-      brief_id: latestBrief.id,
-      brief_date: latestBrief.brief_date,
-      risk,
-    },
-  }));
-  return [...thesisActions, ...riskActions];
-}
-
-function buildWatchlistDrafts(
-  watchlists: JsonRecord[],
-  now: Date,
-): AttentionDraft[] {
-  if (watchlists.some((watchlist) => booleanValue(watchlist.enabled, true))) {
-    return [];
-  }
-  return [
-    {
-      sourceType: 'watchlist',
-      source: 'Watchlist',
-      sourceId: null,
-      symbol: null,
-      title: 'No enabled watchlist',
-      summary: 'Enable or create a watchlist so alerts and daily briefs have a monitoring scope.',
-      status: 'watchlist_disabled',
-      severity: 'medium',
-      createdAt: now.toISOString(),
-      confidence: null,
-      hasInvalidation: false,
-      action: action('Open watchlists', '/watchlists', 'watchlist', null),
-      payload: { watchlist_count: watchlists.length },
-    },
-  ];
-}
-
 function finalizeItem(
   draft: AttentionDraft,
   workspaceId: string,
@@ -776,10 +590,6 @@ function sourceWeight(sourceType: AttentionSourceType): number {
     case 'thesis':
     case 'scenario':
       return 4;
-    case 'brief':
-      return 2;
-    case 'watchlist':
-      return 1;
   }
 }
 
@@ -842,8 +652,6 @@ function queueItems(items: AttentionItemResponse[]) {
 function buildNotifications(
   items: AttentionItemResponse[],
   alerts: JsonRecord[],
-  latestBrief: BriefResponse | null,
-  watchlists: JsonRecord[],
   runs: JsonRecord[],
 ): NotificationResponse[] {
   const notifications: NotificationResponse[] = items.map((item) => ({
@@ -861,61 +669,6 @@ function buildNotifications(
     action: item.action,
     badges: item.badges,
   }));
-
-  if (latestBrief) {
-    notifications.push({
-      id: `notification_brief_${latestBrief.id ?? latestBrief.brief_date ?? 'latest'}`,
-      type: 'brief',
-      status: 'brief_ready',
-      priority: 'info',
-      source: 'Brief',
-      source_id: latestBrief.id,
-      symbol: null,
-      title: latestBrief.title || 'Daily brief ready',
-      message: latestBrief.summary || 'Latest daily brief is available.',
-      created_at: latestBrief.created_at,
-      read_at: latestBrief.created_at,
-      action: action('Open brief', '/briefs/daily', 'brief', latestBrief.id),
-      badges: [
-        { label: 'Severity', value: 'Info', tone: 'primary' },
-        { label: 'Age', value: formatAge(minutesSince(latestBrief.created_at, new Date())), tone: 'neutral' },
-        { label: 'Source', value: 'Brief', tone: 'primary' },
-      ],
-    });
-  }
-
-  for (const watchlist of watchlists.slice(0, 2)) {
-    const id = nullableString(watchlist.id);
-    notifications.push({
-      id: `notification_watchlist_${id ?? stringValue(watchlist.name, 'watchlist')}`,
-      type: 'watchlist',
-      status: booleanValue(watchlist.enabled, true) ? 'enabled' : 'disabled',
-      priority: booleanValue(watchlist.enabled, true) ? 'info' : 'review',
-      source: 'Watchlist',
-      source_id: id,
-      symbol: null,
-      title: `${stringValue(watchlist.name, 'Watchlist')} watchlist`,
-      message: booleanValue(watchlist.enabled, true)
-        ? 'Watchlist is available for alert checks and daily briefs.'
-        : 'Watchlist is disabled and will not produce alert checks.',
-      created_at: nullableString(watchlist.created_at),
-      read_at: nullableString(watchlist.created_at),
-      action: action('Open watchlists', '/watchlists', 'watchlist', id),
-      badges: [
-        {
-          label: 'Severity',
-          value: booleanValue(watchlist.enabled, true) ? 'Info' : 'Medium',
-          tone: booleanValue(watchlist.enabled, true) ? 'primary' : 'warning',
-        },
-        {
-          label: 'Age',
-          value: formatAge(minutesSince(nullableString(watchlist.created_at), new Date())),
-          tone: 'neutral',
-        },
-        { label: 'Source', value: 'Watchlist', tone: 'primary' },
-      ],
-    });
-  }
 
   for (const run of runs.filter((run) => run.status === 'completed').slice(0, 2)) {
     const id = nullableString(run.id ?? run.run_id);
@@ -1213,13 +966,6 @@ function isSeverity(value: string | null): value is AttentionSeverity {
   );
 }
 
-function localDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 function nullableString(value: unknown): string | null {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -1237,26 +983,6 @@ function numberValue(value: unknown): number | null {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function booleanValue(value: unknown, fallback = false): boolean {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    return value !== 0;
-  }
-  const normalized = String(value).toLowerCase();
-  if (['true', '1', 'yes'].includes(normalized)) {
-    return true;
-  }
-  if (['false', '0', 'no'].includes(normalized)) {
-    return false;
-  }
-  return fallback;
 }
 
 function recordValue(value: unknown): JsonRecord {

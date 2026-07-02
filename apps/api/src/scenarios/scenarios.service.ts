@@ -18,6 +18,10 @@ import { WorkspacesService } from '../workspaces/workspaces.service';
 import { evaluateScenario } from './scenario-evaluator';
 import { evaluateScenarioRuntimeDecision } from './scenario-runtime-evaluator';
 import { ScenarioReliabilityService } from './scenario-reliability.service';
+import {
+  latestUsableBacktestRun,
+  latestValidScenarioEvaluation,
+} from './scenario-lifecycle-artifacts';
 
 @Injectable()
 export class ScenariosService {
@@ -123,7 +127,7 @@ export class ScenariosService {
           ),
         )
       : [];
-    const latestBacktest = backtests[0] ?? null;
+    const latestBacktest = latestUsableBacktestRun(backtests);
     const tradeEvents = latestBacktest
       ? await optionalScenarioLifecycleRows(() =>
           this.journal.listBacktestTradeEvents(
@@ -134,7 +138,7 @@ export class ScenariosService {
       : [];
     return {
       ...scenario,
-      latest_evaluation: evaluations[0] ?? null,
+      latest_evaluation: latestValidScenarioEvaluation(evaluations),
       latest_playbook: latestPlaybook,
       latest_backtest: latestBacktest
         ? { ...latestBacktest, trade_events: tradeEvents }

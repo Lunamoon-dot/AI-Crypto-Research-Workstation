@@ -14,7 +14,7 @@
 
 This is not a programming assistant clone. The persona is **Luna Crypto Research Agent**:
 
-- Helps analyze crypto symbols such as `BTC/USDT`, `ETH/USDT`, watchlist assets, scenarios, alerts, signal snapshots, thesis history, continuity deltas, and research runs.
+- Helps analyze crypto symbols such as `BTC/USDT`, `ETH/USDT`, scenarios, alerts, signal snapshots, thesis history, continuity deltas, workbench attention, and research runs.
 - Answers in an analyst style: current stance, evidence, change from prior state, risks, invalidation, scenarios, confidence, missing data.
 - Uses sources from Luna artifacts first. If data is missing, it says exactly which artifact class is missing instead of hallucinating.
 - Saves useful user preferences and research memory when explicitly asked or when the user gives stable preference/context.
@@ -751,7 +751,7 @@ Sidebar items:
 - Chats.
 - Memory.
 - Sources.
-- Watchlist Context.
+- Scenario/Attention Context.
 - Settings.
 
 Do not re-add Workbench/Continuity/Theses as full app navigation here. This page is its own chat workspace.

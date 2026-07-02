@@ -1,6 +1,6 @@
 # LunaCrypto AI Research Workstation - Tong Quan Du An
 
-> Living document. Cap nhat khi kien truc, CLI, schema, hoac ranh gioi san pham thay doi.
+> Living document. Cap nhat khi kien truc, engine contract, schema, hoac ranh gioi san pham thay doi.
 > Lan sua cuoi: 2026-05-16. Phien ban du an: 0.3.0.
 
 ## 1. San Pham Nay La Gi
@@ -24,8 +24,8 @@ Market data
 
 Gia tri chinh la discipline va paper trail: run IDs, signal provenance, market
 snapshots, agent opinions, debate records, thesis fields, scenarios, decisions,
-alerts, briefs, evaluations, provider health, LLM calls, va data freshness
-checks. Ranh gioi san pham nam o research artifacts va user-reviewed decisions;
+alerts, evaluations, provider health, LLM calls, va data freshness checks.
+Ranh gioi san pham nam o research artifacts va user-reviewed decisions;
 order placement va account-performance claims nam ngoai core surface.
 
 ## 2. Monorepo Context
@@ -34,7 +34,7 @@ Tu repo root:
 
 ```text
 apps/
-  ai-service/   Python service, Typer CLI, LangGraph research engine
+  ai-service/   Python service, LangGraph research engine, worker engine contract
   api/          NestJS product API boundary
   web/          Vite/React research workstation
 packages/
@@ -43,7 +43,7 @@ docs/
   backend/frontend architecture and UX docs
 ```
 
-Python package name van la `luna_workstation` de giu compatibility. Public CLI command la `lunacrypto`.
+Python package name van la `luna_workstation` de giu compatibility. Public human command-line UI da decommission; API/worker goi engine bang `python -m luna_workstation.engine`.
 
 ## 3. Ranh Gioi Du Lieu Hien Tai
 
@@ -65,7 +65,7 @@ Product API / Postgres boundary:
 ## 4. Architecture Snapshot
 
 ```text
-CLI / Engine Contract
+API / Engine Contract
   -> ConfigLoader + SecretsManager
   -> ResearchService / EngineRunner
   -> ResearchAgentsGraph / ResearchRunOrchestrator
@@ -82,29 +82,19 @@ Frontend workstation
   -> NestJS API
   -> workspace/auth checks
   -> JobsService: inline | memory | BullMQ
-  -> PythonEngineClient: lunacrypto engine run --request
+  -> PythonEngineClient: python -m luna_workstation.engine run --request
   -> Postgres journal repository reads/writes when DATABASE_URL is configured
 ```
 
 Current web surface: `apps/web` is a Vite + React Router workstation with
-Workbench, Research, Journal, Theses, Signals, Scenarios, Alerts, Watchlists,
-Briefs, Operations, Settings, Performance, and Compare routes. The API workspace
+Workbench, Research, Journal, Theses, Signals, Scenarios, Alerts, Operations,
+Settings, Performance, and Compare routes. The API workspace
 contract now includes `stage_timings` so the UI can render event-derived agent
 workflow status and durations.
 
 ## 5. Thu Muc Quan Trong Trong `apps/ai-service`
 
 ```text
-cli/
-  main.py                 Typer entrypoint
-  orchestrator.py         CLI research run orchestration
-  journal_cmd.py          journal/thesis lifecycle commands
-  signals_cmd.py          signal snapshot/provenance commands
-  watch_cmd.py            watchlist and alert commands
-  brief_cmd.py            daily market brief commands
-  replay_cmd.py           historical replay commands
-  diff_cmd.py             thesis/run diff commands
-
 luna_workstation/
   agents/                 analyst, researcher, manager, risk, planner agents
   config/                 config loader/schema/secrets/provider registry
@@ -125,44 +115,15 @@ scripts/                  smoke and utility scripts
 migrations/               Alembic scaffold for staged DB work
 ```
 
-## 6. CLI Surface
+## 6. Engine Boundary
 
-Check the live command tree with:
-
-```bash
-python -m cli.main --help
-```
-
-Current top-level groups:
-
-```text
-analyze
-watchlist
-dashboard
-config
-journal
-thesis
-signals
-brief
-diff
-research
-replay
-engine
-```
-
-Common commands:
+Human workflows run through the web/API. The remaining command surface is a
+machine-only worker contract:
 
 ```bash
-lunacrypto
-lunacrypto research run BTC/USDT --date 2026-05-08 --yes --plain
-lunacrypto journal workspace <run_id>
-lunacrypto signals snapshot <run_id>
-lunacrypto thesis show <thesis_id>
-lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
-lunacrypto watchlist brief
-lunacrypto brief daily
-lunacrypto replay single BTC/USDT 2026-05-08
-lunacrypto engine run --request request.json
+python -m luna_workstation.engine run --request request.json
+python -m luna_workstation.engine evaluate --request evaluation-request.json
+python -m luna_workstation.engine schema
 ```
 
 ## 7. Pipeline
@@ -197,10 +158,13 @@ Critical artifacts:
 - `ProviderHealth`
 - `LlmCall`
 - `DataFreshnessCheck`
-- `Watchlist`, `WatchlistItem`, `Alert`
-- `MarketBrief`
+- `Alert`
 - `ThesisEvaluation`
 - `ReliabilitySnapshot`
+
+Watchlist and MarketBrief artifacts were decommissioned from the active
+AI-service surface. Current monitoring lives in thesis, scenario, signal, alert,
+journal, and evaluation flows.
 
 ## 8. Signals
 

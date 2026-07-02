@@ -75,9 +75,9 @@ export function createScenarioDecisionBacktest(
 }
 
 function defaultBacktestAssumptions(): BacktestAssumptionSetResponse {
-  const end = new Date();
+  const end = lastClosedDailyBacktestEnd();
   const start = new Date(end);
-  start.setDate(start.getDate() - 90);
+  start.setUTCDate(start.getUTCDate() - 90);
   return {
     version: 'backtest_assumption_set.v1',
     fee_bps: 5,
@@ -90,4 +90,11 @@ function defaultBacktestAssumptions(): BacktestAssumptionSetResponse {
     start_at: start.toISOString(),
     end_at: end.toISOString(),
   };
+}
+
+function lastClosedDailyBacktestEnd(): Date {
+  const end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  end.setUTCMilliseconds(-1);
+  return end;
 }

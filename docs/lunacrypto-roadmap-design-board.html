@@ -595,7 +595,7 @@
         <div class="flow-node"><h3>NestJS API</h3><p>Auth headers, workspace boundary, product REST contracts.</p></div>
         <div class="flow-node"><h3>Jobs / Queue</h3><p>Inline, memory, and future BullMQ status projection.</p></div>
         <div class="flow-node engine"><h3>Python Engine</h3><p>Agents, SignalEngine, providers, thesis builder.</p></div>
-        <div class="flow-node"><h3>Journal DB</h3><p>Runs, events, theses, signals, briefs, alerts, reviews.</p></div>
+        <div class="flow-node"><h3>Journal DB</h3><p>Runs, events, theses, scenarios, signals, alerts, reviews.</p></div>
         <div class="flow-node"><h3>Read APIs</h3><p>Typed DTOs for web screens and audit drawers.</p></div>
       </div>
 
@@ -624,12 +624,12 @@
                 <tr><th>Route</th><th>Purpose</th><th>Backend source</th></tr>
               </thead>
               <tbody>
-                <tr><td><code>/workbench</code></td><td>Daily command center</td><td>briefs, alerts, theses, signals, watchlists</td></tr>
+                <tr><td><code>/workbench</code></td><td>Attention command center</td><td>attention, alerts, theses, scenarios, signals</td></tr>
                 <tr><td><code>/research/new</code></td><td>Run launcher</td><td><code>POST /research-runs</code></td></tr>
                 <tr><td><code>/research/runs/:id</code></td><td>Run workspace</td><td>events, snapshots, debate</td></tr>
                 <tr><td><code>/theses/:id</code></td><td>Decision and review</td><td>thesis, scenarios, decision, review</td></tr>
                 <tr><td><code>/signals</code></td><td>Signal explorer</td><td>deterministic evidence</td></tr>
-                <tr><td><code>/watchlists</code></td><td>Monitoring loop</td><td>watchlists, add item, alerts</td></tr>
+                <tr><td><code>/scenarios</code></td><td>Monitoring loop</td><td>scenario monitor, alerts, attention queue</td></tr>
                 <tr><td><code>/operations</code></td><td>Trust surface</td><td>future health endpoints</td></tr>
               </tbody>
             </table>
@@ -651,8 +651,8 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item">Theses <span>7</span></div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Retrospective</div>
           <div class="nav-item">Operations</div>
           <div class="nav-item">Settings</div>
@@ -682,7 +682,7 @@
             <div class="stack">
               <div class="panel">
                 <div class="panel-header">
-                  <h3>Daily market brief</h3>
+                  <h3>Attention queue</h3>
                   <span class="chip amber">missing onchain secondary</span>
                 </div>
                 <div class="panel-body">
@@ -723,13 +723,13 @@
 
               <div class="panel">
                 <div class="panel-header">
-                  <h3>Watchlist overview</h3>
-                  <span class="chip dark">3 lists</span>
+                  <h3>Scenario highlights</h3>
+                  <span class="chip dark">3 active</span>
                 </div>
                 <div class="panel-body grid">
-                  <div class="card"><h3>Core majors</h3><p>BTC, ETH, SOL. Five active alerts.</p></div>
-                  <div class="card"><h3>High beta setups</h3><p>LINK, AVAX, OP. Two stale theses.</p></div>
-                  <div class="card"><h3>Event watch</h3><p>Macro, unlocks, exchange flow triggers.</p></div>
+                  <div class="card"><h3>BTC reclaim branch</h3><p>Volume confirmation pending. Two active alerts.</p></div>
+                  <div class="card"><h3>ETH range branch</h3><p>Reclaim condition waiting. Funding is stale.</p></div>
+                  <div class="card"><h3>SOL review branch</h3><p>Target approached. Outcome review due.</p></div>
                 </div>
               </div>
             </div>
@@ -738,7 +738,7 @@
 
         <aside class="rail">
           <h2>AI command rail</h2>
-          <p class="mt-8">Context: Workbench, default watchlist, 7 active theses.</p>
+          <p class="mt-8">Context: Workbench, 7 active theses, scenario monitor, unread alerts.</p>
           <div class="card mt-20"><h3>Scenario alert</h3><p>SOL scenario activated near target zone. Review thesis before changing watch status.</p></div>
           <div class="card mt-12"><h3>Suggested prompt</h3><p>Explain why BTC signal is bullish while funding/OI is bearish.</p></div>
           <div class="textarea mt-16">Ask about this workspace...</div>
@@ -760,8 +760,8 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item">Theses</div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Operations</div>
         </aside>
 
@@ -958,7 +958,7 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item active">Theses</div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Scenarios</div>
           <div class="nav-item">Retrospective</div>
         </aside>
 
@@ -1060,8 +1060,8 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item">Theses</div>
           <div class="nav-item active">Signals</div>
-          <div class="nav-item">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Operations</div>
         </aside>
 
@@ -1111,14 +1111,14 @@
           <div class="chips mt-12"><span class="chip red">unread 9</span><span class="chip blue">monitoring</span></div>
           <div class="card mt-20"><h3>scenario_active</h3><p>SOL/USDT target approached. Open thesis and record review.</p></div>
           <div class="card mt-12"><h3>freshness_degraded</h3><p>BTC optional onchain secondary missing for latest run.</p></div>
-          <div class="card mt-12"><h3>watchlist_condition</h3><p>ETH reclaim condition is watching. No decision is inferred.</p></div>
+          <div class="card mt-12"><h3>scenario_condition</h3><p>ETH reclaim condition is pending. No decision is inferred.</p></div>
           <button class="button secondary w-full mt-20">Mark selected read</button>
         </aside>
       </div>
     </section>
 
     <div class="frame-label">
-      <h2>06 Watchlists And Daily Briefs</h2>
+      <h2>06 Scenario And Attention Monitoring</h2>
       <span class="chip green">monitoring loop</span>
     </div>
     <section class="frame">
@@ -1130,49 +1130,49 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item">Theses</div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item active">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item active">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Settings</div>
         </aside>
 
         <section class="main">
           <div class="title-row">
             <div>
-              <h2>Watchlists and daily briefs</h2>
-              <p>Research habit loop for monitored symbols, theses, setup types, alerts, and daily summary memory.</p>
+              <h2>Scenario and attention monitoring</h2>
+              <p>Research habit loop for active scenarios, thesis review needs, alerts, and degraded data states.</p>
             </div>
-            <button class="button">Add watch</button>
+            <button class="button">Review attention</button>
           </div>
 
           <div class="grid cols-2">
             <div class="panel">
-              <div class="panel-header"><h3>Watchlists</h3><span class="chip green">API-ready base</span></div>
+              <div class="panel-header"><h3>Scenario monitor</h3><span class="chip green">API-ready</span></div>
               <div class="panel-body grid">
-                <div class="card"><h3>Core majors</h3><p>enabled: true<br />items: BTC, ETH, SOL<br />latest brief: today</p></div>
-                <div class="card"><h3>High beta setups</h3><p>enabled: true<br />items: LINK, AVAX, OP<br />2 unread alerts</p></div>
-                <div class="card"><h3>Event watch</h3><p>enabled: false<br />items: macro_event, unlocks<br />manual check pending endpoint</p></div>
+                <div class="card"><h3>BTC reclaim branch</h3><p>state: pending<br />volume confirmation needed<br />2 unread alerts</p></div>
+                <div class="card"><h3>ETH range branch</h3><p>state: watching<br />funding data stale<br />review later</p></div>
+                <div class="card"><h3>SOL target branch</h3><p>state: active<br />target approached<br />outcome review due</p></div>
               </div>
             </div>
 
             <div class="stack">
               <div class="panel">
-                <div class="panel-header"><h3>Add watchlist item</h3><span class="chip blue">current endpoint</span></div>
+                <div class="panel-header"><h3>Attention filters</h3><span class="chip blue">current endpoint</span></div>
                 <div class="panel-body">
                   <div class="input-grid">
-                    <div class="field-label">Item type</div><div class="field">symbol</div>
+                    <div class="field-label">Source</div><div class="field">scenario</div>
                     <div class="field-label">Symbol</div><div class="field">BTC/USDT</div>
-                    <div class="field-label">Thesis ID</div><div class="field">optional</div>
-                    <div class="field-label">Setup type</div><div class="field">trend_pullback</div>
+                    <div class="field-label">Severity</div><div class="field">medium or above</div>
+                    <div class="field-label">Status</div><div class="field">unread / active</div>
                   </div>
-                  <button class="button mt-16">Add item</button>
+                  <button class="button mt-16">Apply filters</button>
                 </div>
               </div>
 
               <div class="panel">
-                <div class="panel-header"><h3>Daily brief archive</h3><span class="chip amber">habit loop</span></div>
+                <div class="panel-header"><h3>Attention queue</h3><span class="chip amber">habit loop</span></div>
                 <div class="panel-body grid">
-                  <div class="card"><h3>2026-05-13 / Core majors</h3><p>BTC constructive, ETH range-bound, SOL review due. Links: thesis_91c, signal_44a.</p></div>
-                  <div class="card"><h3>2026-05-12 / Core majors</h3><p>Previous brief link maintained. Future payload should show what changed since yesterday.</p></div>
+                  <div class="card"><h3>SOL review due</h3><p>Target approached. Links: thesis_91c, scenario_44a.</p></div>
+                  <div class="card"><h3>BTC provider degraded</h3><p>Optional onchain secondary is missing for latest run.</p></div>
                 </div>
               </div>
             </div>
@@ -1181,9 +1181,9 @@
 
         <aside class="rail">
           <h2>Monitoring loop</h2>
-          <div class="card mt-20"><h3>Why this page matters</h3><p>Watchlists, alerts, and briefs turn research output into a daily review habit without becoming trade-command UI.</p></div>
+          <div class="card mt-20"><h3>Why this page matters</h3><p>Scenarios, alerts, and workbench attention turn research output into a daily review habit without becoming trade-command UI.</p></div>
           <div class="card mt-12"><h3>Copy rule</h3><p>Use Watch, Review, Scenario active, Invalidation risk. Do not use direct execution commands.</p></div>
-          <div class="card mt-12"><h3>Next backend work</h3><p>Watchlist CRUD and GET /briefs/:id complete the page beyond the current API-ready base.</p></div>
+          <div class="card mt-12"><h3>Decommissioned scope</h3><p>Watchlists and Daily Briefs are not active routes; use scenarios, alerts, and workbench attention.</p></div>
         </aside>
       </div>
     </section>
@@ -1200,8 +1200,8 @@
           <div class="nav-item">Research</div>
           <div class="nav-item">Theses</div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Retrospective</div>
           <div class="nav-item active">Operations</div>
           <div class="nav-item">Settings</div>
@@ -1252,7 +1252,7 @@
 
         <aside class="rail">
           <h2>Release gates</h2>
-          <div class="card mt-20"><h3>Local MVP gate</h3><p>Workbench, run launcher, run workspace, thesis detail, decision, review, signals, alerts, watchlists, briefs.</p></div>
+          <div class="card mt-20"><h3>Local MVP gate</h3><p>Workbench, run launcher, run workspace, thesis detail, decision, review, signals, scenarios, alerts, attention.</p></div>
           <div class="card mt-12"><h3>Private beta gate</h3><p>Stable error envelope, run/job clarity, workspace access tests, degraded states, no secret leakage.</p></div>
           <div class="card mt-12"><h3>Hosted beta gate</h3><p>Real auth, RBAC, BullMQ, dedicated workers, rate limits, audit log, backups, monitoring.</p></div>
         </aside>

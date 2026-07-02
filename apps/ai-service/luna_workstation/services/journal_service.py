@@ -1,8 +1,8 @@
 """Decision journal service.
 
 This is the application boundary between graph/domain objects and SQLite.
-CLI, graph, and future API/web layers should use this service instead of
-talking to SQLite directly.
+Graph, worker, and API/web layers should use this service instead of talking to
+SQLite directly.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from luna_workstation.default_config import DEFAULT_CONFIG
 from luna_workstation.domain import (
@@ -36,6 +36,30 @@ from luna_workstation.domain.tenancy import normalize_workspace_id
 from luna_workstation.storage.repositories import JournalRepository
 from luna_workstation.storage.migrations import migrate_path
 from luna_workstation.storage.sqlite import SQLiteStore
+from luna_workstation.signals.evaluation.models import (
+    SignalCalibratorVersion,
+    SignalModelAlert,
+    SignalModelMonitoringSnapshot,
+    SignalModelPromotion,
+    SignalModelRollback,
+    SignalObservation,
+    SignalOutcomeLabel,
+    SignalTrainingCandidate,
+    SignalWeightVersion,
+)
+from luna_workstation.signals.evaluation.dataset_builder import build_labeling_candidates
+from luna_workstation.signals.evaluation.labeler import (
+    LABEL_VERSION,
+    label_observation_outcome,
+)
+from luna_workstation.signals.evaluation.monitoring import (
+    build_monitoring_snapshot as build_signal_monitoring_snapshot,
+    dedupe_alerts,
+)
+from luna_workstation.signals.evaluation.observations import observations_from_signals
+from luna_workstation.signals.evaluation.training import (
+    train_signal_model_candidate as build_signal_training_candidate,
+)
 
 
 _CORE_CODE_ALIASES = {
@@ -222,6 +246,13 @@ class JournalService:
 
             saved_market = self.repo.save_market_snapshot(market_snapshot, _conn=conn)
             saved_snapshot = self.repo.save_signal_snapshot(signal_snapshot, _conn=conn)
+            observations = observations_from_signals(
+                saved_signals,
+                research_run_id=run.id,
+                signal_snapshot_id=saved_snapshot.id,
+                timeframe=run.timeframe or "unknown",
+            )
+            self.repo.save_signal_observations(observations, _conn=conn)
             run.market_snapshot_id = saved_market.id
             run.signal_snapshot_id = saved_snapshot.id
             saved_run = self.repo.save_research_run(run, _conn=conn)
@@ -239,6 +270,380 @@ class JournalService:
             )
 
         return saved_run, saved_signals, saved_market, saved_snapshot
+
+    def list_signal_observations(
+        self,
+        *,
+        symbol: str | None = None,
+        factor_name: str | None = None,
+        signal_snapshot_id: str | None = None,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalObservation]:
+        return self.repo.list_signal_observations(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            symbol=symbol,
+            factor_name=factor_name,
+            signal_snapshot_id=signal_snapshot_id,
+            limit=limit,
+        )
+
+    def get_signal_observation(
+        self,
+        observation_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> SignalObservation | None:
+        return self.repo.get_signal_observation(
+            observation_id,
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+        )
+
+    def save_signal_outcome_labels(
+        self,
+        labels: list[SignalOutcomeLabel],
+    ) -> list[SignalOutcomeLabel]:
+        return self.repo.save_signal_outcome_labels(labels)
+
+    def list_signal_outcome_labels(
+        self,
+        *,
+        observation_id: str | None = None,
+        symbol: str | None = None,
+        horizon_minutes: int | None = None,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalOutcomeLabel]:
+        return self.repo.list_signal_outcome_labels(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            observation_id=observation_id,
+            symbol=symbol,
+            horizon_minutes=horizon_minutes,
+            limit=limit,
+        )
+
+    def label_signal_outcomes(
+        self,
+        *,
+        horizon_minutes: int,
+        candle_loader: Callable[[SignalObservation, int], list[dict[str, Any]]],
+        symbol: str | None = None,
+        limit: int = 100,
+        dry_run: bool = False,
+        now: datetime | None = None,
+        atr_pct: float | None = None,
+        workspace_id: str | None = None,
+    ) -> dict[str, Any]:
+        bound_workspace_id = normalize_workspace_id(workspace_id or self.workspace_id)
+        observations = self.repo.list_signal_observations(
+            workspace_id=bound_workspace_id,
+            symbol=symbol,
+            limit=max(limit * 2, limit),
+        )
+        existing_labels = self.repo.list_signal_outcome_labels(
+            workspace_id=bound_workspace_id,
+            symbol=symbol,
+            horizon_minutes=horizon_minutes,
+            limit=5000,
+        )
+        candidates = build_labeling_candidates(
+            observations,
+            existing_labels=existing_labels,
+            workspace_id=bound_workspace_id,
+            now=now or datetime.now(timezone.utc),
+            horizon_minutes=horizon_minutes,
+            label_version=LABEL_VERSION,
+            symbol=symbol,
+            limit=limit,
+        )
+        if dry_run:
+            return {
+                "requested": len(candidates),
+                "labeled": 0,
+                "skipped": len(candidates),
+                "skipped_reasons": {"dry_run": len(candidates)} if candidates else {},
+                "label_version": LABEL_VERSION,
+            }
+
+        labels: list[SignalOutcomeLabel] = []
+        skipped_reasons: dict[str, int] = {}
+        for observation in candidates:
+            try:
+                candles = candle_loader(observation, horizon_minutes)
+            except Exception:
+                labels.append(
+                    SignalOutcomeLabel(
+                        id=f"signal_outcome_{observation.id}_{horizon_minutes}_provider_error",
+                        workspace_id=observation.workspace_id,
+                        observation_id=observation.id,
+                        symbol=observation.symbol,
+                        horizon_minutes=horizon_minutes,
+                        label_status="provider_error",
+                        signal_direction=observation.direction,
+                        label_version=LABEL_VERSION,
+                    )
+                )
+                skipped_reasons["provider_error"] = (
+                    skipped_reasons.get("provider_error", 0) + 1
+                )
+                continue
+            label = label_observation_outcome(
+                observation,
+                candles,
+                horizon_minutes=horizon_minutes,
+                atr_pct=atr_pct,
+            )
+            labels.append(label)
+            if label.label_status != "complete":
+                skipped_reasons[label.label_status] = (
+                    skipped_reasons.get(label.label_status, 0) + 1
+                )
+        saved = self.save_signal_outcome_labels(labels)
+        completed = sum(1 for label in saved if label.label_status == "complete")
+        return {
+            "requested": len(candidates),
+            "labeled": completed,
+            "skipped": len(candidates) - completed,
+            "skipped_reasons": skipped_reasons,
+            "label_version": LABEL_VERSION,
+        }
+
+    def save_signal_weight_version(
+        self,
+        version: SignalWeightVersion,
+    ) -> SignalWeightVersion:
+        version.workspace_id = self._bind_workspace_id(version.workspace_id)
+        return self.repo.save_signal_weight_version(version)
+
+    def list_signal_weight_versions(
+        self,
+        *,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalWeightVersion]:
+        return self.repo.list_signal_weight_versions(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            limit=limit,
+        )
+
+    def save_signal_calibrator_version(
+        self,
+        version: SignalCalibratorVersion,
+    ) -> SignalCalibratorVersion:
+        version.workspace_id = self._bind_workspace_id(version.workspace_id)
+        return self.repo.save_signal_calibrator_version(version)
+
+    def list_signal_calibrator_versions(
+        self,
+        *,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalCalibratorVersion]:
+        return self.repo.list_signal_calibrator_versions(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            limit=limit,
+        )
+
+    def save_signal_model_promotion(
+        self,
+        promotion: SignalModelPromotion,
+    ) -> SignalModelPromotion:
+        promotion.workspace_id = self._bind_workspace_id(promotion.workspace_id)
+        return self.repo.save_signal_model_promotion(promotion)
+
+    def list_signal_model_promotions(
+        self,
+        *,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalModelPromotion]:
+        return self.repo.list_signal_model_promotions(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            limit=limit,
+        )
+
+    def save_signal_monitoring_snapshot(
+        self,
+        snapshot: SignalModelMonitoringSnapshot,
+    ) -> SignalModelMonitoringSnapshot:
+        snapshot.workspace_id = self._bind_workspace_id(snapshot.workspace_id)
+        return self.repo.save_signal_monitoring_snapshot(snapshot)
+
+    def list_signal_monitoring_snapshots(
+        self,
+        *,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalModelMonitoringSnapshot]:
+        return self.repo.list_signal_monitoring_snapshots(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            limit=limit,
+        )
+
+    def save_signal_model_alert(
+        self,
+        alert: SignalModelAlert,
+    ) -> SignalModelAlert:
+        alert.workspace_id = self._bind_workspace_id(alert.workspace_id)
+        return self.repo.save_signal_model_alert(alert)
+
+    def list_signal_model_alerts(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalModelAlert]:
+        return self.repo.list_signal_model_alerts(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            status=status,
+            limit=limit,
+        )
+
+    def save_signal_model_rollback(
+        self,
+        rollback: SignalModelRollback,
+    ) -> SignalModelRollback:
+        rollback.workspace_id = self._bind_workspace_id(rollback.workspace_id)
+        return self.repo.save_signal_model_rollback(rollback)
+
+    def list_signal_model_rollbacks(
+        self,
+        *,
+        limit: int = 100,
+        workspace_id: str | None = None,
+    ) -> list[SignalModelRollback]:
+        return self.repo.list_signal_model_rollbacks(
+            workspace_id=normalize_workspace_id(workspace_id or self.workspace_id),
+            limit=limit,
+        )
+
+    def train_signal_model_candidate(
+        self,
+        *,
+        horizon_minutes: int,
+        symbol: str | None = None,
+        limit: int = 5000,
+        persist: bool = True,
+        workspace_id: str | None = None,
+        train_window_days: int = 180,
+        calibration_window_days: int = 30,
+        test_window_days: int = 30,
+        embargo_days: int | None = None,
+        min_train_samples: int = 500,
+        min_calibration_samples: int = 150,
+        min_oos_samples: int = 150,
+        min_folds: int = 3,
+    ) -> SignalTrainingCandidate:
+        bound_workspace_id = normalize_workspace_id(workspace_id or self.workspace_id)
+        observations = self.repo.list_signal_observations(
+            workspace_id=bound_workspace_id,
+            symbol=symbol,
+            limit=limit,
+        )
+        labels = self.repo.list_signal_outcome_labels(
+            workspace_id=bound_workspace_id,
+            symbol=symbol,
+            horizon_minutes=horizon_minutes,
+            limit=limit,
+        )
+        candidate = build_signal_training_candidate(
+            observations,
+            labels,
+            workspace_id=bound_workspace_id,
+            horizon_minutes=horizon_minutes,
+            train_window_days=train_window_days,
+            calibration_window_days=calibration_window_days,
+            test_window_days=test_window_days,
+            embargo_days=embargo_days,
+            min_train_samples=min_train_samples,
+            min_calibration_samples=min_calibration_samples,
+            min_oos_samples=min_oos_samples,
+            min_folds=min_folds,
+        )
+        if persist:
+            self.save_signal_weight_version(candidate.weight_version)
+            self.save_signal_calibrator_version(candidate.calibrator_version)
+        return candidate
+
+    def build_signal_model_monitoring_snapshot(
+        self,
+        *,
+        horizon_minutes: int | None = None,
+        limit: int = 5000,
+        persist: bool = True,
+        workspace_id: str | None = None,
+    ) -> SignalModelMonitoringSnapshot:
+        bound_workspace_id = normalize_workspace_id(workspace_id or self.workspace_id)
+        promotions = self.list_signal_model_promotions(
+            workspace_id=bound_workspace_id,
+            limit=1,
+        )
+        active = promotions[0] if promotions else None
+        weights = self.list_signal_weight_versions(
+            workspace_id=bound_workspace_id,
+            limit=500,
+        )
+        calibrators = self.list_signal_calibrator_versions(
+            workspace_id=bound_workspace_id,
+            limit=500,
+        )
+        active_weight = _find_weight_version(
+            weights,
+            active.to_weight_version if active else None,
+        )
+        active_calibrator = _find_calibrator_version(
+            calibrators,
+            active.to_calibrator_version if active else None,
+        )
+        active_horizon = horizon_minutes or (
+            active_calibrator.horizon_minutes if active_calibrator else None
+        )
+        observations = self.repo.list_signal_observations(
+            workspace_id=bound_workspace_id,
+            limit=limit,
+        )
+        labels = self.repo.list_signal_outcome_labels(
+            workspace_id=bound_workspace_id,
+            horizon_minutes=active_horizon,
+            limit=limit,
+        )
+        publishable_prediction_count = (
+            sum(1 for item in observations if item.availability == "valid")
+            if active_weight and active_calibrator and active_calibrator.publishable
+            else 0
+        )
+        snapshot = build_signal_monitoring_snapshot(
+            observations=observations,
+            labels=labels,
+            active_weight_version=active.to_weight_version if active else None,
+            active_calibrator_version=active.to_calibrator_version if active else None,
+            workspace_id=bound_workspace_id,
+            horizon_minutes=active_horizon,
+            publishable_prediction_count=publishable_prediction_count,
+            baseline_feature_stats_json=active_weight.feature_stats_json
+            if active_weight
+            else None,
+            baseline_metrics_json=active_calibrator.calibration_metrics_json
+            if active_calibrator
+            else None,
+        )
+        if persist:
+            self.save_signal_monitoring_snapshot(snapshot)
+            existing_alerts = self.list_signal_model_alerts(
+                workspace_id=bound_workspace_id,
+                status="open",
+                limit=500,
+            )
+            existing_ids = {alert.id for alert in existing_alerts}
+            for alert in dedupe_alerts(
+                existing_alerts=existing_alerts,
+                new_alerts=snapshot.alerts_json,
+                workspace_id=bound_workspace_id,
+            ):
+                if alert.id not in existing_ids:
+                    self.save_signal_model_alert(alert)
+        return snapshot
 
     def save_signal(self, signal: Signal) -> Signal:
         signal.workspace_id = self._bind_workspace_id(signal.workspace_id)
@@ -1012,6 +1417,24 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(text)
         out.append(text)
     return out
+
+
+def _find_weight_version(
+    versions: list[SignalWeightVersion],
+    version: str | None,
+) -> SignalWeightVersion | None:
+    if not version:
+        return None
+    return next((item for item in versions if item.version == version), None)
+
+
+def _find_calibrator_version(
+    versions: list[SignalCalibratorVersion],
+    version: str | None,
+) -> SignalCalibratorVersion | None:
+    if not version:
+        return None
+    return next((item for item in versions if item.version == version), None)
 
 
 def _reason_code(value: Any) -> str:

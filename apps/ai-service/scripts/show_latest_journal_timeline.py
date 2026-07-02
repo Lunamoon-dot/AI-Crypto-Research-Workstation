@@ -8,12 +8,6 @@ Examples::
     python scripts/show_latest_journal_timeline.py --run-id run_a1b2c3
     python scripts/show_latest_journal_timeline.py --limit 30
 
-When using CLI helpers instead::
-
-    pip install -e .
-    python -m cli.main journal list
-    python -m cli.main journal timeline <run_id>
-
 Journal path defaults to ``TRADINGAGENTS_JOURNAL_DB`` or
 ``DEFAULT_CONFIG["journal"]["db_path"]``.
 """

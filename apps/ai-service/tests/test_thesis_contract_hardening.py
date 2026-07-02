@@ -133,6 +133,21 @@ def test_validator_degrades_optional_missing_targets():
     assert "target_zones_missing" in result.degradation_reasons
 
 
+def test_validator_accepts_typed_objective_levels_without_legacy_targets():
+    result = ThesisValidator().validate(
+        candidate=_candidate(
+            target_zones=[],
+            downside_objectives=["$480", "$450", "$420"],
+            indicator_thresholds=["Long/Short ratio > 3.0", "RSI 4H > 50"],
+        ),
+        source_contract="portfolio_decision_structured",
+        data_quality_label="clean",
+    )
+
+    assert result.status == ThesisArtifactStatus.VALID
+    assert "target_zones_missing" not in result.degradation_reasons
+
+
 def test_structured_candidate_success_persists_valid_status():
     thesis = _build_thesis(_candidate())
 
@@ -159,6 +174,29 @@ def test_valid_thesis_persists_compiled_text_not_raw_pm_prose():
         "confirmation",
         "invalidation",
         "monitor_next",
+    ]
+
+
+def test_structured_summary_preserves_typed_objective_levels():
+    thesis = _build_thesis(
+        _candidate(
+            target_zones=[],
+            downside_objectives=["$480", "$450", "$420"],
+            indicator_thresholds=["Long/Short ratio > 3.0", "RSI 4H > 50"],
+        )
+    )
+
+    assert thesis.artifact_status == ThesisArtifactStatus.VALID
+    assert thesis.downside_objectives == ["$480", "$450", "$420"]
+    assert thesis.indicator_thresholds == [
+        "Long/Short ratio > 3.0",
+        "RSI 4H > 50",
+    ]
+    assert thesis.structured_summary is not None
+    assert thesis.structured_summary.downside_objectives == ["$480", "$450", "$420"]
+    assert thesis.structured_summary.indicator_thresholds == [
+        "Long/Short ratio > 3.0",
+        "RSI 4H > 50",
     ]
 
 

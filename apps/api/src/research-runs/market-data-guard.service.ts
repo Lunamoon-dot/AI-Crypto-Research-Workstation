@@ -3,7 +3,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { runPythonCliJson } from '../jobs/python-engine.client';
+import { runPythonEngineJson } from '../jobs/python-engine.client';
 
 export interface MarketDataGuardRequest {
   symbol: string;
@@ -43,7 +43,7 @@ async function validateMarketData(
   request: MarketDataGuardRequest,
 ): Promise<Record<string, unknown>> {
   try {
-    return await runPythonCliJson(validationArgs(request), {
+    return await runPythonEngineJson(validationArgs(request), {
       timeoutMs: resolveValidationTimeoutMs(),
     });
   } catch (error) {
@@ -56,7 +56,6 @@ async function validateMarketData(
 
 function validationArgs(request: MarketDataGuardRequest): string[] {
   const args = [
-    'engine',
     'validate-market',
     '--symbol',
     request.symbol,

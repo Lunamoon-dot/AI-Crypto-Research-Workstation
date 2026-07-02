@@ -601,6 +601,12 @@ function statusReasonFor(input: {
   currentPrice: number | null;
   blockers: string[];
 }): string {
+  if (input.validityStatus === 'invalidated') {
+    return 'Scenario is invalidated.';
+  }
+  if (input.validityStatus === 'expired') {
+    return 'Scenario is expired.';
+  }
   if (input.blockers.length > 0) {
     return `Action ${input.recommendedAction} because blockers are present: ${input.blockers.join(', ')}.`;
   }

@@ -39,7 +39,8 @@ Do not implement:
 - A broad thesis detail redesign beyond status and compiled-render support.
 - Historical backfill or migration of old thesis text.
 - Calibration changes.
-- Watchlist strategy changes beyond respecting blocked thesis status.
+- Scenario/alert monitoring strategy changes beyond respecting blocked thesis
+  status.
 - Evidence drilldown pages. A later version can add line-to-evidence drilldown.
 
 Definition of done:

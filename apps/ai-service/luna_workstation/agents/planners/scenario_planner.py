@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from datetime import datetime
+from typing import Any
 
 from langchain_core.messages import AIMessage
 
@@ -83,7 +84,7 @@ _SCENARIO_PLAN_JSON_KEY_RE = re.compile(
 )
 
 
-def _build_template_context(state: dict) -> dict[str, str]:
+def _build_template_context(state: dict[str, Any]) -> dict[str, str]:
     """Collect context values from state for template field validation.
 
     Gathers evidence from research reports, investment plan, PM decision,
@@ -112,7 +113,9 @@ def _build_template_context(state: dict) -> dict[str, str]:
     return ctx
 
 
-def _source_evidence_text(state: dict, research_reports: dict[str, str]) -> str:
+def _source_evidence_text(
+    state: dict[str, Any], research_reports: dict[str, str]
+) -> str:
     parts = [
         state.get("investment_plan", ""),
         state.get("final_trade_decision", ""),
@@ -270,7 +273,9 @@ def _extract_context_timeframe(*parts: str) -> str:
 
 
 def _default_scenario_sources(research_reports: dict[str, str]) -> list[str]:
-    labels = [name for name, value in research_reports.items() if str(value or "").strip()]
+    labels = [
+        name for name, value in research_reports.items() if str(value or "").strip()
+    ]
     return labels[:3]
 
 
@@ -279,7 +284,7 @@ def _enrich_scenario_plan_provenance(
     *,
     analysis_date: str,
     research_reports: dict[str, str],
-    state: dict,
+    state: dict[str, Any],
 ) -> ScenarioPlan:
     fallback_as_of = str(analysis_date or "").strip()
     fallback_timeframe = _extract_context_timeframe(
@@ -336,9 +341,11 @@ def _fallback_scenario(
     horizon: ScenarioHorizon,
     analysis_date: str,
     research_reports: dict[str, str],
-    state: dict,
+    state: dict[str, Any],
 ) -> ScenarioItem:
-    fallback_sources = _default_scenario_sources(research_reports) or ["scenario_planner"]
+    fallback_sources = _default_scenario_sources(research_reports) or [
+        "scenario_planner"
+    ]
     fallback_timeframe = _extract_context_timeframe(
         state.get("quant_signal_text", ""),
         state.get("signal_text", ""),
@@ -390,7 +397,7 @@ def _normalize_horizon_plan(
     setup_type: str,
     analysis_date: str,
     research_reports: dict[str, str],
-    state: dict,
+    state: dict[str, Any],
 ) -> ScenarioPlan:
     by_horizon: dict[ScenarioHorizon, ScenarioItem] = {}
     seen_content: set[str] = set()
@@ -428,7 +435,7 @@ def _normalize_free_text_json_plan(
     setup_type: str,
     analysis_date: str,
     research_reports: dict[str, str],
-    state: dict,
+    state: dict[str, Any],
 ) -> ScenarioPlan:
     horizon_plans = [
         ScenarioPlan(setup_type=plan.setup_type or setup_type, scenarios=[scenario])
@@ -534,7 +541,7 @@ def _validated_free_text_json_plan(
     setup_type: str,
     analysis_date: str,
     research_reports: dict[str, str],
-    state: dict,
+    state: dict[str, Any],
     source_evidence: str,
 ) -> ScenarioPlan | None:
     candidate_json = _extract_scenario_plan_json(text)
@@ -632,6 +639,8 @@ def render_scenario_reliability_digest(digest: object) -> str:
 def _compact_pct(value: object) -> str:
     if value is None:
         return "n/a"
+    if not isinstance(value, (int, float, str)):
+        return "n/a"
     try:
         return f"{float(value) * 100:.0f}%"
     except (TypeError, ValueError):
@@ -642,9 +651,7 @@ def _compact_list(value: object, *, limit: int) -> str:
     if not isinstance(value, list):
         return ""
     return "; ".join(
-        _compact_text(item)
-        for item in value[:limit]
-        if _compact_text(item)
+        _compact_text(item) for item in value[:limit] if _compact_text(item)
     )
 
 
@@ -667,7 +674,7 @@ def _date_grounding_instruction(analysis_date: str) -> str:
 def _template_field_instructions(
     setup_type: str | None,
     *,
-    validation_result: dict | None = None,
+    validation_result: dict[str, Any] | None = None,
 ) -> str:
     """Build prompt instructions for template required/optional fields.
 
@@ -913,7 +920,7 @@ field values may use the requested output language.
 SCENARIO_PLAN_JSON:
 ```json
 {{
-  "setup_type": "{effective_setup or 'agent_debate'}",
+  "setup_type": "{effective_setup or "agent_debate"}",
   "scenarios": [
     {{
       "horizon": "short_term",
@@ -931,7 +938,7 @@ SCENARIO_PLAN_JSON:
       "invalidation": "specific condition invalidating this branch",
       "risk_factors": ["risk or contradiction"],
       "suggested_action": "watch confirmation, not an exchange order",
-      "as_of": "{analysis_date or 'not recorded'}",
+      "as_of": "{analysis_date or "not recorded"}",
       "timeframe": "4H | 1D | 1W | not recorded",
       "source": ["market_report"]
     }},
@@ -951,7 +958,7 @@ SCENARIO_PLAN_JSON:
       "invalidation": "specific condition invalidating this branch",
       "risk_factors": ["risk or contradiction"],
       "suggested_action": "watch confirmation, not an exchange order",
-      "as_of": "{analysis_date or 'not recorded'}",
+      "as_of": "{analysis_date or "not recorded"}",
       "timeframe": "1D | 1W | not recorded",
       "source": ["market_report"]
     }},
@@ -971,7 +978,7 @@ SCENARIO_PLAN_JSON:
       "invalidation": "specific condition invalidating this branch",
       "risk_factors": ["risk or contradiction"],
       "suggested_action": "review thesis, not an exchange order",
-      "as_of": "{analysis_date or 'not recorded'}",
+      "as_of": "{analysis_date or "not recorded"}",
       "timeframe": "1D | 1W | not recorded",
       "source": ["market_report"]
     }}

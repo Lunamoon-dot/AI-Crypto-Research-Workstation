@@ -1,11 +1,11 @@
 # Developer roadmap
 
-Technical implementation phases (1–9), refactor priorities, and engineering timelines for contributors.
+Technical implementation phases (1â€“9), refactor priorities, and engineering timelines for contributors.
 
-**Audience:** engineers maintaining `luna_workstation/`, CLI, and tests.
+**Audience:** engineers maintaining `luna_workstation/`, API worker integration, and tests.
 
-**See also:** [Production roadmap](ROADMAP_PRODUCTION.md) · [Project hub](../ROADMAP.md)
-· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
+**See also:** [Production roadmap](ROADMAP_PRODUCTION.md) Â· [Project hub](../ROADMAP.md)
+Â· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
 
 ---
 
@@ -15,31 +15,31 @@ Technical implementation phases (1–9), refactor priorities, and engineering ti
 
 This section replaces the old branch-specific narrative. Update it when architecture changes materially.
 
-- **Product:** AI crypto **research workstation** only — no autonomous order placement; CCXT and vendors are used for **market data**, not execution adapters.
+- **Product:** AI crypto **research workstation** only â€” no autonomous order placement; CCXT and vendors are used for **market data**, not execution adapters.
 - **Graph:** `ResearchAgentsGraph` delegates run lifecycle through `ResearchRunOrchestrator`; the flow is analysts -> debate -> setup planner -> risk debate -> portfolio manager -> scenario planner -> completion; artifacts are persisted through `JournalBridge` / `JournalService`.
-- **Removed / out of core:** execution stack for orders, CLI `risk` / `backtest` groups, markdown memory log + post-trade reflection loop, assisted trade-plan builder (`graph/planning` style).
+- **Removed / out of core:** execution stack for orders, the public human command-line UI, markdown memory log + post-trade reflection loop, assisted trade-plan builder (`graph/planning` style).
 - **Config:** `signal_weights`, `signal_thresholds`, and `fixed_sizing` are **research / display knobs**, not live sizing engines.
-- **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts — parsed from graph state after each run.
-- **CLI:** Run `python -m cli.main --help` for truth; current top-level groups are `analyze`, `watchlist`, `dashboard`, `config`, `journal`, `thesis`, `signals`, `brief`, `diff`, `research`, `replay`, and `engine`.
+- **Thesis in SQLite:** `TradeThesis` is enriched with `debate_id`, supporting/contradicting signal IDs, agent opinion IDs, entry zone, invalidation level, target zones, contradictions, consensus, and evidence counts â€” parsed from graph state after each run.
+- **Engine contract:** API workers call `python -m luna_workstation.engine run --request`; human workflows live in the web/API.
 - **Tests:** the service currently has 55 Python test files. Use CI or a fresh local run for pass counts; required gates are Ruff lint, Ruff format check, mypy, compile, pytest, coverage, dependency audit, secret scan, Docker build, and SQLite smoke.
 
 Phase sections below state **intent**; partial implementations should track acceptance criteria as backlog.
 
 ---
 
-## Excellence backlog — AI Crypto Research Workstation (engineering)
+## Excellence backlog â€” AI Crypto Research Workstation (engineering)
 
 Criteria below push the product from **good** toward **best-in-class**. They extend phase acceptance criteria; not all are MVP-blocking.
 
 ### Reproducibility & research rigor
 
 - Persist **model identifiers, provider, and effective config snapshot** (or hash) on each `ResearchRun` so artifacts are explainable months later.
-- **Historical / replay** flows (Phase 9C–9D) must enforce provider-level no-lookahead rules before marketing “replay” as trustworthy.
+- **Historical / replay** flows (Phase 9Câ€“9D) must enforce provider-level no-lookahead rules before marketing â€œreplayâ€ as trustworthy.
 - **Golden fixtures** for signal adapters and aggregation edge cases (contradictions, missing data, stale bundles).
 
 ### Agents & LLM governance
 
-- **Structured output** on every agent whose output feeds thesis, debate, or journal — free text only as annotated fallback with telemetry.
+- **Structured output** on every agent whose output feeds thesis, debate, or journal â€” free text only as annotated fallback with telemetry.
 - **Refusal / insufficient data** as first-class outcomes (visible in journal), not generic filler prose.
 - **Token and latency budgets** per graph stage; optional routing of lighter models for shallow subtasks when configured.
 
@@ -204,7 +204,7 @@ OutcomeReview
 - The main graph produces a research artifact, not an order instruction.
 - All execution language is either removed or clearly marked as future assisted execution.
 - Tests still pass.
-- README and CLI copy match the research-workstation positioning.
+- README and web/API copy match the research-workstation positioning.
 
 ---
 
@@ -213,7 +213,7 @@ OutcomeReview
 Estimated time: 2-4 weeks.
 
 MVP implementation status: started. The project now has a local SQLite journal,
-repository layer, journal service, graph integration, basic CLI commands, market
+repository layer, journal service, graph integration, API/web journal surfaces, market
 snapshot persistence, signal snapshot persistence, agent-debate persistence,
 thesis timeline persistence, and outcome analytics/retrospective intelligence.
 Remaining Phase 2 work is richer journal UX.
@@ -222,7 +222,7 @@ Remaining Phase 2 work is richer journal UX.
 
 Build the product's main moat: structured decision memory.
 
-Without the journal, the app is just another AI market-analysis CLI. With the journal, it becomes a trader workflow platform.
+Without the journal, the app is just another AI market-analysis tool. With the journal, it becomes a trader workflow platform.
 
 ## Target Workflow
 
@@ -270,25 +270,13 @@ debates
 trade_theses
 user_decisions
 outcome_reviews
-watchlists
-watchlist_items
-alerts
 run_events
 ```
 
-## CLI Commands
+## Product Surface
 
-Add or evolve commands toward:
-
-```bash
-python -m cli.main research run BTC/USDT
-python -m cli.main journal list
-python -m cli.main journal show <run_id>
-python -m cli.main thesis list
-python -m cli.main thesis show <thesis_id>
-python -m cli.main thesis decide <thesis_id>
-python -m cli.main thesis review <thesis_id>
-```
+Human workflows should evolve through the web/API. Keep Python-side work focused
+on runtime services, persisted artifacts, and the machine-only engine contract.
 
 ## Persisted Data
 
@@ -439,9 +427,9 @@ research debate, setup proposal, and risk debate are adapted into typed
 `AgentOpinion` records and persisted with a `ResearchDebate` summary. Consensus
 confidence is adjusted for conflict, missing data, and stale/unknown data;
 contradictions are exposed with typed messages; trade theses include opinion
-evidence and confidence-adjustment context; and the journal CLI provides a
-workspace view for a full research run. Remaining post-MVP work is native
-structured-output prompts for every analyst and richer web/TUI workspace UX.
+evidence and confidence-adjustment context; and the web/API journal surface
+provides a workspace view for a full research run. Remaining post-MVP work is
+native structured-output prompts for every analyst and richer web workspace UX.
 
 ## Agent Roles
 
@@ -600,40 +588,32 @@ higher_timeframe_trend
 
 ---
 
-# Phase 6: Watchlists And Thesis Monitoring
+# Phase 6: Scenario And Alert Monitoring
 
-Estimated time: 3-5 weeks.
+Status: revised. The old Watchlist scope was decommissioned after the product
+direction moved toward thesis/scenario/signal-first monitoring.
 
 ## Goal
 
-Make the product useful every day.
+Make the product useful every day without maintaining a separate watchlist
+domain.
 
-## Watchlist Scope
+## Active Scope
 
-Users should be able to watch:
+- Scenario monitor rows surface conditional branch changes.
+- Thesis status, invalidation, and review state stay on thesis artifacts.
+- Signals remain inspectable as deterministic evidence.
+- Alerts are stored and read as a lightweight inbox, independent of Watchlist
+  tables or commands.
+- Workbench attention aggregates alerts, theses, scenarios, runs, and provider
+  state.
 
-- symbols;
-- specific theses;
-- setup types;
-- invalidation levels;
-- funding extremes;
-- sentiment shifts;
-- macro events.
+## Removed Scope
 
-## Alert Types
-
-```text
-price_level_crossed
-thesis_invalidated
-target_zone_reached
-signal_flipped
-funding_extreme
-sentiment_shift
-macro_event_near
-volume_confirmation
-contradiction_detected
-scenario_activated
-```
+- `Watchlist`, `WatchlistItem`, and WatchlistService.
+- Watchlist command-line workflows.
+- `/watchlists` API routes.
+- Watchlist-backed alert scheduler.
 
 ## Alert Language
 
@@ -657,449 +637,46 @@ BTC thesis update:
 
 ## Acceptance Criteria
 
-- User can add/remove watchlist symbols.
-- User can watch a thesis.
-- Thesis invalidation can trigger an alert.
-- Signal changes can trigger an alert.
-- Alerts are stored in the journal.
+- Scenario changes can appear in the monitor/workbench flow.
+- Thesis invalidation and review state remain visible without a watchlist item.
+- Signal changes can be inspected through signal surfaces.
+- Alerts are stored in the journal and can be marked read.
 
 ---
 
-# Phase 7: Terminal-First Research UX
+# Phase 7: Retired Terminal Scope
 
-Estimated time: 4-8 weeks.
+Status: decommissioned.
 
-## Goal
+The terminal-first product direction has been retired. Do not add new human
+commands, Typer groups, Rich terminal screens, or command taxonomy aliases. Human
+research, journal, thesis, signal, scenario, alert, and evaluation workflows live
+in the web/API surface.
 
-Build a serious terminal research workspace before building a web app.
-
-The terminal should become the product's first real UI:
-
-```text
-run research -> inspect workspace -> manage thesis lifecycle -> monitor watchlist -> review outcomes
-```
-
-This is not a generic dashboard and not an execution console. It is a local-first
-research cockpit for reading evidence, preserving decisions, and reviewing thesis
-quality over time.
-
-## UX Principles
-
-- Terminal first, web later.
-- Evidence before opinion.
-- IDs are always visible so the next command is obvious.
-- Freshness, source, and timestamp are visible wherever data can become stale.
-- Lists use tables; entities use panels; lifecycles use timelines.
-- Default output is Rich and human-readable; later add `--json` and `--plain` for scripts.
-- Language must say `review`, `watch`, `reassess`, or `stand aside`, never `buy now` or `sell now`.
-- Read-only views must not fetch live provider data unless the command explicitly says so.
-
-## Current CLI Surface
-
-The current command tree should be documented and improved before adding a new UI:
+Keep only the machine-oriented engine contract for API workers:
 
 ```bash
-lunacrypto
-lunacrypto research run
-
-lunacrypto journal path
-lunacrypto journal list
-lunacrypto journal show <run_id>
-lunacrypto journal workspace <run_id>
-lunacrypto journal timeline <run_id>
-lunacrypto journal market-snapshot <snapshot_id>
-lunacrypto journal signal-snapshot <snapshot_id>
-lunacrypto journal debate <debate_id>
-lunacrypto journal outcomes
-lunacrypto journal retrospective
-
-lunacrypto thesis list
-lunacrypto thesis show <thesis_id>
-lunacrypto thesis scenarios <thesis_id>
-lunacrypto thesis timeline <thesis_id>
-lunacrypto thesis decide <thesis_id>
-lunacrypto thesis review <thesis_id>
-
-lunacrypto signals list
-lunacrypto signals latest ETH/USDT
-lunacrypto signals snapshot <run_id>
-lunacrypto signals explain <signal_id>
-
-lunacrypto watchlist add-symbol BTC/USDT
-lunacrypto watchlist add-thesis <thesis_id>
-lunacrypto watchlist list
-lunacrypto watchlist brief
-lunacrypto watchlist check
-lunacrypto watchlist alerts
-
-lunacrypto dashboard
-lunacrypto config ...
-lunacrypto brief ...
-
-# Historical thesis evaluation CLI may ship under `evaluate` / journal flows — check Typer tree.
-# `risk` and `backtest` command groups are intentionally absent from the research workstation core.
+python -m luna_workstation.engine run --request request.json
+python -m luna_workstation.engine evaluate --request evaluation-request.json
+python -m luna_workstation.engine schema
 ```
 
-The `dashboard` command is only a placeholder until the terminal workflows are
-stable.
-
-## Target Command Taxonomy
-
-Do not destructively rename existing commands. In the medium term, add a
-`research` namespace as aliases over the existing command groups:
-
-```bash
-lunacrypto research run BTC/USDT
-lunacrypto research workspace <run_id>
-lunacrypto research brief
-lunacrypto research journal
-lunacrypto research thesis list
-lunacrypto research thesis show <thesis_id>
-lunacrypto research watchlist brief
-lunacrypto research signals BTC/USDT
-```
-
-The alias layer is for UX coherence only. The service layer and persistence
-model should remain shared with `journal`, `thesis`, `signals`, and `watchlist`.
-
-## Standard Terminal Workflows
-
-### First-Run Setup
-
-```bash
-lunacrypto config list
-lunacrypto config show <profile>
-lunacrypto journal path
-```
-
-The user should immediately know:
-
-- which config profile is active;
-- where the SQLite journal lives;
-- which optional providers are disabled;
-- whether the product is in research-only mode.
-
-### Deep Research Workflow
-
-```bash
-lunacrypto research run
-lunacrypto journal list
-lunacrypto journal workspace <run_id>
-```
-
-The interactive run remains the default beginner flow. A later non-interactive
-flow should support:
-
-```bash
-lunacrypto research run BTC/USDT --date 2026-05-08 --profile default --yes
-```
-
-That command should produce the same persisted run, thesis, signals, scenarios,
-debate, and timeline as the interactive flow.
-
-### Workspace Inspection Workflow
-
-```bash
-lunacrypto journal workspace <run_id>
-lunacrypto signals snapshot <run_id>
-lunacrypto signals explain <signal_id>
-lunacrypto journal debate <debate_id>
-lunacrypto journal timeline <run_id>
-```
-
-The workspace view is the main post-run screen. It should show:
-
-- run status and IDs;
-- market and signal snapshot IDs;
-- consensus, confidence, and conflict;
-- supporting and contradicting evidence;
-- thesis summary, invalidation, target zones;
-- scenarios and timeline events.
-
-### Thesis Lifecycle Workflow
-
-```bash
-lunacrypto thesis list
-lunacrypto thesis show <thesis_id>
-lunacrypto thesis scenarios <thesis_id>
-lunacrypto thesis decide <thesis_id>
-lunacrypto thesis timeline <thesis_id>
-lunacrypto thesis review <thesis_id>
-```
-
-The thesis detail screen should make the next action obvious:
-
-```text
-Thesis: thesis_abc123
-Symbol: BTC/USDT
-Direction: watch
-Confidence: 64%
-Setup: breakout_confirmation
-
-Evidence:
-- Support: trend signal, market analyst, volume context
-- Contradiction: funding elevated, sentiment crowded
-
-Invalidation:
-- Lose 103800
-
-Next useful commands:
-- lunacrypto thesis decide thesis_abc123
-- lunacrypto watchlist add-thesis thesis_abc123
-- lunacrypto thesis review thesis_abc123
-```
-
-### Daily Monitoring Workflow
-
-```bash
-lunacrypto watchlist brief
-lunacrypto watchlist check
-lunacrypto watchlist alerts
-```
-
-`watchlist brief` is the daily home screen. It should summarize:
-
-- active watched theses;
-- symbol-only watches;
-- recent alerts;
-- saved scenarios;
-- scenario activation history;
-- latest persisted market snapshot when available.
-
-`watchlist check` is an explicit one-shot monitoring command. It may create
-alerts. `watchlist brief` should remain read-only by default.
-
-### Retrospective Workflow
-
-```bash
-lunacrypto journal outcomes
-lunacrypto journal retrospective
-```
-
-The retrospective view should answer:
-
-- which theses worked;
-- which invalidated early;
-- whether MFE/MAE patterns are improving;
-- which lessons should inform future research.
-
-### Historical Thesis Evaluation Workflow
-
-```bash
-lunacrypto research evaluate thesis <thesis_id>
-```
-
-This is historical thesis evaluation, not broker-accurate backtesting. Do not
-show fake PnL, Sharpe, or execution metrics unless a real simulator exists.
-
-## Terminal Screen Templates
-
-### Research Run Completion
-
-```text
-Research Run Complete
-
-Run ID: run_abc123
-Symbol: BTC/USDT
-Status: completed
-Market Snapshot: market_snapshot_123
-Signal Snapshot: signal_snapshot_456
-Debate: debate_789
-Thesis: thesis_def456
-
-Consensus: mild_bullish
-Conflict: high
-Freshness: ok
-
-Next:
-- lunacrypto journal workspace run_abc123
-- lunacrypto thesis show thesis_def456
-- lunacrypto watchlist add-thesis thesis_def456
-```
-
-### Journal Workspace
-
-```text
-BTC/USDT Research Workspace
-
-Regime: Bullish but crowded
-Consensus: Mild bullish
-Conflict: High
-Freshness: OK
-
-Supporting:
-- Higher-timeframe trend intact
-- Spot volume improving
-
-Contradicting:
-- Funding elevated
-- Sentiment crowded
-
-Thesis:
-Watch for reclaim of 110k. Avoid chasing if funding expands further.
-
-Invalidation:
-103.8k
-
-Scenarios:
-- If reclaim holds with volume, continuation becomes more likely.
-- If funding rises while price stalls, squeeze risk increases.
-```
-
-### Watchlist Brief
-
-```text
-Watchlist Brief
-
-Active Theses:
-- BTC/USDT thesis_def456 | watch | confidence 64%
-- ETH/USDT thesis_aaa111 | short | confidence 58%
-
-Recent Alerts:
-- BTC scenario activated: price reclaimed 110k. Review thesis_def456.
-- ETH invalidation level reached. Review thesis_aaa111.
-
-Symbol-only Watches:
-- SOL/USDT | no thesis-backed monitoring rule yet
-```
-
-### Thesis Timeline
-
-```text
-Created
--> User marked as watch
--> Scenario activated
--> Signal conflict increased
--> Target reached or invalidation hit
--> Outcome reviewed
-```
-
-### Outcome Retrospective
-
-```text
-Outcome Retrospective
-
-Sample Size: 24
-Hit Rate: 46%
-Invalidation Rate: 29%
-Average MFE: 8.2%
-Average MAE: -3.6%
-
-Lessons:
-- Long theses perform worse when funding is already crowded.
-- Waiting for volume confirmation reduced adverse excursion.
-```
-
-## Build Order
-
-1. Normalize CLI copy and help text toward crypto research workstation language.
-2. Make `journal workspace` and `watchlist brief` the two primary terminal home screens.
-3. Add non-interactive research run flags after the interactive flow is stable.
-4. Add `--json` and `--plain` output modes for core read commands.
-5. Add optional `research` namespace aliases without removing existing commands.
-6. Revisit TUI/local web app only after the terminal workflows are excellent.
-
-## Medium-Term UX: Local Web App
-
-Recommended views:
-
-```text
-Research Console
-Decision Journal
-Thesis Timeline
-Signal Explorer
-Watchlists
-Market Brief
-Settings
-```
-
-The UX should feel closer to:
-
-- Obsidian for journal/thesis memory;
-- Cursor for research workspace;
-- Bloomberg-lite for market context.
-
-It should not feel like a marketing landing page or generic analytics dashboard.
-
-## Acceptance Criteria
-
-- A new user can complete setup, research, journal inspection, thesis decision, watchlist monitoring, and outcome review from the terminal.
-- `journal workspace` shows the whole research artifact without opening generated report files.
-- `watchlist brief` gives a useful daily view without mutating state.
-- `watchlist check` is explicit when it can create alerts.
-- Every screen shows IDs needed for likely next commands.
-- Freshness/source timestamps are visible when showing snapshots, signals, or scenario evaluation from persisted data.
-- Contradictions and missing data are visually obvious.
-- CLI copy stays focused on research, review, and journal artifacts.
-- Historical evaluation is labeled as thesis evaluation, not broker backtesting.
+Acceptance criteria for future work in this area:
+
+- Runtime services remain callable from API workers without a public console script.
+- Docs and tests do not introduce retired command-line product flows.
+- Web/API contracts, not terminal commands, define user-facing behavior.
 
 ---
+# Phase 8: Retired Daily Brief Scope
 
-# Phase 8: Morning Brief And Market Brief
+Status: decommissioned.
 
-Estimated time: 2-4 weeks.
-
-## Goal
-
-Create a high-value daily workflow that can become a paid feature.
-
-The terminal version should build on Phase 7 instead of inventing a separate
-surface. `watchlist brief` is the local daily home screen; the later market brief
-should extend it with market-wide context, active thesis updates, and prior-brief
-memory.
-
-## Daily Brief Contents
-
-```text
-Market regime
-BTC/ETH/SOL key levels
-Funding extremes
-Open interest changes
-News drivers
-Macro calendar
-Sentiment shifts
-Watchlist changes
-Active thesis updates
-Top setups
-Top risks
-```
-
-Example:
-
-```text
-Market Brief - 2026-05-08
-
-Regime:
-Risk-on but crowded perps.
-
-BTC:
-- Key resistance: 110k
-- Support: 103.8k
-- Funding: elevated
-- Thesis status: watch confirmation
-
-Risks:
-- CPI event in 9h
-- Long positioning crowded
-```
-
-## Brief Memory
-
-The brief must remember previous briefs.
-
-Example:
-
-```text
-Yesterday: BTC needed reclaim 110k.
-Today: BTC failed reclaim and funding rose. Bullish thesis confidence reduced.
-```
-
-## Acceptance Criteria
-
-- Brief references active theses and watchlists.
-- Brief can compare today's state with previous state.
-- Brief is structured and scannable.
-- Brief does not generate trade commands.
+Daily Brief and MarketBrief persistence/API/UI surfaces are no longer part of
+the active product direction. Do not build new Brief commands, `/briefs/daily`,
+or `MarketBrief` functionality from this roadmap. Daily review
+should be composed from current thesis, scenario, signal, alert, run, and
+provider-state artifacts.
 
 ---
 
@@ -1112,8 +689,7 @@ Estimated time: 3-6 weeks.
 Evaluate thesis quality without pretending to run a broker-accurate backtest.
 
 MVP implementation status: started. The core local evaluator now scores saved
-journal theses over a forward OHLCV window, persists `ThesisEvaluation` records,
-and exposes CLI commands for one-thesis, batch, and saved-result inspection. This
+journal theses over a forward OHLCV window and persists `ThesisEvaluation` records. This
 MVP deliberately evaluates theses that already exist in the journal; it does not
 yet replay full historical research or enforce provider-level no-lookahead
 contracts.
@@ -1265,7 +841,7 @@ Do next:
 - add repositories;
 - persist research runs;
 - persist theses and user decisions;
-- add journal CLI.
+- expose journal state through the API/web surface.
 
 Result:
 
@@ -1305,12 +881,12 @@ Result:
 - agent behavior becomes comparable over time;
 - thesis generation becomes more stable.
 
-## Priority 5: Watchlist And Thesis Lifecycle
+## Priority 5: Thesis Lifecycle And Monitoring
 
 Do next:
 
-- watch symbols;
-- watch theses;
+- surface scenario changes;
+- keep thesis decisions and review state current;
 - track invalidation;
 - track target zones;
 - review outcomes.
@@ -1331,7 +907,7 @@ Deliverables:
 - domain models;
 - service layer skeleton;
 - SQLite journal;
-- journal CLI commands;
+- journal API/web workflows;
 - remaining execution-language cleanup;
 - stable tests.
 
@@ -1366,7 +942,6 @@ Deliverables:
 - thesis timeline;
 - user decision capture;
 - outcome review;
-- thesis watch mode;
 - local alerts.
 
 Outcome:
@@ -1375,12 +950,10 @@ Outcome:
 The app becomes useful as a daily trader workflow.
 ```
 
-## Month 4: Brief And UX
+## Month 4: UX
 
 Deliverables:
 
-- morning brief;
-- watchlist summaries;
 - research console;
 - journal browser;
 - thesis detail view;
@@ -1482,8 +1055,8 @@ ResearchRun domain
 -> signal provenance
 -> structured agent opinions
 -> contradiction detector
--> thesis watchlist
--> market brief
+-> scenario monitor
+-> alert inbox
 ```
 
 This path gives the project a realistic chance to become a useful product, reduce legal and technical risk, and build a monetizable workflow around structured trading research.

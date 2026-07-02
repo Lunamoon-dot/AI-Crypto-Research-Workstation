@@ -21,8 +21,8 @@
 ### Manual checks
 
 ```bash
-# Check the last N events in the journal
-lunacrypto journal timeline --limit 20
+# Check recent journal events directly
+python -c "import os, sqlite3; path=os.environ.get('TRADINGAGENTS_JOURNAL_DB', os.path.expanduser('~/.luna_workstation/cache/research_journal.sqlite')); c=sqlite3.connect(path); print(c.execute('SELECT event_type, created_at FROM run_events ORDER BY created_at DESC LIMIT 20').fetchall())"
 
 # Run a targeted health check
 python -c "
@@ -104,15 +104,10 @@ timeout_sec = 40.0   # increase from default 20
 retries = 3           # increase from default 2
 ```
 
-### Checkpoint resume
+### Interrupted runs
 
-If a run was interrupted:
-
-```bash
-lunacrypto research run BTC/USDT --checkpoint --yes --plain
-```
-
-The graph resumes from the last successful node.
+If a run was interrupted, retry it from the web/API job flow after the provider
+recovers. Do not reintroduce a human command-line resume path.
 
 ---
 
@@ -125,20 +120,14 @@ After the provider is restored:
    python scripts/smoke_structured_output.py
    ```
 
-2. Check recent run events:
-   ```bash
-   lunacrypto journal timeline --limit 5
-   ```
+2. Check recent run events through the web/API operations view or direct journal
+   inspection.
 
 3. Verify circuit breakers are closed:
    - No `circuit_opened` events in the last `circuit_breaker_window_sec` seconds.
    - `LLMOrchestrator.is_circuit_open(provider)` returns `False`.
 
-4. For data providers, verify freshness:
-   ```bash
-   lunacrypto signals BTC/USDT
-   ```
-   - Check that `stale_count` is 0.
+4. For data providers, verify signal freshness through the Signals UI/API.
 
 ---
 

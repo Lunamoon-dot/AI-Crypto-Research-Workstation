@@ -311,7 +311,7 @@ Current repo facts:
 
 - V1 already added `ThesisEvaluation` persistence and idempotent single-thesis
   evaluation.
-- V1 already added `lunacrypto engine evaluate --request`.
+- V1 already added `python -m luna_workstation.engine evaluate --request`.
 - V1 already added `/calibration`, evaluation history/detail, and manual outcome
   review recording.
 - Existing dirty worktree changes may exist. Preserve unrelated changes.

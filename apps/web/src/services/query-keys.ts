@@ -107,17 +107,12 @@ export const queryKeys = {
   signalsCountRoot: () => scopedResource('signals-count'),
   signalsCount: (filters: Record<string, unknown>) =>
     scopedFilters('signals-count', filters),
-  watchlistsRoot: () => scopedResource('watchlists'),
-  watchlists: (filters: Record<string, unknown>) =>
-    scopedFilters('watchlists', filters),
-  watchlistItems: (id: string) =>
-    ['watchlist-items', queryIdentity(), id] as const,
-  dailyBriefsRoot: () => scopedResource('daily-briefs'),
-  dailyBriefs: (filters: Record<string, unknown>) =>
-    scopedFilters('daily-briefs', filters),
+  signalEvaluationReports: (filters: Record<string, unknown>) =>
+    scopedFilters('signal-evaluation-reports', filters),
+  signalModelMonitoringLatest: () =>
+    scopedResource('signal-model-monitoring-latest'),
   alertsRoot: () => scopedResource('alerts'),
   alerts: (filters: Record<string, unknown>) => scopedFilters('alerts', filters),
-  alertScheduler: () => scopedResource('alert-scheduler'),
   operationsHealth: (filters: Record<string, unknown>) =>
     scopedFilters('operations-health', filters),
 };

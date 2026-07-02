@@ -76,7 +76,7 @@ official outcome review only after seeing the result.
 - No export in V1.
 - No delete endpoint in V1.
 - Use a separate `CalibrationModule`.
-- Add a new Python engine JSON command: `lunacrypto engine evaluate --request`.
+- Add a new Python engine JSON command: `python -m luna_workstation.engine evaluate --request`.
 - Python returns JSON evaluation results; NestJS persists product-state rows.
 - NestJS creates `OutcomeReview`, not Python.
 - `POST /calibration/evaluations/thesis` does not accept `record_review`.
@@ -138,8 +138,7 @@ apps/api/test/api-contract.test.ts
 apps/ai-service/luna_workstation/domain/evaluation.py
 apps/ai-service/luna_workstation/services/evaluation_service.py
 apps/ai-service/luna_workstation/engine/schemas.py
-apps/ai-service/cli/main.py
-apps/ai-service/cli/evaluate_cmd.py
+apps/ai-service/luna_workstation/engine/entrypoint.py
 apps/ai-service/tests/test_evaluation_window_guard.py
 apps/ai-service/tests/test_evaluation_aggregation.py
 
@@ -170,7 +169,7 @@ apps/api/src/contracts/openapi.generated.ts
 apps/api/test/api-contract.test.ts
 
 apps/ai-service/luna_workstation/engine/schemas.py
-apps/ai-service/cli/main.py
+apps/ai-service/luna_workstation/engine/entrypoint.py
 apps/ai-service/tests/test_evaluation_window_guard.py
 
 apps/web/src/pages/CalibrationLabPage.tsx
@@ -360,7 +359,7 @@ Rules:
 Add stable command:
 
 ```text
-lunacrypto engine evaluate --request request.json
+python -m luna_workstation.engine evaluate --request request.json
 ```
 
 Engine request:
@@ -391,8 +390,8 @@ Engine result:
 }
 ```
 
-Do not use terminal-formatted CLI output for the API. Keep this as a machine
-JSON contract.
+Do not use terminal-formatted output for the API. Keep this as a machine JSON
+contract.
 
 ## Web UX
 
@@ -445,7 +444,7 @@ Copy rules:
 - [ ] Add frontend contract DTOs/mappers for calibration evaluations.
 - [ ] Add OpenAPI entries if following the repo's generated contract pattern.
 - [ ] Add Python engine evaluate request/result schemas.
-- [ ] Add `lunacrypto engine evaluate --request` command.
+- [ ] Add `python -m luna_workstation.engine evaluate --request` command.
 - [ ] Add `PythonEngineClient.evaluateThesis`.
 - [ ] Add `CalibrationModule`, controller, service, and DTOs.
 - [ ] Implement idempotent evaluation upsert.

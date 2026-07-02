@@ -57,6 +57,8 @@ neutral `8%` or `60%` look like a future probability when it is not.
 - [V2 Immutable Signal Observations](v2/implementation-plan.md)
 - [V3 Multi-Horizon Outcome Labeler](v3/implementation-plan.md)
 - [V4 Walk-Forward Metrics And OOS Reports](v4/implementation-plan.md)
+- [V5 Learned Weights And Probability Calibration](v5/implementation-plan.md)
+- [V6 Production Monitoring And Rollback](v6/implementation-plan.md)
 
 ## Roadmap
 
@@ -68,6 +70,25 @@ V4  Walk-forward metrics, ECE, Brier, log loss, and report snapshots.
 V5  Learned weights and calibrated probability shadow deployment.
 V6  Production drift, provider degradation, parse-failure alerts, rollback.
 ```
+
+## Full Implementation Order
+
+If implementing the full feature in one branch, keep the runtime gates in this
+order:
+
+```text
+1. V2 writes immutable observations without changing signal decisions.
+2. V3 labels matured observations without changing signal decisions.
+3. V4 reports OOS metrics without changing signal decisions.
+4. V5 trains and shadows candidate weights/calibrators.
+5. V5 promotes only when OOS gates pass.
+6. V6 monitors promoted versions and can roll back to the last approved
+   version.
+```
+
+Do not let later versions silently backfill missing earlier evidence. If V2/V3
+data is insufficient, V4-V6 should report `insufficient_data` rather than
+manufacturing metrics.
 
 ## First Code Areas To Inspect
 

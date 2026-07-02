@@ -553,8 +553,8 @@ node --test ..\..\dist\apps\api\test\api-contract.test.js
 tsc -p apps/web/tsconfig.json --noEmit
 node --test --experimental-strip-types --experimental-default-type=module test/scenario-monitor-layout.test.ts test/thesis-detail-layout.test.ts
 node scripts/python.cjs -m pytest tests/test_structured_agents.py tests/test_journal_bridge_scenarios.py
-node scripts/python.cjs -m compileall luna_workstation cli
-node scripts/python.cjs -m mypy luna_workstation cli
+node scripts/python.cjs -m compileall luna_workstation
+node scripts/python.cjs -m mypy luna_workstation
 ```
 
 ### Definition Of Done

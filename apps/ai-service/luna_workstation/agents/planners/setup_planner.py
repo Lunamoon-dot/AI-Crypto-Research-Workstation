@@ -75,7 +75,12 @@ def create_setup_planner(llm, config=None):
                     "Return a research setup proposal with market_type, action as a setup "
                     "stance, reasoning, entry_zone as the manual review zone, "
                     "confirmation_condition as the condition that validates the setup, "
-                    "invalidation, target_zones as objective zones, position_sizing as "
+                    "invalidation, profit_targets for upside/profit-taking levels, "
+                    "downside_objectives for lower support or bearish objectives, "
+                    "accumulation_zones for manual spot DCA/deep review levels, "
+                    "indicator_thresholds for non-price RSI/funding/OI/Long-Short "
+                    "levels, target_zones only for legacy unclassified objective zones, "
+                    "position_sizing as "
                     "conviction context, spot_notes or perp_notes, and missing_data where "
                     "relevant."
                 ),

@@ -59,7 +59,7 @@ The app shell redirects `/` to `/workbench` and currently includes:
 
 | Route | Purpose |
 | --- | --- |
-| `/workbench` | Daily command center for briefs, alerts, theses, signals, watchlists, and recent runs |
+| `/workbench` | Daily command center for alerts, theses, signals, scenarios, and recent runs |
 | `/research/new` | Research run launcher |
 | `/research/history` | Research run list/history |
 | `/research/runs/:id` | Research workspace with status, timeline, snapshots, debate, thesis, artifacts, and workflow visualization |
@@ -68,8 +68,6 @@ The app shell redirects `/` to `/workbench` and currently includes:
 | `/signals` and `/signals/:id` | Signal explorer and detail view |
 | `/scenarios` | Scenario monitor |
 | `/alerts` | Alert inbox and mark-read workflow |
-| `/watchlists` | Watchlist management |
-| `/briefs/daily` | Daily brief archive |
 | `/operations` | Provider, model, freshness, and operations surface |
 | `/settings` | Local auth/API mode and workspace settings |
 | `/performance` | Outcome and reliability analytics surface |

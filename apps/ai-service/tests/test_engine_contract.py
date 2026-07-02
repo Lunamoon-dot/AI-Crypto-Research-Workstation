@@ -1,8 +1,8 @@
+import importlib
+import json
+from pathlib import Path
 from typing import Any
 
-from typer.testing import CliRunner
-
-from cli import main as cli_main
 from luna_workstation.engine import (
     EngineEvaluateRequest,
     EngineEvaluateResult,
@@ -14,6 +14,27 @@ from luna_workstation.engine.runner import run_evaluate_request
 from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
 from luna_workstation.services.evaluation_service import EvaluationService
 from luna_workstation.services import JournalService
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+    import tomli as tomllib
+
+
+def test_ai_service_does_not_publish_human_console_script():
+    metadata = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    scripts = metadata.get("project", {}).get("scripts", {})
+
+    assert "lunacrypto" not in scripts
+
+
+def test_engine_module_entrypoint_is_importable():
+    module = importlib.import_module("luna_workstation.engine.entrypoint")
+
+    assert callable(module.main)
 
 
 def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
@@ -315,12 +336,15 @@ def test_engine_evaluate_binds_dataflow_config_context(tmp_path, monkeypatch):
     assert result.evaluation["result"] == "hit_target"
 
 
-def test_engine_cli_evaluate_emits_machine_json(tmp_path, monkeypatch):
+def test_engine_entrypoint_evaluate_emits_machine_json(tmp_path, monkeypatch, capsys):
+    from luna_workstation.engine import entrypoint as engine_entrypoint
+
     request_path = tmp_path / "request.json"
     request_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
-        "luna_workstation.engine.run_evaluate_request_file",
+        engine_entrypoint.engine,
+        "run_evaluate_request_file",
         lambda _path: EngineEvaluateResult(
             workspace_id="workspace_1",
             thesis_id="thesis_1",
@@ -331,22 +355,25 @@ def test_engine_cli_evaluate_emits_machine_json(tmp_path, monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(
-        cli_main.app,
-        ["engine", "evaluate", "--request", str(request_path)],
-    )
+    exit_code = engine_entrypoint.main(["evaluate", "--request", str(request_path)])
+    payload = json.loads(capsys.readouterr().out)
 
-    assert result.exit_code == 0
-    assert '"status": "completed"' in result.output
-    assert '"evaluation_id": "evaluation_1"' in result.output
+    assert exit_code == 0
+    assert payload["status"] == "completed"
+    assert payload["evaluation_id"] == "evaluation_1"
 
 
-def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):
+def test_engine_entrypoint_treats_completed_degraded_as_success(
+    tmp_path, monkeypatch, capsys
+):
+    from luna_workstation.engine import entrypoint as engine_entrypoint
+
     request_path = tmp_path / "request.json"
     request_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(
-        "luna_workstation.engine.run_engine_request_file",
+        engine_entrypoint.engine,
+        "run_engine_request_file",
         lambda _path: EngineRunResult(
             run_id="run_degraded",
             workspace_id="workspace_1",
@@ -355,13 +382,11 @@ def test_engine_cli_treats_completed_degraded_as_success(tmp_path, monkeypatch):
         ),
     )
 
-    result = CliRunner().invoke(
-        cli_main.app,
-        ["engine", "run", "--request", str(request_path)],
-    )
+    exit_code = engine_entrypoint.main(["run", "--request", str(request_path)])
+    payload = json.loads(capsys.readouterr().out)
 
-    assert result.exit_code == 0
-    assert "completed_degraded" in result.output
+    assert exit_code == 0
+    assert payload["status"] == "completed_degraded"
 
 
 def test_engine_runner_failed_research_persists_failed_status_and_event(tmp_path):
@@ -425,7 +450,7 @@ class _StaticConfigLoader:
 class _CapturingConfigLoader:
     def load(self, **kwargs):
         config = {"journal": {"enabled": False}}
-        config.update(kwargs["cli_overrides"])
+        config.update(kwargs["runtime_overrides"])
         return config
 
 

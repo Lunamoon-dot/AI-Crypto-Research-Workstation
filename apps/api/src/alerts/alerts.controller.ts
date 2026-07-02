@@ -1,30 +1,10 @@
 import { Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
-import { WatchlistsService } from '../watchlists/watchlists.service';
 import { AlertsService } from './alerts.service';
 
 @Controller('alerts')
 export class AlertsController {
-  constructor(
-    private readonly alerts: AlertsService,
-    private readonly watchlists: WatchlistsService,
-  ) {}
-
-  @Get('scheduler')
-  schedulerStatus(
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-workspace-id') workspaceId?: string,
-  ) {
-    return this.watchlists.schedulerStatus(userId, workspaceId);
-  }
-
-  @Post('scheduler/run')
-  runScheduler(
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-workspace-id') workspaceId?: string,
-  ) {
-    return this.watchlists.runWorkspaceAlertPoll(userId, workspaceId);
-  }
+  constructor(private readonly alerts: AlertsService) {}
 
   @Get()
   list(

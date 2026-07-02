@@ -27,9 +27,9 @@ repository reads/writes when `DATABASE_URL` is configured.
    `pnpm db:migrate`.
 4. Export SQLite rows table-by-table, preserving IDs.
 5. Load JSON payload columns as `jsonb`.
-6. Validate row counts for research runs, theses, signals, watchlists, briefs,
-   run events, LLM calls, provider health, and freshness checks.
-7. Run a Python worker smoke job with `lunacrypto engine run --request`.
+6. Validate row counts for research runs, theses, scenarios, signals, run
+   events, LLM calls, provider health, and freshness checks.
+7. Run a Python worker smoke job with `python -m luna_workstation.engine run --request`.
 8. Export/sync the produced SQLite rows into Postgres until a worker
    persistence adapter writes Postgres directly.
 9. Read that run through `GET /research-runs/:id` and

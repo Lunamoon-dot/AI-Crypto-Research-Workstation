@@ -8,7 +8,7 @@ import pytest
 hypothesis = pytest.importorskip("hypothesis")
 st = pytest.importorskip("hypothesis.strategies")
 
-from cli.config_cmd import _write_toml_section
+from luna_workstation.config.toml_writer import write_toml_section
 from luna_workstation.utils.collections import dedupe, deep_merge
 from luna_workstation.utils.numbers import extract_numbers
 
@@ -31,7 +31,7 @@ scalar = st.one_of(
 @hypothesis.given(st.dictionaries(simple_key, scalar, max_size=8))
 def test_toml_writer_round_trips_scalar_dicts(data):
     lines = []
-    _write_toml_section(lines, data, 0)
+    write_toml_section(lines, data)
     parsed = tomllib.loads("\n".join(lines) + "\n")
 
     for key, value in data.items():

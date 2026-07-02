@@ -29,7 +29,7 @@ Required behavior:
 - Validation issues, degradation reasons, and blocked reasons are persisted in
   the thesis artifact and exposed through API responses.
 - Existing historical theses and legacy rows remain readable.
-- Existing watchlist, research run, thesis detail, and calibration consumers do
+- Existing research run, thesis detail, scenario/alert, and calibration consumers do
   not break.
 - Focused tests cover structured-output success, free-text fallback, missing
   critical fields, rating/direction conflict, stale/missing data, and API/UI
@@ -350,8 +350,8 @@ Explicitly do not:
 - add a second LLM judge to validate the first LLM;
 - migrate all historical data;
 - change Calibration semantics;
-- change watchlist trigger behavior except where blocked thesis safety requires
-  it;
+- change scenario/alert monitoring behavior except where blocked thesis safety
+  requires it;
 - redesign the full thesis detail page.
 
 ## Validation Loop

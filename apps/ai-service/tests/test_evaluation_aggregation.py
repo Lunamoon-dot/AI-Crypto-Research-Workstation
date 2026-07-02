@@ -35,6 +35,8 @@ def _make_evaluation(
     result: OutcomeResult = OutcomeResult.HIT_TARGET,
     mfe: float | None = 0.05,
     mae: float | None = -0.02,
+    start_price: float | None = None,
+    end_price: float | None = None,
 ) -> ThesisEvaluation:
     return ThesisEvaluation(
         id=f"e_{thesis_id}",
@@ -44,6 +46,8 @@ def _make_evaluation(
         evaluation_end=date(2025, 1, 14),
         window_days=14,
         result=result,
+        start_price=start_price,
+        end_price=end_price,
         max_favorable_excursion=mfe,
         max_adverse_excursion=mae,
     )
@@ -269,6 +273,52 @@ class TestBuildFactorReliability:
         assert momentum.sample_size == 3
         assert momentum.strong_signal_hit_rate == pytest.approx(2 / 3)
 
+    def test_short_directional_accuracy_uses_signed_forward_return(self):
+        evals = [
+            _make_evaluation(
+                "short_gain",
+                start_price=100.0,
+                end_price=95.0,
+            ),
+            _make_evaluation(
+                "short_loss",
+                start_price=100.0,
+                end_price=105.0,
+            ),
+        ]
+        theses = {
+            "short_gain": _make_thesis(
+                "short_gain",
+                direction=ThesisDirection.SHORT,
+                signal_ids=["s_momentum"],
+            ),
+            "short_loss": _make_thesis(
+                "short_loss",
+                direction=ThesisDirection.SHORT,
+                signal_ids=["s_momentum"],
+            ),
+        }
+        signal = Signal(
+            id="s_momentum",
+            symbol="BTC/USDT",
+            signal_type="momentum",
+            direction=SignalDirection.BEARISH,
+            provenance=SignalProvenance(source="test"),
+        )
+
+        svc = EvaluationService()
+        with patch.object(svc, "list_evaluations", return_value=evals):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value=theses):
+                with patch.object(
+                    svc.repo,
+                    "get_signals_by_ids",
+                    return_value={"s_momentum": signal},
+                ):
+                    report = svc.build_factor_reliability()
+
+        momentum = next(f for f in report.factors if f.factor_name == "momentum")
+        assert momentum.directional_accuracy == pytest.approx(0.5)
+
 
 # ---------------------------------------------------------------------------
 # build_agent_calibration
@@ -444,6 +494,37 @@ class TestBuildConfidenceCurve:
                 curve = svc.build_confidence_curve()
                 for bucket in curve.buckets:
                     assert bucket.sample_size == 0
+
+    def test_curve_uses_bucket_mean_absolute_ece_and_brier(self):
+        evals = [
+            _make_evaluation("hit_low", result=OutcomeResult.HIT_TARGET),
+            _make_evaluation("hit_high", result=OutcomeResult.HIT_TARGET),
+            _make_evaluation("miss", result=OutcomeResult.INVALIDATED),
+        ]
+        theses = {
+            "hit_low": _make_thesis("hit_low", confidence=0.71),
+            "hit_high": _make_thesis("hit_high", confidence=0.79),
+            "miss": _make_thesis("miss", confidence=0.9),
+        }
+
+        svc = EvaluationService()
+        with patch.object(svc, "list_evaluations", return_value=evals):
+            with patch.object(svc.repo, "get_theses_by_ids", return_value=theses):
+                curve = svc.build_confidence_curve()
+
+        bucket_70 = next(b for b in curve.buckets if b.bucket_label == "0.70-0.79")
+        bucket_90 = next(b for b in curve.buckets if b.bucket_label == "0.90-1.00")
+
+        assert bucket_70.expected_rate == pytest.approx(0.75)
+        assert bucket_70.calibration_error == pytest.approx(0.25)
+        assert bucket_90.expected_rate == pytest.approx(0.9)
+        assert bucket_90.calibration_error == pytest.approx(0.9)
+        assert curve.overall_calibration_error == pytest.approx(
+            (2 / 3) * 0.25 + (1 / 3) * 0.9
+        )
+        assert curve.brier_score == pytest.approx(
+            (((0.71 - 1.0) ** 2) + ((0.79 - 1.0) ** 2) + ((0.9 - 0.0) ** 2)) / 3
+        )
 
 
 # ---------------------------------------------------------------------------

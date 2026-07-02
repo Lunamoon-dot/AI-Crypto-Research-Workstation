@@ -154,10 +154,3 @@ persist_snapshot_health = true
 data_provider_call_sample_rate = 1.0
 opentelemetry_enabled = false
 service_name = "lunacrypto"
-
-[cli_logging]
-message_preview_chars = 512
-max_report_section_chars = 20000
-max_log_bytes = 1048576
-max_rotated_logs = 3
-persist_raw_llm_output = false

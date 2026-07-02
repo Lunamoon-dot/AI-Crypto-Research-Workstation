@@ -89,13 +89,12 @@ Current NestJS module map:
 | `JournalModule` | Journal workspace route |
 | `ThesesModule` | Thesis list/detail, scenarios, decision, review |
 | `SignalsModule` | Signal list/explorer |
-| `WatchlistsModule` | Watchlists and watchlist items |
-| `BriefsModule` | Daily market briefs |
 | `AlertsModule` | Alert list and mark-read |
 | `OperationsModule` | Provider health, LLM call, and data freshness views |
 | `PerformanceModule` | Outcome/reliability analytics surfaces |
 | `ComparisonsModule` | Thesis and run comparison responses |
 | `ScenariosModule` | Scenario monitor view |
+| `WorkbenchModule` | Attention summary across alerts, theses, scenarios, runs, and provider state |
 
 ## Public API Surface
 
@@ -123,20 +122,9 @@ Existing frontend-facing routes:
 | `GET /signals` | List signals |
 | `GET /signals/:id` | Fetch signal detail |
 | `GET /signals/count` | Fetch signal count |
-| `GET /watchlists` | List watchlists |
-| `POST /watchlists` | Create watchlist |
-| `GET /watchlists/:id` | Fetch watchlist |
-| `GET /watchlists/:id/items` | Fetch watchlist items |
-| `PATCH /watchlists/:id` | Update watchlist metadata |
-| `POST /watchlists/:id/items` | Add a watchlist item |
-| `POST /watchlists/:id/check` | Run manual watchlist check |
-| `DELETE /watchlists/:id/items/:itemId` | Remove a watchlist item |
-| `GET /briefs/daily` | Fetch daily briefs |
-| `POST /briefs/daily` | Create daily brief |
 | `GET /alerts` | List alerts |
 | `POST /alerts/:id/read` | Mark alert read |
-| `GET /alerts/scheduler` | Read alert scheduler status |
-| `POST /alerts/scheduler/run` | Run alert scheduler manually |
+| `GET /workbench/attention` | Fetch attention summary |
 | `GET /operations/health` | Operations summary |
 | `GET /operations/provider-health` | Provider health rows |
 | `GET /operations/llm-calls` | LLM call rows |
@@ -148,6 +136,11 @@ Existing frontend-facing routes:
 | `GET /scenarios/monitor` | Scenario monitor rows |
 | `GET /comparisons/theses` | Compare two theses |
 | `GET /comparisons/runs` | Compare two runs |
+
+Watchlist and Daily Brief surfaces are decommissioned. The product API no
+longer exposes `/watchlists`, `/briefs/daily`, or alert scheduler endpoints;
+the workbench now derives its attention queue from alerts, theses, scenarios,
+runs, and provider health.
 
 Current local workspace headers:
 
@@ -233,10 +226,7 @@ Core persisted entities from `packages/database/prisma/schema.prisma`:
 | `Scenario` | Conditional scenario planner output |
 | `UserDecision` | User-reviewed decision for a thesis |
 | `OutcomeReview` | Later thesis review and lessons |
-| `Watchlist` | Workspace watchlist |
-| `WatchlistItem` | Symbol/thesis/setup item under a watchlist |
 | `Alert` | Workspace alert item |
-| `MarketBrief` | Daily brief artifact |
 | `ProviderHealth` | Provider/component health checks |
 | `LlmCall` | Model/provider usage, latency, status |
 | `DataFreshnessCheck` | Source freshness and threshold audit |
@@ -284,7 +274,7 @@ NestJS API
 Current implementation status:
 
 - `JobsService` can enqueue to BullMQ, store memory jobs, or run inline.
-- `PythonEngineClient` can call `lunacrypto engine run --request <file>`.
+- `PythonEngineClient` calls `python -m luna_workstation.engine run --request <file>`.
 - The Python engine contract currently persists through `JournalService`, which
   is SQLite-backed.
 - A hosted worker still needs an explicit persistence adapter or export path

@@ -162,7 +162,7 @@ class EngineRunner:
             overrides["config_validation"] = {"validate_llm_keys": False}
         return self.config_loader.load(
             profile=profile,
-            cli_overrides=overrides,
+            runtime_overrides=overrides,
             fail_fast=True,
         )
 

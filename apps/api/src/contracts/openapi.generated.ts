@@ -577,6 +577,273 @@ export const openApiDocument = {
         ),
       },
     },
+    '/signals/observations': {
+      get: {
+        operationId: 'listSignalObservations',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('factor', { type: 'string' }),
+          queryParameter('signal_snapshot_id', { type: 'string' }),
+          queryParameter('from', { type: 'string', format: 'date-time' }),
+          queryParameter('to', { type: 'string', format: 'date-time' }),
+          limitParameter(100, 500),
+        ],
+        responses: jsonArrayResponse(
+          'Point-in-time signal evaluation observations.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/observations/{id}': {
+      get: {
+        operationId: 'getSignalObservation',
+        tags: ['signals'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Point-in-time signal evaluation observation.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/observations/{id}/outcomes': {
+      get: {
+        operationId: 'listSignalObservationOutcomes',
+        tags: ['signals'],
+        parameters: [pathParameter('id')],
+        responses: jsonArrayResponse(
+          'Outcome labels attached to a signal observation.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/outcomes': {
+      get: {
+        operationId: 'listSignalOutcomes',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('factor', { type: 'string' }),
+          queryParameter('horizon', { type: 'integer' }),
+          queryParameter('from', { type: 'string', format: 'date-time' }),
+          queryParameter('to', { type: 'string', format: 'date-time' }),
+          limitParameter(100, 500),
+        ],
+        responses: jsonArrayResponse(
+          'Signal outcome labels for the active workspace.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/outcomes/label': {
+      post: {
+        operationId: 'labelSignalOutcomes',
+        tags: ['signals'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Signal outcome labeling job result.',
+          'JsonRecord',
+          '201',
+        ),
+      },
+    },
+    '/signals/evaluation/reports': {
+      get: {
+        operationId: 'listSignalEvaluationReports',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('factor', { type: 'string' }),
+          queryParameter('horizon', { type: 'integer' }),
+          limitParameter(20, 100),
+        ],
+        responses: jsonArrayResponse(
+          'Persisted signal evaluation report snapshots.',
+          'JsonRecord',
+        ),
+      },
+      post: {
+        operationId: 'createSignalEvaluationReport',
+        tags: ['signals'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Created signal evaluation report snapshot.',
+          'JsonRecord',
+          '201',
+        ),
+      },
+    },
+    '/signals/evaluation/reports/{id}': {
+      get: {
+        operationId: 'getSignalEvaluationReport',
+        tags: ['signals'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Signal evaluation report snapshot.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/evaluation/summary': {
+      get: {
+        operationId: 'getSignalEvaluationSummary',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('symbol', { type: 'string' }),
+          queryParameter('factor', { type: 'string' }),
+          queryParameter('horizon', { type: 'integer' }),
+        ],
+        responses: jsonResponse(
+          'Latest signal evaluation summary.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/train': {
+      post: {
+        operationId: 'trainSignalModel',
+        tags: ['signals'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Signal model training candidate result.',
+          'JsonRecord',
+          '201',
+        ),
+      },
+    },
+    '/signals/models/weights': {
+      get: {
+        operationId: 'listSignalModelWeights',
+        tags: ['signals'],
+        responses: jsonArrayResponse(
+          'Signal weight versions.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/weights/{version}': {
+      get: {
+        operationId: 'getSignalModelWeight',
+        tags: ['signals'],
+        parameters: [pathParameter('version')],
+        responses: jsonResponse('Signal weight version.', 'JsonRecord'),
+      },
+    },
+    '/signals/models/calibrators': {
+      get: {
+        operationId: 'listSignalModelCalibrators',
+        tags: ['signals'],
+        responses: jsonArrayResponse(
+          'Signal calibrator versions.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/calibrators/{version}': {
+      get: {
+        operationId: 'getSignalModelCalibrator',
+        tags: ['signals'],
+        parameters: [pathParameter('version')],
+        responses: jsonResponse('Signal calibrator version.', 'JsonRecord'),
+      },
+    },
+    '/signals/models/promotions': {
+      get: {
+        operationId: 'listSignalModelPromotions',
+        tags: ['signals'],
+        responses: jsonArrayResponse(
+          'Signal model promotion events.',
+          'JsonRecord',
+        ),
+      },
+      post: {
+        operationId: 'createSignalModelPromotion',
+        tags: ['signals'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Created signal model promotion event.',
+          'JsonRecord',
+          '201',
+        ),
+      },
+    },
+    '/signals/models/monitoring/latest': {
+      get: {
+        operationId: 'getLatestSignalModelMonitoring',
+        tags: ['signals'],
+        responses: jsonResponse(
+          'Latest signal model monitoring snapshot.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/monitoring/snapshots': {
+      get: {
+        operationId: 'listSignalModelMonitoringSnapshots',
+        tags: ['signals'],
+        responses: jsonArrayResponse(
+          'Signal model monitoring snapshots.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/monitoring/snapshots/{id}': {
+      get: {
+        operationId: 'getSignalModelMonitoringSnapshot',
+        tags: ['signals'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Signal model monitoring snapshot.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/alerts': {
+      get: {
+        operationId: 'listSignalModelAlerts',
+        tags: ['signals'],
+        parameters: [
+          queryParameter('status', { type: 'string' }),
+          limitParameter(50, 200),
+        ],
+        responses: jsonArrayResponse(
+          'Signal model alerts.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/alerts/{id}': {
+      patch: {
+        operationId: 'updateSignalModelAlert',
+        tags: ['signals'],
+        parameters: [pathParameter('id')],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Updated signal model alert.',
+          'JsonRecord',
+        ),
+      },
+    },
+    '/signals/models/rollbacks': {
+      get: {
+        operationId: 'listSignalModelRollbacks',
+        tags: ['signals'],
+        responses: jsonArrayResponse(
+          'Signal model rollback events.',
+          'JsonRecord',
+        ),
+      },
+      post: {
+        operationId: 'createSignalModelRollback',
+        tags: ['signals'],
+        requestBody: jsonRequest('JsonRecord'),
+        responses: jsonResponse(
+          'Created signal model rollback event.',
+          'JsonRecord',
+          '201',
+        ),
+      },
+    },
     '/theses': {
       get: {
         operationId: 'listTheses',
@@ -636,126 +903,6 @@ export const openApiDocument = {
         ),
       },
     },
-    '/watchlists': {
-      get: {
-        operationId: 'listWatchlists',
-        tags: ['watchlists'],
-        parameters: [limitParameter(50, 100)],
-        responses: jsonArrayResponse(
-          'Watchlists for the active workspace.',
-          'WatchlistResponse',
-        ),
-      },
-      post: {
-        operationId: 'createWatchlist',
-        tags: ['watchlists'],
-        requestBody: jsonRequest('CreateWatchlistRequest'),
-        responses: jsonResponse(
-          'Created watchlist.',
-          'WatchlistResponse',
-          '201',
-        ),
-      },
-    },
-    '/watchlists/{id}': {
-      get: {
-        operationId: 'getWatchlist',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        responses: jsonResponse(
-          'Workspace-scoped watchlist.',
-          'WatchlistResponse',
-        ),
-      },
-      patch: {
-        operationId: 'updateWatchlist',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        requestBody: jsonRequest('UpdateWatchlistRequest'),
-        responses: jsonResponse('Updated watchlist.', 'WatchlistResponse'),
-      },
-      delete: {
-        operationId: 'removeWatchlist',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        responses: jsonResponse(
-          'Removed watchlist and its tracks.',
-          'RemoveWatchlistResponse',
-        ),
-      },
-    },
-    '/watchlists/{id}/items': {
-      get: {
-        operationId: 'getWatchlistItems',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        responses: jsonArrayResponse(
-          'Items in a watchlist.',
-          'WatchlistItemResponse',
-        ),
-      },
-      post: {
-        operationId: 'addWatchlistItem',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        requestBody: jsonRequest('AddWatchlistItemRequest'),
-        responses: jsonResponse(
-          'Created watchlist item.',
-          'WatchlistItemResponse',
-          '201',
-        ),
-      },
-    },
-    '/watchlists/{id}/items/{itemId}': {
-      delete: {
-        operationId: 'removeWatchlistItem',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id'), pathParameter('itemId')],
-        responses: jsonResponse(
-          'Removed watchlist item.',
-          'RemoveWatchlistItemResponse',
-        ),
-      },
-    },
-    '/watchlists/{id}/check': {
-      post: {
-        operationId: 'checkWatchlist',
-        tags: ['watchlists'],
-        parameters: [pathParameter('id')],
-        requestBody: jsonRequest('CheckWatchlistRequest'),
-        responses: jsonResponse(
-          'Watchlist alert check result.',
-          'WatchlistCheckResponse',
-          '201',
-        ),
-      },
-    },
-    '/briefs/daily': {
-      get: {
-        operationId: 'listDailyBriefs',
-        tags: ['briefs'],
-        parameters: [
-          queryParameter('date', { type: 'string', format: 'date' }),
-          limitParameter(20, 100),
-          queryParameter('watchlist_id', { type: 'string' }),
-          queryParameter('watchlist_name', { type: 'string' }),
-        ],
-        responses: jsonArrayResponse(
-          'Daily market briefs for the active workspace.',
-          'BriefResponse',
-        ),
-      },
-      post: {
-        operationId: 'createDailyBrief',
-        tags: ['briefs'],
-        requestBody: jsonRequest('CreateDailyBriefRequest'),
-        responses: jsonResponse(
-          'Created daily market brief.',
-          'BriefResponse',
-          '201',
-        ),
-      },
-    },
     '/alerts': {
       get: {
         operationId: 'listAlerts',
@@ -778,27 +925,6 @@ export const openApiDocument = {
         tags: ['alerts'],
         parameters: [pathParameter('id')],
         responses: jsonResponse('Marked alert.', 'AlertResponse', '201'),
-      },
-    },
-    '/alerts/scheduler': {
-      get: {
-        operationId: 'getAlertSchedulerStatus',
-        tags: ['alerts'],
-        responses: jsonResponse(
-          'Alert scheduler status for the active workspace.',
-          'AlertSchedulerStatusResponse',
-        ),
-      },
-    },
-    '/alerts/scheduler/run': {
-      post: {
-        operationId: 'runAlertScheduler',
-        tags: ['alerts'],
-        responses: jsonResponse(
-          'Manual alert scheduler run result.',
-          'WatchlistPollResponse',
-          '201',
-        ),
       },
     },
     '/workbench/attention': {
@@ -1749,6 +1875,10 @@ export const openApiDocument = {
           'upside_catalyst',
           'invalidation',
           'target_zones',
+          'profit_targets',
+          'downside_objectives',
+          'accumulation_zones',
+          'indicator_thresholds',
           'key_reasons',
           'risks',
           'spot_notes',
@@ -1774,6 +1904,10 @@ export const openApiDocument = {
           upside_catalyst: { type: 'string' },
           invalidation: { type: 'string' },
           target_zones: { type: 'array', items: { type: 'string' } },
+          profit_targets: { type: 'array', items: { type: 'string' } },
+          downside_objectives: { type: 'array', items: { type: 'string' } },
+          accumulation_zones: { type: 'array', items: { type: 'string' } },
+          indicator_thresholds: { type: 'array', items: { type: 'string' } },
           key_reasons: { type: 'array', items: { type: 'string' } },
           risks: { type: 'array', items: { type: 'string' } },
           spot_notes: { type: 'string' },
@@ -1838,6 +1972,10 @@ export const openApiDocument = {
           'confirmation_condition',
           'invalidation_level',
           'target_zones',
+          'profit_targets',
+          'downside_objectives',
+          'accumulation_zones',
+          'indicator_thresholds',
           'thesis_text',
           'summary',
           'supporting_signal_ids',
@@ -1882,6 +2020,10 @@ export const openApiDocument = {
           confirmation_condition: { type: 'string' },
           invalidation_level: { type: 'string' },
           target_zones: { type: 'array', items: { type: 'string' } },
+          profit_targets: { type: 'array', items: { type: 'string' } },
+          downside_objectives: { type: 'array', items: { type: 'string' } },
+          accumulation_zones: { type: 'array', items: { type: 'string' } },
+          indicator_thresholds: { type: 'array', items: { type: 'string' } },
           thesis_text: { type: 'string' },
           summary: { $ref: '#/components/schemas/ThesisSummaryResponse' },
           supporting_signal_ids: { type: 'array', items: { type: 'string' } },
@@ -3071,180 +3213,15 @@ export const openApiDocument = {
           neutral: { type: 'integer' },
         },
       },
-      WatchlistResponse: {
-        type: 'object',
-        required: ['id', 'workspace_id', 'name', 'enabled', 'created_at'],
-        properties: {
-          id: { type: ['string', 'null'] },
-          workspace_id: { type: 'string' },
-          name: { type: 'string' },
-          enabled: { type: 'boolean' },
-          created_at: { type: ['string', 'null'] },
-        },
-      },
-      WatchlistItemResponse: {
-        type: 'object',
-        required: ['id', 'workspace_id', 'watchlist_id', 'item_type', 'symbol', 'thesis_id', 'setup_type', 'enabled', 'created_at'],
-        properties: {
-          id: { type: ['string', 'null'] },
-          workspace_id: { type: 'string' },
-          watchlist_id: { type: 'string' },
-          item_type: { type: 'string' },
-          symbol: { type: ['string', 'null'] },
-          thesis_id: { type: ['string', 'null'] },
-          setup_type: { type: ['string', 'null'] },
-          enabled: { type: 'boolean' },
-          created_at: { type: ['string', 'null'] },
-        },
-      },
-      WatchlistCheckResponse: {
-        type: 'object',
-        required: ['workspace_id', 'watchlist_id', 'checked_items', 'alerts_created', 'skipped_items'],
-        properties: {
-          workspace_id: { type: 'string' },
-          watchlist_id: { type: 'string' },
-          checked_items: { type: 'integer' },
-          alerts_created: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/AlertResponse' },
-          },
-          skipped_items: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      CreateWatchlistRequest: {
-        type: 'object',
-        required: ['name'],
-        properties: {
-          name: { type: 'string', minLength: 1 },
-          enabled: { type: 'boolean' },
-        },
-      },
-      UpdateWatchlistRequest: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', minLength: 1 },
-          enabled: { type: 'boolean' },
-        },
-      },
-      AddWatchlistItemRequest: {
-        type: 'object',
-        properties: {
-          item_type: { type: 'string' },
-          symbol: { type: 'string' },
-          thesis_id: { type: 'string' },
-          setup_type: { type: 'string' },
-        },
-      },
-      CheckWatchlistRequest: {
-        type: 'object',
-        properties: {
-          prices: {
-            type: 'object',
-            additionalProperties: { type: 'number' },
-          },
-        },
-      },
-      RemoveWatchlistItemResponse: {
-        type: 'object',
-        required: ['id', 'workspace_id', 'watchlist_id', 'removed'],
-        properties: {
-          id: { type: 'string' },
-          workspace_id: { type: 'string' },
-          watchlist_id: { type: 'string' },
-          removed: { type: 'boolean' },
-        },
-      },
-      RemoveWatchlistResponse: {
-        type: 'object',
-        required: ['id', 'workspace_id', 'name', 'removed', 'removed_item_count'],
-        properties: {
-          id: { type: 'string' },
-          workspace_id: { type: 'string' },
-          name: { type: 'string' },
-          removed: { type: 'boolean' },
-          removed_item_count: { type: 'integer' },
-        },
-      },
-      BriefAssetSummaryResponse: {
-        type: 'object',
-        required: ['symbol', 'current_price', 'market_regime', 'trend_direction', 'volatility_regime', 'source', 'source_timestamp', 'summary', 'change_from_previous'],
-        properties: {
-          symbol: { type: 'string' },
-          current_price: { type: ['number', 'null'] },
-          market_regime: { type: 'string' },
-          trend_direction: { type: 'string' },
-          volatility_regime: { type: 'string' },
-          source: { type: ['string', 'null'] },
-          source_timestamp: { type: ['string', 'null'] },
-          summary: { type: 'string' },
-          change_from_previous: { type: ['string', 'null'] },
-        },
-      },
-      BriefThesisUpdateResponse: {
-        type: 'object',
-        required: ['thesis_id', 'symbol', 'direction', 'setup_type', 'confidence', 'status', 'update', 'invalidation_level', 'recent_alerts'],
-        properties: {
-          thesis_id: { type: 'string' },
-          symbol: { type: 'string' },
-          direction: { type: 'string' },
-          setup_type: { type: 'string' },
-          confidence: { type: ['number', 'null'] },
-          status: { type: 'string' },
-          update: { type: 'string' },
-          invalidation_level: { type: ['string', 'null'] },
-          recent_alerts: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      BriefResponse: {
-        type: 'object',
-        required: ['id', 'workspace_id', 'brief_date', 'watchlist_name', 'title', 'created_at', 'previous_brief_id', 'summary', 'key_points', 'thesis_ids', 'signal_ids', 'asset_summaries', 'thesis_updates', 'watchlist_changes', 'top_setups', 'top_risks', 'memory_notes'],
-        properties: {
-          id: { type: ['string', 'null'] },
-          workspace_id: { type: 'string' },
-          brief_date: { type: ['string', 'null'] },
-          watchlist_name: { type: ['string', 'null'] },
-          title: { type: 'string' },
-          created_at: { type: ['string', 'null'] },
-          previous_brief_id: { type: ['string', 'null'] },
-          summary: { type: 'string' },
-          key_points: { type: 'array', items: { type: 'string' } },
-          thesis_ids: { type: 'array', items: { type: 'string' } },
-          signal_ids: { type: 'array', items: { type: 'string' } },
-          asset_summaries: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/BriefAssetSummaryResponse' },
-          },
-          thesis_updates: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/BriefThesisUpdateResponse' },
-          },
-          watchlist_changes: { type: 'array', items: { type: 'string' } },
-          top_setups: { type: 'array', items: { type: 'string' } },
-          top_risks: { type: 'array', items: { type: 'string' } },
-          memory_notes: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      CreateDailyBriefRequest: {
-        type: 'object',
-        properties: {
-          watchlist_id: { type: 'string' },
-          watchlist_name: { type: 'string' },
-          date: { type: 'string', format: 'date' },
-          alerts_limit: { type: 'integer', minimum: 1 },
-          evaluate_snapshots: { type: 'boolean' },
-          save: { type: 'boolean' },
-        },
-      },
       AlertResponse: {
         type: 'object',
-        required: ['id', 'workspace_id', 'alert_type', 'symbol', 'thesis_id', 'watchlist_item_id', 'trigger_key', 'created_at', 'read_at', 'message', 'payload'],
+        required: ['id', 'workspace_id', 'alert_type', 'symbol', 'thesis_id', 'trigger_key', 'created_at', 'read_at', 'message', 'payload'],
         properties: {
           id: { type: ['string', 'null'] },
           workspace_id: { type: 'string' },
           alert_type: { type: 'string' },
           symbol: { type: 'string' },
           thesis_id: { type: ['string', 'null'] },
-          watchlist_item_id: { type: ['string', 'null'] },
           trigger_key: { type: ['string', 'null'] },
           created_at: { type: ['string', 'null'] },
           read_at: { type: ['string', 'null'] },
@@ -3280,7 +3257,7 @@ export const openApiDocument = {
           priority: { type: 'string', enum: ['critical', 'review', 'info'] },
           severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
           score: { type: 'number' },
-          source_type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider', 'brief', 'watchlist'] },
+          source_type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider'] },
           source: { type: 'string' },
           source_id: { type: ['string', 'null'] },
           symbol: { type: ['string', 'null'] },
@@ -3314,7 +3291,7 @@ export const openApiDocument = {
         required: ['id', 'type', 'status', 'priority', 'source', 'source_id', 'symbol', 'title', 'message', 'created_at', 'read_at', 'action', 'badges'],
         properties: {
           id: { type: 'string' },
-          type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider', 'brief', 'watchlist'] },
+          type: { type: 'string', enum: ['alert', 'thesis', 'scenario', 'run', 'provider'] },
           status: { type: 'string' },
           priority: { type: 'string', enum: ['critical', 'review', 'info'] },
           source: { type: 'string' },
@@ -3333,17 +3310,12 @@ export const openApiDocument = {
       },
       WorkbenchAttentionResponse: {
         type: 'object',
-        required: ['workspace_id', 'generated_at', 'item_count', 'unresolved_count', 'latest_brief', 'brief_actions', 'queues', 'items', 'notifications'],
+        required: ['workspace_id', 'generated_at', 'item_count', 'unresolved_count', 'queues', 'items', 'notifications'],
         properties: {
           workspace_id: { type: 'string' },
           generated_at: { type: 'string' },
           item_count: { type: 'integer' },
           unresolved_count: { type: 'integer' },
-          latest_brief: { anyOf: [{ $ref: '#/components/schemas/BriefResponse' }, { type: 'null' }] },
-          brief_actions: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/AttentionItemResponse' },
-          },
           queues: {
             type: 'array',
             items: { $ref: '#/components/schemas/AttentionQueueResponse' },
@@ -3356,31 +3328,6 @@ export const openApiDocument = {
             type: 'array',
             items: { $ref: '#/components/schemas/NotificationResponse' },
           },
-        },
-      },
-      WatchlistPollResponse: {
-        type: 'object',
-        required: ['checked_watchlists', 'alerts_created', 'skipped_items'],
-        properties: {
-          checked_watchlists: { type: 'integer' },
-          alerts_created: { type: 'integer' },
-          skipped_items: { type: 'array', items: { type: 'string' } },
-        },
-      },
-      AlertSchedulerStatusResponse: {
-        type: 'object',
-        required: ['enabled', 'configured_by_env', 'interval_ms', 'poll_on_start', 'limit', 'running', 'last_run_at', 'last_error', 'last_result', 'workspace_enabled_watchlists'],
-        properties: {
-          enabled: { type: 'boolean' },
-          configured_by_env: { type: 'boolean' },
-          interval_ms: { type: 'integer' },
-          poll_on_start: { type: 'boolean' },
-          limit: { type: 'integer' },
-          running: { type: 'boolean' },
-          last_run_at: { type: ['string', 'null'] },
-          last_error: { type: ['string', 'null'] },
-          last_result: { anyOf: [{ $ref: '#/components/schemas/WatchlistPollResponse' }, { type: 'null' }] },
-          workspace_enabled_watchlists: { type: 'integer' },
         },
       },
       ScenarioMonitorItemResponse: {

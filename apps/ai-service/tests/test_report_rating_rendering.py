@@ -72,6 +72,80 @@ def test_report_uses_canonical_thesis_over_raw_pm_text():
     assert "**Rating**: Overweight" not in report
 
 
+def test_report_does_not_render_blocked_thesis_as_customer_thesis():
+    report = ReportGenerator({}).generate_complete_report(
+        {
+            "company_of_interest": "BNB/USDT",
+            "trade_date": "2026-07-02",
+            "final_trade_decision": "**Rating**: Overweight\n\nRaw PM prose is stale.",
+            "trader_investment_plan": (
+                "**Setup Stance**: Buy\n\n"
+                "**Action**: place a limit order and vao lenh with stop-loss."
+            ),
+            "trade_thesis": {
+                "artifact_status": "blocked",
+                "thesis_text": (
+                    "Thesis blocked.\n"
+                    "Reasons:\n"
+                    "- execution_instruction_detected"
+                ),
+                "blocked_reasons": ["execution_instruction_detected"],
+                "direction": "long",
+                "confidence": 0.72,
+                "entry_zone": "$540-$545",
+                "target_zones": ["$480", "$450", "$420"],
+                "risk_notes": ["Do not render structured trading fields."],
+                "structured_summary": {
+                    "rating": "Overweight",
+                    "direction": "long",
+                    "confidence": 0.72,
+                    "entry_zone": "$540-$545",
+                    "target_zones": ["$480", "$450", "$420"],
+                    "risks": ["Do not render structured trading fields."],
+                },
+            },
+        },
+        include_charts=False,
+    )
+
+    assert "Thesis blocked." in report
+    assert "execution_instruction_detected" in report
+    assert "**Rating**: Overweight" not in report
+    assert "**Entry/Review Zone**: $540-$545" not in report
+    assert "**Targets**: $480, $450, $420" not in report
+    assert "place a limit order" not in report
+    assert "vao lenh" not in report
+    assert "final thesis artifact is blocked" in report
+
+
+def test_report_labels_legacy_target_zones_as_unclassified_objectives():
+    report = ReportGenerator({}).generate_complete_report(
+        {
+            "company_of_interest": "BNB/USDT",
+            "trade_date": "2026-07-02",
+            "quant_signal": "=== Quant Bias: BNB/USDT ===\nPrice: $532.65",
+            "trade_thesis": {
+                "artifact_status": "valid",
+                "direction": "watch",
+                "confidence": 0.30,
+                "entry_zone": "$540-$545 review zone",
+                "target_zones": ["$480", "$450", "$420"],
+                "structured_summary": {
+                    "rating": "Underweight",
+                    "direction": "watch",
+                    "confidence": 0.30,
+                    "entry_zone": "$540-$545 review zone",
+                    "target_zones": ["$480", "$450", "$420"],
+                },
+            },
+        },
+        include_charts=False,
+    )
+
+    assert "**Objective Zones (unclassified)**: $480, $450, $420" in report
+    assert "**Targets**: $480, $450, $420" not in report
+
+
 def test_report_flags_price_trigger_already_crossed():
     report = ReportGenerator({}).generate_complete_report(
         {
@@ -88,6 +162,28 @@ def test_report_flags_price_trigger_already_crossed():
     assert "Price-Level Sanity Checks" in report
     assert "price-only above $638 has already occurred at current price $682" in report
     assert "require non-price confirmation" in report
+
+
+def test_report_price_sanity_ignores_indicator_thresholds():
+    report = ReportGenerator({}).generate_complete_report(
+        {
+            "company_of_interest": "BNB/USDT",
+            "trade_date": "2026-07-02",
+            "quant_signal": "=== Quant Bias: BNB/USDT ===\nPrice: $532.65",
+            "scenario_plan": (
+                "- Long/Short ratio tang tren 3.0\n"
+                "- RSI 4H vuot len tren 50\n"
+                "- RSI daily vuot len tren 40\n"
+                "- Daily close duoi $540 voi volume cao"
+            ),
+        },
+        include_charts=False,
+    )
+
+    assert "$3" not in report
+    assert "$50" not in report
+    assert "$40" not in report
+    assert "price-only below $540" in report
 
 
 def test_report_flags_vietnamese_price_trigger_already_crossed():

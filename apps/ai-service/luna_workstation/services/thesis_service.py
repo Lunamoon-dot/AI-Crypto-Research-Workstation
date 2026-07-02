@@ -20,7 +20,7 @@ from .journal_service import JournalService
 
 
 class ThesisService:
-    """Facade for CLI and app thesis/workspace workflows."""
+    """Facade for app thesis/workspace workflows."""
 
     def __init__(
         self,
@@ -162,23 +162,6 @@ class ThesisService:
             "scenarios": [s.model_dump(mode="json") for s in scenarios],
             "timeline_events": [e.model_dump(mode="json") for e in events],
             "evidence_notes": _workspace_evidence_lines(thesis=thesis, debate=debate),
-            "next_commands": [
-                f"lunacrypto journal timeline {run.id}",
-                f"lunacrypto signals snapshot {run.id}",
-                *(
-                    [
-                        f"lunacrypto thesis show {run.thesis_id}",
-                        f"lunacrypto watchlist add-thesis {run.thesis_id}",
-                    ]
-                    if run.thesis_id
-                    else []
-                ),
-                *(
-                    [f"lunacrypto journal debate {run.debate_id}"]
-                    if run.debate_id
-                    else []
-                ),
-            ],
         }
 
 
@@ -194,7 +177,7 @@ def _workspace_evidence_lines(
         lines.append(
             f"- Classified signals: {len(supporting_signals)} supporting, "
             f"{len(contradicting_signals)} contradicting "
-            "(see `signals explain <id>` for provenance)."
+            "(inspect signal provenance in the web/API signal detail view)."
         )
         evidence = thesis.evidence or {}
         supporting_opinions = evidence.get("supporting_opinion_ids") or []

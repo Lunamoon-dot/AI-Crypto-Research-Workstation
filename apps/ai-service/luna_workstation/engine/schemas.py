@@ -13,7 +13,7 @@ _ANALYST_KEY_SET = set(_ANALYST_KEYS)
 
 
 class EngineRunRequest(BaseModel):
-    """Stable JSON request accepted by ``lunacrypto engine run``."""
+    """Stable JSON request accepted by ``python -m luna_workstation.engine run``."""
 
     run_id: str | None = None
     workspace_id: str
@@ -99,7 +99,7 @@ class EngineRunResult(BaseModel):
 
 
 class EngineEvaluateRequest(BaseModel):
-    """Stable JSON request accepted by ``lunacrypto engine evaluate``."""
+    """Stable JSON request accepted by ``python -m luna_workstation.engine evaluate``."""
 
     thesis_id: str
     workspace_id: str = "local"

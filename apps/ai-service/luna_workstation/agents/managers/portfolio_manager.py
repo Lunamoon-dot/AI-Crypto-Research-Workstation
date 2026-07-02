@@ -2,16 +2,17 @@
 
 Uses LangChain's ``with_structured_output`` so the LLM produces a typed
 ``PortfolioDecision`` directly, in a single call.  The result is rendered
-back to markdown for storage in ``final_trade_decision`` so memory log,
-CLI display, and saved reports continue to consume the same shape they do
-today.  When a provider does not expose structured output, the agent falls
-back gracefully to free-text generation.
+back to markdown for storage in ``final_trade_decision`` so legacy memory log
+and saved reports continue to consume the same shape they do today.  When a
+provider does not expose structured output, the agent falls back gracefully to
+free-text generation.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from typing import Any, cast
 
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
@@ -102,22 +103,56 @@ def _deterministic_pm_fallback(
     error: Exception,
 ) -> str:
     rating = _rating_from_artifacts(research_plan, setup_proposal, risk_history)
-    confirmation = _extract_markdown_field(
-        setup_proposal,
-        "Confirmation",
-    ) or _fallback_manual_confirmation()
-    invalidation = _extract_markdown_field(
-        setup_proposal,
-        "Invalidation",
-    ) or _fallback_manual_invalidation()
+    confirmation = (
+        _extract_markdown_field(
+            setup_proposal,
+            "Confirmation",
+        )
+        or _fallback_manual_confirmation()
+    )
+    invalidation = (
+        _extract_markdown_field(
+            setup_proposal,
+            "Invalidation",
+        )
+        or _fallback_manual_invalidation()
+    )
     entry_zone = _extract_markdown_field(setup_proposal, "Entry") or (
         "No new exposure from deterministic fallback; wait for Portfolio Manager "
         "rerun or explicit setup confirmation."
     )
     target_zones = _extract_markdown_list_field(
         setup_proposal,
-        "Target",
-    ) or _extract_markdown_list_field(setup_proposal, "Objective")
+        "Objective",
+    ) or _extract_markdown_list_field(setup_proposal, "Target")
+    profit_targets = _extract_markdown_list_field(
+        setup_proposal,
+        "Profit Targets",
+    ) or _extract_markdown_list_field(
+        setup_proposal,
+        "Profit Target",
+    ) or _extract_markdown_list_field(setup_proposal, "Take Profit")
+    downside_objectives = _extract_markdown_list_field(
+        setup_proposal,
+        "Downside Objectives",
+    ) or _extract_markdown_list_field(
+        setup_proposal,
+        "Downside Objective",
+    ) or _extract_markdown_list_field(setup_proposal, "Downside Target")
+    accumulation_zones = _extract_markdown_list_field(
+        setup_proposal,
+        "Review / Accumulation",
+    ) or _extract_markdown_list_field(
+        setup_proposal,
+        "Accumulation Zones",
+    ) or _extract_markdown_list_field(setup_proposal, "Accumulation")
+    indicator_thresholds = _extract_markdown_list_field(
+        setup_proposal,
+        "Indicator Thresholds",
+    ) or _extract_markdown_list_field(
+        setup_proposal,
+        "Indicator Threshold",
+    )
     missing_data = _extract_markdown_list_field(setup_proposal, "Missing Data")
     missing_data.append(f"Portfolio Manager LLM unavailable: {type(error).__name__}.")
     action_summary = (
@@ -141,6 +176,10 @@ def _deterministic_pm_fallback(
         invalidation=invalidation,
         entry_zone=entry_zone,
         target_zones=target_zones,
+        profit_targets=profit_targets,
+        downside_objectives=downside_objectives,
+        accumulation_zones=accumulation_zones,
+        indicator_thresholds=indicator_thresholds,
         key_reasons=[
             (
                 "Fallback uses Research Manager stance, Setup Planner output, "
@@ -161,7 +200,7 @@ def _deterministic_pm_fallback(
         supporting_evidence=[],
         missing_data=missing_data,
     )
-    lines = [
+    lines: list[str] = [
         f"**Portfolio Manager deterministic fallback: {symbol} ({market_type})**",
         "",
         f"**Rating**: {rating}",
@@ -177,11 +216,31 @@ def _deterministic_pm_fallback(
     if entry_zone:
         lines.extend(["", f"**Entry Zone**: {entry_zone}"])
     if target_zones:
-        lines.extend(["", f"**Target Zones**: {'; '.join(target_zones)}"])
+        lines.extend(["", f"**Objective Zones**: {'; '.join(target_zones)}"])
+    if profit_targets:
+        lines.extend(["", f"**Profit Targets**: {'; '.join(profit_targets)}"])
+    if downside_objectives:
+        lines.extend(
+            ["", f"**Downside Objectives**: {'; '.join(downside_objectives)}"]
+        )
+    if accumulation_zones:
+        lines.extend(
+            [
+                "",
+                "**Review / Accumulation Zones**: "
+                + "; ".join(accumulation_zones),
+            ]
+        )
+    if indicator_thresholds:
+        lines.extend(
+            ["", f"**Indicator Thresholds**: {'; '.join(indicator_thresholds)}"]
+        )
     if missing_data:
         lines.extend(["", f"**Missing Data**: {'; '.join(missing_data)}"])
-    lines.extend(["", render_trade_thesis_json_block(candidate.model_dump(mode="json"))])
-    return "\n".join(lines)
+    lines.extend(
+        ["", render_trade_thesis_json_block(candidate.model_dump(mode="json"))]
+    )
+    return str("\n".join(lines))
 
 
 def _synthesize_trade_summary_json(text: str, *, market_type: str) -> str:
@@ -201,7 +260,33 @@ def _synthesize_trade_summary_json(text: str, *, market_type: str) -> str:
         "confirmation_condition": _extract_markdown_field(text, "Confirmation"),
         "upside_catalyst": _extract_markdown_field(text, "Upside Catalyst"),
         "invalidation": _extract_markdown_field(text, "Invalidation"),
-        "target_zones": _extract_markdown_list_field(text, "Target"),
+        "entry_zone": _extract_markdown_field(text, "Review Zone")
+        or _extract_markdown_field(text, "Entry Zone")
+        or _extract_markdown_field(text, "Entry"),
+        "target_zones": _extract_markdown_list_field(text, "Objective")
+        or _extract_markdown_list_field(text, "Target"),
+        "profit_targets": _extract_markdown_list_field(text, "Profit Targets")
+        or _extract_markdown_list_field(text, "Profit Target")
+        or _extract_markdown_list_field(text, "Take Profit"),
+        "downside_objectives": _extract_markdown_list_field(
+            text, "Downside Objectives"
+        )
+        or _extract_markdown_list_field(
+            text, "Downside Objective"
+        )
+        or _extract_markdown_list_field(text, "Downside Target"),
+        "accumulation_zones": _extract_markdown_list_field(
+            text, "Review / Accumulation"
+        )
+        or _extract_markdown_list_field(text, "Accumulation Zones")
+        or _extract_markdown_list_field(text, "Accumulation")
+        or _extract_markdown_list_field(text, "DCA"),
+        "indicator_thresholds": _extract_markdown_list_field(
+            text, "Indicator Thresholds"
+        )
+        or _extract_markdown_list_field(
+            text, "Indicator Threshold"
+        ),
         "key_reasons": _extract_markdown_list_field(text, "Key Reasons"),
         "risks": _extract_markdown_list_field(text, "Risks"),
         "monitor_next": _extract_markdown_list_field(text, "Monitor Next"),
@@ -213,14 +298,16 @@ def _synthesize_trade_summary_json(text: str, *, market_type: str) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _extract_scenario_continuity_handoff(summary_json: str) -> dict | None:
+def _extract_scenario_continuity_handoff(
+    summary_json: str,
+) -> dict[str, Any] | None:
     try:
         payload = json.loads(summary_json) if summary_json else {}
     except json.JSONDecodeError:
         payload = {}
     handoff = payload.get("scenario_continuity_handoff")
     if isinstance(handoff, dict) and handoff:
-        return handoff
+        return cast(dict[str, Any], handoff)
     return None
 
 
@@ -293,10 +380,10 @@ def _render_latest_continuity_context(context: object) -> str:
     )
 
 
-def create_portfolio_manager(llm, config=None):
+def create_portfolio_manager(llm: Any, config: dict[str, Any] | None = None):
     structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
 
-    def portfolio_manager_node(state) -> dict:
+    def portfolio_manager_node(state: dict[str, Any]) -> dict[str, Any]:
         instrument_context = build_instrument_context(state["company_of_interest"])
         current_price_context = build_current_price_context(state)
 
@@ -381,7 +468,11 @@ TRADE_THESIS_JSON:
   "upside_catalyst": "specific condition that improves the thesis",
   "invalidation": "specific condition that invalidates the thesis",
   "entry_zone": "specific review/entry zone; for avoid/watch, state where exposure would be reconsidered",
-  "target_zones": ["objective, downside, rejection, or reclaim zone being monitored"],
+  "target_zones": ["legacy unclassified objective zone only; prefer typed fields below"],
+  "profit_targets": ["upside/profit-taking target only; empty for avoid/watch"],
+  "downside_objectives": ["downside support, lower objective, or rejection zone being monitored"],
+  "accumulation_zones": ["manual DCA/deep accumulation review zone for spot only"],
+  "indicator_thresholds": ["non-price RSI, funding, OI, volume, or Long/Short threshold"],
   "key_reasons": [
     {{
       "text": "reason 1",

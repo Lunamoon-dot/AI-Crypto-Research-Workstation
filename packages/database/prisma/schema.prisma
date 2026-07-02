@@ -345,7 +345,6 @@ model TradeThesis {
 
   researchRun    ResearchRun?    @relation(fields: [researchRunId], references: [id])
   scenarios      Scenario[]
-  watchlistItems WatchlistItem[]
   alerts         Alert[]
   userDecisions  UserDecision[]
   outcomeReviews OutcomeReview[]
@@ -477,48 +476,12 @@ model Signal {
   @@map("signals")
 }
 
-model Watchlist {
-  id          String   @id
-  workspaceId String   @default("local") @map("workspace_id")
-  name        String
-  enabled     Int
-  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
-  payloadJson Json     @map("payload_json")
-
-  items WatchlistItem[]
-
-  @@unique([workspaceId, name], map: "idx_watchlists_workspace_name")
-  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_watchlists_workspace_created")
-  @@map("watchlists")
-}
-
-model WatchlistItem {
-  id          String   @id
-  workspaceId String   @default("local") @map("workspace_id")
-  watchlistId String   @map("watchlist_id")
-  itemType    String   @map("item_type")
-  symbol      String?
-  thesisId    String?  @map("thesis_id")
-  setupType   String?  @map("setup_type")
-  enabled     Int
-  createdAt   DateTime @map("created_at") @db.Timestamptz(6)
-  payloadJson Json     @map("payload_json")
-
-  watchlist Watchlist    @relation(fields: [watchlistId], references: [id])
-  thesis    TradeThesis? @relation(fields: [thesisId], references: [id])
-  alerts    Alert[]
-
-  @@index([workspaceId, watchlistId], map: "idx_watchlist_items_workspace_watchlist")
-  @@map("watchlist_items")
-}
-
 model Alert {
   id              String    @id
   workspaceId     String    @default("local") @map("workspace_id")
   alertType       String    @map("alert_type")
   symbol          String
   thesisId        String?   @map("thesis_id")
-  watchlistItemId String?   @map("watchlist_item_id")
   triggerKey      String?   @map("trigger_key")
   createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
   readAt          DateTime? @map("read_at") @db.Timestamptz(6)
@@ -526,26 +489,11 @@ model Alert {
   payloadJson     Json      @map("payload_json")
 
   thesis        TradeThesis?   @relation(fields: [thesisId], references: [id])
-  watchlistItem WatchlistItem? @relation(fields: [watchlistItemId], references: [id])
 
   @@index([workspaceId, createdAt(sort: Desc)], map: "idx_alerts_workspace_created")
   @@index([workspaceId, symbol, createdAt(sort: Desc)], map: "idx_alerts_workspace_symbol")
   @@index([workspaceId, thesisId, createdAt(sort: Desc)], map: "idx_alerts_workspace_thesis")
   @@map("alerts")
-}
-
-model MarketBrief {
-  id              String   @id
-  workspaceId     String   @default("local") @map("workspace_id")
-  briefDate       DateTime @map("brief_date") @db.Date
-  watchlistName   String   @map("watchlist_name")
-  title           String
-  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
-  previousBriefId String?  @map("previous_brief_id")
-  payloadJson     Json     @map("payload_json")
-
-  @@index([workspaceId, createdAt(sort: Desc)], map: "idx_market_briefs_workspace_created")
-  @@map("market_briefs")
 }
 
 model UserDecision {
@@ -713,4 +661,167 @@ model DataFreshnessCheck {
   researchRun ResearchRun? @relation(fields: [researchRunId], references: [id])
 
   @@map("data_freshness_checks")
+}
+
+model SignalObservation {
+  id                     String    @id
+  workspaceId            String    @map("workspace_id")
+  researchRunId          String?   @map("research_run_id")
+  signalSnapshotId       String?   @map("signal_snapshot_id")
+  signalId               String?   @map("signal_id")
+  symbol                 String
+  timeframe              String
+  observedAt             DateTime  @map("observed_at") @db.Timestamptz(6)
+  sourceTimestamp        DateTime? @map("source_timestamp") @db.Timestamptz(6)
+  observationKind        String    @map("observation_kind")
+  factorName             String    @map("factor_name")
+  factorFamily           String    @map("factor_family")
+  direction              String
+  directionalEdge        Float?    @map("directional_edge")
+  heuristicStrength      Float?    @map("heuristic_strength")
+  detectorConfidence     Float?    @map("detector_confidence")
+  dataQuality            Float?    @map("data_quality")
+  availability           String
+  rawValue               Float?    @map("raw_value")
+  thresholdBreached      Boolean   @default(false) @map("threshold_breached")
+  marketRegime           String    @default("unknown") @map("market_regime")
+  volatilityRegime       String    @default("unknown") @map("volatility_regime")
+  provider               String?
+  sourceSnapshotHash     String?   @map("source_snapshot_hash")
+  codeSha                String?   @map("code_sha")
+  signalWeightVersion    String    @default("unknown") @map("signal_weight_version")
+  signalThresholdVersion String    @default("unknown") @map("signal_threshold_version")
+  detectorVersion        String    @default("unknown") @map("detector_version")
+  evidenceJson           Json      @default("{}") @map("evidence_json")
+  metadataJson           Json      @default("{}") @map("metadata_json")
+  payloadJson            Json      @default("{}") @map("payload_json")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, observedAt(sort: Desc)], map: "idx_signal_observations_workspace_observed")
+  @@index([workspaceId, symbol, observedAt(sort: Desc)], map: "idx_signal_observations_workspace_symbol")
+  @@index([workspaceId, factorName, observedAt(sort: Desc)], map: "idx_signal_observations_factor")
+  @@index([workspaceId, signalSnapshotId], map: "idx_signal_observations_snapshot")
+  @@map("signal_observations")
+}
+
+model SignalOutcomeLabel {
+  id             String   @id
+  workspaceId    String   @map("workspace_id")
+  observationId  String   @map("observation_id")
+  symbol         String
+  horizonMinutes Int      @map("horizon_minutes")
+  labelStatus    String   @map("label_status")
+  labelVersion   String   @map("label_version")
+  payloadJson    Json     @default("{}") @map("payload_json")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, observationId, horizonMinutes, labelVersion], map: "idx_signal_outcome_labels_identity")
+  @@index([workspaceId, symbol, horizonMinutes], map: "idx_signal_outcome_labels_symbol_horizon")
+  @@map("signal_outcome_labels")
+}
+
+model SignalEvaluationReport {
+  id             String   @id
+  workspaceId    String   @map("workspace_id")
+  reportVersion  String   @map("report_version")
+  generatedAt    DateTime @map("generated_at") @db.Timestamptz(6)
+  symbol         String?
+  factorName     String?  @map("factor_name")
+  horizonMinutes Int      @map("horizon_minutes")
+  payloadJson    Json     @default("{}") @map("payload_json")
+
+  @@index([workspaceId, generatedAt(sort: Desc)], map: "idx_signal_evaluation_reports_workspace_generated")
+  @@index([workspaceId, symbol, horizonMinutes, generatedAt(sort: Desc)], map: "idx_signal_evaluation_reports_symbol_horizon")
+  @@index([workspaceId, factorName, horizonMinutes, generatedAt(sort: Desc)], map: "idx_signal_evaluation_reports_factor_horizon")
+  @@map("signal_evaluation_reports")
+}
+
+model SignalWeightVersion {
+  id             String    @id
+  workspaceId    String    @map("workspace_id")
+  version        String
+  status         String
+  horizonMinutes Int       @map("horizon_minutes")
+  payloadJson    Json      @default("{}") @map("payload_json")
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  promotedAt     DateTime? @map("promoted_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, version], map: "idx_signal_weight_versions_workspace_version")
+  @@map("signal_weight_versions")
+}
+
+model SignalCalibratorVersion {
+  id             String    @id
+  workspaceId    String    @map("workspace_id")
+  version        String
+  weightVersion  String    @map("weight_version")
+  status         String
+  horizonMinutes Int       @map("horizon_minutes")
+  publishable    Boolean   @default(false)
+  payloadJson    Json      @default("{}") @map("payload_json")
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  promotedAt     DateTime? @map("promoted_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, version], map: "idx_signal_calibrator_versions_workspace_version")
+  @@map("signal_calibrator_versions")
+}
+
+model SignalModelPromotion {
+  id                  String   @id
+  workspaceId         String   @map("workspace_id")
+  toWeightVersion     String   @map("to_weight_version")
+  toCalibratorVersion String   @map("to_calibrator_version")
+  promotedAt          DateTime @map("promoted_at") @db.Timestamptz(6)
+  payloadJson         Json     @default("{}") @map("payload_json")
+
+  @@index([workspaceId, promotedAt(sort: Desc)], map: "idx_signal_model_promotions_workspace_promoted")
+  @@map("signal_model_promotions")
+}
+
+model SignalModelMonitoringSnapshot {
+  id                      String   @id
+  workspaceId             String   @map("workspace_id")
+  generatedAt             DateTime @map("generated_at") @db.Timestamptz(6)
+  status                  String
+  activeWeightVersion     String?  @map("active_weight_version")
+  activeCalibratorVersion String?  @map("active_calibrator_version")
+  payloadJson             Json     @default("{}") @map("payload_json")
+
+  @@index([workspaceId, generatedAt(sort: Desc)], map: "idx_signal_model_monitoring_workspace_generated")
+  @@map("signal_model_monitoring_snapshots")
+}
+
+model SignalModelAlert {
+  id                      String    @id
+  workspaceId             String    @map("workspace_id")
+  alertType               String    @map("alert_type")
+  severity                String
+  status                  String
+  activeWeightVersion     String?   @map("active_weight_version")
+  activeCalibratorVersion String?   @map("active_calibrator_version")
+  symbol                  String?
+  factorName              String?   @map("factor_name")
+  message                 String
+  evidenceJson            Json      @default("{}") @map("evidence_json")
+  payloadJson             Json      @default("{}") @map("payload_json")
+  createdAt               DateTime  @map("created_at") @db.Timestamptz(6)
+  acknowledgedAt          DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  resolvedAt              DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([workspaceId, status, createdAt(sort: Desc)], map: "idx_signal_model_alerts_workspace_status")
+  @@map("signal_model_alerts")
+}
+
+model SignalModelRollback {
+  id                    String   @id
+  workspaceId           String   @map("workspace_id")
+  fromWeightVersion     String   @map("from_weight_version")
+  toWeightVersion       String   @map("to_weight_version")
+  fromCalibratorVersion String   @map("from_calibrator_version")
+  toCalibratorVersion   String   @map("to_calibrator_version")
+  executedAt            DateTime @map("executed_at") @db.Timestamptz(6)
+  payloadJson           Json     @default("{}") @map("payload_json")
+
+  @@index([workspaceId, executedAt(sort: Desc)], map: "idx_signal_model_rollbacks_workspace_executed")
+  @@map("signal_model_rollbacks")
 }

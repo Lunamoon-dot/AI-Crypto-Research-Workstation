@@ -1,4 +1,4 @@
-"""Configuration profile management — YAML/TOML load with deep merge."""
+"""Configuration profile management â€” YAML/TOML load with deep merge."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def load_profile(name: str) -> dict:
     """
     path = _resolve_profile_file(name) or _profile_path(name)
     if not path.exists():
-        logger.warning("Profile %r not found at %s — using defaults.", name, path)
+        logger.warning("Profile %r not found at %s â€” using defaults.", name, path)
         return deepcopy(DEFAULT_CONFIG)
 
     overrides = load_config_file(path, validate=False)
@@ -96,7 +96,7 @@ def save_profile(config: dict, name: str) -> Path:
         yaml.safe_dump(
             overrides, fh, default_flow_style=False, sort_keys=False, allow_unicode=True
         )
-    logger.info("Saved profile %r → %s", name, path)
+    logger.info("Saved profile %r â†’ %s", name, path)
     return path
 
 
@@ -123,14 +123,14 @@ def delete_profile(name: str) -> bool:
 def resolve_config(
     profile: str | None = None,
     config_path: str | None = None,
-    cli_overrides: dict | None = None,
+    runtime_overrides: dict | None = None,
 ) -> dict:
-    """Full resolution chain: DEFAULT → profile/config file → CLI overrides.
+    """Full resolution chain: DEFAULT â†’ profile/config file â†’ runtime overrides.
 
     Priority (highest last):
         1. DEFAULT_CONFIG
         2. Named profile OR explicit config file path
-        3. CLI flag overrides
+        3. Runtime overrides
     """
     config = deepcopy(DEFAULT_CONFIG)
 
@@ -140,8 +140,8 @@ def resolve_config(
     elif profile:
         config = load_profile(profile)
 
-    if cli_overrides:
-        config = _deep_merge(config, cli_overrides)
+    if runtime_overrides:
+        config = _deep_merge(config, runtime_overrides)
 
     source = (
         f"config_path:{config_path}"

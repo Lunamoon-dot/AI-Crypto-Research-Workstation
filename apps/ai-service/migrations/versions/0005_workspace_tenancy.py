@@ -23,8 +23,6 @@ def upgrade() -> None:
         "research_runs",
         "trade_theses",
         "signals",
-        "watchlists",
-        "market_briefs",
         "run_events",
     ):
         ensure_column(raw, table, "workspace_id", "TEXT NOT NULL DEFAULT 'local'")
@@ -40,18 +38,6 @@ def upgrade() -> None:
     bind.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS idx_signals_workspace_observed "
         "ON signals(workspace_id, observed_at DESC)"
-    )
-    bind.exec_driver_sql(
-        "CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created "
-        "ON watchlists(workspace_id, created_at DESC)"
-    )
-    bind.exec_driver_sql(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name "
-        "ON watchlists(workspace_id, name)"
-    )
-    bind.exec_driver_sql(
-        "CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created "
-        "ON market_briefs(workspace_id, created_at DESC)"
     )
     bind.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS idx_run_events_workspace_created "

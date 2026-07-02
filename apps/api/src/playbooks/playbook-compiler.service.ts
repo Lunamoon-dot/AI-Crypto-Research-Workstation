@@ -19,6 +19,7 @@ import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lif
 import { evaluateScenario } from '../scenarios/scenario-evaluator';
 import { ScenarioReliabilityService } from '../scenarios/scenario-reliability.service';
 import { evaluateScenarioRuntimeDecision } from '../scenarios/scenario-runtime-evaluator';
+import { firstPriceLevelFromText } from '../scenarios/scenario-text-conditions';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 
 @Injectable()
@@ -61,20 +62,22 @@ export class PlaybookCompilerService {
     if (response.runtime_decision.validity_status === 'invalidated') {
       rejectionReasons.push('Scenario is invalidated.');
     }
+    const runtimeBlockers = response.runtime_decision.blocking_reasons;
     warnings.push(
-      ...response.runtime_decision.blocking_reasons.map(
+      ...runtimeBlockers.map(
         (reason) => `Runtime blocker: ${reason}`,
       ),
     );
+    if (
+      hasHardRuntimeBlocker(
+        response.runtime_decision.validity_status,
+        runtimeBlockers,
+      )
+    ) {
+      rejectionReasons.push('Runtime decision has unresolved blockers.');
+    }
     if (recommendation?.hard_gates.some((gate) => gate.status !== 'passed')) {
       rejectionReasons.push('Hard gates are pending.');
-    }
-    const trigger = firstCondition(
-      recommendation?.required_conditions,
-      response.decision_playbook?.entry_conditions,
-    );
-    if (!trigger) {
-      rejectionReasons.push('Missing trigger.');
     }
     const invalidation = firstCondition(
       recommendation?.invalidation_conditions,
@@ -82,6 +85,17 @@ export class PlaybookCompilerService {
     );
     if (!invalidation) {
       rejectionReasons.push('Missing invalidation.');
+    }
+    const rawTargets = targetList(targetSource(response, thesis));
+    const trigger = firstEntryCondition(
+      direction,
+      invalidation,
+      rawTargets,
+      recommendation?.required_conditions,
+      response.decision_playbook?.entry_conditions,
+    );
+    if (!trigger) {
+      rejectionReasons.push('Missing trigger.');
     }
     if (!direction) {
       rejectionReasons.push('Direction is not actionable.');
@@ -104,6 +118,31 @@ export class PlaybookCompilerService {
       });
     }
 
+    const entry = playbookEntry(trigger);
+    const targets = directionalTargets(rawTargets, direction, entry);
+    const filteredTargetCount = rawTargets.length - targets.length;
+    if (filteredTargetCount > 0) {
+      warnings.push(`Filtered ${filteredTargetCount} target(s) outside ${direction} playbook direction.`);
+    }
+    const numericRawTargetCount = rawTargets.filter(
+      (target) => target.level !== null,
+    ).length;
+    const numericTargetCount = targets.filter(
+      (target) => target.level !== null,
+    ).length;
+    if (numericRawTargetCount > 0 && numericTargetCount === 0) {
+      rejectionReasons.push('No directional targets remain after validation.');
+    }
+    if (rejectionReasons.length > 0) {
+      return toPlaybookCompileReportResponse({
+        version: 'playbook_compile_report.v1',
+        eligible: false,
+        playbook: null,
+        rejection_reasons: unique(rejectionReasons),
+        warnings,
+      });
+    }
+
     const playbook = toTradePlaybookResponse({
       version: 'trade_playbook.v1',
       id: `playbook_${randomUUID().replaceAll('-', '')}`,
@@ -114,12 +153,12 @@ export class PlaybookCompilerService {
       market_type: marketType,
       direction,
       horizon: response.horizon,
-      entry: playbookEntry(trigger),
+      entry,
       invalidation: {
         condition: conditionText(invalidation),
         level: numberOrNull(invalidation.level),
       },
-      targets: targetList(targetSource(response, thesis)),
+      targets,
       no_trade_conditions: [
         ...recommendation.blocking_reasons,
         ...recommendation.wait_for,
@@ -283,6 +322,96 @@ function firstCondition(...groups: Array<unknown[] | undefined>): JsonRecord | n
   return null;
 }
 
+function firstEntryCondition(
+  direction: 'long' | 'short' | null,
+  invalidation: JsonRecord | null,
+  targets: TradePlaybookResponse['targets'],
+  ...groups: Array<unknown[] | undefined>
+): JsonRecord | null {
+  let fallback: JsonRecord | null = null;
+  for (const group of groups) {
+    for (const item of group ?? []) {
+      const record = recordValue(item);
+      if (!isPriceEntryCondition(record)) {
+        continue;
+      }
+      fallback ??= record;
+      if (entryConditionIsCoherent(record, direction, invalidation, targets)) {
+        return record;
+      }
+    }
+  }
+  return fallback;
+}
+
+function isPriceEntryCondition(condition: JsonRecord): boolean {
+  const type = String(condition.type ?? '');
+  return (
+    type === 'price_above' ||
+    type === 'price_below' ||
+    type === 'price_in_zone' ||
+    type === 'price_reclaim_level' ||
+    type === 'price_reject_level'
+  );
+}
+
+function entryConditionIsCoherent(
+  condition: JsonRecord,
+  direction: 'long' | 'short' | null,
+  invalidation: JsonRecord | null,
+  targets: TradePlaybookResponse['targets'],
+): boolean {
+  if (!direction) {
+    return true;
+  }
+  const entry = playbookEntry(condition);
+  const entryLevel = entryReferenceLevel(entry, direction);
+  if (entryLevel === null) {
+    return true;
+  }
+  const invalidationLevel = numberOrNull(invalidation?.level);
+  if (invalidationLevel !== null) {
+    if (direction === 'long' && invalidationLevel >= entryLevel) {
+      return false;
+    }
+    if (direction === 'short' && invalidationLevel <= entryLevel) {
+      return false;
+    }
+  }
+  const numericTargets = targets
+    .map((target) => target.level)
+    .filter((level): level is number => level !== null);
+  if (numericTargets.length === 0) {
+    return true;
+  }
+  return numericTargets.some((level) =>
+    direction === 'long' ? level > entryLevel : level < entryLevel,
+  );
+}
+
+function entryReferenceLevel(
+  entry: TradePlaybookResponse['entry'],
+  direction: 'long' | 'short',
+): number | null {
+  return numberOrNull(
+    entry.level ?? (direction === 'long' ? entry.zone_high : entry.zone_low),
+  );
+}
+
+function hasHardRuntimeBlocker(
+  validityStatus: unknown,
+  blockers: string[],
+): boolean {
+  if (validityStatus === 'overextended' || validityStatus === 'conflicted') {
+    return true;
+  }
+  return blockers.some(
+    (reason) =>
+      reason === 'Price is overextended from trigger.' ||
+      reason === 'Scenario action bias does not match entry direction.',
+  );
+}
+
 function playbookDirection(value: unknown): 'long' | 'short' | null {
   if (value === 'long') {
     return 'long';
@@ -324,9 +453,30 @@ function conditionText(condition: JsonRecord): string {
 function targetList(value: unknown): TradePlaybookResponse['targets'] {
   return stringList(value).map((item, index) => ({
     label: `Target ${index + 1}`,
-    level: numberOrNull(item.match(/\d+(?:\.\d+)?/)?.[0]),
+    level: firstPriceLevelFromText(item),
     rationale: item,
   }));
+}
+
+function directionalTargets(
+  targets: TradePlaybookResponse['targets'],
+  direction: 'long' | 'short',
+  entry: TradePlaybookResponse['entry'],
+): TradePlaybookResponse['targets'] {
+  const entryLevel = numberOrNull(
+    entry.level ?? (direction === 'long' ? entry.zone_high : entry.zone_low),
+  );
+  if (entryLevel === null) {
+    return targets;
+  }
+  return targets.filter((target) => {
+    if (target.level === null) {
+      return true;
+    }
+    return direction === 'long'
+      ? target.level > entryLevel
+      : target.level < entryLevel;
+  });
 }
 
 function targetSource(

@@ -2404,8 +2404,7 @@ a {
   line-height: 1.3;
 }
 
-.attention-items,
-.brief-action-list {
+.attention-items {
   display: grid;
   gap: 8px;
 }
@@ -2471,10 +2470,6 @@ a {
   min-height: 32px;
   padding: 6px 9px;
   font-size: 12px;
-}
-
-.brief-action-list .attention-item p {
-  -webkit-line-clamp: 5;
 }
 
 .attention-pagination {
@@ -2573,95 +2568,12 @@ a {
   padding: 10px;
 }
 
-.morning-brief-panel .panel-body,
 .thesis-inbox-panel .panel-body,
 .signal-matrix-panel .panel-body,
 .run-pipeline-panel .panel-body,
 .workbench-rail .panel-body {
   display: grid;
   gap: 12px;
-}
-
-.brief-headline {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.brief-headline h3 {
-  margin: 0;
-  color: var(--foreground);
-  font-size: 20px;
-  font-weight: 820;
-  line-height: 1.18;
-}
-
-.brief-summary {
-  margin: 0;
-  border-left: 3px solid rgba(98, 240, 223, 0.6);
-  color: var(--muted);
-  padding-left: 12px;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.brief-focus-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.brief-focus-block {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-width: 0;
-  border: 1px solid rgba(89, 97, 112, 0.86);
-  border-radius: 6px;
-  background: rgba(11, 13, 18, 0.22);
-  padding: 10px;
-}
-
-.brief-focus-title {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  color: var(--foreground);
-  font-size: 12px;
-}
-
-.brief-focus-block ul {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding-left: 16px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.brief-asset-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.brief-asset-card {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  border-top: 1px solid rgba(63, 63, 70, 0.78);
-  padding-top: 10px;
-}
-
-.brief-asset-card p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .thesis-inbox-list {
@@ -2842,8 +2754,7 @@ a {
 }
 
 .run-pipeline-row,
-.rail-alert-row,
-.watchlist-rail-row {
+.rail-alert-row {
   display: grid;
   gap: 7px;
   min-width: 0;
@@ -2867,12 +2778,6 @@ a {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.watchlist-rail-row .small {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .command-composer {
@@ -4174,6 +4079,107 @@ a {
   padding: 8px 10px;
 }
 
+.signal-health-alerts {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-evaluation-readiness {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.signal-evaluation-readiness-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(70, 81, 95, 0.72);
+  border-radius: 6px;
+  background: rgba(5, 7, 10, 0.42);
+}
+
+.signal-evaluation-readiness-header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.signal-evaluation-readiness-header strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.signal-evaluation-readiness-header span:not(.badge) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.signal-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.signal-readiness-step {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  min-height: 92px;
+  padding: 10px;
+  border: 1px solid rgba(70, 81, 95, 0.72);
+  border-left: 2px solid rgba(119, 130, 147, 0.72);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 62%),
+    rgba(12, 15, 20, 0.68);
+}
+
+.signal-readiness-step.constructive {
+  border-left-color: rgba(79, 220, 145, 0.82);
+}
+
+.signal-readiness-step.warning {
+  border-left-color: rgba(235, 184, 92, 0.86);
+}
+
+.signal-readiness-step.risk {
+  border-left-color: rgba(255, 107, 107, 0.88);
+}
+
+.signal-readiness-step.primary,
+.signal-readiness-step.degraded {
+  border-left-color: rgba(98, 240, 223, 0.78);
+}
+
+.signal-readiness-step span,
+.signal-readiness-step small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.signal-readiness-step strong {
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 820;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
 .signal-run-list {
   display: grid;
   gap: 12px;
@@ -4330,6 +4336,28 @@ a {
 }
 
 .signal-run-table td:nth-child(5) {
+  overflow-wrap: anywhere;
+}
+
+.signal-summary-cell {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.signal-summary-badges {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-summary-text {
+  display: block;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
@@ -5016,48 +5044,6 @@ a {
     var(--surface-grit),
     linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 56%),
     var(--surface);
-}
-
-.brief-card {
-  min-width: 0;
-}
-
-.brief-card-section {
-  display: grid;
-  gap: 9px;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-}
-
-.brief-point {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.brief-point > span:first-child {
-  width: 6px;
-  height: 6px;
-  margin-top: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.brief-asset-row,
-.brief-thesis-row {
-  display: grid;
-  gap: 9px;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-low);
-  padding: 10px;
-}
-
-.brief-asset-row {
-  grid-template-columns: minmax(0, 1.3fr) minmax(150px, 0.7fr);
-  align-items: start;
 }
 
 .loading-line {
@@ -5995,6 +5981,14 @@ a {
     width: 100%;
   }
 
+  .signal-evaluation-readiness-header {
+    grid-template-columns: 1fr;
+  }
+
+  .signal-evaluation-readiness-header > .badge {
+    justify-self: start;
+  }
+
   .grid.two,
   .grid.three,
   .form-grid,
@@ -6059,8 +6053,6 @@ a {
   }
 
   .workbench-rail,
-  .brief-focus-grid,
-  .brief-asset-strip,
   .run-pipeline-track,
   .workbench-rail-actions {
     grid-template-columns: 1fr;
@@ -6071,10 +6063,6 @@ a {
   }
 
   .thesis-inbox-row {
-    grid-template-columns: 1fr;
-  }
-
-  .brief-asset-row {
     grid-template-columns: 1fr;
   }
 

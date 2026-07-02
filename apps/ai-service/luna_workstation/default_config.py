@@ -31,9 +31,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_performance_sample_size": 30,
         "min_out_of_sample_size": 10,
     },
-    # Historical replay defaults to strict point-in-time semantics. Use the
-    # CLI's research-simulation opt-out for exploratory runs that may accept
-    # HYBRID/LATEST provider behavior.
+    # Historical replay defaults to strict point-in-time semantics. Exploratory
+    # runs may explicitly opt out when HYBRID/LATEST provider behavior is acceptable.
     "historical_data": {
         "default_lookback_days": 30,
         "strict_mode": True,
@@ -72,8 +71,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "quick_think_llm": "deepseek-v4-flash",
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
-    # The CLI overrides this per provider when the user picks one. Keeping a
-    # provider-specific URL here would leak (e.g. OpenAI's /v1 was previously
+    # Runtime overrides can set this per provider. Keeping a provider-specific
+    # URL here would leak (e.g. OpenAI's /v1 was previously
     # being forwarded to Gemini, producing malformed request URLs).
     "backend_url": None,
     # Provider-specific thinking configuration
@@ -104,16 +103,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "data_provider_call_sample_rate": 1.0,
         "opentelemetry_enabled": False,
         "service_name": "lunacrypto",
-    },
-    # CLI disk persistence policy. Live display may show full report text, but
-    # automatic run artifacts default to capped summaries unless raw LLM output
-    # is explicitly enabled.
-    "cli_logging": {
-        "message_preview_chars": 512,
-        "max_report_section_chars": 20_000,
-        "max_log_bytes": 1_048_576,
-        "max_rotated_logs": 3,
-        "persist_raw_llm_output": False,
     },
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.

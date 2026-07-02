@@ -47,8 +47,6 @@ export const router = createBrowserRouter([
       { path: 'scenarios', element: <ScenarioMonitorPage /> },
       { path: 'scenario-decision', element: <ScenarioDecisionWorkbenchPage /> },
       { path: 'alerts', element: <AlertsPage /> },
-      { path: 'watchlists', element: <Navigate to="/research-continuity" replace /> },
-      { path: 'briefs/daily', element: <Navigate to="/research/history" replace /> },
       { path: 'operations', element: <OperationsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: '*', element: <NotFoundPage /> },

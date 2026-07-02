@@ -886,10 +886,41 @@ class ThesisBuilder:
         target_zones = structured_list(
             structured_payload,
             "target_zones",
+            "objective_zones",
+            "objective_zone",
+            "objectives",
             "targets",
             "target",
-            "take_profit",
+        )
+        profit_targets = structured_list(
+            structured_payload,
+            "profit_targets",
+            "profit_target",
+            "take_profit_targets",
             "take_profit_zones",
+            "take_profit",
+        )
+        downside_objectives = structured_list(
+            structured_payload,
+            "downside_objectives",
+            "downside_objective",
+            "downside_targets",
+            "downside_zones",
+        )
+        accumulation_zones = structured_list(
+            structured_payload,
+            "accumulation_zones",
+            "accumulation_zone",
+            "dca_zones",
+            "dca_zone",
+            "deep_accumulation_zones",
+        )
+        indicator_thresholds = structured_list(
+            structured_payload,
+            "indicator_thresholds",
+            "indicator_threshold",
+            "metric_thresholds",
+            "technical_thresholds",
         )
         current_price = normalize_price_value(
             getattr(quant, "current_price", None) if quant is not None else None
@@ -914,17 +945,24 @@ class ThesisBuilder:
             if prose_invalidation:
                 invalidation_level = prose_invalidation
                 contract_degradation_reasons.append("invalidation_from_prose")
-        if not target_zones:
+        objective_levels = [
+            *target_zones,
+            *profit_targets,
+            *downside_objectives,
+            *accumulation_zones,
+        ]
+        if not objective_levels:
             prose_targets = extract_thesis_list_field(clean_decision, "target")
             if prose_targets:
                 target_zones = prose_targets
+                objective_levels = list(target_zones)
                 contract_degradation_reasons.append("target_zones_from_prose")
 
         for field_name, value in (
             ("entry_zone", entry_zone),
             ("confirmation_condition", confirmation_condition),
             ("invalidation", invalidation_level),
-            ("target_zones", target_zones),
+            ("objective_levels", objective_levels),
         ):
             if not value:
                 contract_degradation_reasons.append(
@@ -951,7 +989,16 @@ class ThesisBuilder:
                 entry_zone,
                 confirmation_condition,
                 invalidation_level,
-                *[f"upside target {target}" for target in target_zones],
+                *[f"profit target {target}" for target in profit_targets],
+                *[
+                    f"downside objective {target}"
+                    for target in downside_objectives
+                ],
+                *[
+                    f"accumulation zone {target}"
+                    for target in accumulation_zones
+                ],
+                *[f"objective zone {target}" for target in target_zones],
                 structured_payload.get("upside_catalyst"),
                 clean_decision,
             ]
@@ -1002,7 +1049,20 @@ class ThesisBuilder:
                     else ""
                 ),
                 f"invalidation: {invalidation_level}" if invalidation_level else "",
-                *[f"target: {target}" for target in target_zones],
+                *[f"profit target: {target}" for target in profit_targets],
+                *[
+                    f"downside objective: {target}"
+                    for target in downside_objectives
+                ],
+                *[
+                    f"accumulation zone: {target}"
+                    for target in accumulation_zones
+                ],
+                *[f"objective zone: {target}" for target in target_zones],
+                *[
+                    f"indicator threshold: {threshold}"
+                    for threshold in indicator_thresholds
+                ],
             ]
             if item
         ]
@@ -1086,6 +1146,10 @@ class ThesisBuilder:
             confirmation_condition=confirmation_condition,
             invalidation_level=invalidation_level,
             target_zones=target_zones,
+            profit_targets=profit_targets,
+            downside_objectives=downside_objectives,
+            accumulation_zones=accumulation_zones,
+            indicator_thresholds=indicator_thresholds,
             supporting_evidence=supporting_evidence,
             contradicting_evidence=contradicting_evidence,
             stale_or_missing_data=stale_or_missing_data,
@@ -1133,6 +1197,10 @@ class ThesisBuilder:
             confirmation_condition=confirmation_condition or "",
             invalidation_level=invalidation_level,
             target_zones=target_zones,
+            profit_targets=profit_targets,
+            downside_objectives=downside_objectives,
+            accumulation_zones=accumulation_zones,
+            indicator_thresholds=indicator_thresholds,
             contradictions=contradictions,
             consensus=consensus,
             evidence={
@@ -1167,6 +1235,10 @@ class ThesisBuilder:
                 "missing_data_reason_codes": missing_data_reason_codes,
                 "current_price": current_price,
                 "price_sanity_notes": price_sanity_notes,
+                "profit_targets": profit_targets,
+                "downside_objectives": downside_objectives,
+                "accumulation_zones": accumulation_zones,
+                "indicator_thresholds": indicator_thresholds,
                 "mtf_confidence_penalty": mtf_penalty_payload,
             },
             why_this_thesis=why_this_thesis,
@@ -1453,13 +1525,32 @@ class ThesisBuilder:
     @staticmethod
     def _refresh_price_sanity_notes(thesis: TradeThesis) -> TradeThesis:
         current_price = normalize_price_value(thesis.evidence.get("current_price"))
+        summary = thesis.structured_summary
+        profit_targets = list(thesis.profit_targets)
+        downside_objectives = list(thesis.downside_objectives)
+        accumulation_zones = list(thesis.accumulation_zones)
+        if summary is not None:
+            profit_targets = profit_targets or list(summary.profit_targets)
+            downside_objectives = downside_objectives or list(
+                summary.downside_objectives
+            )
+            accumulation_zones = accumulation_zones or list(summary.accumulation_zones)
         text = "\n".join(
             str(part or "")
             for part in [
                 thesis.entry_zone,
                 thesis.confirmation_condition,
                 thesis.invalidation_level,
-                *[f"upside target {target}" for target in thesis.target_zones],
+                *[f"profit target {target}" for target in profit_targets],
+                *[
+                    f"downside objective {target}"
+                    for target in downside_objectives
+                ],
+                *[
+                    f"accumulation zone {target}"
+                    for target in accumulation_zones
+                ],
+                *[f"objective zone {target}" for target in thesis.target_zones],
                 thesis.invalidation,
                 thesis.thesis_text,
             ]
@@ -1555,6 +1646,10 @@ class ThesisBuilder:
             "confirmation_condition": thesis.confirmation_condition,
             "invalidation_level": thesis.invalidation_level,
             "target_zones": list(thesis.target_zones),
+            "profit_targets": list(thesis.profit_targets),
+            "downside_objectives": list(thesis.downside_objectives),
+            "accumulation_zones": list(thesis.accumulation_zones),
+            "indicator_thresholds": list(thesis.indicator_thresholds),
             "action_summary": (
                 thesis.structured_summary.action_summary
                 if thesis.structured_summary
@@ -1575,6 +1670,10 @@ class ThesisBuilder:
         thesis.invalidation_level = previous.invalidation_level
         thesis.invalidation = previous.invalidation
         thesis.target_zones = list(previous.target_zones)
+        thesis.profit_targets = list(previous.profit_targets)
+        thesis.downside_objectives = list(previous.downside_objectives)
+        thesis.accumulation_zones = list(previous.accumulation_zones)
+        thesis.indicator_thresholds = list(previous.indicator_thresholds)
         thesis.monitor_next = list(previous.monitor_next)
 
         if previous.structured_summary is not None:
@@ -1605,6 +1704,10 @@ class ThesisBuilder:
                     "confirmation_condition": previous.confirmation_condition or "",
                     "invalidation": previous.invalidation or "",
                     "target_zones": list(previous.target_zones),
+                    "profit_targets": list(previous.profit_targets),
+                    "downside_objectives": list(previous.downside_objectives),
+                    "accumulation_zones": list(previous.accumulation_zones),
+                    "indicator_thresholds": list(previous.indicator_thresholds),
                 }
             )
 
@@ -1690,6 +1793,11 @@ class ThesisBuilder:
             thesis.invalidation,
             thesis.confirmation_condition,
             thesis.invalidation_level,
+            *thesis.target_zones,
+            *thesis.profit_targets,
+            *thesis.downside_objectives,
+            *thesis.accumulation_zones,
+            *thesis.indicator_thresholds,
             thesis.why_this_thesis,
             thesis.confidence_rationale,
         ]
@@ -1812,6 +1920,10 @@ class ThesisBuilder:
         confirmation_condition: str | None,
         invalidation_level: str | None,
         target_zones: list[str],
+        profit_targets: list[str],
+        downside_objectives: list[str],
+        accumulation_zones: list[str],
+        indicator_thresholds: list[str],
         supporting_evidence: list[str],
         contradicting_evidence: list[str],
         stale_or_missing_data: list[str],
@@ -1842,7 +1954,7 @@ class ThesisBuilder:
             or why_this_thesis
         )
         summary_payload["upside_catalyst"] = summary_payload.get("upside_catalyst") or (
-            target_zones[0] if target_zones else ""
+            profit_targets[0] if profit_targets else ""
         )
         summary_payload["entry_zone"] = entry_zone or ""
         summary_payload["confirmation_condition"] = (
@@ -1854,6 +1966,10 @@ class ThesisBuilder:
             summary_payload.get("invalidation") or invalidation_level or ""
         )
         summary_payload["target_zones"] = target_zones
+        summary_payload["profit_targets"] = profit_targets
+        summary_payload["downside_objectives"] = downside_objectives
+        summary_payload["accumulation_zones"] = accumulation_zones
+        summary_payload["indicator_thresholds"] = indicator_thresholds
         summary_payload["key_reasons"] = summary_payload.get("key_reasons") or (
             supporting_evidence[:3]
             or contradicting_evidence[:3]
@@ -1896,9 +2012,15 @@ class ThesisBuilder:
                     "action_summary": executive_summary or why_this_thesis,
                     "entry_zone": entry_zone or "",
                     "confirmation_condition": confirmation_condition or "",
-                    "upside_catalyst": target_zones[0] if target_zones else "",
+                    "upside_catalyst": (
+                        profit_targets[0] if profit_targets else ""
+                    ),
                     "invalidation": invalidation_level or "",
                     "target_zones": target_zones,
+                    "profit_targets": profit_targets,
+                    "downside_objectives": downside_objectives,
+                    "accumulation_zones": accumulation_zones,
+                    "indicator_thresholds": indicator_thresholds,
                     "key_reasons": supporting_evidence[:3]
                     or contradicting_evidence[:3]
                     or ([why_this_thesis] if why_this_thesis else []),

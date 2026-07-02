@@ -182,7 +182,12 @@ class ConfidenceCurve(BaseModel):
     buckets: list[ConfidenceBucket] = Field(default_factory=list)
     overall_calibration_error: float | None = Field(
         default=None,
-        description="Weighted average of per-bucket calibration errors.",
+        description="Expected calibration error: weighted absolute per-bucket calibration error.",
+    )
+    brier_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Mean squared error for rows with binary thesis outcomes.",
     )
     calibration_quality: str = Field(
         default="unknown",

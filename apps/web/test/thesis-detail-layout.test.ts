@@ -27,7 +27,7 @@ test('thesis detail keeps decision brief focused on user actions', () => {
   assert.equal(source.includes('No trade currently.'), true);
   assert.equal(source.includes('<RatingBadge'), true);
   assert.equal(source.includes('<DirectionBadge'), true);
-  assert.equal(source.includes('Track thesis'), true);
+  assert.equal(source.includes('Track thesis'), false);
   assert.equal(source.includes('Track this thesis'), false);
 });
 
@@ -53,6 +53,25 @@ test('thesis detail renders first-class confirmation condition', () => {
   assert.equal(source.includes('thesis.confirmation_condition'), true);
   assert.equal(source.includes('<span>Confirmation</span>'), true);
   assert.equal(source.includes('<StructuredRichText value={confirmation} />'), true);
+});
+
+test('thesis detail renders typed objective levels instead of legacy target zones', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('const profitTargets ='), true);
+  assert.equal(source.includes('const downsideObjectives ='), true);
+  assert.equal(source.includes('const accumulationZones ='), true);
+  assert.equal(source.includes('const indicatorThresholds ='), true);
+  assert.equal(source.includes('normalizeThesisResponse'), true);
+  assert.equal(source.includes('title="Profit targets"'), true);
+  assert.equal(source.includes('title="Downside objectives"'), true);
+  assert.equal(source.includes('title="Accumulation zones"'), true);
+  assert.equal(source.includes('title="Indicator thresholds"'), true);
+  assert.equal(source.includes("thesis.direction.toLowerCase() === 'short'"), true);
+  assert.equal(source.includes('title="Target zones"'), false);
 });
 
 test('thesis detail uses one structured text renderer across narrative blocks', () => {
@@ -185,20 +204,28 @@ test('thesis detail consumes backend decision brief fields', () => {
 });
 
 test('scenario radar strips parser heading artifacts from decision cards', () => {
-  const source = readFileSync(
+  const pageSource = readFileSync(
     new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
     'utf8',
   );
+  const viewModelSource = readFileSync(
+    new URL('../src/pages/scenario-view-model.ts', import.meta.url),
+    'utf8',
+  );
 
-  assert.equal(source.includes("from './scenario-view-model'"), true);
-  assert.equal(source.includes('scenarioDetailViewModel'), true);
-  assert.equal(source.includes('payload.as_of ??'), false);
-  assert.equal(source.includes('function isScenarioSectionArtifact'), true);
-  assert.equal(source.includes('chips & watch triggers'), true);
-  assert.equal(source.includes('source & timeframe'), true);
-  assert.equal(source.includes('function extractScenarioSourceLabel'), true);
-  assert.equal(source.includes('vm.actionDetail || vm.actionLabel'), true);
-  assert.equal(source.includes('Action Watch'), false);
+  assert.equal(pageSource.includes("from './scenario-view-model'"), true);
+  assert.equal(pageSource.includes('scenarioDetailViewModel'), true);
+  assert.equal(pageSource.includes('payload.as_of ??'), false);
+  assert.equal(pageSource.includes('function isScenarioSectionArtifact'), true);
+  assert.equal(pageSource.includes('chips & watch triggers'), true);
+  assert.equal(pageSource.includes('source & timeframe'), true);
+  assert.equal(pageSource.includes('value={vm.asOf}'), true);
+  assert.equal(pageSource.includes('value={vm.timeframe}'), true);
+  assert.equal(pageSource.includes('value={vm.source}'), true);
+  assert.equal(pageSource.includes('vm.actionDetail || vm.actionLabel'), true);
+  assert.equal(pageSource.includes('Action Watch'), false);
+  assert.equal(viewModelSource.includes('function cleanText'), true);
+  assert.equal(viewModelSource.includes('Source,\\s*timeframe'), true);
 });
 
 test('scenario radar ignores missing runtime decisions for primary actions', () => {
@@ -251,6 +278,10 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
     new URL('../src/styles/index.css', import.meta.url),
     'utf8',
   );
+  const serviceSource = readFileSync(
+    new URL('../src/services/scenario-decision.ts', import.meta.url),
+    'utf8',
+  );
 
   assert.equal(pageSource.includes('evaluateScenarioDecisionItem'), true);
   assert.equal(pageSource.includes('compileScenarioDecisionPlaybook'), true);
@@ -259,6 +290,21 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
   assert.equal(pageSource.includes('persistedScenarioId'), true);
   assert.equal(pageSource.includes('Compile a playbook before running a backtest.'), true);
   assert.equal(pageSource.includes('Playbook rejected.'), true);
+  assert.equal(pageSource.includes('Reliability: this scenario window is updated, not double-counted.'), true);
+  assert.equal(pageSource.includes('Scope: manual research plan only; no exchange order is placed.'), true);
+  assert.equal(pageSource.includes('playbookEntryDetail'), true);
+  assert.equal(pageSource.includes('playbookTargetsDetail'), true);
+  assert.equal(pageSource.includes('backtestAssumptionsDetail'), true);
+  assert.equal(pageSource.includes('compileBlockerForScenario'), true);
+  assert.equal(pageSource.includes('compileBlocker={compileBlocker}'), true);
+  assert.equal(pageSource.includes('disabled={pending || Boolean(compileBlocker)}'), true);
+  assert.equal(pageSource.includes('title={compileBlocker ?? undefined}'), true);
+  assert.equal(pageSource.includes('Scenario is invalidated.'), true);
+  assert.equal(pageSource.includes('Scenario is watch-only or not directional.'), true);
+  assert.equal(pageSource.includes('backtestBlockerForPlaybook'), true);
+  assert.equal(pageSource.includes('Requires numeric entry, invalidation, and target'), true);
+  assert.equal(serviceSource.includes('lastClosedDailyBacktestEnd'), true);
+  assert.equal(pageSource.includes('feedback.details.slice(0, 5)'), false);
   assert.equal(pageSource.includes('rejection_reasons'), true);
   assert.equal(pageSource.includes('queryKeys.scenarioDecisionWorkbench()'), true);
   assert.equal(pageSource.includes('queryKeys.thesisScenarios(thesisId)'), true);

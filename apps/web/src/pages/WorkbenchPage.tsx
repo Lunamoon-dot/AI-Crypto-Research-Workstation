@@ -1,28 +1,21 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   ArrowUpRight,
   Bell,
-  ClipboardList,
-  Clock3,
-  FileText,
-  GitBranch,
   ListChecks,
   Radar,
   ScrollText,
-  ShieldAlert,
   Signal,
   TrendingUp,
 } from 'lucide-react';
 import { listAlerts } from '@/services/alerts';
-import { listDailyBriefs } from '@/services/briefs';
 import { queryKeys } from '@/services/query-keys';
 import { listResearchRuns } from '@/services/research-runs';
 import { listSignals } from '@/services/signals';
 import { listTheses } from '@/services/theses';
-import { listWatchlists } from '@/services/watchlists';
 import { getWorkbenchAttention } from '@/services/workbench';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { BentoGrid } from '@/components/research/bento';
@@ -37,12 +30,10 @@ import type {
   AttentionItemResponse,
   AttentionPriority,
   AttentionQueueResponse,
-  BriefResponse,
   ResearchRunResponse,
   ScenarioResponse,
   SignalResponse,
   ThesisResponse,
-  WatchlistResponse,
 } from '@/types';
 
 const signalTypeLimit = 5;
@@ -52,7 +43,7 @@ const attentionPageSize = 5;
 export function WorkbenchPage() {
   const auth = useWorkspaceStore();
   const [commandDraft, setCommandDraft] = useState(
-    'Review the critical queue, compare it with today brief, then open the highest-risk thesis.',
+    'Review the critical queue, then open the highest-risk thesis.',
   );
   const [attentionPages, setAttentionPages] = useState<Record<AttentionPriority, number>>({
     critical: 1,
@@ -63,10 +54,6 @@ export function WorkbenchPage() {
     queryKey: queryKeys.workbenchAttention({ limit: 10 }),
     queryFn: () => getWorkbenchAttention({ limit: 10 }, auth),
     staleTime: 30_000,
-  });
-  const briefs = useQuery({
-    queryKey: queryKeys.dailyBriefs({ limit: 1 }),
-    queryFn: () => listDailyBriefs({ limit: 1 }, auth),
   });
   const alerts = useQuery({
     queryKey: queryKeys.alerts({ unread: true, limit: 8 }),
@@ -80,16 +67,11 @@ export function WorkbenchPage() {
     queryKey: queryKeys.signals({ limit: 24 }),
     queryFn: () => listSignals({ limit: 24 }, auth),
   });
-  const watchlists = useQuery({
-    queryKey: queryKeys.watchlists({ limit: 8 }),
-    queryFn: () => listWatchlists({ limit: 8 }, auth),
-  });
   const runs = useQuery({
     queryKey: queryKeys.researchRuns({ limit: 12 }),
     queryFn: () => listResearchRuns({ limit: 12 }, auth),
   });
 
-  const latestBrief = attention.data?.latest_brief ?? briefs.data?.[0];
   const criticalCount =
     attention.data?.queues.find((queue) => queue.priority === 'critical')?.items
       .length ?? 0;
@@ -115,7 +97,7 @@ export function WorkbenchPage() {
       <PageHeader
         eyebrow="01 Workbench"
         title="Research operating desk"
-        description="Prioritized attention, morning brief, thesis review, signals, watchlists, and active research runs in one daily workspace."
+        description="Prioritized attention, thesis review, signals, alerts, and active research runs in one daily workspace."
         action={
           <div className="page-header-action-stack">
             <HeaderStats
@@ -172,7 +154,7 @@ export function WorkbenchPage() {
             {attention.isError ? <ErrorState error={attention.error} /> : null}
             {attention.data?.items.length === 0 ? (
               <div className="attention-empty">
-                <EmptyState label="No urgent items. Start new research or refresh watchlist checks." />
+                <EmptyState label="No urgent items. Start new research or review active theses." />
                 <Link className="button primary" to={routes.researchNew}>
                   <Radar aria-hidden size={16} />
                   New research run
@@ -197,17 +179,6 @@ export function WorkbenchPage() {
           </Panel>
 
           <BentoGrid className="workbench-core-grid">
-            <MorningBriefPanel
-              attentionError={attention.error}
-              attentionIsError={attention.isError}
-              attentionIsLoading={attention.isLoading}
-              brief={latestBrief}
-              briefActions={attention.data?.brief_actions ?? []}
-              briefError={briefs.error}
-              briefIsError={briefs.isError}
-              briefIsLoading={briefs.isLoading}
-            />
-
             <ThesisInboxPanel
               isError={theses.isError}
               isLoading={theses.isLoading}
@@ -238,12 +209,6 @@ export function WorkbenchPage() {
             error={alerts.error}
             isError={alerts.isError}
             isLoading={alerts.isLoading}
-          />
-          <WatchlistRail
-            error={watchlists.error}
-            isError={watchlists.isError}
-            isLoading={watchlists.isLoading}
-            watchlists={watchlists.data ?? []}
           />
           <ActiveScenariosRail
             isLoading={attention.isLoading}
@@ -380,126 +345,6 @@ function AttentionQueueSection({
           ))}
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function MorningBriefPanel({
-  attentionError,
-  attentionIsError,
-  attentionIsLoading,
-  brief,
-  briefActions,
-  briefError,
-  briefIsError,
-  briefIsLoading,
-}: {
-  attentionError: unknown;
-  attentionIsError: boolean;
-  attentionIsLoading: boolean;
-  brief: BriefResponse | null | undefined;
-  briefActions: AttentionItemResponse[];
-  briefError: unknown;
-  briefIsError: boolean;
-  briefIsLoading: boolean;
-}) {
-  const keyPoints = brief?.key_points ?? [];
-  const topRisks = brief?.top_risks ?? [];
-  const topSetups = brief?.top_setups ?? [];
-  const assetSummaries = brief?.asset_summaries ?? [];
-
-  return (
-    <Panel
-      className="span-7 emphasis morning-brief-panel"
-      title="Morning brief"
-      description="Daily context tied to unresolved queue actions."
-      action={
-        brief ? (
-          <span className="badge primary">{brief.brief_date ?? 'undated'}</span>
-        ) : null
-      }
-    >
-      {briefIsLoading || attentionIsLoading ? (
-        <LoadingState label="Loading daily brief..." />
-      ) : null}
-      {briefIsError ? <ErrorState error={briefError} /> : null}
-      {attentionIsError ? <ErrorState error={attentionError} /> : null}
-      {!brief && !briefIsLoading && !attentionIsLoading ? (
-        <EmptyState label="No daily brief has been written yet." />
-      ) : null}
-      {brief ? (
-        <div className="stack lg">
-          <div className="brief-headline">
-            <div>
-              <h3>{brief.title || 'Untitled brief'}</h3>
-              <div className="small muted">
-                {brief.watchlist_name || 'default'} | {formatDateTime(brief.created_at)}
-              </div>
-            </div>
-            <Link className="button ghost" to={routes.briefsDaily}>
-              <FileText aria-hidden size={15} />
-              Archive
-            </Link>
-          </div>
-          <p className="brief-summary">{brief.summary || 'No summary.'}</p>
-          {briefActions.length ? (
-            <div className="brief-action-list">
-              {briefActions.slice(0, 3).map((item) => (
-                <AttentionItem compact item={item} key={item.id} />
-              ))}
-            </div>
-          ) : null}
-          <div className="brief-focus-grid">
-            <BriefFocusBlock icon={<ListChecks aria-hidden size={15} />} title="Key points" items={keyPoints} />
-            <BriefFocusBlock icon={<ShieldAlert aria-hidden size={15} />} title="Top risks" items={topRisks} tone="risk" />
-            <BriefFocusBlock icon={<GitBranch aria-hidden size={15} />} title="Top setups" items={topSetups} tone="constructive" />
-          </div>
-          {assetSummaries.length ? (
-            <div className="brief-asset-strip">
-              {assetSummaries.slice(0, 4).map((asset) => (
-                <div className="brief-asset-card" key={`${asset.symbol}-${asset.source_timestamp}`}>
-                  <div className="row">
-                    <strong>{asset.symbol}</strong>
-                    <DirectionBadge value={asset.trend_direction} />
-                  </div>
-                  <span className="small muted">{asset.market_regime}</span>
-                  <p>{asset.summary || 'No asset summary.'}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </Panel>
-  );
-}
-
-function BriefFocusBlock({
-  icon,
-  items,
-  title,
-  tone = 'primary',
-}: {
-  icon: ReactNode;
-  items: string[];
-  title: string;
-  tone?: 'primary' | 'constructive' | 'risk';
-}) {
-  return (
-    <section className="brief-focus-block">
-      <div className="brief-focus-title">
-        <span className={`badge ${tone}`}>{icon}</span>
-        <strong>{title}</strong>
-      </div>
-      {items.length ? (
-        <ul>
-          {items.slice(0, 3).map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <span className="small muted">No items recorded.</span>
-      )}
     </section>
   );
 }
@@ -741,7 +586,7 @@ function AlertRail({
     <Panel
       className="workbench-alert-rail"
       title="Unread alerts"
-      description="Watchlist events that still need attention."
+      description="Research events that still need attention."
       action={
         <Link className="button ghost" to={routes.alerts}>
           <Bell aria-hidden size={15} />
@@ -761,53 +606,6 @@ function AlertRail({
             </div>
             <p>{alert.message}</p>
             <span className="small muted">{formatDateTime(alert.created_at)}</span>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function WatchlistRail({
-  error,
-  isError,
-  isLoading,
-  watchlists,
-}: {
-  error: unknown;
-  isError: boolean;
-  isLoading: boolean;
-  watchlists: WatchlistResponse[];
-}) {
-  return (
-    <Panel
-      className="workbench-watchlist-rail"
-      title="Watchlists"
-      description="Monitoring scopes used by checks and briefs."
-      action={
-        <Link className="button ghost" to={routes.watchlists}>
-          <ClipboardList aria-hidden size={15} />
-          Open
-        </Link>
-      }
-    >
-      {isLoading ? <LoadingState label="Loading watchlists..." /> : null}
-      {isError ? <ErrorState error={error} /> : null}
-      {watchlists.length === 0 && !isLoading ? (
-        <EmptyState label="No watchlists found." />
-      ) : null}
-      <div className="stack">
-        {watchlists.slice(0, 5).map((watchlist) => (
-          <div className="watchlist-rail-row" key={watchlist.id ?? watchlist.name}>
-            <div className="row">
-              <strong>{watchlist.name}</strong>
-              <span className={watchlist.enabled ? 'badge constructive' : 'badge'}>
-                {watchlist.enabled ? 'enabled' : 'paused'}
-              </span>
-            </div>
-            <span className="small muted">
-              <Clock3 aria-hidden size={13} /> {formatDateTime(watchlist.created_at)}
-            </span>
           </div>
         ))}
       </div>

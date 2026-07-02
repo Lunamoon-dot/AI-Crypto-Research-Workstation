@@ -67,6 +67,10 @@ class TestRenderSetupProposal:
             confirmation_condition="Daily close above 196 with spot volume expansion",
             invalidation="Daily close below 178",
             target_zones=["205", "220"],
+            profit_targets=["230"],
+            downside_objectives=["180"],
+            accumulation_zones=["170"],
+            indicator_thresholds=["RSI 4H above 50"],
             position_sizing="6% of portfolio",
             spot_notes="Use staged accumulation; no leverage.",
         )
@@ -78,6 +82,10 @@ class TestRenderSetupProposal:
         )
         assert "**Invalidation**: Daily close below 178" in md
         assert "**Objective Zones**: 205; 220" in md
+        assert "**Profit Targets**: 230" in md
+        assert "**Downside Objectives**: 180" in md
+        assert "**Review / Accumulation Zones**: 170" in md
+        assert "**Indicator Thresholds**: RSI 4H above 50" in md
         assert "**Conviction Context**: 6% of portfolio" in md
         assert "**Spot Notes**: Use staged accumulation; no leverage." in md
         assert "FINAL SETUP STANCE: **BUY**" in md
@@ -106,7 +114,7 @@ class TestRenderSetupProposal:
         md = render_trader_proposal(p)
         assert "**Review Zone**: 189.5" in md
         assert "**Invalidation**: 178.0" in md
-        assert "**Objective Zones**: 160.0" in md
+        assert "**Profit Targets**: 160.0" in md
         assert "FINAL SETUP STANCE: **SELL**" in md
 
     def test_optional_fields_omitted_when_absent(self):
@@ -217,6 +225,42 @@ class TestPortfolioManagerAgent:
         )
         assert payload["invalidation"] == "Daily close below 1715."
         assert payload["target_zones"] == ["1650", "1580."]
+
+    def test_free_text_fallback_preserves_typed_objective_levels(self):
+        plain_response = "\n".join(
+            [
+                "**Portfolio Manager's Final Research Thesis: BNB/USDT (Spot)**",
+                "**Stance**: Underweight - avoid new longs.",
+                "**Research Summary**: Avoid long until reclaim confirmation.",
+                "**Investment Thesis**: Trend and risk evidence favor patience.",
+                "**Confirmation**: Daily close below $540 with volume.",
+                "**Invalidation**: Daily close above $560.",
+                "**Review Zone**: $540-$545.",
+                "**Downside Objectives**: $480; $450; $420.",
+                "**Review / Accumulation Zones**: $420.",
+                "**Indicator Thresholds**: RSI 4H above 50; Long/Short ratio above 3.0.",
+                "**Missing Data**: liquidation heatmap.",
+            ]
+        )
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.return_value = MagicMock(content=plain_response)
+
+        portfolio_manager = create_portfolio_manager(llm, config={})
+        result = portfolio_manager(_make_pm_state())
+        payload = json.loads(result["final_trade_summary_json"])
+
+        assert payload["entry_zone"] == "$540-$545."
+        assert payload["target_zones"] == []
+        assert payload["profit_targets"] == []
+        assert payload["downside_objectives"] == ["$480", "$450", "$420."]
+        assert payload["accumulation_zones"] == ["$420."]
+        assert payload["indicator_thresholds"] == [
+            "RSI 4H above 50",
+            "Long/Short ratio above 3.0.",
+        ]
 
     def test_free_text_fallback_validates_trade_thesis_json_block(self):
         thesis_json = {

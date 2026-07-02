@@ -127,11 +127,11 @@ export function PerformanceAnalyticsPage() {
               </Link>
             </div>
             <div className="state-card">
-              <strong>Check monitored theses</strong>
-              <span>Use watchlists to find thesis conditions that need attention.</span>
-              <Link className="button" to={routes.watchlists}>
+              <strong>Review active scenarios</strong>
+              <span>Use scenario monitoring to find thesis conditions that need attention.</span>
+              <Link className="button" to={routes.scenarios}>
                 <TrendingUp aria-hidden size={16} />
-                Watchlists
+                Scenarios
               </Link>
             </div>
           </div>

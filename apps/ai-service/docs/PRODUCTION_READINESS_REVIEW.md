@@ -20,8 +20,8 @@ This project should remain positioned as a local-first AI crypto research workst
 | `python -m ruff check .` | PASS |
 | `python -m ruff format --check .` | PASS after formatting repo |
 | `python -m pytest -q` | PASS: 503 passed, 1 skipped, 42 subtests passed |
-| `python -m mypy luna_workstation cli` | PASS |
-| `python -m compileall luna_workstation cli tests` | PASS |
+| `python -m mypy luna_workstation` | PASS |
+| `python -m compileall luna_workstation tests` | PASS |
 | `python -m pip check` | PASS: no broken requirements; local Python reports stale invalid-distribution warnings outside the project |
 
 The skipped test is `tests/test_property_based_hardening.py` because `hypothesis` is not installed in the current local interpreter. It is declared in the `dev` extra, so a clean dev install should remove this skip.
@@ -104,7 +104,6 @@ Keep Markdown that is current, user-facing, or operational:
 - `CHANGELOG.md`
 - `ROADMAP.md`
 - `CLAUDE.md`
-- `TERMINAL_UX_GUIDE.md`
 - `docs/PROJECT_OVERVIEW.md`
 - `docs/ROADMAP_DEV.md`
 - `docs/ROADMAP_PRODUCTION.md`

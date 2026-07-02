@@ -135,7 +135,7 @@ def _load_validation_config(
         selected_profile = ""
     return ConfigLoader().load(
         profile=selected_profile or None,
-        cli_overrides=overrides,
+        runtime_overrides=overrides,
         fail_fast=False,
     )
 

@@ -6,14 +6,10 @@ and build_window_from_config.
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
-
-from cli import main as cli_main
 
 from luna_workstation.graph.historical_replay import (
     HistoricalReplay,
@@ -21,13 +17,6 @@ from luna_workstation.graph.historical_replay import (
     _save_replay_audit_event,
 )
 from luna_workstation.dataflows.historical_contract import DataWindow
-
-# Rich/Typer colorize option names so "--strict" is not a contiguous substring in stdout.
-_STRIP_ANSI = re.compile(r"\x1b\[[0-9;:]*m")
-
-
-def _plain_cli_stdout(text: str) -> str:
-    return _STRIP_ANSI.sub("", text)
 
 
 # ---------------------------------------------------------------------------
@@ -295,122 +284,6 @@ class TestBuildWindowFromConfig:
         window = HistoricalReplay.build_window_from_config(config)
         assert window is not None
         assert window.lookback_days == 30
-
-
-# ---------------------------------------------------------------------------
-# CLI registration
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestReplayCliRegistration:
-    def test_top_level_replay_help(self):
-        runner = CliRunner()
-        result = runner.invoke(cli_main.app, ["replay", "--help"])
-        assert result.exit_code == 0
-        assert "single" in result.stdout
-
-    def test_research_replay_help(self):
-        runner = CliRunner()
-        result = runner.invoke(cli_main.app, ["research", "replay", "--help"])
-        assert result.exit_code == 0
-        assert "single" in result.stdout
-
-
-# ---------------------------------------------------------------------------
-# Phase 9C: Provider capability report CLI
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestReplayCapabilitiesCli:
-    def test_capabilities_command_exists(self):
-        runner = CliRunner()
-        result = runner.invoke(cli_main.app, ["replay", "capabilities", "--help"])
-        assert result.exit_code == 0
-        assert "provider" in result.stdout.lower()
-
-    def test_capabilities_all_vendors(self):
-        runner = CliRunner()
-        result = runner.invoke(cli_main.app, ["replay", "capabilities"])
-        assert result.exit_code == 0
-        assert "ccxt" in result.stdout.lower()
-        assert "coingecko" in result.stdout.lower()
-
-    def test_capabilities_json_output(self):
-        runner = CliRunner()
-        result = runner.invoke(cli_main.app, ["replay", "capabilities", "--json"])
-        assert result.exit_code == 0
-        import json
-
-        payload = json.loads(result.stdout)
-        assert "providers" in payload
-        assert "ccxt" in payload["providers"]
-        assert "coingecko" in payload["providers"]
-
-    def test_capabilities_filter_by_vendor(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli_main.app, ["replay", "capabilities", "--vendor", "ccxt"]
-        )
-        assert result.exit_code == 0
-        assert "ccxt" in result.stdout.lower()
-
-    def test_capabilities_unknown_vendor(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli_main.app, ["replay", "capabilities", "--vendor", "unknown_vendor"]
-        )
-        assert result.exit_code == 1
-        assert "Unknown vendor" in result.stdout
-
-
-# ---------------------------------------------------------------------------
-# Phase 9C: Strict mode
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestStrictMode:
-    @staticmethod
-    def _option_names(command_name: str) -> set[str]:
-        command = cli_main.typer.main.get_command(cli_main.app)
-        command_map = getattr(command, "commands", {})
-        replay_group = command_map["replay"]
-        replay_command = getattr(replay_group, "commands", {})[command_name]
-        names: set[str] = set()
-        for param in replay_command.params:
-            names.update(getattr(param, "opts", []))
-            names.update(getattr(param, "secondary_opts", []))
-        return names
-
-    def test_single_accepts_strict_flag(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli_main.app,
-            ["replay", "single", "BTC/USDT", "2025-12-15", "--strict", "--help"],
-        )
-        assert result.exit_code == 0
-        assert "--strict" in _plain_cli_stdout(result.stdout)
-        assert "--research-simulation" in self._option_names("single")
-
-    def test_batch_accepts_strict_flag(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli_main.app,
-            [
-                "replay",
-                "batch",
-                "BTC/USDT",
-                "2025-01-01",
-                "2025-01-07",
-                "--strict",
-                "--help",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "--strict" in _plain_cli_stdout(result.stdout)
-        assert "--research-simulation" in self._option_names("batch")
 
 
 @pytest.mark.unit

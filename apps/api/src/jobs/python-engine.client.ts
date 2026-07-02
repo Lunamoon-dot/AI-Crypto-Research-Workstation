@@ -45,17 +45,17 @@ export class PythonEngineClient {
     return runEngineRequestFile(
       request,
       `${request.thesis_id}-evaluation.json`,
-      resolveCliInvocation(['engine', 'evaluate', '--request']),
+      resolveEngineModuleInvocation(['evaluate', '--request']),
       options,
     );
   }
 }
 
-export function runPythonCliJson(
+export function runPythonEngineJson(
   args: string[],
   options: PythonEngineRunOptions = {},
 ): Promise<JsonRecord> {
-  return runJsonInvocation(resolveCliInvocation(args), options);
+  return runJsonInvocation(resolveEngineModuleInvocation(args), options);
 }
 
 function runJsonInvocation(
@@ -153,62 +153,25 @@ function resolveEngineInvocation(): EngineInvocation {
   if (configured) {
     return {
       command: configured,
-      args: splitArgs(process.env.PYTHON_ENGINE_ARGS ?? 'engine run --request'),
+      args: splitArgs(
+        process.env.PYTHON_ENGINE_ARGS ??
+          '-m luna_workstation.engine run --request',
+      ),
       cwd: process.env.PYTHON_ENGINE_CWD?.trim() || undefined,
     };
   }
 
-  const aiServiceDir = resolveAiServiceDir();
-  const python = aiServiceDir ? resolvePythonCommand(aiServiceDir) : null;
-  if (python && aiServiceDir) {
-    return {
-      command: python,
-      args: ['-m', 'cli.main', 'engine', 'run', '--request'],
-      cwd: aiServiceDir,
-    };
-  }
-
-  const executable = process.platform === 'win32' ? 'lunacrypto.exe' : 'lunacrypto';
-  const cwd = aiServiceDir ?? process.cwd();
-  const candidates = unique([
-    aiServiceDir
-      ? join(aiServiceDir, '.venv', binDir(), executable)
-      : '',
-    join(process.cwd(), '.venv', binDir(), executable),
-    join(process.cwd(), '..', '..', '.venv', binDir(), executable),
-    join(__dirname, '..', '..', '..', '..', '..', '.venv', binDir(), executable),
-  ]);
-  return {
-    command: candidates.find((candidate) => candidate && isHealthyExecutable(candidate, ['--help'], cwd)) ?? 'lunacrypto',
-    args: ['engine', 'run', '--request'],
-    cwd,
-  };
+  return resolveEngineModuleInvocation(['run', '--request']);
 }
 
-function resolveCliInvocation(args: string[]): EngineInvocation {
+function resolveEngineModuleInvocation(args: string[]): EngineInvocation {
   const aiServiceDir = resolveAiServiceDir();
   const python = aiServiceDir ? resolvePythonCommand(aiServiceDir) : null;
-  if (python && aiServiceDir) {
-    return {
-      command: python,
-      args: ['-m', 'cli.main', ...args],
-      cwd: aiServiceDir,
-    };
-  }
-
-  const executable = process.platform === 'win32' ? 'lunacrypto.exe' : 'lunacrypto';
   const cwd = aiServiceDir ?? process.cwd();
-  const candidates = unique([
-    aiServiceDir
-      ? join(aiServiceDir, '.venv', binDir(), executable)
-      : '',
-    join(process.cwd(), '.venv', binDir(), executable),
-    join(process.cwd(), '..', '..', '.venv', binDir(), executable),
-    join(__dirname, '..', '..', '..', '..', '..', '.venv', binDir(), executable),
-  ]);
+
   return {
-    command: candidates.find((candidate) => candidate && isHealthyExecutable(candidate, ['--help'], cwd)) ?? 'lunacrypto',
-    args,
+    command: python ?? (process.platform === 'win32' ? 'python.exe' : 'python'),
+    args: ['-m', 'luna_workstation.engine', ...args],
     cwd,
   };
 }
@@ -229,7 +192,10 @@ function resolveAiServiceDir(): string | null {
     resolve(__dirname, '..', '..', '..', '..', 'apps', 'ai-service'),
   ]);
   return candidates.find((candidate) =>
-    Boolean(candidate && existsSync(join(candidate, 'cli', 'main.py'))),
+    Boolean(
+      candidate &&
+        existsSync(join(candidate, 'luna_workstation', 'engine', '__main__.py')),
+    ),
   ) ?? null;
 }
 

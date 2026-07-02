@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { AuthService } from '../auth/auth.service';
 import {
   JOURNAL_REPOSITORY,
@@ -23,6 +23,12 @@ import { WorkspacesService } from '../workspaces/workspaces.service';
 type ScenarioWithThesis = {
   scenario: JsonRecord;
   thesis: JsonRecord;
+};
+type ResolvedEvaluationWindow = {
+  starts_at: string | null;
+  ends_at: string | null;
+  horizon: string;
+  metric_hint: string | null;
 };
 
 @Injectable()
@@ -54,12 +60,7 @@ export class ScenarioEvaluationService {
     const { scenario, thesis } = await this.findScenario(scenarioId, workspaceId);
     const response = toScenarioResponse(scenario, thesis);
     const recommendation = response.scenario_recommendation;
-    const window = recommendation?.evaluation_window ?? {
-      starts_at: null,
-      ends_at: null,
-      horizon: response.horizon,
-      metric_hint: 'manual_review' as const,
-    };
+    const window = resolveEvaluationWindow(response, scenario, thesis);
     const trigger = firstCondition(
       recommendation?.required_conditions,
       response.decision_playbook?.entry_conditions,
@@ -77,6 +78,28 @@ export class ScenarioEvaluationService {
         throw new BadRequestException('Scenario evaluation window has not matured.');
       }
     }
+    if (!window.starts_at || !window.ends_at) {
+      warnings.push('missing_evaluation_window');
+      return this.persistEvaluation({
+        workspaceId,
+        scenarioId,
+        thesis,
+        response,
+        evaluationWindow: window,
+        result: 'inconclusive',
+        dataQuality: 'insufficient',
+        warnings,
+        triggerHit: null,
+        invalidationHit: null,
+        targetHit: null,
+        candles: [],
+        evidence: withReliabilityMetadata(
+          { reason: 'missing_evaluation_window' },
+          response,
+          thesis,
+        ),
+      });
+    }
 
     if (!trigger || !invalidation) {
       if (!trigger) warnings.push('missing_trigger');
@@ -86,6 +109,7 @@ export class ScenarioEvaluationService {
         scenarioId,
         thesis,
         response,
+        evaluationWindow: window,
         result: 'inconclusive',
         dataQuality: 'insufficient',
         warnings,
@@ -116,6 +140,7 @@ export class ScenarioEvaluationService {
         scenarioId,
         thesis,
         response,
+        evaluationWindow: window,
         result: 'inconclusive',
         dataQuality: 'insufficient',
         warnings,
@@ -135,6 +160,7 @@ export class ScenarioEvaluationService {
       scenarioId,
       thesis,
       response,
+      evaluationWindow: window,
       result,
       dataQuality: 'complete',
       warnings,
@@ -184,6 +210,7 @@ export class ScenarioEvaluationService {
     scenarioId: string;
     thesis: JsonRecord;
     response: ReturnType<typeof toScenarioResponse>;
+    evaluationWindow: ResolvedEvaluationWindow;
     result: ScenarioEvaluationResponse['result'];
     dataQuality: ScenarioEvaluationResponse['data_quality'];
     warnings: string[];
@@ -194,10 +221,11 @@ export class ScenarioEvaluationService {
     evidence: JsonRecord;
   }): Promise<ScenarioEvaluationResponse> {
     const prices = candleStats(input.candles);
+    const id = deterministicScenarioEvaluationId(input);
     const saved = await this.journal.saveScenarioEvaluation(
       {
         version: 'scenario_evaluation.v1',
-        id: `scenario_eval_${randomUUID().replaceAll('-', '')}`,
+        id,
         workspace_id: input.workspaceId,
         scenario_id: input.scenarioId,
         thesis_id: input.response.thesis_id,
@@ -207,8 +235,8 @@ export class ScenarioEvaluationService {
         horizon: input.response.horizon,
         evaluated_at: new Date().toISOString(),
         evaluation_window: {
-          starts_at: input.response.scenario_recommendation?.evaluation_window.starts_at ?? null,
-          ends_at: input.response.scenario_recommendation?.evaluation_window.ends_at ?? null,
+          starts_at: input.evaluationWindow.starts_at,
+          ends_at: input.evaluationWindow.ends_at,
         },
         result: input.result,
         trigger_hit: input.triggerHit,
@@ -391,6 +419,81 @@ function withReliabilityMetadata(
     action_bias: response.scenario_recommendation?.action_bias ?? 'unknown',
     setup_type: nullableString(thesis.setup_type ?? response.payload.setup_type),
   };
+}
+
+function deterministicScenarioEvaluationId(input: {
+  workspaceId: string;
+  scenarioId: string;
+  response: ReturnType<typeof toScenarioResponse>;
+  evaluationWindow: ResolvedEvaluationWindow;
+}): string {
+  const hash = createHash('sha256')
+    .update(JSON.stringify({
+      workspace_id: input.workspaceId,
+      scenario_id: input.scenarioId,
+      starts_at: input.evaluationWindow.starts_at,
+      ends_at: input.evaluationWindow.ends_at,
+      horizon: input.evaluationWindow.horizon,
+      metric_hint: input.evaluationWindow.metric_hint,
+    }))
+    .digest('hex')
+    .slice(0, 32);
+  return `scenario_eval_${hash}`;
+}
+
+function resolveEvaluationWindow(
+  response: ReturnType<typeof toScenarioResponse>,
+  scenario: JsonRecord,
+  thesis: JsonRecord,
+): ResolvedEvaluationWindow {
+  const rawWindow = response.scenario_recommendation?.evaluation_window;
+  const horizon = nullableString(rawWindow?.horizon) ?? response.horizon;
+  const startsAt =
+    isoStringOrNull(rawWindow?.starts_at) ??
+    isoStringOrNull(scenario.created_at) ??
+    isoStringOrNull(thesis.created_at) ??
+    isoStringOrNull(response.scenario_recommendation?.generated_at);
+  const endsAt =
+    isoStringOrNull(rawWindow?.ends_at) ??
+    addDurationIso(startsAt, evaluationWindowDurationMs(horizon));
+  return {
+    starts_at: startsAt,
+    ends_at: endsAt,
+    horizon,
+    metric_hint: nullableString(rawWindow?.metric_hint),
+  };
+}
+
+function evaluationWindowDurationMs(horizon: string): number {
+  if (horizon === 'mid_term') {
+    return 14 * 24 * 60 * 60_000;
+  }
+  if (horizon === 'long_term') {
+    return 30 * 24 * 60 * 60_000;
+  }
+  if (horizon === 'short_term') {
+    return 3 * 24 * 60 * 60_000;
+  }
+  return 7 * 24 * 60 * 60_000;
+}
+
+function addDurationIso(value: string | null, durationMs: number): string | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed)
+    ? new Date(parsed + durationMs).toISOString()
+    : null;
+}
+
+function isoStringOrNull(value: unknown): string | null {
+  const raw = nullableString(value);
+  if (!raw) {
+    return null;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 function recordValue(value: unknown): JsonRecord {

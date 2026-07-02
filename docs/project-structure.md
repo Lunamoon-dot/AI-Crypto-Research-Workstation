@@ -1,4 +1,4 @@
-﻿# LunaCrypto Project Structure
+# LunaCrypto Project Structure
 
 Last updated: 2026-05-29
 
@@ -15,7 +15,7 @@ Phạm vi tài liệu:
 ```text
 LunaCrypto/
 |-- apps/                              # Các ứng dụng chạy thật trong sản phẩm
-|  |-- ai-service/                     # Python AI engine + CLI `lunacrypto`
+|  |-- ai-service/                     # Python AI engine + worker engine contract
 |  |-- api/                            # NestJS backend API boundary
 |  |-- web/                            # Vite/React workstation UI
 |  `-- landing/                        # Placeholder landing app, chưa có implementation
@@ -87,14 +87,13 @@ LunaCrypto/
 
 ### 4.1 `apps/ai-service/`
 
-`apps/ai-service` là Python engine. Nó giữ package import là `luna_workstation`, expose CLI command là `lunacrypto`, và phụ trách research pipeline, signals, journal, outcome review.
+`apps/ai-service` là Python engine. Nó giữ package import là `luna_workstation`, không còn expose public command-line UI, và phụ trách research pipeline, signals, journal, outcome review. API/worker gọi engine qua `python -m luna_workstation.engine`.
 
 ```text
 apps/ai-service/
-|-- README.md                         # Tổng quan AI service, installation, CLI usage
+|-- README.md                         # Tổng quan AI service, installation, engine contract
 |-- ROADMAP.md                        # Roadmap riêng của AI service
 |-- CHANGELOG.md                      # Lịch sử thay đổi của AI service
-|-- TERMINAL_UX_GUIDE.md              # Hướng dẫn UX cho terminal/CLI
 |-- pyproject.toml                    # Python package metadata, dependencies, pytest/ruff/mypy config
 |-- requirements.txt                  # Dependency list cho pip-style install
 |-- uv.lock                           # Lockfile cho uv/Python deps
@@ -106,13 +105,12 @@ apps/ai-service/
 |-- .env.enterprise.example           # Ví dụ env enterprise/provider nâng cao
 |-- alembic.ini                       # Alembic migration config
 |-- config/                           # Config TOML cho engine
-|-- cli/                              # Typer/Rich CLI commands
 |-- luna_workstation/                 # Core Python package
 |-- migrations/                       # Alembic migrations
 |-- tests/                            # Pytest suite
 |-- scripts/                          # Helper scripts
 |-- docs/                             # AI-service docs/runbooks/release evidence
-`-- assets/                           # Image assets cho docs/CLI
+`-- assets/                           # Image assets cho docs
 ```
 
 #### `apps/ai-service/config/`
@@ -121,40 +119,6 @@ apps/ai-service/
 config/
 |-- default.toml                      # Default runtime config cho engine/provider/model
 `-- local.example.toml                # Mẫu config local override
-```
-
-#### `apps/ai-service/cli/`
-
-```text
-cli/
-|-- __init__.py                       # Package marker
-|-- main.py                           # Typer app entrypoint, bind các subcommands
-|-- announcements.py                  # Thông báo/release notes hiện trong CLI
-|-- brief_cmd.py                      # Commands tạo/đọc market brief
-|-- config.py                         # CLI config helpers
-|-- config_cmd.py                     # Commands doc/validate/update config
-|-- dashboard.py                      # Command/logic dashboard terminal
-|-- diff_cmd.py                       # So sánh research runs/thesis artifacts
-|-- evaluate_cmd.py                   # Outcome evaluation commands
-|-- journal_cmd.py                    # Decision journal commands
-|-- json_emit.py                      # Chuẩn hóa JSON output từ CLI
-|-- log_policy.py                     # Chính sách log/quiet/verbose
-|-- message_buffer.py                 # Buffer message/event cho terminal rendering
-|-- models.py                         # CLI-facing model/options
-|-- orchestrator.py                   # Điều phối CLI workflows
-|-- preflight.py                      # Kiểm tra điều kiện trước khi run
-|-- replay_cmd.py                     # Replay historical/research data
-|-- reporting.py                      # Render report output
-|-- research_completion.py            # Xử lý khi research run hoàn tất
-|-- selections.py                     # Prompt/selection helpers
-|-- signals_cmd.py                    # Signal explorer commands
-|-- stats_handler.py                  # Xử lý stats/progress của run
-|-- stream_events.py                  # Stream event output
-|-- tui.py                            # Terminal UI helpers
-|-- utils.py                          # CLI utility functions
-|-- watch_cmd.py                      # Watchlist/monitor commands
-`-- static/
-   `-- welcome.txt                    # Welcome banner/text cho CLI
 ```
 
 #### `apps/ai-service/luna_workstation/`
@@ -171,7 +135,7 @@ luna_workstation/
 |-- config/                           # Config schema/provider/model loaders
 |-- dataflows/                        # Market/news/onchain/sentiment providers
 |-- domain/                           # Pure domain models
-|-- engine/                           # Worker-style engine contract
+|-- engine/                           # Worker-style engine contract and module entrypoint
 |-- graph/                            # LangGraph orchestration
 |-- llm_clients/                      # LLM provider adapters
 |-- observability/                    # Logging/tracing/budget tracking
@@ -237,6 +201,7 @@ config/
 |-- models.py                         # Config model definitions
 |-- providers.py                      # Provider config mapping
 |-- schema.py                         # Config schema
+|-- toml_writer.py                    # TOML serialization helper for local config files
 `-- secrets.py                        # Secret/env key handling
 ```
 
@@ -268,7 +233,6 @@ dataflows/
 domain/
 |-- __init__.py                       # Package marker
 |-- agent_opinion.py                  # Agent opinion domain model
-|-- brief.py                          # Daily/market brief domain model
 |-- calibration.py                    # Calibration domain objects
 |-- debate.py                         # Debate domain model
 |-- decision.py                       # User decision domain model
@@ -285,8 +249,7 @@ domain/
 |-- tenancy.py                        # Workspace/tenant model
 |-- thesis.py                         # Trade thesis model
 |-- timeline.py                       # Timeline/event model
-|-- trending.py                       # Trending symbol/topic model
-`-- watchlist.py                      # Watchlist domain model
+`-- trending.py                       # Trending symbol/topic model
 ```
 
 #### `luna_workstation/engine/`
@@ -371,14 +334,12 @@ reporting/
 services/
 |-- __init__.py                       # Package marker
 |-- async_journal_service.py          # Async journal operations
-|-- brief_service.py                  # Brief use cases
 |-- evaluation_service.py             # Outcome/evaluation use cases
 |-- journal_service.py                # Journal persistence/use cases
 |-- performance_tracker.py            # Performance/reliability tracking
 |-- research_service.py               # Research run use cases
 |-- signal_service.py                 # Signal query/persistence use cases
-|-- thesis_service.py                 # Thesis use cases
-`-- watchlist_service.py              # Watchlist use cases
+`-- thesis_service.py                 # Thesis use cases
 ```
 
 #### `luna_workstation/signals/`
@@ -411,14 +372,12 @@ storage/
 `-- repositories/
    |-- __init__.py                    # Package marker
    |-- base.py                        # Base repository helpers
-   |-- briefs.py                      # Brief repository
    |-- evaluations.py                 # Evaluation repository
    |-- journal.py                     # Journal repository
    |-- observability.py               # Observability repository
    |-- runs.py                        # Research run repository
    |-- signals.py                     # Signal repository
-   |-- theses.py                      # Thesis repository
-   `-- watchlists.py                  # Watchlist repository
+   `-- theses.py                      # Thesis repository
 ```
 
 #### `luna_workstation/templates/`
@@ -493,7 +452,6 @@ tests/
 |-- test_dataflow_config.py           # Dataflow config
 |-- test_dataflow_resilience.py       # Provider resilience/fallback
 |-- test_deepseek_reasoning.py        # DeepSeek reasoning integration behavior
-|-- test_diff_cmd.py                  # CLI diff command
 |-- test_divergence_signals.py        # Divergence signals
 |-- test_engine_contract.py           # Worker engine request/response contract
 |-- test_evaluation_aggregation.py    # Evaluation aggregation
@@ -512,8 +470,6 @@ tests/
 |-- test_onchain_signals.py           # Onchain signals
 |-- test_performance_tracker.py       # Performance tracker
 |-- test_phase34_hardening.py         # Phase hardening tests
-|-- test_phase7_cli.py                # Phase 7 CLI behavior
-|-- test_phase8_brief.py              # Phase 8 brief behavior
 |-- test_production_provider_policy.py # Production provider policy
 |-- test_prompt_ticker_sanitize.py    # Prompt ticker sanitization
 |-- test_property_based_hardening.py  # Hypothesis/property-based hardening
@@ -530,14 +486,12 @@ tests/
 |-- test_signal_engine_degradation.py # Signal engine degradation behavior
 |-- test_signal_processing.py         # Signal processing
 |-- test_signal_provenance.py         # Signal provenance
-|-- test_signals_cli.py               # Signals CLI
 |-- test_snapshots.py                 # Snapshot building
 |-- test_sqlite_migration_backup_restore.py # SQLite backup/restore/migration
 |-- test_structured_agents.py         # Structured agent outputs
 |-- test_template_registry.py         # Template registry
 |-- test_thesis_explainability.py     # Thesis explainability
-|-- test_ticker_symbol_handling.py    # Ticker/symbol handling
-`-- test_watchlist_service.py         # Watchlist service
+`-- test_ticker_symbol_handling.py    # Ticker/symbol handling
 ```
 
 #### `apps/ai-service/docs/`
@@ -581,12 +535,7 @@ assets/
 |-- schema.png                        # Visual asset
 |-- TauricResearch.png                # Visual asset
 |-- trader.png                        # Visual asset
-|-- wechat.png                        # Visual asset
-`-- cli/
-   |-- cli_init.png                   # CLI screenshot/asset
-   |-- cli_news.png                   # CLI screenshot/asset
-   |-- cli_technical.png              # CLI screenshot/asset
-   `-- cli_transaction.png            # CLI screenshot/asset
+`-- wechat.png                        # Visual asset
 ```
 
 ### 4.2 `apps/api/`
@@ -608,7 +557,6 @@ apps/api/
    |-- system.controller.ts           # Health/openapi/system endpoints
    |-- alerts/                        # Alert inbox/checks
    |-- auth/                          # Local auth guard/service
-   |-- briefs/                        # Daily brief endpoints
    |-- calibration/                   # Calibration/outcome evaluation endpoints
    |-- common/                        # Helper/constants dùng chung
    |-- comparisons/                   # Compare runs/theses
@@ -626,7 +574,6 @@ apps/api/
    |-- signals/                       # Signal explorer/detail
    |-- theses/                        # Thesis library/detail/decision/review
    |-- users/                         # User boundary
-   |-- watchlists/                    # Watchlist CRUD/checks
    |-- workbench/                     # Workbench summary endpoint
    `-- workspaces/                    # Workspace membership/access
 ```
@@ -647,17 +594,6 @@ auth/
 |-- auth.guard.ts                     # Auth/workspace guard
 |-- auth.module.ts                    # Nest module wiring
 `-- auth.service.ts                   # Auth helper/local header validation
-```
-
-#### `apps/api/src/briefs/`
-
-```text
-briefs/
-|-- briefs.controller.ts              # HTTP routes cho daily briefs
-|-- briefs.module.ts                  # Nest module wiring
-|-- briefs.service.ts                 # Brief logic
-`-- dto/
-   `-- create-daily-brief.dto.ts      # Request DTO tạo daily brief
 ```
 
 #### `apps/api/src/calibration/`
@@ -726,7 +662,7 @@ jobs/
 |-- jobs.controller.ts                # Job HTTP routes
 |-- jobs.module.ts                    # Nest module wiring
 |-- jobs.service.ts                   # Job enqueue/query/cancel logic
-|-- python-engine.client.ts           # Spawns/calls Python `lunacrypto engine`
+|-- python-engine.client.ts           # Spawns/calls Python engine module contract
 |-- research-job.processor.ts         # BullMQ processor/memory processor logic
 |-- research-worker.ts                # Worker process entrypoint
 `-- sqlite-journal-sync.service.ts    # Sync local SQLite journal output to API/Postgres boundary
@@ -813,22 +749,12 @@ theses/
    `-- thesis-review.dto.ts           # Thesis review/outcome DTO
 ```
 
-#### `apps/api/src/users/`, `watchlists/`, `workbench/`, `workspaces/`
+#### `apps/api/src/users/`, `workbench/`, `workspaces/`
 
 ```text
 users/
 |-- users.module.ts                   # Nest module wiring
 `-- users.service.ts                  # User lookup/membership helper logic
-
-watchlists/
-|-- watchlists.controller.ts          # Watchlist routes
-|-- watchlists.module.ts              # Nest module wiring
-|-- watchlists.service.ts             # Watchlist CRUD/check logic
-`-- dto/
-   |-- add-watchlist-item.dto.ts      # Add item DTO
-   |-- check-watchlist.dto.ts         # Check/evaluate watchlist DTO
-   |-- create-watchlist.dto.ts        # Create watchlist DTO
-   `-- update-watchlist.dto.ts        # Update watchlist DTO
 
 workbench/
 |-- workbench.controller.ts           # Workbench summary routes
@@ -883,7 +809,6 @@ components/
 |-- research/
 |  |-- badges.tsx                     # Research status/badge UI
 |  |-- bento.tsx                      # Bento/grid display primitives
-|  |-- brief-card.tsx                 # Brief card UI
 |  |-- header-stats.tsx               # Header stats widgets
 |  |-- json-view.tsx                  # JSON viewer component
 |  |-- page-header.tsx                # Shared research page header
@@ -918,7 +843,6 @@ routes/
 pages/
 |-- AlertsPage.tsx                    # Alert inbox
 |-- CalibrationLabPage.tsx            # Calibration/outcome lab
-|-- DailyBriefsPage.tsx               # Daily brief archive
 |-- NotFoundPage.tsx                  # Fallback 404 page
 |-- OperationsPage.tsx                # Operations/provider/model/freshness surface
 |-- PerformanceAnalyticsPage.tsx      # Outcome/reliability analytics
@@ -933,7 +857,6 @@ pages/
 |-- SignalsPage.tsx                   # Signal explorer
 |-- ThesisDetailPage.tsx              # Thesis detail workflow
 |-- ThesisLibraryPage.tsx             # Thesis library
-|-- WatchlistsPage.tsx                # Watchlist management
 `-- WorkbenchPage.tsx                 # Main daily command center
 ```
 
@@ -943,7 +866,6 @@ pages/
 services/
 |-- client.ts                         # Axios client/base headers/base URL
 |-- alerts.ts                         # Alert API calls
-|-- briefs.ts                         # Brief API calls
 |-- calibration.ts                    # Calibration API calls
 |-- comparisons.ts                    # Comparison API calls
 |-- market-data.ts                    # Market data API calls
@@ -956,7 +878,6 @@ services/
 |-- scenarios.ts                      # Scenario API calls
 |-- signals.ts                        # Signal API calls
 |-- theses.ts                         # Thesis API calls
-|-- watchlists.ts                     # Watchlist API calls
 |-- workbench.ts                      # Workbench API calls
 `-- generated/
    `-- api-client.ts                  # Generated/mirrored API contract client types
@@ -1133,13 +1054,6 @@ Muốn sửa DB schema          -> packages/database/prisma/schema.prisma
 Muốn sửa research pipeline  -> apps/ai-service/luna_workstation/graph/*
 Muốn sửa agent behavior     -> apps/ai-service/luna_workstation/agents/*
 Muốn sửa deterministic signal -> apps/ai-service/luna_workstation/signals/*
-Muốn sửa CLI command        -> apps/ai-service/cli/*
+Muốn sửa engine worker      -> apps/ai-service/luna_workstation/engine/* + apps/api/src/jobs/python-engine.client.ts
 Muốn sửa docs/plan feature  -> docs/features/<feature>/<version>/implementation-plan.md
 ```
-
-
-
-
-
-
-

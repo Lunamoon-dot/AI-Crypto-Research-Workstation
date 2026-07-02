@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 
 _CURRENT_PRICE_RE = re.compile(r"\bPrice:\s*\$?\s*([\d,]+(?:\.\d+)?)", re.I)
 _TRIGGER_LEVEL_RE = re.compile(
-    r"\b(?P<direction>above|below)\s+\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
+    r"\b(?P<direction>above|below)\s+(?P<currency>\$?)\s*"
+    r"(?P<level>\d[\d,]*(?:\.\d+)?)",
     re.I,
 )
 _LOCALIZED_TRIGGER_LEVEL_RE = re.compile(
@@ -15,12 +17,27 @@ _LOCALIZED_TRIGGER_LEVEL_RE = re.compile(
     r"gi\u1ea3m\s+d\u01b0\u1edbi|giam\s+duoi|d\u01b0\u1edbi|duoi|"
     r"ph\u00e1\s+v\u1ee1\s+tr\u00ean|pha\s+vo\s+tren|"
     r"v\u01b0\u1ee3t\s+tr\u00ean|vuot\s+tren|tr\u00ean|tren"
-    r")\s+\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
+    r")\s+(?P<currency>\$?)\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
     re.I,
 )
 _UPSIDE_REFERENCE_LEVEL_RE = re.compile(
-    r"\b(?P<label>breakout(?:\s+level)?|reclaim|recent\s+high|resistance|upside\s+target)"
+    r"\b(?P<label>breakout(?:\s+level)?|reclaim|recent\s+high|resistance|"
+    r"upside\s+target|profit\s+target)"
     r"\b[^\n$]{0,40}?\$?\s*(?P<level>\d[\d,]*(?:\.\d+)?)",
+    re.I,
+)
+_PRICE_CONTEXT_RE = re.compile(
+    r"\b("
+    r"price|gia|close|dong cua|daily close|support|resistance|"
+    r"khang cu|ho tro|level|zone|vung|break|breakout|reclaim"
+    r")\b",
+    re.I,
+)
+_INDICATOR_CONTEXT_RE = re.compile(
+    r"\b("
+    r"rsi|long/short|l/s|ratio|funding|oi|open interest|atr|"
+    r"volume|khoi luong|macd"
+    r")\b",
     re.I,
 )
 
@@ -93,11 +110,37 @@ def price_trigger_sanity_notes(
 
 def _price_trigger_matches(text: str):
     for match in _TRIGGER_LEVEL_RE.finditer(text):
+        if not _has_price_trigger_context(text, match):
+            continue
         yield match.group("direction").lower(), match.group("level")
     for match in _LOCALIZED_TRIGGER_LEVEL_RE.finditer(text):
+        if not _has_price_trigger_context(text, match):
+            continue
         raw = match.group("direction").lower()
         direction = "below" if "d\u01b0\u1edbi" in raw or "duoi" in raw else "above"
         yield direction, match.group("level")
+
+
+def _has_price_trigger_context(text: str, match: re.Match[str]) -> bool:
+    if match.group("currency") == "$":
+        return True
+
+    start = max(0, match.start() - 48)
+    end = min(len(text), match.end() + 48)
+    nearby = _normalize_context(text[start:end])
+    before = _normalize_context(text[max(0, match.start() - 32) : match.start()])
+    if _INDICATOR_CONTEXT_RE.search(before):
+        return False
+    return bool(_PRICE_CONTEXT_RE.search(nearby))
+
+
+def _normalize_context(text: str) -> str:
+    return (
+        unicodedata.normalize("NFD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
 
 
 def format_price(value: float) -> str:

@@ -26,7 +26,7 @@ Market context
 
 The durable UX advantage is the paper trail: run IDs, signal provenance, agent
 opinions, debate records, thesis fields, scenarios, user decisions, alerts,
-briefs, evaluations, provider health, and model/cost metadata.
+evaluations, provider health, and model/cost metadata.
 
 Positioning rule: lead with conviction, provenance, and learning. Put safety
 and scope boundaries in contextual trust copy, release notes, and runbooks
@@ -48,8 +48,7 @@ API-ready surfaces from `apps/api`:
 | Decide/review thesis | `POST /theses/:id/decision`, `POST /theses/:id/review` | Decision journal and outcome review |
 | List/detail signals | `GET /signals?symbol=`, `GET /signals/:id` | Signal explorer and signal detail |
 | Jobs | `GET /jobs/:id`, `POST /jobs/:id/cancel` | Queue/status/cancel affordances |
-| Watchlists | `GET /watchlists`, `POST /watchlists`, `GET /watchlists/:id/items`, `PATCH /watchlists/:id`, `POST /watchlists/:id/items`, `DELETE /watchlists/:id/items/:itemId` | Watchlist management |
-| Daily briefs | `GET /briefs/daily`, `POST /briefs/daily` | Daily brief archive and creation |
+| Workbench attention | `GET /workbench/attention` | Cross-surface attention queue |
 | Operations | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` | Trust and reliability surfaces |
 | Performance | `GET /performance/outcomes`, `/analytics`, `/trend`, `/health` | Outcome/reliability analytics |
 | Comparisons | `GET /comparisons/theses`, `GET /comparisons/runs` | Thesis/run diff surface |
@@ -62,7 +61,7 @@ AI-service capabilities beyond the first API boundary:
 | Market/signal snapshots | `market_snapshots`, `signal_snapshots` tables | Implemented: `GET /research-runs/:id/snapshots` |
 | Agent opinions and debate | `agent_opinions`, `debates` tables | Implemented: `GET /research-runs/:id/debate` |
 | Scenario planner | `scenarios` table | Implemented: `GET /theses/:id/scenarios` |
-| Alerts | `alerts` table, `WatchlistService` | Implemented: `GET /alerts`, `POST /alerts/:id/read` |
+| Alerts | Product alert repository | Implemented: `GET /alerts`, `POST /alerts/:id/read` |
 | Provider health | `provider_health` table | Implemented: `GET /operations/provider-health` |
 | LLM cost/latency | `llm_calls` table | Implemented: `GET /operations/llm-calls` |
 | Data freshness | `data_freshness_checks` table | Implemented: `GET /operations/data-freshness` |
@@ -90,7 +89,7 @@ Recommended route map:
 
 | Route | Purpose | Initial maturity |
 | --- | --- | --- |
-| `/workbench` | Daily command center with briefs, active theses, watchlists, signal board, and run queue | Implemented |
+| `/workbench` | Attention command center with active theses, alerts, scenarios, signal board, and run queue | Implemented |
 | `/research/new` | Launch a research run with symbol, market type, date, analyst set, provider profile | Implemented |
 | `/research/history` | Research run list/history | Implemented |
 | `/research/runs/:id` | Run status, event timeline, agent workflow visualization, snapshots, debate, artifacts, and result shortcuts | Implemented |
@@ -100,8 +99,6 @@ Recommended route map:
 | `/signals` and `/signals/:id` | Signal explorer/detail by symbol, type, direction, confidence, freshness | Implemented |
 | `/scenarios` | Scenario monitor | Implemented |
 | `/alerts` | Alert inbox and mark-read workflow | Implemented |
-| `/watchlists` | Symbol/thesis/setup watchlists and alert rules | Implemented |
-| `/briefs/daily` | Daily market brief list/detail | Implemented |
 | `/performance` | Outcome analytics and reliability surface | Implemented base |
 | `/compare` | Run/thesis comparison surface | Implemented base |
 | `/operations` | Provider health, data freshness, LLM calls, budget and failure audit | Implemented base |
@@ -116,8 +113,6 @@ Use a persistent left sidebar:
 - Journal
 - Theses
 - Signals
-- Watchlists
-- Briefs
 - Performance
 - Compare
 - Operations
@@ -137,7 +132,6 @@ Use a right rail for AI assistance and contextual actions:
 - Ask about this thesis
 - Explain contradiction
 - Summarize missing data
-- Create watch
 - Record decision
 - Review outcome
 
@@ -152,12 +146,12 @@ Layout:
 
 - Left sidebar for global navigation.
 - Top strip with run launcher controls.
-- Main column with Daily Brief, Active Thesis Inbox, Signal Heatmap, and Recent Runs.
-- Right rail with Watchlist Alerts and AI command composer.
+- Main column with Active Thesis Inbox, Scenario Monitor, Signal Heatmap, and Recent Runs.
+- Right rail with alerts and AI command composer.
 
 Important states:
 
-- Degraded brief banner when snapshots are missing.
+- Degraded data banner when snapshots are missing.
 - Thesis cards must show rating, direction, confidence, invalidation, and next monitor item.
 - Signals must show source and freshness, not just direction.
 
@@ -235,7 +229,11 @@ GET /research-runs/:id/debate
 GET /theses/:id/scenarios
 GET /alerts
 POST /alerts/:id/read
+GET /workbench/attention
 ```
+
+Watchlist and Daily Brief surfaces are decommissioned and should not be
+reintroduced as active routes without a new product spec.
 
 Note: the public workspace route is `GET /journal/runs/:id/workspace`; the
 research-run service also exposes the same composite internally.

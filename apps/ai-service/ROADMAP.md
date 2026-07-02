@@ -89,8 +89,8 @@ ResearchRun domain
 -> signal provenance
 -> structured agent opinions
 -> contradiction / consensus surfacing
--> thesis watchlist & invalidation signals
--> market brief & alerting hooks
+-> thesis invalidation signals
+-> scenario/alert review hooks
 -> optional assisted planning / cloud sync per ROADMAP_PRODUCTION
 ```
 

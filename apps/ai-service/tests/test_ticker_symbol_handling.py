@@ -2,8 +2,8 @@ import unittest
 
 import pytest
 
-from cli.utils import normalize_ticker_symbol
 from luna_workstation.agents.utils.agent_utils import build_instrument_context
+from luna_workstation.utils.symbols import normalize_ticker_symbol
 
 
 @pytest.mark.unit

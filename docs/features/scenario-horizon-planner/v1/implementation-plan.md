@@ -555,7 +555,8 @@ Explicitly do not:
 - add a new scenario persistence table or migration just for horizons;
 - add a new UI route just for horizon filtering;
 - treat continuity as direct current evidence in scenario prompts;
-- refactor unrelated planner, thesis, watchlist, or continuity code;
+- refactor unrelated planner, thesis, scenario/alert monitoring, or continuity
+  code;
 - redesign web UI beyond the minimal filter controls and label exposure needed
   for horizon-aware scenario browsing;
 - build a generic multi-agent orchestration framework beyond the scenario

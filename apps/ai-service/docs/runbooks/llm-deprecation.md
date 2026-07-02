@@ -32,10 +32,10 @@ LunaCrypto persists model identifiers on every `ResearchRun` (fields `deep_think
 
 ```bash
 # List runs grouped by model to identify which historical runs are affected
-lunacrypto journal timeline --limit 500 | grep -E "deep_think_llm|quick_think_llm"
+python -c "import os, sqlite3; path=os.environ.get('TRADINGAGENTS_JOURNAL_DB', os.path.expanduser('~/.luna_workstation/cache/research_journal.sqlite')); c=sqlite3.connect(path); print(c.execute('SELECT id, deep_think_model, quick_think_model, llm_provider FROM research_runs ORDER BY started_at DESC LIMIT 500').fetchall())"
 
 # Check current config
-lunacrypto config show
+grep -R -i "deep_think_llm\\|quick_think_llm\\|llm_provider" config/*.toml .env.example
 ```
 
 ### Provider deprecation announcements
@@ -64,11 +64,7 @@ WHERE deep_think_model = 'DEPRECATED_MODEL_NAME'
 ORDER BY started_at DESC;
 ```
 
-Or via CLI:
-
-```bash
-lunacrypto journal list --limit 20
-```
+Or through the web/API journal view.
 
 ### Config hash mapping
 
@@ -121,8 +117,7 @@ export TRADINGAGENTS_QUICK_THINK_LLM="deepseek-v4.1-flash"
 # Smoke test with new model
 python scripts/smoke_structured_output.py
 
-# Run a single-ticker research to verify end-to-end
-lunacrypto research run BTC/USDT --yes --plain
+# Run a single-ticker research from the web/API launch flow to verify end-to-end
 ```
 
 ### Step 4: Re-run affected research (optional)
@@ -130,7 +125,7 @@ lunacrypto research run BTC/USDT --yes --plain
 For any critical past run that used the deprecated model, re-run with the new model to compare:
 
 ```bash
-lunacrypto research run BTC/USDT --date 2026-05-01 --yes --plain
+Run a new web/API research job for the same symbol/date.
 ```
 
 The new run will have a different `config_hash` and model fields, enabling side-by-side comparison.
@@ -207,14 +202,10 @@ If the new model produces worse results:
    ```
 
 2. Compare `config_hash` between runs:
-   ```bash
-   lunacrypto journal list --limit 20
-   ```
+   Use the web/API journal view or query `research_runs` directly.
 
 3. Validate regression:
-   ```bash
-   lunacrypto research evaluate batch --symbol BTC/USDT --limit 20
-   ```
+   Run the calibration/evaluation workflow from the web/API surface.
 
 ---
 

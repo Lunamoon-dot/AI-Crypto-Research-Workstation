@@ -15,6 +15,13 @@ types. Older checklist items that mention an app-directory framework should be
 treated as historical planning notes unless the project explicitly chooses a
 framework migration later.
 
+Decommission note: Watchlists and Daily Briefs are no longer active product
+scope. Do not implement or revive `/watchlists`, `/briefs/daily`,
+`WatchlistsPage`, `DailyBriefsPage`, `watchlists.ts`, `briefs.ts`,
+`latest_brief`, or `brief_actions` from older checklist entries. Current daily
+attention scope is Workbench, alerts, theses, scenarios, signals, runs, and
+provider state.
+
 ## 0. Verdict
 
 The assessment is reasonable.
@@ -24,8 +31,8 @@ The repo is already shaped for a serious AI crypto research workstation:
 - `apps/ai-service` owns the actual AI research workflow.
 - `apps/api` exposes a frontend-facing product boundary.
 - `packages/database/prisma/schema.prisma` already models research runs,
-  snapshots, debates, theses, scenarios, signals, watchlists, alerts, briefs,
-  provider health, LLM calls, freshness checks, decisions, and reviews.
+  snapshots, debates, theses, scenarios, signals, alerts, provider health, LLM
+  calls, freshness checks, decisions, and reviews.
 - `apps/web` is now a real workstation. The next high-leverage work is to keep
   API contracts, workflow visualization, local gates, and hosted-readiness
   hardening aligned.
@@ -89,16 +96,9 @@ Existing frontend-facing routes confirmed in `apps/api/src`:
 | Record decision | `POST /theses/:id/decision` | Decision journal |
 | Record review | `POST /theses/:id/review` | Outcome review |
 | List/read signals | `GET /signals`, `GET /signals/:id` | Signal explorer and detail |
-| List watchlists | `GET /watchlists` | Watchlist overview |
-| Create/update watchlist | `POST /watchlists`, `PATCH /watchlists/:id` | Watchlist management |
-| Read watchlist items | `GET /watchlists/:id/items` | Watchlist detail |
-| Add watchlist item | `POST /watchlists/:id/items` | Add symbol/thesis/setup |
-| Remove watchlist item | `DELETE /watchlists/:id/items/:itemId` | Remove stale watches |
-| Manual watchlist check | `POST /watchlists/:id/check` | Explicit monitoring check |
-| List daily briefs | `GET /briefs/daily` | Daily brief page |
-| Create daily brief | `POST /briefs/daily` | Manual brief generation |
 | List alerts | `GET /alerts` | Alerts inbox |
 | Mark alert read | `POST /alerts/:id/read` | Alerts inbox action |
+| Workbench attention | `GET /workbench/attention` | Cross-surface attention queue |
 | Operations | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` | Trust and reliability surfaces |
 | Scenarios monitor | `GET /scenarios/monitor` | Scenario monitoring surface |
 | Performance | `GET /performance/outcomes`, `/analytics`, `/trend`, `/health` | Outcome analytics |
@@ -407,9 +407,8 @@ Permission matrix:
 | Capability | Owner | Analyst | Reviewer | Viewer |
 | --- | --- | --- | --- | --- |
 | Read workbench | yes | yes | yes | yes |
-| Read runs/theses/signals/briefs/alerts | yes | yes | yes | yes |
+| Read runs/theses/scenarios/signals/alerts | yes | yes | yes | yes |
 | Create research run | yes | yes | no | no |
-| Create/update watchlist | yes | yes | no | no |
 | Record thesis decision | yes | yes | yes | no |
 | Record outcome review | yes | yes | yes | no |
 | Mark alerts read | yes | yes | yes | no |
@@ -422,7 +421,7 @@ Rules:
 
 - A `viewer` can inspect research but cannot mutate journal state.
 - A `reviewer` can record decisions/reviews but cannot launch expensive runs.
-- An `analyst` can launch runs and manage watchlists.
+- An `analyst` can launch runs and mark alerts read.
 - An `owner` manages workspace, settings, provider configuration, and exports.
 
 ## 3.5 Auth-Related Database Recommendations
@@ -500,8 +499,8 @@ apps/web/
       theses.ts
       signals.ts
       alerts.ts
-      watchlists.ts
-      briefs.ts
+      scenarios.ts
+      workbench.ts
       operations.ts
       performance.ts
       comparisons.ts
@@ -524,8 +523,6 @@ apps/web/
       SignalDetailPage.tsx
       ScenarioMonitorPage.tsx
       AlertsPage.tsx
-      WatchlistsPage.tsx
-      DailyBriefsPage.tsx
       OperationsPage.tsx
       SettingsPage.tsx
       PerformanceAnalyticsPage.tsx
@@ -659,7 +656,7 @@ Implemented for the local/private FE-BE MVP:
 
 - [x] Vite/React workstation app under `apps/web` with React Router shell.
 - [x] Local/header auth hidden behind web auth and API client abstractions.
-- [x] Workbench route for briefs, alerts, theses, signals, watchlists, and
+- [x] Workbench route for attention, alerts, theses, scenarios, signals, and
   recent research runs.
 - [x] Research run launcher through `POST /research-runs`.
 - [x] Research run workspace for status, timeline, snapshots, debate, thesis,
@@ -671,14 +668,11 @@ Implemented for the local/private FE-BE MVP:
   outcome review form.
 - [x] Signal explorer.
 - [x] Alerts inbox with mark-read action.
-- [x] Basic watchlist maintenance: create, rename, enable/disable, list items,
-  add item, and remove item.
-- [x] Daily brief archive.
 - [x] Settings page that exposes local auth/API mode.
 - [x] Operations page backed by provider health, LLM call, and freshness
   endpoints when repository data exists.
 - [x] Backend MVP additions: `GET /research-runs`, `GET /jobs/:id`, and
-  watchlist CRUD/items endpoints.
+  `GET /workbench/attention`.
 - [x] OpenAPI document and frontend generated/mirrored client types.
 - [x] Local MVP gates should remain: `pnpm lint`, `pnpm typecheck`,
   `pnpm build`, and `pnpm test`.
@@ -690,7 +684,7 @@ Explicitly deferred beyond this MVP foundation:
 - [ ] BullMQ production workers and dedicated Python worker deployment.
 - [ ] Config-health/settings profile endpoints.
 - [ ] Production-grade queue operations dashboard.
-- [ ] Scheduled monitoring hardening beyond local/manual watchlist checks.
+- [ ] Scheduled monitoring hardening for scenario/alert attention.
 - [ ] Deeper performance reliability analytics and calibration dashboards.
 - [ ] Export bundles, markdown/PDF export, and research package sharing.
 - [ ] External notifications through email, Telegram, Discord, or webhooks.
@@ -709,7 +703,7 @@ Use these milestones as merge boundaries.
 | M2 | Web can call API | Typed API client, auth headers, error handling |
 | M3 | Research run loop works | Launch run, poll/read run, inspect workspace |
 | M4 | Thesis lifecycle works | List thesis, detail, decision, review |
-| M5 | Monitoring loop works | Signals, alerts, watchlists, briefs |
+| M5 | Monitoring loop works | Signals, alerts, scenarios, workbench attention |
 | M6 | Differentiators work | Diff, contradiction map, scenario radar |
 | M7 | Production hardening done | Real auth/RBAC/queue/worker/observability |
 
@@ -730,7 +724,7 @@ Done when:
 
 - No route, nav item, or button uses broker-style account or order-management language.
 - Nav uses research concepts: Workbench, Research, Journal, Theses, Signals,
-  Watchlists, Briefs, Performance, Compare, Operations, Settings.
+  Scenarios, Alerts, Performance, Compare, Operations, Settings.
 
 ### WEB-0002 - Choose implementation stack
 
@@ -810,7 +804,7 @@ If Python changes are involved:
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy luna_workstation cli
+python -m mypy luna_workstation
 python -m pytest
 ```
 
@@ -850,8 +844,8 @@ curl -H "x-user-id: local-user" -H "x-workspace-id: local" \
 
 Done when:
 
-- A developer can verify `theses`, `signals`, `alerts`, `briefs`, and
-  `watchlists` without launching the web app.
+- A developer can verify `theses`, `signals`, `alerts`, and
+  `workbench/attention` without launching the web app.
 
 ## 7. Phase 2 - Scaffold `apps/web`
 
@@ -1015,7 +1009,6 @@ Initial source:
   - `CreateResearchRunRequest`
   - `RecordThesisDecisionRequest`
   - `RecordThesisReviewRequest`
-  - `AddWatchlistItemRequest`
 
 Rule:
 
@@ -1068,9 +1061,9 @@ Create:
 apps/web/src/services/research-runs.ts
 apps/web/src/services/theses.ts
 apps/web/src/services/signals.ts
-apps/web/src/services/watchlists.ts
-apps/web/src/services/briefs.ts
 apps/web/src/services/alerts.ts
+apps/web/src/services/scenarios.ts
+apps/web/src/services/workbench.ts
 apps/web/src/services/operations.ts
 apps/web/src/services/performance.ts
 apps/web/src/services/comparisons.ts
@@ -1091,11 +1084,10 @@ Required functions:
 - `recordThesisDecision(id, request)`
 - `recordThesisReview(id, request)`
 - `listSignals(params)`
-- `listWatchlists(params)`
-- `addWatchlistItem(id, request)`
-- `listDailyBriefs(params)`
 - `listAlerts(params)`
 - `markAlertRead(id)`
+- `getScenarioMonitor(params)`
+- `getWorkbenchAttention(params)`
 
 Done when:
 
@@ -1121,9 +1113,9 @@ theses(filters)
 thesis(id)
 thesisScenarios(id)
 signals(filters)
-watchlists(filters)
-dailyBriefs(filters)
 alerts(filters)
+scenarios(filters)
+workbenchAttention(filters)
 ```
 
 Done when:
@@ -1291,8 +1283,8 @@ Research
 Journal
 Theses
 Signals
-Watchlists
-Briefs
+Scenarios
+Alerts
 Performance
 Compare
 Operations
@@ -1323,43 +1315,40 @@ Create or update `apps/web/src/pages/WorkbenchPage.tsx`.
 
 Panels:
 
-- Daily brief summary.
+- Attention queue.
 - Unread alerts.
 - Active thesis inbox.
 - Signal board.
-- Watchlist overview.
+- Scenario highlights.
 - Recent runs, once `GET /research-runs` exists.
 
 Initial fallback:
 
 - If run list endpoint is not available, omit recent runs or show only links
-  from briefs/theses. Do not fake data.
+  from theses/attention rows. Do not fake data.
 
 Done when:
 
 - Workbench loads with real API calls.
 - Empty state explains how to run first research job.
 
-### WEB-0502 - Brief summary panel
+### WEB-0502 - Attention summary panel
 
 Data:
 
-- `GET /briefs/daily?limit=1`
+- `GET /workbench/attention`
 
 UI:
 
-- Title.
-- Date.
-- Watchlist name.
-- Summary.
-- Key points.
-- Linked thesis IDs.
-- Linked signal IDs.
-- Previous brief link if available.
+- Attention row title and source.
+- Severity/priority.
+- Linked thesis, scenario, signal, run, or provider IDs.
+- Created/updated timestamp.
+- Action affordance when mark-read or thesis review is available.
 
 Done when:
 
-- Missing brief is shown as empty state, not error.
+- Missing attention rows are shown as an empty state, not error.
 - Linked IDs navigate when routes exist.
 
 ### WEB-0503 - Unread alerts panel
@@ -2016,7 +2005,7 @@ Columns:
 - Symbol.
 - Message.
 - Thesis ID.
-- Watchlist item ID.
+- Scenario/run ID when available.
 - Trigger key.
 
 Done when:
@@ -2047,183 +2036,28 @@ Show:
 - Trigger key.
 - Payload JSON.
 - Link to thesis.
-- Link to watchlist item when route exists.
+- Link to scenario or run when available.
 
 Done when:
 
 - Alert detail says why it fired.
 
-## 17. Phase 12 - Watchlists
+## 17. Phase 12 - Retired Watchlist Scope
 
-Goal: support the user monitoring loop.
+Status: decommissioned.
 
-### WEB-1201 - Create route
+Do not create `WatchlistsPage`, `apps/web/src/services/watchlists.ts`, or
+`/watchlists` API work from older roadmap entries. Monitoring should be composed
+from theses, scenarios, signals, alerts, and workbench attention rows.
 
-Create:
+## 18. Phase 13 - Retired Daily Brief Scope
 
-```text
-apps/web/src/pages/WatchlistsPage.tsx
-apps/web/src/features/watchlists/watchlists-page.tsx
-```
+Status: decommissioned.
 
-Initial data:
-
-- `GET /watchlists?limit=`
-
-Done when:
-
-- Existing watchlists render.
-
-### WEB-1202 - Add item form
-
-Mutation:
-
-- `POST /watchlists/:id/items`
-
-Supported item types:
-
-```text
-symbol
-thesis
-setup_type
-```
-
-Fields:
-
-- Item type.
-- Symbol.
-- Thesis ID.
-- Setup type.
-
-Validation:
-
-- Symbol required for symbol items.
-- Thesis ID required for thesis items.
-- Setup type required for setup-type items.
-
-Done when:
-
-- Users can add monitored items through the UI.
-
-### WEB-1203 - Backend watchlist management additions
-
-Add these before calling watchlists complete:
-
-```text
-POST /watchlists
-GET /watchlists/:id
-GET /watchlists/:id/items
-PATCH /watchlists/:id
-DELETE /watchlists/:id/items/:itemId
-POST /watchlists/:id/check
-GET /watchlists/:id/brief
-```
-
-Done when:
-
-- Users can create, rename, enable/disable, inspect, and remove watchlist items.
-- Explicit monitoring checks are possible without waiting for scheduled jobs.
-
-### WEB-1204 - Watchlist detail view
-
-Create later:
-
-```text
-apps/web/src/pages/WatchlistsPage.tsx
-```
-
-Show:
-
-- Watchlist metadata.
-- Items grouped by type.
-- Recent alerts.
-- Related theses.
-- Latest brief.
-- Manual check action.
-
-Done when:
-
-- A watchlist becomes a daily research object, not just a list of symbols.
-
-## 18. Phase 13 - Daily Briefs
-
-Goal: make daily research habit-forming.
-
-### WEB-1301 - Create route
-
-Create:
-
-```text
-apps/web/src/pages/DailyBriefsPage.tsx
-apps/web/src/features/briefs/daily-briefs-page.tsx
-```
-
-Data:
-
-- `GET /briefs/daily?date=&limit=`
-
-Done when:
-
-- Users can read the latest brief and browse recent briefs.
-
-### WEB-1302 - Brief list
-
-Show:
-
-- Brief date.
-- Watchlist name.
-- Title.
-- Created time.
-- Previous brief ID.
-- Summary excerpt.
-- Linked thesis count.
-- Linked signal count.
-
-Done when:
-
-- Brief archive is scannable.
-
-### WEB-1303 - Brief detail
-
-Create route:
-
-```text
-apps/web/src/pages/DailyBriefsPage.tsx
-```
-
-Backend note:
-
-- Current API lists briefs but does not expose `GET /briefs/:id`.
-- Until route exists, show detail from the list payload or use query state.
-
-Show:
-
-- Title.
-- Summary.
-- Key points.
-- Thesis IDs.
-- Signal IDs.
-- Previous brief link.
-- Raw payload if endpoint later exposes it.
-
-Done when:
-
-- Daily brief references active theses and evidence.
-
-### WEB-1304 - Brief memory
-
-Backend later:
-
-- Expand brief payload to include:
-  - What changed since previous brief.
-  - Thesis confidence deltas.
-  - New contradictions.
-  - New stale/missing data.
-  - New scenario activations.
-
-Done when:
-
-- The brief answers "what changed since yesterday?".
+Do not create `DailyBriefsPage`, `apps/web/src/services/briefs.ts`, or
+`/briefs/daily` API work from older roadmap entries. Daily review should be
+served by Workbench attention, scenario monitor, alerts, and thesis/signal
+surfaces.
 
 ## 19. Phase 14 - Settings And Operations
 
@@ -2320,7 +2154,7 @@ Reuse:
 
 Done when:
 
-- Journal route can be linked from theses, briefs, and alerts.
+- Journal route can be linked from theses, signals, scenarios, and alerts.
 
 ### WEB-1502 - Add journal search later
 
@@ -2604,21 +2438,12 @@ Done when:
 
 - Web can show queue state even before run artifacts are persisted.
 
-### API-1804 - Watchlist CRUD
+### API-1804 - Retired Watchlist CRUD
 
-Add:
+Status: decommissioned.
 
-```text
-POST /watchlists
-GET /watchlists/:id
-GET /watchlists/:id/items
-PATCH /watchlists/:id
-DELETE /watchlists/:id/items/:itemId
-```
-
-Done when:
-
-- Watchlists are manageable from the web without direct DB/CLI usage.
+Do not add `/watchlists` routes. Workbench attention, scenario monitor, and
+alerts are the current monitoring API surface.
 
 ### API-1805 - Operations endpoints
 
@@ -2751,7 +2576,7 @@ viewer
 Rules:
 
 - Every read/write checks workspace membership.
-- Analysts can create runs and manage watchlists.
+- Analysts can create runs and mark alerts read.
 - Reviewers can record decisions and outcome reviews.
 - Viewers can read only.
 - Owners can manage workspace, members, settings, exports, and provider config.
@@ -2813,7 +2638,7 @@ Record:
 - Research run creation.
 - Decision.
 - Review.
-- Watchlist mutation.
+- Alert read/review actions.
 - Settings changes.
 - Workspace membership changes.
 
@@ -2833,11 +2658,11 @@ Done when:
 
 - In-app unread/read state is reliable.
 
-### NOTIFY-2002 - Email briefs
+### NOTIFY-2002 - Email attention digests
 
 Send:
 
-- Daily brief.
+- Attention digest.
 - Weekly performance review.
 - Important thesis invalidation updates.
 
@@ -2857,7 +2682,7 @@ Use cases:
 
 - Scenario active.
 - Invalidation approached.
-- Watchlist condition changed.
+- Scenario/attention condition changed.
 - Provider degraded if user opts in.
 
 Done when:
@@ -3007,7 +2832,7 @@ Python gate if AI/service code changed:
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy luna_workstation cli
+python -m mypy luna_workstation
 python -m pytest
 ```
 
@@ -3025,8 +2850,8 @@ Manual flow:
 - Open signals.
 - Open alerts.
 - Mark alert read.
-- Open watchlists.
-- Open daily briefs.
+- Open scenarios.
+- Open workbench attention.
 
 Done when:
 
@@ -3078,7 +2903,7 @@ Build exactly in this order unless a task is blocked by an explicit dependency:
 3. Scaffold `apps/web`.
 4. Add app shell and visual primitives.
 5. Add typed API client and auth/workspace provider.
-6. Build Workbench with briefs, alerts, theses, signals, watchlists.
+6. Build Workbench with attention, alerts, theses, scenarios, and signals.
 7. Build Research Run Launcher.
 8. Build Research Run Workspace.
 9. Add run/job status backend endpoint if progress is unclear.
@@ -3088,21 +2913,19 @@ Build exactly in this order unless a task is blocked by an explicit dependency:
 13. Build Outcome Review form.
 14. Build Signal Explorer.
 15. Build Alerts Inbox.
-16. Build Watchlist page with current endpoints.
-17. Add missing watchlist CRUD endpoints.
-18. Build Daily Brief archive.
-19. Build Settings local-mode page.
-20. Build Operations page after provider/freshness/LLM endpoints exist.
-21. Build Journal run workspace.
-22. Build Contradiction Map.
-23. Build Run Diff and Thesis Diff after compare endpoints exist.
-24. Build Performance analytics after evaluation/reliability endpoints exist.
-25. Add export/run-bundle workflow.
-26. Harden API error envelope and contract generation.
-27. Replace local/header auth before hosted beta.
-28. Add RBAC, rate limits, audit log, queue/worker hardening.
-29. Add email/Telegram/Discord/webhook notifications.
-30. Only then consider billing and broader SaaS packaging.
+16. Build Scenario Monitor.
+17. Build Settings local-mode page.
+18. Build Operations page after provider/freshness/LLM endpoints exist.
+19. Build Journal run workspace.
+20. Build Contradiction Map.
+21. Build Run Diff and Thesis Diff after compare endpoints exist.
+22. Build Performance analytics after evaluation/reliability endpoints exist.
+23. Add export/run-bundle workflow.
+24. Harden API error envelope and contract generation.
+25. Replace local/header auth before hosted beta.
+26. Add RBAC, rate limits, audit log, queue/worker hardening.
+27. Add email/Telegram/Discord/webhook notifications.
+28. Only then consider billing and broader SaaS packaging.
 
 ## 30. What Not To Build Yet
 
@@ -3123,8 +2946,8 @@ Do not prioritize:
 
 The web MVP is complete when a user can:
 
-1. Open the Workbench and see real briefs, alerts, theses, signals, and
-   watchlists.
+1. Open the Workbench and see real attention rows, alerts, theses, scenarios,
+   signals, and runs.
 2. Launch a research run from the browser.
 3. Inspect run status, timeline, snapshots, debate, and generated thesis.
 4. Open a thesis and understand evidence, contradictions, missing data,
@@ -3133,10 +2956,9 @@ The web MVP is complete when a user can:
 6. Later record an outcome review.
 7. Inspect signals independently.
 8. Read and mark alerts.
-9. Maintain a basic watchlist.
-10. Read daily briefs.
-11. Understand when data/provider/model quality is degraded.
+9. Inspect scenario monitor rows.
+10. Understand when data/provider/model quality is degraded.
 
-If those eleven behaviors work with real local data, the app is a real
+If those ten behaviors work with real local data, the app is a real
 research workstation MVP. Everything after that should improve reliability,
 memory, differentiation, and hosted readiness.

@@ -21,6 +21,7 @@ import {
   recordThesisDecision,
   recordThesisReview,
 } from '@/services/theses';
+import { normalizeThesisResponse } from '@/services/thesis-response-normalizer';
 import { errorMessage } from '@/services/client';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
@@ -63,11 +64,13 @@ type ScenarioLifecycleResult =
   | ScenarioEvaluationResponse
   | PlaybookCompileReportResponse
   | BacktestRunResponse;
+type ScenarioLatestPlaybook = ScenarioResponse['latest_playbook'];
 type ScenarioActionFeedback = {
   tone: 'constructive' | 'warning' | 'risk' | 'primary';
   message: string;
   details: string[];
 };
+type CompiledTradePlaybook = NonNullable<PlaybookCompileReportResponse['playbook']>;
 type PendingScenarioAction = {
   action: ScenarioLifecycleAction;
   key: string;
@@ -228,15 +231,16 @@ export function ThesisDetailPage() {
       </main>
     );
   }
-  const thesis = thesisQuery.data;
-  const stabilityGuard = thesis?.stability_guard ?? {};
-  if (!thesis) {
+  const rawThesis = thesisQuery.data;
+  if (!rawThesis) {
     return (
       <main className="page">
         <EmptyState label="Thesis not found." />
       </main>
     );
   }
+  const thesis = normalizeThesisResponse(rawThesis);
+  const stabilityGuard = thesis.stability_guard ?? {};
   const actionSummary = thesis.artifact_status === 'blocked'
     ? 'Thesis blocked. Review validation reasons before using this artifact.'
     : thesis.summary.action_summary || thesis.thesis_text || 'No thesis text.';
@@ -263,6 +267,33 @@ export function ThesisDetailPage() {
     thesis.summary.missing_data.length > 0
       ? thesis.summary.missing_data
       : thesis.stale_or_missing_data;
+  const profitTargets =
+    thesis.profit_targets.length > 0 ? thesis.profit_targets : thesis.summary.profit_targets;
+  const downsideObjectives =
+    thesis.downside_objectives.length > 0
+      ? thesis.downside_objectives
+      : thesis.summary.downside_objectives;
+  const accumulationZones =
+    thesis.accumulation_zones.length > 0
+      ? thesis.accumulation_zones
+      : thesis.summary.accumulation_zones;
+  const indicatorThresholds =
+    thesis.indicator_thresholds.length > 0
+      ? thesis.indicator_thresholds
+      : thesis.summary.indicator_thresholds;
+  const unclassifiedObjectives = thesis.target_zones;
+  const objectiveLevels = [
+    ...levelAuditValues('profit target', profitTargets),
+    ...levelAuditValues('downside objective', downsideObjectives),
+    ...levelAuditValues('accumulation zone', accumulationZones),
+    ...levelAuditValues('indicator threshold', indicatorThresholds),
+    ...levelAuditValues('unclassified objective', unclassifiedObjectives),
+  ];
+  const takeProfitPlaceholder =
+    profitTargets[0] ||
+    (thesis.direction.toLowerCase() === 'short' ? downsideObjectives[0] : '') ||
+    unclassifiedObjectives[0] ||
+    '110000';
   const invalidation =
     thesis.invalidation_level || thesis.summary.invalidation || 'No invalidation recorded.';
   const filteredScenarioCards = scenarioCards.filter((scenario) => (
@@ -406,14 +437,6 @@ export function ThesisDetailPage() {
                     <span>Run</span>
                     <IdChip value={thesis.research_run_id} />
                   </span>
-                  {thesis.id ? (
-                    <Link
-                      className="button primary"
-                      to={`${routes.watchlists}?track_thesis=${encodeURIComponent(thesis.id)}`}
-                    >
-                      Track thesis
-                    </Link>
-                  ) : null}
                   {thesis.research_run_id ? (
                     <Link className="button" to={routes.researchRun(thesis.research_run_id)}>
                       Open run
@@ -441,11 +464,21 @@ export function ThesisDetailPage() {
               </div>
             </Panel>
 
-            <Panel title="Monitor next" description="Follow-up IDs, target zones, and missing data">
+            <Panel title="Monitor next" description="Typed objective levels, follow-up checks, and missing data">
               <div className="grid three">
-                <EvidenceBlock title="Target zones" tone="constructive" values={thesis.target_zones} />
+                <EvidenceBlock title="Profit targets" tone="constructive" values={profitTargets} />
+                <EvidenceBlock title="Downside objectives" tone="risk" values={downsideObjectives} />
+                <EvidenceBlock title="Accumulation zones" tone="constructive" values={accumulationZones} />
+                <EvidenceBlock title="Indicator thresholds" tone="primary" values={indicatorThresholds} />
                 <EvidenceBlock title="Monitor next" tone="primary" values={thesis.monitor_next} />
                 <EvidenceBlock title="Stale or missing data" tone="warning" values={dataGaps} />
+                {unclassifiedObjectives.length > 0 ? (
+                  <EvidenceBlock
+                    title="Unclassified objectives"
+                    tone="warning"
+                    values={unclassifiedObjectives}
+                  />
+                ) : null}
               </div>
               <div style={{ marginTop: 14 }} className="badge">
                 <GitBranch aria-hidden size={14} />
@@ -475,7 +508,7 @@ export function ThesisDetailPage() {
               quantConfidence={thesis.quant_confidence}
               setupType={thesis.setup_type}
               stabilityGuard={stabilityGuard}
-              targetZones={thesis.target_zones}
+              objectiveLevels={objectiveLevels}
             />
             {stabilityGuard.applied === true ? (
               <div className="stack small">
@@ -583,7 +616,7 @@ export function ThesisDetailPage() {
                     <input
                       className="input"
                       onChange={(event) => setDecisionTakeProfit(event.target.value)}
-                      placeholder={thesis.target_zones[0] || '110000'}
+                      placeholder={takeProfitPlaceholder}
                       value={decisionTakeProfit}
                     />
                   </label>
@@ -697,6 +730,10 @@ function optionalNumber(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function levelAuditValues(label: string, values: string[]): string[] {
+  return values.map((value) => `${label}: ${value}`);
+}
+
 function downloadJson(value: unknown, fileName: string) {
   const blob = new Blob([JSON.stringify(value, null, 2)], {
     type: 'application/json',
@@ -794,7 +831,11 @@ function scenarioLifecycleFeedback(
       tone: scenarioEvaluationTone(evaluation.result),
       message: `Evaluation ${titleCaseValue(evaluation.result)} recorded.`,
       details: [
+        `Outcome: ${titleCaseValue(evaluation.result)}`,
         `Data quality: ${titleCaseValue(evaluation.data_quality)}`,
+        `Trigger: ${scenarioEvaluationFlagText(evaluation.trigger_hit, 'hit', 'missed')}`,
+        `Invalidation: ${scenarioEvaluationFlagText(evaluation.invalidation_hit, 'hit', 'clear')}`,
+        'Reliability: this scenario window is updated, not double-counted.',
         ...evaluation.warnings.map(scenarioFeedbackText),
       ],
     };
@@ -813,7 +854,11 @@ function scenarioLifecycleFeedback(
       tone: 'constructive',
       message: 'Playbook compiled.',
       details: [
-        report.playbook ? `${titleCaseValue(report.playbook.direction)} ${report.playbook.horizon}` : '',
+        report.playbook ? playbookDirectionDetail(report.playbook) : '',
+        report.playbook ? playbookEntryDetail(report.playbook) : '',
+        report.playbook ? playbookInvalidationDetail(report.playbook) : '',
+        report.playbook ? playbookTargetsDetail(report.playbook) : '',
+        'Scope: manual research plan only; no exchange order is placed.',
         ...report.warnings.map(scenarioFeedbackText),
       ].filter(Boolean),
     };
@@ -832,9 +877,81 @@ function scenarioLifecycleFeedback(
       backtest.result.total_return_pct === null
         ? ''
         : `Return: ${backtest.result.total_return_pct.toFixed(2)}%`,
+      `Data quality: ${titleCaseValue(backtest.data_quality)}`,
+      backtestWindowDetail(backtest),
+      backtestAssumptionsDetail(backtest),
       ...backtest.warnings.map(scenarioFeedbackText),
     ].filter(Boolean),
   };
+}
+
+function scenarioEvaluationFlagText(
+  value: boolean | null,
+  trueLabel: string,
+  falseLabel: string,
+): string {
+  if (value === true) {
+    return trueLabel;
+  }
+  if (value === false) {
+    return falseLabel;
+  }
+  return 'not evaluated';
+}
+
+function playbookDirectionDetail(playbook: CompiledTradePlaybook): string {
+  return `Playbook: ${titleCaseValue(playbook.direction)} ${scenarioFeedbackText(playbook.horizon)}`;
+}
+
+function playbookEntryDetail(playbook: CompiledTradePlaybook): string {
+  const entry = playbook.entry;
+  if (entry.type === 'zone' && entry.zone_low !== null && entry.zone_high !== null) {
+    return `Entry: ${formatScenarioPrice(entry.zone_low)} to ${formatScenarioPrice(entry.zone_high)}`;
+  }
+  if (entry.level !== null) {
+    return `Entry: ${formatScenarioPrice(entry.level)}`;
+  }
+  const condition = scenarioFeedbackText(entry.condition);
+  return condition ? `Entry: ${condition}` : 'Entry: condition only';
+}
+
+function playbookInvalidationDetail(playbook: CompiledTradePlaybook): string {
+  if (playbook.invalidation.level !== null) {
+    return `Invalidation: ${formatScenarioPrice(playbook.invalidation.level)}`;
+  }
+  const condition = scenarioFeedbackText(playbook.invalidation.condition);
+  return condition ? `Invalidation: ${condition}` : 'Invalidation: not available';
+}
+
+function playbookTargetsDetail(playbook: CompiledTradePlaybook): string {
+  const targets = playbook.targets
+    .map((target) => target.level === null
+      ? scenarioFeedbackText(target.label || target.rationale)
+      : formatScenarioPrice(target.level))
+    .filter(Boolean);
+  return targets.length > 0
+    ? `Targets: ${targets.join(', ')}`
+    : 'Targets: not available';
+}
+
+function backtestWindowDetail(backtest: BacktestRunResponse): string {
+  return `Range: ${formatScenarioDate(backtest.assumptions.start_at)} to ${formatScenarioDate(backtest.assumptions.end_at)}`;
+}
+
+function backtestAssumptionsDetail(backtest: BacktestRunResponse): string {
+  return [
+    `Timeframe: ${backtest.assumptions.timeframe}`,
+    `Fill: ${scenarioFeedbackText(backtest.assumptions.fill_policy)}`,
+    `Sizing: ${scenarioFeedbackText(backtest.assumptions.sizing_policy)}`,
+  ].join(' | ');
+}
+
+function formatScenarioDate(value: string): string {
+  return cleanScenarioText(value).slice(0, 10) || 'unknown';
+}
+
+function formatScenarioPrice(value: number): string {
+  return `$${value.toLocaleString('en-US', { maximumFractionDigits: 8 })}`;
 }
 
 function scenarioEvaluationTone(result: ScenarioEvaluationResponse['result']): ScenarioActionFeedback['tone'] {
@@ -890,6 +1007,8 @@ function ScenarioRadarCard({
     : scenarioWatchTriggers(scenario.payload, condition, invalidation);
   const impactOnThesis = vm.impactOnThesis || expected;
   const thesisRelation = scenarioThesisRelation(thesis, scenario);
+  const compileBlocker = compileBlockerForScenario(scenario);
+  const backtestBlocker = backtestBlockerForPlaybook(scenario.latest_playbook);
 
   return (
     <article className={`scenario-card scenario-card-${directionToneValue}`}>
@@ -999,7 +1118,8 @@ function ScenarioRadarCard({
       {lifecycle.canRun ? (
         <ScenarioLifecycleActions
           feedback={lifecycle.feedback}
-          hasPlaybook={Boolean(scenario.latest_playbook?.id)}
+          compileBlocker={compileBlocker}
+          backtestBlocker={backtestBlocker}
           onAction={lifecycle.onAction}
           pendingAction={lifecycle.pendingAction}
         />
@@ -1070,13 +1190,15 @@ function ScenarioMeta({ label, value }: { label: string; value: string }) {
 }
 
 function ScenarioLifecycleActions({
+  backtestBlocker,
+  compileBlocker,
   feedback,
-  hasPlaybook,
   onAction,
   pendingAction,
 }: {
+  backtestBlocker: string | null;
+  compileBlocker: string | null;
   feedback: ScenarioActionFeedback | undefined;
-  hasPlaybook: boolean;
   onAction: (action: ScenarioLifecycleAction) => void;
   pendingAction: ScenarioLifecycleAction | null;
 }) {
@@ -1095,8 +1217,9 @@ function ScenarioLifecycleActions({
         </button>
         <button
           className="button ghost"
-          disabled={pending}
+          disabled={pending || Boolean(compileBlocker)}
           onClick={() => onAction('compile')}
+          title={compileBlocker ?? undefined}
           type="button"
         >
           <ListChecks aria-hidden size={14} />
@@ -1104,9 +1227,9 @@ function ScenarioLifecycleActions({
         </button>
         <button
           className="button ghost"
-          disabled={pending || !hasPlaybook}
+          disabled={pending || Boolean(backtestBlocker)}
           onClick={() => onAction('backtest')}
-          title={hasPlaybook ? undefined : 'Requires compiled playbook'}
+          title={backtestBlocker ?? undefined}
           type="button"
         >
           <Play aria-hidden size={14} />
@@ -1118,7 +1241,7 @@ function ScenarioLifecycleActions({
           <strong>{feedback.message}</strong>
           {feedback.details.length > 0 ? (
             <ul className="scenario-watch-list">
-              {feedback.details.slice(0, 5).map((detail) => (
+              {feedback.details.map((detail) => (
                 <li key={detail}>{detail}</li>
               ))}
             </ul>
@@ -1127,6 +1250,55 @@ function ScenarioLifecycleActions({
       ) : null}
     </div>
   );
+}
+
+function compileBlockerForScenario(scenario: ScenarioResponse): string | null {
+  const runtime = scenario.runtime_decision;
+  if (runtime.validity_status === 'invalidated') {
+    return 'Scenario is invalidated.';
+  }
+  if (runtime.validity_status === 'expired') {
+    return 'Scenario is expired.';
+  }
+  const recommendation = scenario.scenario_recommendation;
+  if (!recommendation) {
+    return null;
+  }
+  if (
+    recommendation.action_bias === 'neutral' ||
+    recommendation.action_bias === 'unknown' ||
+    recommendation.blocking_reasons.includes('Scenario is watch-only or not directional.') ||
+    runtime.blocking_reasons.includes('Scenario action bias is not actionable.')
+  ) {
+    return 'Scenario is watch-only or not directional.';
+  }
+  if (recommendation.action === 'avoid') {
+    return 'Recommendation is not directional.';
+  }
+  if (recommendation.hard_gates.some((gate) => gate.status !== 'passed')) {
+    return 'Hard gates are pending.';
+  }
+  return null;
+}
+
+function backtestBlockerForPlaybook(playbook: ScenarioLatestPlaybook): string | null {
+  if (!playbook?.id) {
+    return 'Requires compiled playbook';
+  }
+  if (
+    playbook.direction === 'avoid' ||
+    !playbookHasNumericEntry(playbook) ||
+    playbook.invalidation.level === null ||
+    !playbook.targets.some((target) => target.level !== null)
+  ) {
+    return 'Requires numeric entry, invalidation, and target';
+  }
+  return null;
+}
+
+function playbookHasNumericEntry(playbook: NonNullable<ScenarioLatestPlaybook>): boolean {
+  return playbook.entry.level !== null ||
+    (playbook.entry.zone_low !== null && playbook.entry.zone_high !== null);
 }
 
 type ScenarioThesisRelationTone = 'constructive' | 'warning' | 'risk' | 'primary';
@@ -1876,40 +2048,6 @@ function scenarioWatchTriggers(
   return uniqueStrings(triggers.length > 0 ? triggers : fallback);
 }
 
-function scenarioSources(payload: JsonRecord): string[] {
-  return uniqueStrings(
-    stringList(payload.source ?? payload.sources ?? payload.source_artifacts)
-      .flatMap((item) => extractScenarioSourceLabel(item))
-      .map((item) => limitScenarioText(item, 120))
-      .filter(Boolean),
-  );
-}
-
-function scenarioAsOf(payload: JsonRecord): string {
-  const value = [
-    payload.as_of,
-    payload.asOf,
-    payload.source_timestamp,
-    payload.generated_at,
-    extractScenarioMetaFromSources(payload, /\bas[_\s-]*of\s*:?\s*([^.;]+)/i),
-  ].find((item) => cleanScenarioText(item));
-  return scenarioMetaValue(value);
-}
-
-function scenarioTimeframe(payload: JsonRecord): string {
-  const value = [
-    payload.timeframe,
-    payload.time_frame,
-    payload.horizon,
-    extractScenarioMetaFromSources(payload, /\btime\s*frame\b|\btimeframe\b/i),
-  ].find((item) => cleanScenarioText(item));
-  return scenarioMetaValue(value);
-}
-
-function scenarioMetaValue(value: unknown): string {
-  return cleanScenarioText(value) || 'not recorded';
-}
-
 function scenarioBandTone(value: string): ScenarioTone {
   const normalized = value.toLowerCase();
   if (normalized.includes('high')) {
@@ -1927,51 +2065,6 @@ function scenarioBandTone(value: string): ScenarioTone {
 function titleCaseValue(value: string): string {
   const clean = value.trim();
   return clean ? `${clean.charAt(0).toUpperCase()}${clean.slice(1)}` : 'Scenario';
-}
-
-function actionTone(value: string): 'constructive' | 'warning' | 'risk' | 'primary' {
-  const normalized = value.toLowerCase();
-  if (
-    normalized.includes('exit') ||
-    normalized.includes('reduce') ||
-    normalized.includes('avoid') ||
-    normalized.includes('do not')
-  ) {
-    return 'risk';
-  }
-  if (normalized.includes('watch') || normalized.includes('monitor')) {
-    return 'constructive';
-  }
-  if (
-    normalized.includes('reassess') ||
-    normalized.includes('review') ||
-    normalized.includes('wait') ||
-    normalized.includes('underweight')
-  ) {
-    return 'warning';
-  }
-  return 'primary';
-}
-
-function splitAction(value: string): { label: string; detail: string } {
-  const cleaned = cleanScenarioText(value)
-    .replace(
-      /^action\s+(watch|review|reassess|monitor|avoid|reduce|exit|wait)\s*[:\-\u2013\u2014]?\s*/i,
-      '$1: ',
-    )
-    .replace(
-      /^(?:suggested\s+action|recommended\s+response|recommendation|action)\s*[:\-\u2013\u2014]\s*/i,
-      '',
-    );
-  const match = cleaned.match(
-    /^(watch|monitor|review|reassess|avoid|reduce|exit|stand aside|maintain|downgrade|upgrade|record|wait|stay underweight|do not chase)\b[\s:,\-\u2013\u2014]*(.*)$/i,
-  );
-  if (!match) {
-    return { label: 'Action', detail: cleaned };
-  }
-  const label = match[1].replace(/\b\w/g, (letter) => letter.toUpperCase());
-  const detail = cleanScenarioText(match[2]?.replace(/^[\s:,\-\u2013\u2014]+/, '') ?? '');
-  return { label, detail };
 }
 
 function cleanScenarioText(value: unknown): string {
@@ -2018,42 +2111,6 @@ function isScenarioSectionArtifact(value: string): boolean {
     normalized === 'chips watch triggers' ||
     normalized.startsWith('setup_type')
   );
-}
-
-function extractScenarioSourceLabel(value: string): string[] {
-  const cleaned = cleanScenarioText(value);
-  if (!cleaned || isScenarioSectionArtifact(cleaned)) {
-    return [];
-  }
-  const sourceMatch = cleaned.match(
-    /\bsource\s*:\s*(.+?)(?=\btime\s*frame\b|\btimeframe\b|\bas[_\s-]*of\b|$)/i,
-  );
-  const source = cleanScenarioText(sourceMatch?.[1] ?? cleaned)
-    .replace(/^and\s+as[_\s-]*of\s*:?\s*/i, '')
-    .replace(/\s*\bsetup_type\b.*$/i, '')
-    .trim();
-  return source && !isScenarioSectionArtifact(source) ? [source] : [];
-}
-
-function extractScenarioMetaFromSources(payload: JsonRecord, pattern: RegExp): string {
-  const sourceText = stringList(payload.source ?? payload.sources ?? payload.source_artifacts)
-    .filter((item) => !isScenarioSectionArtifact(item))
-    .join(' ');
-  if (!sourceText) {
-    return '';
-  }
-  if (pattern.source.includes('time')) {
-    const match = sourceText.match(/\btime\s*frame\b|\btimeframe\b/i);
-    if (!match || match.index === undefined) {
-      return '';
-    }
-    const tail = sourceText
-      .slice(match.index)
-      .replace(/^\s*(?:time\s*frame|timeframe)\s*:?\s*/i, '');
-    return cleanScenarioText(tail.split(/\bas[_\s-]*of\b/i)[0]);
-  }
-  const match = sourceText.match(pattern);
-  return cleanScenarioText(match?.[1] ?? '');
 }
 
 function labelFromKey(value: string): string {
@@ -2205,20 +2262,20 @@ function TechnicalThesisDetails({
   dataGaps,
   dataQuality,
   dataQualityLabel,
+  objectiveLevels,
   quantConfidence,
   setupType,
   stabilityGuard,
-  targetZones,
 }: {
   confidence: number | null;
   confidenceSource: string;
   dataGaps: string[];
   dataQuality: number | null;
   dataQualityLabel: string;
+  objectiveLevels: string[];
   quantConfidence: number | null;
   setupType: string;
   stabilityGuard: JsonRecord;
-  targetZones: string[];
 }) {
   return (
     <section className="thesis-technical-details">
@@ -2237,8 +2294,8 @@ function TechnicalThesisDetails({
         <ThesisFact label="Quant confidence">
           <ConfidenceBadge value={quantConfidence} />
         </ThesisFact>
-        <ThesisFact label="Target zones">
-          {targetZones.length > 0 ? targetZones.join(', ') : 'None reported.'}
+        <ThesisFact label="Objective levels">
+          {objectiveLevels.length > 0 ? objectiveLevels.join(', ') : 'None reported.'}
         </ThesisFact>
         <ThesisFact label="Data gaps">
           {dataGaps.length > 0 ? dataGaps.join(', ') : 'None reported.'}

@@ -100,8 +100,8 @@ Actions:
 
 Actions:
 
-1. Stop active runs and CLI sessions that may be using the same DB.
-2. Confirm the journal path with `lunacrypto journal path`.
+1. Stop active runs and worker/API sessions that may be using the same DB.
+2. Confirm the journal path from `TRADINGAGENTS_JOURNAL_DB`, or use the default `~/.luna_workstation/cache/research_journal.sqlite`.
 3. Back up the DB before deleting sidecars.
 4. Use `docs/runbooks/journal-backup-restore.md` for backup and restore checks.
 

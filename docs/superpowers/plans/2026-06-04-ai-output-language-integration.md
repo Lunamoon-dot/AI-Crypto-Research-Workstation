@@ -17,7 +17,7 @@ This plan covers AI output language only:
 - Analyst reports and final manager decision can be generated in the selected language.
 - Internal reasoning/debate behavior remains unchanged; current `get_language_instruction(config)` already avoids adding language tokens for English.
 - Existing default remains `English`.
-- The first UI choices are `English` and `Vietnamese`; backend accepts any non-blank language string so existing CLI custom-language behavior stays compatible.
+- The first UI choices are `English` and `Vietnamese`; backend accepts any non-blank language string so existing runtime custom-language behavior stays compatible.
 
 This plan does not add full web interface translation, date/number localization, translated navigation labels, user language preferences, or database migrations.
 
@@ -28,7 +28,7 @@ This plan does not add full web interface translation, date/number localization,
   - Validate that supplied language strings are non-blank after trimming.
 
 - Modify `apps/ai-service/luna_workstation/engine/runner.py`
-  - Thread `request.output_language` into `ConfigLoader.load(... cli_overrides=...)`.
+  - Thread `request.output_language` into `ConfigLoader.load(... runtime_overrides=...)`.
   - Add `output_language` to started/completed event payloads so runs are auditable.
 
 - Modify `apps/ai-service/tests/test_engine_contract.py`
@@ -178,7 +178,7 @@ In `apps/ai-service/luna_workstation/engine/schemas.py`, update `EngineRunReques
 
 ```python
 class EngineRunRequest(BaseModel):
-    """Stable JSON request accepted by ``lunacrypto engine run``."""
+    """Stable JSON request accepted by ``python -m luna_workstation.engine run``."""
 
     run_id: str | None = None
     workspace_id: str
@@ -600,7 +600,7 @@ git commit -m "feat(web): choose research output language"
 In `apps/ai-service/config/local.example.toml`, add this near the existing runtime defaults before the first TOML section:
 
 ```toml
-# Optional report language override for all local CLI/engine runs.
+# Optional report language override for all local engine runs.
 # Per-run API requests can still override this value.
 # output_language = "Vietnamese"
 ```
@@ -703,7 +703,7 @@ Run:
 
 ```bash
 cd apps/ai-service
-node scripts/python.cjs -m cli.main engine run --request ./.codex-language-check.json
+node scripts/python.cjs -m luna_workstation.engine run --request ./.codex-language-check.json
 ```
 
 Expected JSON includes:
@@ -779,4 +779,3 @@ Type consistency:
 - Field name is `output_language` in Python, API request JSON, OpenAPI, generated web client, and Zod schema.
 - UI state is `outputLanguage` and maps explicitly to request `output_language`.
 - Default value is `English`; per-run example is `Vietnamese`.
-

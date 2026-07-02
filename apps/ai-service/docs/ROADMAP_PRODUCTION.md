@@ -1,12 +1,12 @@
 # Production roadmap
 
-Reliability, observability, boundaries for assisted execution, cloud/monetization, and shipping posture — not feature-by-feature coding notes.
+Reliability, observability, boundaries for assisted execution, cloud/monetization, and shipping posture â€” not feature-by-feature coding notes.
 
 **Audience:** release engineering, security review, future hosted product owners.
 
-**See also:** [Developer roadmap](ROADMAP_DEV.md) · [Project hub](../ROADMAP.md)
-· [Go-live checklist](GO_LIVE_READINESS.md)
-· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
+**See also:** [Developer roadmap](ROADMAP_DEV.md) Â· [Project hub](../ROADMAP.md)
+Â· [Go-live checklist](GO_LIVE_READINESS.md)
+Â· [Production readiness review](PRODUCTION_READINESS_REVIEW.md)
 
 **Current production verdict (2026-05-13):** credible for controlled local beta research use with clear research-only disclaimers. Not ready for broad hosted SaaS, regulated financial-decision positioning, or autonomous execution.
 
@@ -28,7 +28,7 @@ Recommended initial market:
 Why crypto first:
 
 - crypto traders are more comfortable with AI tools and local workflows;
-- market trades 24/7, making brief/watchlist/alert features valuable;
+- market trades 24/7, making scenario/signal/alert monitoring valuable;
 - data sources such as funding, open interest, liquidation maps, sentiment, and onchain signals create a strong research surface;
 - retail and semi-professional crypto users are more likely to pay for workflow tooling than traditional equity traders early on;
 - crypto has clearer product differentiation than generic stock analysis.
@@ -55,9 +55,8 @@ AI Crypto Research Workstation
 - signal provenance
 - multi-agent analysis
 - structured trade theses
-- thesis watchlists
 - invalidation alerts
-- market briefs
+- scenario monitoring
 - markdown/report export
 ```
 
@@ -67,7 +66,7 @@ AI Crypto Research Workstation
 AI Crypto Research Cloud
 - cloud sync
 - hosted inference
-- scheduled market briefs
+- scheduled attention digests
 - email/Telegram/Discord/mobile alerts
 - advanced data providers
 - longer history
@@ -79,8 +78,7 @@ AI Crypto Research Cloud
 ```text
 Collaborative Trading Research Workspace
 - shared journals
-- shared watchlists
-- collaborative thesis review
+- shared thesis/scenario review
 - analyst comments
 - audit timeline
 - role permissions
@@ -90,7 +88,7 @@ Collaborative Trading Research Workspace
 
 ---
 
-## Excellence criteria — trust, privacy, and shipping posture
+## Excellence criteria â€” trust, privacy, and shipping posture
 
 These complement the **world-class** bar in [../ROADMAP.md](../ROADMAP.md). They matter most for OSS credibility and any future hosted tier.
 
@@ -107,15 +105,15 @@ These complement the **world-class** bar in [../ROADMAP.md](../ROADMAP.md). They
 ### Operational resilience
 
 - **Runbooks**: provider outage, LLM deprecation, schema migration, rotating API keys without bricking installs.
-- **Incident response**: leaked credentials, compromised sync account — detection, rotation, user notification pattern.
+- **Incident response**: leaked credentials, compromised sync account â€” detection, rotation, user notification pattern.
 
 ### Reliability expectations
 
-- Document **SLO-style intent** (e.g. CLI commands return quickly; LLM-bound steps are clearly labeled) without promising fictional uptime for third-party models.
+- Document **SLO-style intent** (e.g. API calls and worker jobs expose clear progress/failure states; LLM-bound steps are clearly labeled) without promising fictional uptime for third-party models.
 
 ### Accessibility & reach (when scaling UX)
 
-- Terminal UX: readable defaults, optional high-contrast; consider **i18n** for prompts and reports where demand exists.
+- Web/API UX: readable defaults, accessible contrast, and **i18n** for prompts and reports where demand exists.
 
 ---
 
@@ -315,8 +313,6 @@ apps/api/
   src/research-runs
   src/theses
   src/signals
-  src/watchlists
-  src/briefs
   src/jobs
   src/database/prisma-journal.repository.ts
 
@@ -335,9 +331,6 @@ GET  /theses/:id
 POST /theses/:id/decision
 POST /theses/:id/review
 GET  /signals?symbol=BTC
-GET  /watchlists
-POST /watchlists/:id/items
-GET  /briefs/daily
 GET  /journal/runs/:id/workspace
 GET  /research-runs/:id/snapshots
 GET  /research-runs/:id/debate
@@ -363,7 +356,7 @@ Database rule:
 ## Python Worker Contract
 
 ```bash
-lunacrypto engine run --request request.json
+python -m luna_workstation.engine run --request request.json
 ```
 
 Request:
@@ -476,8 +469,7 @@ Free local tier:
 - basic agents;
 - local research runs;
 - decision journal;
-- basic watchlists;
-- manual market brief;
+- thesis/scenario monitoring;
 - AI research outputs and journal persistence (no bundled order execution).
 
 Purpose:
@@ -493,7 +485,7 @@ Paid tier:
 
 - cloud sync;
 - hosted inference;
-- scheduled market briefs;
+- scheduled attention digests;
 - alerts;
 - Telegram/Discord/email delivery;
 - advanced data providers;
@@ -506,12 +498,11 @@ Paid tier:
 Team tier:
 
 - shared journals;
-- shared watchlists;
-- collaborative thesis review;
+- collaborative thesis/scenario review;
 - comments;
 - audit timeline;
 - role permissions;
-- team-level brief;
+- team-level attention digest;
 - analyst reliability reports.
 
 ## Acceptance Criteria
@@ -562,7 +553,7 @@ The MVP is ready when:
 6. User records a decision.
 7. App tracks thesis invalidation and target zones.
 8. User reviews the outcome.
-9. App generates a daily market brief.
+9. App surfaces scenario/alert attention for follow-up.
 10. Everything is saved in the local journal.
 ```
 
@@ -654,8 +645,8 @@ ResearchRun domain
 -> signal provenance
 -> structured agent opinions
 -> contradiction detector
--> thesis watchlist
--> market brief
+-> scenario monitor
+-> alert inbox
 ```
 
 This path gives the project a realistic chance to become a useful product, reduce legal and technical risk, and build a monetizable workflow around structured trading research.

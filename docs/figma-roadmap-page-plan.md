@@ -57,16 +57,15 @@ Layout:
 - Persistent left sidebar.
 - Top command strip with symbol, market type, date/as-of, profile, Run research.
 - Main metrics: active theses, fresh signals, unread alerts, queued runs.
-- Panels: daily brief, thesis inbox, composite signal board, watchlist overview.
+- Panels: attention queue, thesis inbox, composite signal board, scenario highlights.
 - Right rail: contextual AI command rail and unread alerts.
 
 Backend sources:
 
-- `GET /briefs/daily`
+- `GET /workbench/attention`
 - `GET /alerts`
 - `GET /theses`
 - `GET /signals`
-- `GET /watchlists`
 
 ### 02 Research Launcher
 
@@ -135,7 +134,7 @@ Sections:
   source timestamp, freshness, summary.
 - Alert inbox right rail with unread/read state and mark-read action.
 - Alert detail drawer fields: message, trigger key, payload JSON, thesis link,
-  watchlist item link.
+  scenario or run link when available.
 
 Backend sources:
 
@@ -143,22 +142,24 @@ Backend sources:
 - `GET /alerts`
 - `POST /alerts/:id/read`
 
-### 06 Watchlists And Daily Briefs
+### 06 Scenario And Attention Monitoring
 
-Purpose: support the monitoring and daily research habit loop.
+Purpose: support the monitoring and daily research habit loop without a
+separate watchlist or daily-brief domain.
 
 Sections:
 
-- Watchlists list with enabled state.
-- Add watchlist item form for symbol, thesis, setup_type.
-- Daily brief archive with latest and previous brief.
-- Backend gap callout for watchlist CRUD and brief detail endpoints.
+- Scenario monitor grouped by thesis/symbol and condition state.
+- Attention queue rows for unread alerts, stale provider state, active runs, and
+  thesis review needs.
+- Alert detail drawer with mark-read action.
+- Decommission callout: `/watchlists` and `/briefs/daily` are not active routes.
 
 Backend sources:
 
-- `GET /watchlists`
-- `POST /watchlists/:id/items`
-- `GET /briefs/daily`
+- `GET /scenarios/monitor`
+- `GET /workbench/attention`
+- `GET /alerts`
 
 ### 07 Trust, Operations, Settings, Retrospective
 

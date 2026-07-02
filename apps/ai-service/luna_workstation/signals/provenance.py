@@ -276,6 +276,9 @@ def _factor_signal(
     direction = signal_score_to_direction(factor.score)
     confidence = factor.confidence
     lane, category = classify_evidence_lane(signal_type)
+    availability = _factor_availability(factor, freshness)
+    directional_edge = _directional_edge(direction, availability, confidence)
+    display_metadata = _display_metadata(signal_type)
     return Signal(
         symbol=result.symbol,
         signal_type=signal_type,
@@ -297,8 +300,11 @@ def _factor_signal(
                 "evidence_lane": lane.value,
                 "evidence_category": category,
                 "data_quality": factor.data_quality,
+                "availability": availability,
+                "directional_edge": directional_edge,
                 "threshold_breached": factor.threshold_breached,
                 "raw_metadata": factor.metadata,
+                **display_metadata,
             },
         ),
         evidence={
@@ -308,7 +314,10 @@ def _factor_signal(
             "evidence_category": category,
             "detail": factor.detail,
             "data_quality": factor.data_quality,
+            "availability": availability,
+            "directional_edge": directional_edge,
             "threshold_breached": factor.threshold_breached,
+            **display_metadata,
         },
         watch_conditions=_build_watch_conditions(
             symbol=result.symbol,
@@ -343,11 +352,50 @@ def _lane_evidence(factors: list[FactorSignal]) -> dict[str, dict[str, list[dict
                 "quant_bias": score_to_quant_bias(factor.score),
                 "confidence": factor.confidence,
                 "data_quality": factor.data_quality,
+                "availability": _factor_availability(factor, DataFreshness.UNKNOWN),
                 "threshold_breached": factor.threshold_breached,
                 "detail": factor.detail,
+                **_display_metadata(signal_type),
             }
         )
     return grouped
+
+
+def _factor_availability(factor: FactorSignal, freshness: DataFreshness) -> str:
+    raw = str(factor.metadata.get("availability") or "").strip().lower()
+    if raw in {"valid", "missing", "stale", "parse_failed", "error"}:
+        return raw
+    if freshness == DataFreshness.STALE:
+        return "stale"
+    if factor.data_quality <= 0:
+        return "missing"
+    return "valid"
+
+
+def _directional_edge(
+    direction: SignalDirection,
+    availability: str,
+    confidence: float | None,
+) -> float | None:
+    if availability != "valid":
+        return None
+    strength = float(confidence or 0.0)
+    if direction == SignalDirection.BULLISH:
+        return strength
+    if direction == SignalDirection.BEARISH:
+        return -strength
+    if direction == SignalDirection.NEUTRAL:
+        return 0.0
+    return None
+
+
+def _display_metadata(signal_type: str) -> dict[str, str]:
+    if signal_type == "onchain":
+        return {
+            "display_name": "Market structure proxy",
+            "source_note": "Not wallet-level on-chain flow data",
+        }
+    return {}
 
 
 def _build_watch_conditions(

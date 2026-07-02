@@ -347,7 +347,7 @@
         <div class="arch-node"><h3>Jobs / Queue</h3><p>BullMQ, memory, and inline fallback for local/dev mode.</p></div>
         <div class="arch-node engine"><h3>Python Engine</h3><p>LangGraph agents, SignalEngine, providers, thesis builder.</p></div>
         <div class="arch-node"><h3>Journal DB</h3><p>Postgres for hosted mode, SQLite for local workstation mode.</p></div>
-        <div class="arch-node"><h3>Read APIs</h3><p>Normalized frontend DTOs for runs, theses, signals, briefs.</p></div>
+        <div class="arch-node"><h3>Read APIs</h3><p>Normalized frontend DTOs for runs, theses, scenarios, signals, alerts.</p></div>
       </div>
     </section>
 
@@ -358,14 +358,14 @@
           <tr><th>Route</th><th>Screen responsibility</th><th>Backend source</th><th>Maturity</th></tr>
         </thead>
         <tbody>
-          <tr><td><code>/workbench</code></td><td>Daily command center</td><td>briefs + theses + signals + watchlists</td><td><span class="chip green">API-ready composite</span></td></tr>
+          <tr><td><code>/workbench</code></td><td>Attention command center</td><td>attention + theses + scenarios + signals + alerts</td><td><span class="chip green">API-ready composite</span></td></tr>
           <tr><td><code>/research/new</code></td><td>Launch run wizard</td><td><code>POST /research-runs</code></td><td><span class="chip green">API-ready</span></td></tr>
           <tr><td><code>/research/runs/:id</code></td><td>Status and event timeline</td><td><code>GET run</code> + <code>GET events</code></td><td><span class="chip green">API-ready base</span></td></tr>
           <tr><td><code>/journal/runs/:id</code></td><td>Full evidence workspace</td><td><code>GET workspace</code> + snapshots + debate + scenarios</td><td><span class="chip green">API-ready base</span></td></tr>
           <tr><td><code>/theses</code> / <code>/theses/:id</code></td><td>Thesis inbox and detail</td><td>theses, decision, review endpoints</td><td><span class="chip green">API-ready base</span></td></tr>
           <tr><td><code>/signals</code></td><td>Signal explorer</td><td><code>GET /signals?symbol=</code></td><td><span class="chip green">API-ready</span></td></tr>
-          <tr><td><code>/watchlists</code></td><td>Monitored symbols and theses</td><td>watchlists + alerts + add item</td><td><span class="chip green">API-ready base</span></td></tr>
-          <tr><td><code>/briefs/daily</code></td><td>Daily brief archive</td><td><code>GET /briefs/daily</code></td><td><span class="chip green">API-ready</span></td></tr>
+          <tr><td><code>/scenarios</code></td><td>Scenario monitor</td><td><code>GET /scenarios/monitor</code></td><td><span class="chip green">API-ready</span></td></tr>
+          <tr><td><code>/alerts</code></td><td>Alert inbox</td><td><code>GET /alerts</code></td><td><span class="chip green">API-ready</span></td></tr>
           <tr><td><code>/retrospective</code></td><td>Evaluation and reliability</td><td>evaluations + reliability snapshots</td><td><span class="chip amber">Needs endpoint</span></td></tr>
           <tr><td><code>/operations</code></td><td>Provider, LLM, freshness health</td><td>provider_health, llm_calls, freshness tables</td><td><span class="chip amber">Needs endpoint</span></td></tr>
           <tr><td><code>/settings</code></td><td>Profiles, providers, budgets</td><td>config and health commands</td><td><span class="chip amber">Needs endpoint</span></td></tr>
@@ -386,8 +386,8 @@
           <div class="nav-item">Journal</div>
           <div class="nav-item">Theses <span>7</span></div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
-          <div class="nav-item">Briefs</div>
+          <div class="nav-item">Scenarios</div>
+          <div class="nav-item">Alerts</div>
           <div class="nav-item">Retrospective</div>
           <div class="nav-item">Operations</div>
           <div class="nav-item">Settings</div>
@@ -408,8 +408,8 @@
           <div class="content-grid">
             <div class="grid">
               <div class="card">
-                <div class="panel-title"><h3>Daily market brief</h3><span class="chip amber">missing onchain secondary</span></div>
-                <p>Persisted market context leans trending. BTC and ETH remain the core risk barometers. SOL thesis requires review after target approach.</p>
+                <div class="panel-title"><h3>Attention queue</h3><span class="chip amber">missing onchain secondary</span></div>
+                <p>Workbench attention leans on active theses, scenario changes, alerts, and degraded provider state. SOL thesis requires review after target approach.</p>
                 <div class="grid cols-3" style="margin-top:14px;">
                   <div class="card muted"><h3>BTC/USDT</h3><p>Regime: trending<br>Trend: bullish<br>Volatility: normal</p></div>
                   <div class="card muted"><h3>ETH/USDT</h3><p>Regime: ranging<br>Trend: neutral<br>Volatility: high</p></div>
@@ -445,7 +445,7 @@
         </section>
         <aside class="right-rail">
           <h3>AI command rail</h3>
-          <p style="margin-top:8px;">Context: workbench, default watchlist, 7 active theses.</p>
+          <p style="margin-top:8px;">Context: workbench, 7 active theses, scenario monitor, unread alerts.</p>
           <div class="decision-box" style="margin-top:16px;"><span class="chip amber">Alert</span><p style="margin-top:8px;">SOL scenario activated near target zone. Review thesis before changing watch status.</p></div>
           <div class="decision-box"><span class="chip blue">Prompt</span><p style="margin-top:8px;">Explain why BTC signal is bullish while funding/OI is bearish.</p></div>
           <div class="textarea">Ask about this workspace...</div>
@@ -536,7 +536,7 @@
           <div class="nav-item">Research</div>
           <div class="nav-item active">Theses</div>
           <div class="nav-item">Signals</div>
-          <div class="nav-item">Watchlists</div>
+          <div class="nav-item">Scenarios</div>
           <div class="nav-item">Retrospective</div>
         </aside>
         <section class="main">

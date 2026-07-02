@@ -1,4 +1,4 @@
-"""Shared model catalog for CLI selections and validation."""
+"""Shared model catalog for runtime selections and validation."""
 
 from __future__ import annotations
 
@@ -180,7 +180,7 @@ def get_model_options(provider: str, mode: str) -> List[ModelOption]:
 
 
 def get_known_models() -> Dict[str, List[str]]:
-    """Build known model names from the shared CLI catalog."""
+    """Build known model names from the shared model catalog."""
     return {
         provider: sorted(
             {value for options in mode_options.values() for _, value in options}

@@ -54,7 +54,7 @@ export function SignalDetailPage() {
     <main className="page">
       <PageHeader
         eyebrow="05 Signal Detail"
-        title={`${signal.symbol} ${signal.signal_type}`}
+        title={`${signal.symbol} ${signal.display_name || signal.signal_type}`}
         description="Trace source data, freshness, evidence fields, and linked research artifacts."
         action={
           <div className="page-header-action-stack">
@@ -62,9 +62,17 @@ export function SignalDetailPage() {
               stats={[
                 {
                   icon: <Activity aria-hidden size={14} />,
-                  label: 'Confidence',
+                  label: 'Heuristic strength',
                   tone: 'constructive',
-                  value: <ConfidenceBadge value={signal.confidence} />,
+                  value: (
+                    <ConfidenceBadge
+                      value={
+                        signal.heuristic_strength ??
+                        signal.heuristic_confidence ??
+                        signal.confidence
+                      }
+                    />
+                  ),
                 },
                 {
                   icon: <ShieldAlert aria-hidden size={14} />,
@@ -96,15 +104,37 @@ export function SignalDetailPage() {
         <Panel className="span-4 emphasis" title="Provenance rail">
           <div className="stack small">
             <DataPair label="Signal ID" value={<IdChip value={signal.id} />} />
+            <DataPair label="Display name" value={signal.display_name || 'n/a'} />
             <DataPair label="Evidence lane" value={signal.evidence_lane || 'n/a'} />
             <DataPair label="Category" value={signal.evidence_category || 'n/a'} />
-            <DataPair label="Strength" value={formatNumber(signal.strength)} />
+            <DataPair label="Evidence strength" value={formatNumber(signal.strength)} />
+            <DataPair label="Availability" value={signal.availability} />
+            <DataPair label="Source note" value={signal.source_note || 'n/a'} />
             <DataPair label="Confidence version" value={signal.confidence_version} />
             <DataPair label="Expires" value={formatDateTime(signal.expires_at)} />
             <DataPair label="Research run" value={<RunLink id={signal.research_run_id} />} />
             <DataPair label="Signal snapshot" value={<IdChip value={signal.signal_snapshot_id} />} />
           </div>
         </Panel>
+
+        {signal.empirical_probability !== null ? (
+          <Panel className="span-8" title="Empirical probability">
+            <div className="stack small">
+              <DataPair
+                label="P(up, published horizon)"
+                value={<ConfidenceBadge value={signal.empirical_probability} />}
+              />
+              <DataPair
+                label="Sample"
+                value={formatNumber(signal.empirical_probability_sample_size)}
+              />
+              <DataPair
+                label="OOS sample"
+                value={formatNumber(signal.empirical_probability_oos_sample_size)}
+              />
+            </div>
+          </Panel>
+        ) : null}
 
         <Panel className="span-8" title="Source payload" description="Normalized provenance object">
           {hasEntries(signal.provenance) ? (

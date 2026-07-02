@@ -256,6 +256,10 @@ export interface ThesisSummaryResponse {
   upside_catalyst: string;
   invalidation: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   key_reasons: string[];
   risks: string[];
   spot_notes: string;
@@ -318,6 +322,10 @@ export interface ThesisResponse {
   confirmation_condition: string;
   invalidation_level: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   thesis_text: string;
   summary: ThesisSummaryResponse;
   supporting_signal_ids: string[];
@@ -1228,25 +1236,6 @@ export interface ScenarioMonitorResponse {
   items: ScenarioMonitorItemResponse[];
 }
 
-export interface WatchlistPollResponse {
-  checked_watchlists: number;
-  alerts_created: number;
-  skipped_items: string[];
-}
-
-export interface AlertSchedulerStatusResponse {
-  enabled: boolean;
-  configured_by_env: boolean;
-  interval_ms: number;
-  poll_on_start: boolean;
-  limit: number;
-  running: boolean;
-  last_run_at: string | null;
-  last_error: string | null;
-  last_result: WatchlistPollResponse | null;
-  workspace_enabled_watchlists: number;
-}
-
 export interface ProviderHealthResponse {
   id: string | null;
   provider: string;
@@ -1353,6 +1342,10 @@ export interface SignalResponse {
   signal_type: string;
   direction: string;
   confidence: number | null;
+  heuristic_strength: number | null;
+  confidence_semantics: 'heuristic' | 'empirical' | 'unavailable';
+  availability: 'valid' | 'missing' | 'stale' | 'parse_failed' | 'error' | 'unknown';
+  display_name: string;
   observed_at: string | null;
   source: string;
   source_timestamp: string | null;
@@ -1368,6 +1361,10 @@ export interface SignalDetailResponse extends SignalResponse {
   empirical_confidence: number | null;
   empirical_confidence_sample_size: number | null;
   empirical_confidence_oos_sample_size: number | null;
+  empirical_probability: number | null;
+  empirical_probability_sample_size: number | null;
+  empirical_probability_oos_sample_size: number | null;
+  source_note: string | null;
   confidence_version: string;
   freshness_status: string;
   is_stale: boolean;
@@ -1386,84 +1383,42 @@ export interface SignalCountResponse {
   neutral: number;
 }
 
-export interface WatchlistResponse {
+export interface SignalEvaluationReportResponse extends JsonRecord {
   id: string | null;
   workspace_id: string;
-  name: string;
-  enabled: boolean;
-  created_at: string | null;
-}
-
-export interface WatchlistItemResponse {
-  id: string | null;
-  workspace_id: string;
-  watchlist_id: string;
-  item_type: string;
+  generated_at: string | null;
   symbol: string | null;
-  thesis_id: string | null;
-  setup_type: string | null;
-  enabled: boolean;
-  created_at: string | null;
+  factor_name: string | null;
+  horizon_minutes: number;
+  sample_size: number;
+  directional_sample_size: number;
+  oos_sample_size: number;
+  coverage_rate: number | null;
+  balanced_accuracy: number | null;
+  ece: number | null;
+  brier_score: number | null;
+  log_loss: number | null;
+  mean_signed_return: number | null;
+  quality_warnings: string[];
+  breakdown_json: JsonRecord;
 }
 
-export interface RemoveWatchlistResponse {
-  id: string;
-  workspace_id: string;
-  name: string;
-  removed: boolean;
-  removed_item_count: number;
-}
-
-export interface WatchlistCheckResponse {
-  workspace_id: string;
-  watchlist_id: string;
-  checked_items: number;
-  alerts_created: AlertResponse[];
-  skipped_items: string[];
-}
-
-export interface BriefAssetSummaryResponse {
-  symbol: string;
-  current_price: number | null;
-  market_regime: string;
-  trend_direction: string;
-  volatility_regime: string;
-  source: string | null;
-  source_timestamp: string | null;
-  summary: string;
-  change_from_previous: string | null;
-}
-
-export interface BriefThesisUpdateResponse {
-  thesis_id: string;
-  symbol: string;
-  direction: string;
-  setup_type: string;
-  confidence: number | null;
-  status: string;
-  update: string;
-  invalidation_level: string | null;
-  recent_alerts: string[];
-}
-
-export interface BriefResponse {
+export interface SignalModelMonitoringSnapshotResponse extends JsonRecord {
   id: string | null;
   workspace_id: string;
-  brief_date: string | null;
-  watchlist_name: string | null;
-  title: string;
-  created_at: string | null;
-  previous_brief_id: string | null;
-  summary: string;
-  key_points: string[];
-  thesis_ids: string[];
-  signal_ids: string[];
-  asset_summaries: BriefAssetSummaryResponse[];
-  thesis_updates: BriefThesisUpdateResponse[];
-  watchlist_changes: string[];
-  top_setups: string[];
-  top_risks: string[];
-  memory_notes: string[];
+  generated_at: string | null;
+  status: 'healthy' | 'degraded' | 'critical' | 'insufficient_data' | string;
+  active_weight_version: string | null;
+  active_calibrator_version: string | null;
+  observation_count: number;
+  matured_label_count: number;
+  publishable_prediction_count: number;
+  data_health_json: JsonRecord;
+  feature_drift_json: JsonRecord;
+  calibration_health_json: JsonRecord;
+  prediction_health_json: JsonRecord;
+  breakdown_json: JsonRecord;
+  alerts_json: JsonRecord[];
 }
 
 export interface AlertResponse {
@@ -1472,7 +1427,6 @@ export interface AlertResponse {
   alert_type: string;
   symbol: string;
   thesis_id: string | null;
-  watchlist_item_id: string | null;
   trigger_key: string | null;
   created_at: string | null;
   read_at: string | null;
@@ -1489,9 +1443,7 @@ export type AttentionSourceType =
   | 'thesis'
   | 'scenario'
   | 'run'
-  | 'provider'
-  | 'brief'
-  | 'watchlist';
+  | 'provider';
 
 export interface AttentionBadgeResponse {
   label: string;
@@ -1553,9 +1505,7 @@ export interface WorkbenchAttentionResponse {
   generated_at: string;
   item_count: number;
   unresolved_count: number;
-  latest_brief: BriefResponse | null;
   active_scenarios: ScenarioResponse[];
-  brief_actions: AttentionItemResponse[];
   queues: AttentionQueueResponse[];
   items: AttentionItemResponse[];
   notifications: NotificationResponse[];
@@ -2310,40 +2260,3 @@ export type EvaluationVersionPolicyActionRequest = {
   notes?: string;
   idempotency_key?: string;
 };
-
-export type AddWatchlistItemRequest = {
-  item_type?: string;
-  symbol?: string;
-  thesis_id?: string;
-  setup_type?: string;
-};
-
-export type CheckWatchlistRequest = {
-  prices?: Record<string, number>;
-};
-
-export type CreateDailyBriefRequest = {
-  watchlist_id?: string;
-  watchlist_name?: string;
-  date?: string;
-  alerts_limit?: number;
-  evaluate_snapshots?: boolean;
-  save?: boolean;
-};
-
-export type CreateWatchlistRequest = {
-  name: string;
-  enabled?: boolean;
-};
-
-export type UpdateWatchlistRequest = {
-  name?: string;
-  enabled?: boolean;
-};
-
-export interface RemoveWatchlistItemResponse {
-  id: string;
-  workspace_id: string;
-  watchlist_id: string;
-  removed: boolean;
-}

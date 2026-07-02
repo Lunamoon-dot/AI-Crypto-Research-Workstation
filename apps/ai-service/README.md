@@ -5,8 +5,9 @@ turns market context, deterministic signals, agent debate, and outcome review
 into auditable research artifacts.
 
 It lives in `apps/ai-service`, keeps the existing Python package name
-`luna_workstation` for import compatibility, and exposes the public CLI command as
-`lunacrypto`.
+`luna_workstation` for import compatibility. It no longer exposes a public
+human command-line UI; product access is through the web/API, while API workers use the
+machine-only engine module `python -m luna_workstation.engine`.
 
 A local-first Spot/Perp AI workstation for crypto market research,
 trade-thesis generation, decision journaling, signal provenance, and outcome
@@ -46,11 +47,11 @@ invalidation, keep the paper trail, and improve after the outcome.
 - Trade thesis persistence.
 - Market snapshot persistence.
 - Signal snapshot persistence.
-- User decision and outcome review commands.
+- User decision and outcome review workflows.
 - Assisted trade-plan artifact for manual review only.
 - Checkpoint resume for long research runs.
 - Multi-provider LLM support.
-- Watchlists, alerts, market briefs, replay, diff, and worker-style engine contract commands.
+- Alerts, replay, historical evaluation, and the worker-style engine contract.
 
 ## Product Boundary
 
@@ -73,8 +74,8 @@ future assisted execution must be explicit, manually confirmed, and audited.
 High-level architecture:
 
 ```text
-cli/
-  interactive CLI, journal commands, signal explorer
+luna_workstation/engine/
+  machine-only JSON request/result contract for API workers
 
 luna_workstation/graph/
   LangGraph orchestration, journal bridge, planning helpers
@@ -206,55 +207,15 @@ value takes precedence over default and local config. Internal agent debate
 remains English to preserve reasoning quality, while analyst reports and final
 decision output use the selected language.
 
-## CLI Usage
+## Engine Contract
 
-Launch the interactive research workflow:
-
-```bash
-lunacrypto
-```
-
-Run non-interactively:
+Human workflows now go through the web/API. The remaining command entrypoint is
+machine-only and intended for API workers or focused contract smoke checks:
 
 ```bash
-lunacrypto research run BTC/USDT --date 2026-05-08 --yes --plain
-```
-
-Or run from source:
-
-```bash
-python -m cli.main
-```
-
-Useful journal commands:
-
-```bash
-lunacrypto journal path
-lunacrypto journal list
-lunacrypto journal show <run_id>
-lunacrypto journal workspace <run_id>
-lunacrypto journal timeline <run_id>
-lunacrypto journal bundle <run_id>
-lunacrypto journal market-snapshot <snapshot_id>
-lunacrypto journal signal-snapshot <snapshot_id>
-```
-
-Thesis commands:
-
-```bash
-lunacrypto thesis list
-lunacrypto thesis show <thesis_id>
-lunacrypto thesis decide <thesis_id> watched --notes "Waiting for confirmation"
-lunacrypto thesis review <thesis_id> mixed --lessons "Funding overheated before confirmation"
-```
-
-Signal provenance commands:
-
-```bash
-lunacrypto signals latest ETH/USDT
-lunacrypto signals snapshot <run_id>
-lunacrypto signals explain <signal_id>
-lunacrypto signals list BTC/USDT
+python -m luna_workstation.engine run --request request.json
+python -m luna_workstation.engine evaluate --request evaluation-request.json
+python -m luna_workstation.engine schema
 ```
 
 Signal snapshots are run-scoped. Public signal wording uses
@@ -262,31 +223,12 @@ Signal snapshots are run-scoped. Public signal wording uses
 rather than a final user decision. Spot and perp evidence lanes are shown
 separately.
 
-Historical thesis evaluation:
+Historical thesis evaluation remains a service/API capability and evaluates
+research/thesis quality, not realized PnL.
 
-```bash
-lunacrypto research evaluate thesis <thesis_id>
-lunacrypto research evaluate analytics
-```
-
-This evaluates research/thesis quality, not realized PnL.
-
-Replay and worker contract:
-
-```bash
-lunacrypto replay single BTC/USDT 2026-05-08
-lunacrypto engine run --request request.json
-```
-
-Watchlists and briefs:
-
-```bash
-lunacrypto watchlist add-symbol BTC/USDT
-lunacrypto watchlist add-thesis <thesis_id>
-lunacrypto watchlist brief
-lunacrypto watchlist check
-lunacrypto brief daily
-```
+Watchlist, Daily Brief, and the human command-line UI were decommissioned. Use
+thesis, scenario, signal, alert, journal, and evaluation workflows in the
+web/API for current monitoring and review.
 
 ## Python Usage
 
@@ -322,7 +264,7 @@ Run local quality gates:
 ```bash
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy luna_workstation cli
+python -m mypy luna_workstation
 ```
 
 Run focused tests:
@@ -352,16 +294,16 @@ CI runs:
 
 Start at [ROADMAP.md](ROADMAP.md) (hub). Detailed docs:
 
-- [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md) — phases 1–9 (implementation)
-- [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md) — phases 10–14 (reliability, API/cloud, monetization)
-- [docs/postgres-migration-strategy.md](docs/postgres-migration-strategy.md) — SQLite local mode to Postgres hosted mode
-- [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) — current production-readiness verdict and blockers
+- [docs/ROADMAP_DEV.md](docs/ROADMAP_DEV.md) â€” phases 1â€“9 (implementation)
+- [docs/ROADMAP_PRODUCTION.md](docs/ROADMAP_PRODUCTION.md) â€” phases 10â€“14 (reliability, API/cloud, monetization)
+- [docs/postgres-migration-strategy.md](docs/postgres-migration-strategy.md) â€” SQLite local mode to Postgres hosted mode
+- [docs/PRODUCTION_READINESS_REVIEW.md](docs/PRODUCTION_READINESS_REVIEW.md) â€” current production-readiness verdict and blockers
 
 Abbreviated direction:
 
 ```text
-Dev (1–9): foundation → journal → signal provenance → multi-agent workspace → scenarios → watchlists → terminal UX → brief → historical thesis evaluation
-Production (10–14): config/secrets → observability → service/API layer → workstation UI/API hardening
+Dev (1â€“9): foundation â†’ journal â†’ signal provenance â†’ multi-agent workspace â†’ scenarios â†’ terminal UX â†’ historical thesis evaluation
+Production (10â€“14): config/secrets â†’ observability â†’ service/API layer â†’ workstation UI/API hardening
 ```
 
 ## Production Status

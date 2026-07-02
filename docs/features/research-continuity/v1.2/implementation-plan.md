@@ -517,8 +517,8 @@ ResearchContinuityEntry.sections
 ResearchContinuityState.active_items[]
 ```
 
-Do not broadly convert Thesis Detail, Watchlists, Briefs, Calibration, or other
-pages to object arrays in V1.2.
+Do not broadly convert Thesis Detail, Scenario/Alert monitoring, Calibration,
+or other pages to object arrays in V1.2.
 
 If adding public enriched thesis fields is cheap and follows an existing
 pattern, they must be additive and optional. Do not make them required.
@@ -617,7 +617,7 @@ Persistence/API compatibility tests:
 - [ ] `TradeThesis.payload_json.structured_summary` preserves object evidence.
 - [ ] Public thesis summary response still exposes legacy `key_reasons:
       string[]`.
-- [ ] Existing thesis/watchlist/brief/calibration tests continue to pass without
+- [ ] Existing thesis/scenario/alert/calibration tests continue to pass without
       object-array breaking changes.
 
 Continuity integration tests:

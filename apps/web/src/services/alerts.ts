@@ -1,10 +1,6 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
-import {
-  AlertResponse,
-  AlertSchedulerStatusResponse,
-  WatchlistPollResponse,
-} from '@/types';
+import type { AlertResponse } from '@/types';
 
 export function listAlerts(
   params: {
@@ -32,22 +28,6 @@ export function listAlerts(
 export function markAlertRead(id: string, auth: WorkspaceRequestContext) {
   return apiRequest<AlertResponse>(
     `/alerts/${encodeURIComponent(id)}/read`,
-    { method: 'POST' },
-    auth,
-  );
-}
-
-export function getAlertSchedulerStatus(auth: WorkspaceRequestContext) {
-  return apiRequest<AlertSchedulerStatusResponse>(
-    '/alerts/scheduler',
-    {},
-    auth,
-  );
-}
-
-export function runAlertScheduler(auth: WorkspaceRequestContext) {
-  return apiRequest<WatchlistPollResponse>(
-    '/alerts/scheduler/run',
     { method: 'POST' },
     auth,
   );

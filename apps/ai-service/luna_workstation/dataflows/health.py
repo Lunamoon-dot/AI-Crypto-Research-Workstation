@@ -146,22 +146,15 @@ def journal_schema_health(config: dict) -> HealthCheckItem:
                 details={"path": str(path), "reason": "database does not exist yet"},
             )
         with sqlite3.connect(path) as conn:
-            alert_columns = {
-                row[1] for row in conn.execute("PRAGMA table_info(alerts)").fetchall()
-            }
             existing = index_names(conn)
         missing_indexes = sorted(required_indexes - existing)
-        missing_columns = sorted({"trigger_key"} - alert_columns)
-        status = (
-            "healthy" if not missing_indexes and not missing_columns else "critical"
-        )
+        status = "healthy" if not missing_indexes else "critical"
         return HealthCheckItem(
             name="journal_schema",
             status=status,
             details={
                 "path": str(path),
                 "missing_indexes": missing_indexes,
-                "missing_columns": missing_columns,
             },
         )
     except sqlite3.Error as exc:

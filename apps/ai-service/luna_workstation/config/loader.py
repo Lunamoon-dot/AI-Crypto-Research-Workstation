@@ -1,7 +1,7 @@
-"""Configuration loading — the single entry point for all config resolution.
+"""Configuration loading â€” the single entry point for all config resolution.
 
-``ConfigLoader`` applies the full priority chain (defaults → TOML files →
-profiles → env vars → CLI overrides), validates, and returns a deep-copied
+``ConfigLoader`` applies the full priority chain (defaults â†’ TOML files â†’
+profiles â†’ env vars â†’ runtime overrides), validates, and returns a deep-copied
 config dict.
 
 ``load_config_file()`` is kept for loading standalone YAML/TOML documents
@@ -36,7 +36,7 @@ from luna_workstation.utils.collections import deep_merge
 logger = logging.getLogger(__name__)
 
 # Env vars that map to top-level config keys (snake_case keys match config).
-# Values are parsed: "true"/"false" → bool, numeric strings → int/float.
+# Values are parsed: "true"/"false" â†’ bool, numeric strings â†’ int/float.
 _ENV_CONFIG_MAP: dict[str, str | tuple[str, ...]] = {
     "TRADINGAGENTS_RESULTS_DIR": "results_dir",
     "TRADINGAGENTS_CACHE_DIR": "data_cache_dir",
@@ -71,7 +71,7 @@ def _project_root() -> Path:
         Path.cwd(),
         Path(__file__)
         .resolve()
-        .parent.parent.parent,  # luna_workstation/config/loader.py → repo root
+        .parent.parent.parent,  # luna_workstation/config/loader.py â†’ repo root
     ]
     for cand in candidates:
         if (cand / "config" / "default.toml").exists():
@@ -109,7 +109,7 @@ def _set_nested(config: dict, keys: tuple[str, ...], value: Any) -> None:
     config[keys[-1]] = value
 
 
-# ── Standalone file loader (kept for profile manager backward compat) ─────
+# â”€â”€ Standalone file loader (kept for profile manager backward compat) â”€â”€â”€â”€â”€
 
 
 def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, Any]:
@@ -137,30 +137,30 @@ def load_config_file(path: str | Path, *, validate: bool = False) -> dict[str, A
     return content
 
 
-# ── Deep merge ────────────────────────────────────────────────────────────
+# â”€â”€ Deep merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 _deep_merge = deep_merge
 
 
-# ── Unified Config Loader ─────────────────────────────────────────────────
+# â”€â”€ Unified Config Loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class ConfigLoader:
-    """Unified configuration loader — THE single entry point for all config.
+    """Unified configuration loader â€” THE single entry point for all config.
 
-    Priority chain (lowest → highest):
+    Priority chain (lowest â†’ highest):
       1. ``DEFAULT_CONFIG`` from ``default_config.py``
       2. ``config/default.toml`` (project-wide file defaults, if present)
       3. ``config/local.toml`` (user overrides, gitignored, if present)
       4. Named profile from ``~/.luna_workstation/profiles/<name>.yaml``
       5. Environment variables with ``TRADINGAGENTS_`` prefix
-      6. CLI / programmatic overrides passed as a ``dict``
+      6. Runtime/programmatic overrides passed as a ``dict``
 
     Usage::
 
         loader = ConfigLoader()
-        config = loader.load(profile="my-profile", cli_overrides={"llm_provider": "openai"})
+        config = loader.load(profile="my-profile", runtime_overrides={"llm_provider": "openai"})
     """
 
     def __init__(self, secrets: SecretsManager | None = None):
@@ -168,34 +168,34 @@ class ConfigLoader:
         self._secrets_override = secrets is not None
         self._cache: dict[str, dict] = {}
 
-    # ── Main entry point ──────────────────────────────────────────────────
+    # â”€â”€ Main entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def load(
         self,
         *,
         profile: str | None = None,
         config_path: str | None = None,
-        cli_overrides: dict | None = None,
+        runtime_overrides: dict | None = None,
         fail_fast: bool = True,
     ) -> dict:
         """Load and validate the full resolved config.
 
-        Returns a deep copy — safe to mutate.
+        Returns a deep copy â€” safe to mutate.
         """
         cache_key = f"{profile or ''}|{config_path or ''}|{fail_fast}"
-        if cache_key in self._cache and not cli_overrides:
+        if cache_key in self._cache and not runtime_overrides:
             return deepcopy(self._cache[cache_key])
 
         config = self._build_raw_config(
             profile=profile,
             config_path=config_path,
-            cli_overrides=cli_overrides,
+            runtime_overrides=runtime_overrides,
         )
 
         source = (
             f"config_path:{config_path}"
             if config_path
-            else (f"profile:{profile}" if profile else "cli")
+            else (f"profile:{profile}" if profile else "runtime")
         )
         if not self._secrets_override:
             self._secrets = build_secrets_manager_from_config(config)
@@ -209,7 +209,7 @@ class ConfigLoader:
         if fail_fast:
             self._enforce_credentials(validated)
 
-        if not cli_overrides:
+        if not runtime_overrides:
             self._cache[cache_key] = deepcopy(validated)
         return validated
 
@@ -218,10 +218,7 @@ class ConfigLoader:
         selections: dict,
         checkpoint: bool = False,
     ) -> dict:
-        """Build a runtime config from CLI/wizard selections.
-
-        Replaces the old ``build_run_config()`` in ``cli/selections.py``.
-        """
+        """Build a runtime config from explicit run selections."""
         overrides: dict[str, Any] = {
             "max_debate_rounds": selections.get("research_depth", 1),
             "max_risk_discuss_rounds": selections.get("research_depth", 1),
@@ -258,20 +255,20 @@ class ConfigLoader:
         return self.load(
             profile=profile,
             config_path=config_path,
-            cli_overrides=overrides,
+            runtime_overrides=overrides,
             fail_fast=True,
         )
 
-    # ── Internal helpers ──────────────────────────────────────────────────
+    # â”€â”€ Internal helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _build_raw_config(
         self,
         *,
         profile: str | None,
         config_path: str | None,
-        cli_overrides: dict | None,
+        runtime_overrides: dict | None,
     ) -> dict:
-        """Apply layers 1–6 and return the pre-validation merged dict."""
+        """Apply layers 1â€“6 and return the pre-validation merged dict."""
         # Ensure .env is loaded before reading any env vars
         self._secrets._load_dotenv()
 
@@ -312,9 +309,9 @@ class ConfigLoader:
         # Layer 5: TRADINGAGENTS_* env vars
         config = self._apply_env_overrides(config)
 
-        # Layer 6: CLI / programmatic overrides
-        if cli_overrides:
-            config = _deep_merge(config, cli_overrides)
+        # Layer 6: runtime/programmatic overrides
+        if runtime_overrides:
+            config = _deep_merge(config, runtime_overrides)
 
         return config
 
@@ -343,7 +340,7 @@ class ConfigLoader:
             if not env_name.startswith(_ENV_NESTED_PREFIX):
                 continue
             if env_name in ("TRADINGAGENTS_LOG_LEVEL",):
-                # Not a config key — handled by observability layer
+                # Not a config key â€” handled by observability layer
                 continue
 
             val = _parse_env_value(env_val)
@@ -376,7 +373,7 @@ class ConfigLoader:
 
         path = _resolve_profile_file(name) or _profile_path(name)
         if not path.exists():
-            logger.warning("Profile %r not found at %s — using defaults.", name, path)
+            logger.warning("Profile %r not found at %s â€” using defaults.", name, path)
             return fallback_config
 
         overrides = load_config_file(path, validate=False)
@@ -399,7 +396,7 @@ class ConfigLoader:
         if not provider:
             return
 
-        # Custom backend_url may use its own auth — skip env var check
+        # Custom backend_url may use its own auth â€” skip env var check
         if config.get("backend_url"):
             return
 

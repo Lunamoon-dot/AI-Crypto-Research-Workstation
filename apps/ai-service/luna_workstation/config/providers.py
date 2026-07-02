@@ -1,6 +1,6 @@
 """Provider registry — single source of truth for LLM/data provider metadata.
 
-Used by: CLI wizard, LLM clients, pre-flight checks, config validation, .env.example generation.
+Used by: runtime selections, LLM clients, pre-flight checks, config validation, .env.example generation.
 
 Do NOT duplicate provider URLs or env var names elsewhere — import from here.
 """

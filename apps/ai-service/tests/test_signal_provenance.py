@@ -141,6 +141,77 @@ def test_signal_result_to_domain_signals_preserves_provenance_and_evidence():
     assert "funding resets to neutral" in funding.watch_conditions.invalidation
 
 
+def test_factor_availability_distinguishes_valid_neutral_from_parse_failure():
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = SignalResult(
+        symbol="BTC/USDT",
+        timestamp="2026-05-08T10:00:00Z",
+        score=SignalScore.NEUTRAL,
+        confidence=0.2,
+        factors=[
+            FactorSignal(
+                name="regime",
+                score=SignalScore.NEUTRAL,
+                confidence=0.0,
+                value=0.0,
+                threshold_breached=False,
+                data_quality=1.0,
+                metadata={"availability": "valid"},
+            ),
+            FactorSignal(
+                name="funding_oi",
+                score=SignalScore.NEUTRAL,
+                confidence=0.0,
+                value=0.0,
+                threshold_breached=False,
+                data_quality=0.0,
+                metadata={"availability": "parse_failed"},
+            ),
+        ],
+    )
+
+    signals = signal_result_to_domain_signals(result, now=now)
+
+    valid_neutral = next(signal for signal in signals if signal.signal_type == "regime")
+    parse_failed = next(
+        signal for signal in signals if signal.signal_type == "funding_oi"
+    )
+
+    assert valid_neutral.evidence["availability"] == "valid"
+    assert valid_neutral.evidence["directional_edge"] == 0.0
+    assert valid_neutral.provenance.metadata["availability"] == "valid"
+    assert parse_failed.evidence["availability"] == "parse_failed"
+    assert parse_failed.evidence["directional_edge"] is None
+    assert parse_failed.provenance.metadata["availability"] == "parse_failed"
+
+
+def test_onchain_signal_uses_market_structure_proxy_display_metadata():
+    now = datetime(2026, 5, 8, 12, 0, tzinfo=timezone.utc)
+    result = SignalResult(
+        symbol="BTC/USDT",
+        timestamp="2026-05-08T10:00:00Z",
+        score=SignalScore.NEUTRAL,
+        confidence=0.2,
+        factors=[
+            FactorSignal(
+                name="onchain",
+                score=SignalScore.NEUTRAL,
+                confidence=0.2,
+                value=0.0,
+                threshold_breached=False,
+            )
+        ],
+    )
+
+    signals = signal_result_to_domain_signals(result, now=now)
+    onchain = next(signal for signal in signals if signal.signal_type == "onchain")
+
+    assert onchain.signal_type == "onchain"
+    assert onchain.evidence["display_name"] == "Market structure proxy"
+    assert onchain.evidence["source_note"] == "Not wallet-level on-chain flow data"
+    assert onchain.provenance.metadata["display_name"] == "Market structure proxy"
+
+
 def test_signal_rule_registry_maps_legacy_aliases_and_concrete_triggers():
     assert canonical_signal_type("composite_quant") == "quant_bias"
     assert classify_signal("funding_oi") == ("funding_oi", "perp", "funding_oi")

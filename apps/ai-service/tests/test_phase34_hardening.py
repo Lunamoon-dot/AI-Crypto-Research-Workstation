@@ -9,10 +9,6 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from typer.testing import CliRunner
-
-from cli import config_cmd
-from cli.config_cmd import _write_toml_section
 from luna_workstation.agents.researchers.bear_researcher import create_bear_researcher
 from luna_workstation.agents.researchers.bull_researcher import create_bull_researcher
 from luna_workstation.agents.risk_mgmt.conservative_debator import (
@@ -21,6 +17,7 @@ from luna_workstation.agents.risk_mgmt.conservative_debator import (
 from luna_workstation.dataflows import async_route_to_vendor
 from luna_workstation.dataflows import interface
 from luna_workstation.dataflows.health import build_system_health_report
+from luna_workstation.config.toml_writer import write_toml_section
 from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
 from luna_workstation.exceptions import (
     ErrorIntent,
@@ -78,11 +75,26 @@ def test_graph_run_context_mixin_preserves_legacy_state_accessors():
     assert graph._replay_thread_id == "thread-1"
 
 
-def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
+def test_migration_drops_decommissioned_watchlist_brief_tables(tmp_path):
     db_path = tmp_path / "legacy.sqlite"
     with sqlite3.connect(db_path) as conn:
         conn.executescript(
             """
+            CREATE TABLE watchlists (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+            CREATE TABLE watchlist_items (
+                id TEXT PRIMARY KEY,
+                watchlist_id TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
             CREATE TABLE alerts (
                 id TEXT PRIMARY KEY,
                 alert_type TEXT NOT NULL,
@@ -92,6 +104,11 @@ def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
                 created_at TEXT NOT NULL,
                 read_at TEXT,
                 message TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+            CREATE TABLE market_briefs (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
                 payload_json TEXT NOT NULL
             );
             INSERT INTO alerts (
@@ -106,29 +123,19 @@ def test_alert_trigger_key_column_backfills_and_has_alert_uses_it(tmp_path):
         )
 
     store = SQLiteStore(db_path)
-    columns = {row[1] for row in store.connect().execute("PRAGMA table_info(alerts)")}
-    trigger_key = store.fetchone(
-        "SELECT trigger_key FROM alerts WHERE id = ?", ("alert_1",)
-    )["trigger_key"]
+    tables = {
+        row[0]
+        for row in store.connect().execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
 
-    assert "trigger_key" in columns
-    assert trigger_key == "scenario_activated:abc:1"
-    assert (
-        store.connect()
-        .execute("SELECT name FROM sqlite_master WHERE name = 'idx_alerts_trigger_key'")
-        .fetchone()
-    )
+    assert "alerts" not in tables
+    assert "watchlists" not in tables
+    assert "watchlist_items" not in tables
+    assert "market_briefs" not in tables
+    assert "research_runs" in tables
     assert store.path.exists()
-
-    from luna_workstation.storage.repositories import JournalRepository
-
-    repo = JournalRepository(store)
-    assert repo.has_alert(
-        alert_type="scenario_activated",
-        thesis_id="thesis_1",
-        watchlist_item_id="item_1",
-        trigger_key="scenario_activated:abc:1",
-    )
 
 
 def test_migration_is_idempotent(tmp_path):
@@ -152,7 +159,7 @@ def test_migration_is_idempotent(tmp_path):
     assert health.status == "healthy"
     assert "workspace_id" in run_columns
     assert "idx_research_runs_workspace_created" in indexes
-    assert "idx_watchlists_workspace_name" in indexes
+    assert "idx_watchlists_workspace_name" not in indexes
     assert health.checks[0].details["missing_indexes"] == []
 
 
@@ -318,7 +325,7 @@ def test_migration_adds_research_run_provenance_columns(tmp_path):
 
 def test_toml_writer_round_trips_nested_sections():
     lines = []
-    _write_toml_section(
+    write_toml_section(
         lines,
         {
             "name": 'desk "alpha"',
@@ -385,27 +392,6 @@ def test_opentelemetry_disabled_or_missing_is_noop():
     with start_span("unit.test") as span:
         if not enabled:
             assert span is None
-
-
-def test_config_health_json_reports_typed_health(tmp_path, monkeypatch):
-    cfg = _config(tmp_path)
-    SQLiteStore(cfg["journal"]["db_path"])
-    monkeypatch.setitem(
-        config_cmd.DEFAULT_CONFIG, "data_cache_dir", cfg["data_cache_dir"]
-    )
-    monkeypatch.setitem(config_cmd.DEFAULT_CONFIG, "journal", cfg["journal"])
-    runner = CliRunner()
-
-    result = runner.invoke(
-        config_cmd.config_app,
-        ["health", "--json", "--no-live", "--no-llm"],
-    )
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["status"] == "healthy"
-    assert payload["provider_snapshot"]["providers"]
-    assert payload["checks"][0]["name"] == "journal_schema"
 
 
 def test_prompt_untrusted_context_delimits_malicious_report_text():

@@ -36,7 +36,7 @@ No keys are persisted to the journal database — `SecretRedactionFilter` strips
 
 ```bash
 # List configured providers (shows which env vars are expected)
-lunacrypto config show | grep -i "api_key\|provider"
+grep -R -i "api_key\\|provider" config/*.toml .env.example
 
 # Check .env file (if using one)
 cat .env | grep -i "api_key\|token\|secret"
@@ -64,8 +64,7 @@ Common keys for LunaCrypto:
 # Smoke-test LLM connectivity
 python scripts/smoke_structured_output.py
 
-# Run a minimal research to verify data providers
-lunacrypto research run BTC/USDT --yes --plain
+# Run a minimal research from the web/API launch flow to verify data providers
 ```
 
 If the current key is already expired, skip to Section 4.
@@ -171,10 +170,8 @@ Rotate immediately — no coordination needed.
 
 - **LLM key rotation during a run**: The `LLMOrchestrator` will detect the 401 error on the next LLM call, classify it as non-retryable, and fail the run. **Wait for the run to complete or fail before rotating.**
 - **Data provider key rotation**: Data provider calls are also keyed. Same guidance — wait for the run to finish.
-- **Checkpoint recovery**: If a run fails mid-rotation, resume with the new key:
-  ```bash
-  lunacrypto research run BTC/USDT --checkpoint --yes --plain
-  ```
+- **Failed run recovery**: If a run fails mid-rotation, retry it from the web/API
+  job flow after the new key is active.
 
 ### Zero-downtime rotation (advanced)
 
@@ -194,12 +191,9 @@ For continuous operation:
 # 1. Smoke test the rotated LLM provider
 python scripts/smoke_structured_output.py deepseek
 
-# 2. Run a full research cycle
-lunacrypto research run BTC/USDT --yes --plain
+# 2. Run a full research cycle from the web/API launch flow
 
-# 3. Check journal for no auth errors
-lunacrypto journal list --limit 10
-lunacrypto journal timeline <run_id>
+# 3. Check web/API journal views or direct journal rows for no auth errors
 # Expect: research_run_started → ... → research_run_completed
 # NOT: storage_operation_failed or llm_call status=failed
 
@@ -235,10 +229,8 @@ If an API key is known to be compromised:
 1. **Generate new key**.
 2. **Deploy new key** to all environments.
 3. **Rotate all other keys** if the compromise vector is unknown.
-4. **Audit recent runs** for anomalies:
-   ```bash
-   lunacrypto journal list --limit 20
-   ```
+4. **Audit recent runs** for anomalies through the web/API journal view or direct
+   journal SQL.
 
 ### Recovery (within 24 hours)
 
@@ -270,7 +262,7 @@ If results found, those rows need manual cleanup.
 
 Planned enhancements:
 
-- `luna_workstation key rotate` CLI command to automate key rotation.
+- Admin/API workflow to automate key-rotation checks.
 - Key expiration tracking in config with warnings.
 - Integration with provider key management APIs.
 

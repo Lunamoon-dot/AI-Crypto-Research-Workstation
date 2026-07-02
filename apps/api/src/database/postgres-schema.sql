@@ -610,44 +610,12 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS idx_signals_workspace_observed
 ON signals(workspace_id, observed_at DESC);
 
-CREATE TABLE IF NOT EXISTS watchlists (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL DEFAULT 'local',
-    name TEXT NOT NULL,
-    enabled INTEGER NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    payload_json JSONB NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_watchlists_workspace_name
-ON watchlists(workspace_id, name);
-
-CREATE INDEX IF NOT EXISTS idx_watchlists_workspace_created
-ON watchlists(workspace_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS watchlist_items (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL DEFAULT 'local',
-    watchlist_id TEXT NOT NULL REFERENCES watchlists(id),
-    item_type TEXT NOT NULL,
-    symbol TEXT,
-    thesis_id TEXT REFERENCES trade_theses(id),
-    setup_type TEXT,
-    enabled INTEGER NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    payload_json JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_watchlist_items_workspace_watchlist
-ON watchlist_items(workspace_id, watchlist_id);
-
 CREATE TABLE IF NOT EXISTS alerts (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL DEFAULT 'local',
     alert_type TEXT NOT NULL,
     symbol TEXT NOT NULL,
     thesis_id TEXT REFERENCES trade_theses(id),
-    watchlist_item_id TEXT REFERENCES watchlist_items(id),
     trigger_key TEXT,
     created_at TIMESTAMPTZ NOT NULL,
     read_at TIMESTAMPTZ,
@@ -663,20 +631,6 @@ ON alerts(workspace_id, symbol, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_workspace_thesis
 ON alerts(workspace_id, thesis_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS market_briefs (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL DEFAULT 'local',
-    brief_date DATE NOT NULL,
-    watchlist_name TEXT NOT NULL,
-    title TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    previous_brief_id TEXT,
-    payload_json JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_market_briefs_workspace_created
-ON market_briefs(workspace_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS user_decisions (
     id TEXT PRIMARY KEY,
@@ -738,3 +692,178 @@ CREATE TABLE IF NOT EXISTS data_freshness_checks (
     status TEXT NOT NULL,
     payload_json JSONB NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS signal_observations (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    research_run_id TEXT,
+    signal_snapshot_id TEXT,
+    signal_id TEXT,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    source_timestamp TIMESTAMPTZ,
+    observation_kind TEXT NOT NULL,
+    factor_name TEXT NOT NULL,
+    factor_family TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    directional_edge DOUBLE PRECISION,
+    heuristic_strength DOUBLE PRECISION,
+    detector_confidence DOUBLE PRECISION,
+    data_quality DOUBLE PRECISION,
+    availability TEXT NOT NULL,
+    raw_value DOUBLE PRECISION,
+    threshold_breached BOOLEAN NOT NULL DEFAULT FALSE,
+    market_regime TEXT NOT NULL DEFAULT 'unknown',
+    volatility_regime TEXT NOT NULL DEFAULT 'unknown',
+    provider TEXT,
+    source_snapshot_hash TEXT,
+    code_sha TEXT,
+    signal_weight_version TEXT NOT NULL DEFAULT 'unknown',
+    signal_threshold_version TEXT NOT NULL DEFAULT 'unknown',
+    detector_version TEXT NOT NULL DEFAULT 'unknown',
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_observations_workspace_observed
+ON signal_observations(workspace_id, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signal_observations_workspace_symbol
+ON signal_observations(workspace_id, symbol, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signal_observations_factor
+ON signal_observations(workspace_id, factor_name, observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signal_observations_snapshot
+ON signal_observations(workspace_id, signal_snapshot_id);
+
+CREATE TABLE IF NOT EXISTS signal_outcome_labels (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    observation_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    horizon_minutes INTEGER NOT NULL,
+    label_status TEXT NOT NULL,
+    label_version TEXT NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_outcome_labels_identity
+ON signal_outcome_labels(workspace_id, observation_id, horizon_minutes, label_version);
+
+CREATE INDEX IF NOT EXISTS idx_signal_outcome_labels_symbol_horizon
+ON signal_outcome_labels(workspace_id, symbol, horizon_minutes);
+
+CREATE TABLE IF NOT EXISTS signal_evaluation_reports (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    report_version TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    symbol TEXT,
+    factor_name TEXT,
+    horizon_minutes INTEGER NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_workspace_generated
+ON signal_evaluation_reports(workspace_id, generated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_symbol_horizon
+ON signal_evaluation_reports(workspace_id, symbol, horizon_minutes, generated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_factor_horizon
+ON signal_evaluation_reports(workspace_id, factor_name, horizon_minutes, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_weight_versions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    horizon_minutes INTEGER NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL,
+    promoted_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_weight_versions_workspace_version
+ON signal_weight_versions(workspace_id, version);
+
+CREATE TABLE IF NOT EXISTS signal_calibrator_versions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    weight_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    horizon_minutes INTEGER NOT NULL,
+    publishable BOOLEAN NOT NULL DEFAULT FALSE,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL,
+    promoted_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_calibrator_versions_workspace_version
+ON signal_calibrator_versions(workspace_id, version);
+
+CREATE TABLE IF NOT EXISTS signal_model_promotions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    to_weight_version TEXT NOT NULL,
+    to_calibrator_version TEXT NOT NULL,
+    promoted_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_model_promotions_workspace_promoted
+ON signal_model_promotions(workspace_id, promoted_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_model_monitoring_snapshots (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL,
+    active_weight_version TEXT,
+    active_calibrator_version TEXT,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_model_monitoring_workspace_generated
+ON signal_model_monitoring_snapshots(workspace_id, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_model_alerts (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL,
+    active_weight_version TEXT,
+    active_calibrator_version TEXT,
+    symbol TEXT,
+    factor_name TEXT,
+    message TEXT NOT NULL,
+    evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL,
+    acknowledged_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_model_alerts_workspace_status
+ON signal_model_alerts(workspace_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_model_rollbacks (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    from_weight_version TEXT NOT NULL,
+    to_weight_version TEXT NOT NULL,
+    from_calibrator_version TEXT NOT NULL,
+    to_calibrator_version TEXT NOT NULL,
+    executed_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_model_rollbacks_workspace_executed
+ON signal_model_rollbacks(workspace_id, executed_at DESC);

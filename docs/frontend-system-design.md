@@ -13,7 +13,7 @@ Primary user flow:
 
 ```text
 Open workbench
--> review daily brief and alerts
+-> review alerts, scenario shifts, active theses, and run/provider state
 -> launch or inspect a research run
 -> read signals, snapshots, debate, and thesis
 -> record a user decision
@@ -27,7 +27,7 @@ metadata, and journal history.
 ## Goals
 
 - Provide a dense, professional workspace for crypto research.
-- Make active runs, generated theses, signals, alerts, and briefs easy to scan.
+- Make active runs, generated theses, signals, scenarios, and alerts easy to scan.
 - Preserve a clear evidence trail from market data to signals to agent debate to final thesis.
 - Keep decision and outcome review workflows one click away from the thesis detail page.
 - Support local-first development now and hosted multi-workspace operation later.
@@ -45,8 +45,8 @@ metadata, and journal history.
 
 The current route set includes Workbench, Research New, Research History,
 Research Run Workspace, Journal Run Workspace, Thesis Library/Detail, Signal
-Explorer/Detail, Scenario Monitor, Alerts, Watchlists, Daily Briefs,
-Operations, Settings, Performance, and Compare pages.
+Explorer/Detail, Scenario Monitor, Alerts, Operations, Settings, Performance,
+and Compare pages.
 
 ## Non-Goals
 
@@ -101,22 +101,20 @@ Backend ownership:
 
 - Authentication and workspace authorization.
 - Research run execution and persistence.
-- Journal, thesis, signal, alert, brief, and run event data.
+- Journal, thesis, signal, alert, scenario, and run event data.
 - Provider/model health and operational metadata.
 
 ## Route Map
 
 | Route | Purpose | Data dependencies |
 | --- | --- | --- |
-| `/workbench` | Daily command center with brief, active theses, alerts, watchlists, and recent runs | `GET /briefs/daily`, `GET /alerts`, `GET /theses`, `GET /watchlists` |
+| `/workbench` | Attention command center with active theses, alerts, scenario changes, recent runs, and provider state | `GET /workbench/attention` |
 | `/research/new` | Launch a research run | `POST /research-runs` |
 | `/research/runs/:id` | Run status, event timeline, snapshots, debate, artifacts, workflow visualization, and result links | `GET /research-runs/:id/workspace`, `GET /research-runs/:id/evidence-bundle` |
 | `/journal/runs/:id` | Full evidence workspace for one run | `GET /journal/runs/:id/workspace`, `GET /journal/runs/:id/evidence-bundle` |
 | `/theses` | Thesis inbox with filters | `GET /theses` |
 | `/theses/:id` | Thesis detail, evidence, scenarios, decision, and review | `GET /theses/:id`, `/scenarios`, `POST /decision`, `POST /review` |
 | `/signals` | Signal explorer by symbol, type, confidence, and freshness | `GET /signals` |
-| `/watchlists` | Watchlist management and watchlist item creation | `GET /watchlists`, `POST /watchlists`, `GET /watchlists/:id/items`, `PATCH /watchlists/:id`, `POST /watchlists/:id/items`, `DELETE /watchlists/:id/items/:itemId` |
-| `/briefs/daily` | Daily market brief archive | `GET /briefs/daily` |
 | `/operations` | Provider health, LLM calls, freshness, run failures | `GET /operations/health`, `/provider-health`, `/llm-calls`, `/data-freshness` |
 | `/settings` | Workspace, provider, model, and budget preferences | future settings endpoints |
 | `/research/history` | Research run history | `GET /research-runs` |
@@ -160,16 +158,16 @@ Purpose: show what requires attention now.
 
 Primary panels:
 
-- Daily brief summary with key points and linked thesis/signal IDs.
 - Active thesis inbox grouped by status: new, watched, accepted, rejected, needs review, degraded.
-- Watchlist alerts with unread state and mark-read action.
+- Alerts with unread state and mark-read action.
+- Scenario monitor highlights and changed conditions.
 - Recent research runs with status, symbol, started/completed timestamps, and degradation chips.
 - Signal board by symbol with freshness and direction.
 
 Required states:
 
 - Empty state for first run.
-- Degraded-data banner when briefs or runs are missing core data.
+- Degraded-data banner when runs or provider inputs are missing core data.
 - Background refresh indicator when polling active runs.
 
 ### Research Run Workspace
@@ -273,9 +271,9 @@ src/services/
   researchRuns.ts
   theses.ts
   signals.ts
-  watchlists.ts
-  briefs.ts
   alerts.ts
+  scenarios.ts
+  workbench.ts
 src/types/
   index.ts
 ```
@@ -291,7 +289,7 @@ src/types/
 | Thesis detail | `thesis(id)` | Refetch after decision/review |
 | Signals | `signals(filters)` | Manual refresh or short stale time |
 | Alerts | `alerts(filters)` | Refetch after mark-read |
-| Briefs | `dailyBrief(date)` | Long stale time per date |
+| Workbench attention | `workbenchAttention(filters)` | Short stale time; refetch after mark-read/decision/review |
 
 Mutation policy:
 
@@ -369,10 +367,10 @@ The UI should isolate this behind a `useRunProgress(runId)` hook so transport ch
 
 1. Scaffold `apps/web` with React and TypeScript.
 2. Add app shell, routing, API client, and query provider.
-3. Build Workbench with briefs, alerts, thesis list, watchlists, and recent runs.
+3. Build Workbench with attention queue, alerts, thesis list, scenarios, signals, and recent runs.
 4. Build research run workspace with polling events and snapshots.
 5. Build thesis detail with scenario, decision, and review flows.
-6. Build signal explorer and watchlist screens.
+6. Build signal explorer and scenario/alert monitoring screens.
 7. Add operations/settings routes after backend endpoints exist.
 
 ## Acceptance Criteria

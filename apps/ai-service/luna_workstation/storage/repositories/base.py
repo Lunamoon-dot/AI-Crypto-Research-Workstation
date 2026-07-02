@@ -10,8 +10,6 @@ from uuid import uuid4
 
 from luna_workstation.domain import (
     AgentOpinion,
-    Alert,
-    MarketBrief,
     MarketSnapshot,
     OutcomeReview,
     ProviderHealthRecord,
@@ -27,8 +25,6 @@ from luna_workstation.domain import (
     TradeThesis,
     UserDecision,
     DataFreshnessCheck,
-    Watchlist,
-    WatchlistItem,
 )
 from luna_workstation.storage.serialization import (
     dumps_payload,
@@ -66,13 +62,11 @@ class JournalRepositoryBase(RepositoryMixinBase):
 
 __all__ = [
     "AgentOpinion",
-    "Alert",
     "Any",
     "DataFreshnessCheck",
     "Iterator",
     "JournalRepositoryBase",
     "LLMCallRecord",
-    "MarketBrief",
     "MarketSnapshot",
     "OutcomeReview",
     "ProviderHealthRecord",
@@ -88,8 +82,6 @@ __all__ = [
     "TimelineEvent",
     "TradeThesis",
     "UserDecision",
-    "Watchlist",
-    "WatchlistItem",
     "_chunks",
     "_iso",
     "_new_id",

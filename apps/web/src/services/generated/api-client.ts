@@ -1,20 +1,13 @@
 /* Generated from the API OpenAPI contract. Do not edit by hand. */
 
 import type {
-  AddWatchlistItemRequest,
   AlertResponse,
-  BriefResponse,
-  CheckWatchlistRequest,
-  CreateDailyBriefRequest,
   CreateWorkspaceRequest,
-  CreateWatchlistRequest,
   EvidenceBundleResponse,
   GenerateResearchContinuityRequest,
   GenerateResearchContinuityResponse,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
-  RemoveWatchlistResponse,
-  RemoveWatchlistItemResponse,
   ResearchContinuityRepairPreviewRequest,
   ResearchContinuityRepairPreviewResponse,
   ResearchContinuityRepairRunDetailResponse,
@@ -36,10 +29,6 @@ import type {
   ThesisDecisionResponse,
   ThesisReviewResponse,
   UpdateResearchContinuitySettingsRequest,
-  UpdateWatchlistRequest,
-  WatchlistCheckResponse,
-  WatchlistItemResponse,
-  WatchlistResponse,
   WorkspaceSummary,
 } from '@/types';
 
@@ -262,6 +251,10 @@ export interface ThesisSummaryResponse {
   upside_catalyst: string;
   invalidation: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   key_reasons: string[];
   risks: string[];
   spot_notes: string;
@@ -324,6 +317,10 @@ export interface ThesisResponse {
   confirmation_condition: string;
   invalidation_level: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   thesis_text: string;
   summary: ThesisSummaryResponse;
   supporting_signal_ids: string[];
@@ -1067,59 +1064,6 @@ export function createApiClient(request: ApiTransport) {
         `/theses/${encodeURIComponent(id)}/review`,
         { method: 'POST', body },
       ),
-    listWatchlists: (params: { limit?: number }) =>
-      request<WatchlistResponse[]>('/watchlists', {
-        query: { limit: params.limit ?? 50 },
-      }),
-    createWatchlist: (body: CreateWatchlistRequest) =>
-      request<WatchlistResponse>('/watchlists', { method: 'POST', body }),
-    getWatchlist: (id: string) =>
-      request<WatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {}),
-    updateWatchlist: (id: string, body: UpdateWatchlistRequest) =>
-      request<WatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        body,
-      }),
-    removeWatchlist: (id: string) =>
-      request<RemoveWatchlistResponse>(`/watchlists/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      }),
-    getWatchlistItems: (id: string) =>
-      request<WatchlistItemResponse[]>(
-        `/watchlists/${encodeURIComponent(id)}/items`,
-        {},
-      ),
-    addWatchlistItem: (id: string, body: AddWatchlistItemRequest) =>
-      request<WatchlistItemResponse>(
-        `/watchlists/${encodeURIComponent(id)}/items`,
-        { method: 'POST', body },
-      ),
-    removeWatchlistItem: (watchlistId: string, itemId: string) =>
-      request<RemoveWatchlistItemResponse>(
-        `/watchlists/${encodeURIComponent(watchlistId)}/items/${encodeURIComponent(itemId)}`,
-        { method: 'DELETE' },
-      ),
-    checkWatchlist: (id: string, body: CheckWatchlistRequest) =>
-      request<WatchlistCheckResponse>(
-        `/watchlists/${encodeURIComponent(id)}/check`,
-        { method: 'POST', body },
-      ),
-    listDailyBriefs: (params: {
-      date?: string;
-      limit?: number;
-      watchlist_id?: string;
-      watchlist_name?: string;
-    }) =>
-      request<BriefResponse[]>('/briefs/daily', {
-        query: {
-          date: params.date,
-          limit: params.limit ?? 20,
-          watchlist_id: params.watchlist_id,
-          watchlist_name: params.watchlist_name,
-        },
-      }),
-    createDailyBrief: (body: CreateDailyBriefRequest) =>
-      request<BriefResponse>('/briefs/daily', { method: 'POST', body }),
     listAlerts: (params: {
       symbol?: string;
       thesis_id?: string;

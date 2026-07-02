@@ -59,7 +59,7 @@ class TestSecretsManagerResolve:
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-first")
         secrets = SecretsManager()
         assert secrets.resolve("deepseek") == "sk-first"
-        # Change env var — cache should return old value
+        # Change env var â€” cache should return old value
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-second")
         assert secrets.resolve("deepseek") == "sk-first"
 
@@ -148,7 +148,7 @@ def test_config_loader_wires_keyring_source_for_validation(monkeypatch, tmp_path
     )
 
     config = ConfigLoader().load(
-        cli_overrides={
+        runtime_overrides={
             "llm_provider": "openai",
             "backend_url": None,
             "config_validation": {

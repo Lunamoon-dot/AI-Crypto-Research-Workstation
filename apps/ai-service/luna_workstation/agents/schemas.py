@@ -216,15 +216,14 @@ class ResearchPlan(BaseModel):
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and setup-planner context."""
-    return "\n".join(
-        [
-            f"**Research Stance**: {plan.recommendation.value}",
-            "",
-            f"**Rationale**: {plan.rationale}",
-            "",
-            f"**Review Focus**: {plan.strategic_actions}",
-        ]
-    )
+    lines: list[str] = [
+        f"**Research Stance**: {plan.recommendation.value}",
+        "",
+        f"**Rationale**: {plan.rationale}",
+        "",
+        f"**Review Focus**: {plan.strategic_actions}",
+    ]
+    return str("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +272,27 @@ class SetupProposal(BaseModel):
     )
     target_zones: list[str] = Field(
         default_factory=list,
-        description="Potential thesis confirmation or objective zones for the setup.",
+        description=(
+            "Legacy unclassified objective zones for the setup. Prefer typed "
+            "profit_targets, downside_objectives, accumulation_zones, or "
+            "indicator_thresholds when the semantic level type is known."
+        ),
+    )
+    profit_targets: list[str] = Field(
+        default_factory=list,
+        description="Upside/profit-taking objectives only.",
+    )
+    downside_objectives: list[str] = Field(
+        default_factory=list,
+        description="Downside objective zones or lower support/retest zones.",
+    )
+    accumulation_zones: list[str] = Field(
+        default_factory=list,
+        description="Manual DCA or deep accumulation review zones for spot setups.",
+    )
+    indicator_thresholds: list[str] = Field(
+        default_factory=list,
+        description="Non-price thresholds such as RSI, funding, OI, or Long/Short ratio.",
     )
     position_sizing: Optional[str] = Field(
         default=None,
@@ -320,7 +339,15 @@ class SetupProposal(BaseModel):
             return MarketType.PERP
         return MarketType.SPOT
 
-    @field_validator("target_zones", "missing_data", mode="before")
+    @field_validator(
+        "target_zones",
+        "profit_targets",
+        "downside_objectives",
+        "accumulation_zones",
+        "indicator_thresholds",
+        "missing_data",
+        mode="before",
+    )
     @classmethod
     def _normalize_text_list(cls, value: Any) -> list[str]:
         if value is None:
@@ -346,8 +373,9 @@ def render_setup_proposal(proposal: SetupProposal) -> str:
         invalidation = str(proposal.stop_loss)
 
     target_zones = list(proposal.target_zones)
-    if not target_zones and proposal.take_profit is not None:
-        target_zones = [str(proposal.take_profit)]
+    profit_targets = list(proposal.profit_targets)
+    if not profit_targets and proposal.take_profit is not None:
+        profit_targets = [str(proposal.take_profit)]
 
     market_label = proposal.market_type.value
     parts = [
@@ -365,6 +393,24 @@ def render_setup_proposal(proposal: SetupProposal) -> str:
         parts.extend(["", f"**Invalidation**: {invalidation}"])
     if target_zones:
         parts.extend(["", "**Objective Zones**: " + "; ".join(target_zones)])
+    if profit_targets:
+        parts.extend(["", "**Profit Targets**: " + "; ".join(profit_targets)])
+    if proposal.downside_objectives:
+        parts.extend(
+            ["", "**Downside Objectives**: " + "; ".join(proposal.downside_objectives)]
+        )
+    if proposal.accumulation_zones:
+        parts.extend(
+            [
+                "",
+                "**Review / Accumulation Zones**: "
+                + "; ".join(proposal.accumulation_zones),
+            ]
+        )
+    if proposal.indicator_thresholds:
+        parts.extend(
+            ["", "**Indicator Thresholds**: " + "; ".join(proposal.indicator_thresholds)]
+        )
     if proposal.position_sizing:
         parts.extend(["", f"**Conviction Context**: {proposal.position_sizing}"])
     if proposal.spot_notes:
@@ -483,9 +529,26 @@ class PortfolioDecision(BaseModel):
     target_zones: list[str] = Field(
         default_factory=list,
         description=(
-            "Objective or risk zones for the thesis. For avoid/watch theses, include "
-            "the downside, rejection, or reclaim zones being monitored."
+            "Legacy unclassified objective zones only. Prefer profit_targets, "
+            "downside_objectives, accumulation_zones, or indicator_thresholds "
+            "when the semantic level type is known."
         ),
+    )
+    profit_targets: list[str] = Field(
+        default_factory=list,
+        description="Upside/profit-taking objectives only; leave empty for avoid/watch theses.",
+    )
+    downside_objectives: list[str] = Field(
+        default_factory=list,
+        description="Downside objective zones or lower support/retest zones being monitored.",
+    )
+    accumulation_zones: list[str] = Field(
+        default_factory=list,
+        description="Manual review, DCA, or deep accumulation zones for spot theses.",
+    )
+    indicator_thresholds: list[str] = Field(
+        default_factory=list,
+        description="Non-price metric thresholds such as RSI, funding, OI, or Long/Short ratio.",
     )
     key_reasons: list[str | StructuredResearchItem] = Field(
         default_factory=list,
@@ -570,7 +633,15 @@ class PortfolioDecision(BaseModel):
             return max(min(number, 1.0), 0.0)
         return value
 
-    @field_validator("target_zones", "missing_data", mode="before")
+    @field_validator(
+        "target_zones",
+        "profit_targets",
+        "downside_objectives",
+        "accumulation_zones",
+        "indicator_thresholds",
+        "missing_data",
+        mode="before",
+    )
     @classmethod
     def _normalize_text_list(cls, value: Any) -> list[str]:
         if value is None:
@@ -585,8 +656,8 @@ class PortfolioDecision(BaseModel):
 def render_pm_decision(decision: PortfolioDecision) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
-    Memory log, CLI display, and saved report files all read this markdown,
-    so the rendered output preserves parseable section headers (``**Rating**``,
+    Memory log and saved report files read this markdown, so the rendered output
+    preserves parseable section headers (``**Rating**``,
     ``**Research Summary**``, ``**Investment Thesis**``) that downstream
     parsers and the report writers already handle.
     """
@@ -612,6 +683,24 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Review Zone**: {decision.entry_zone}"])
     if decision.target_zones:
         parts.extend(["", "**Objective Zones**: " + "; ".join(decision.target_zones)])
+    if decision.profit_targets:
+        parts.extend(["", "**Profit Targets**: " + "; ".join(decision.profit_targets)])
+    if decision.downside_objectives:
+        parts.extend(
+            ["", "**Downside Objectives**: " + "; ".join(decision.downside_objectives)]
+        )
+    if decision.accumulation_zones:
+        parts.extend(
+            [
+                "",
+                "**Review / Accumulation Zones**: "
+                + "; ".join(decision.accumulation_zones),
+            ]
+        )
+    if decision.indicator_thresholds:
+        parts.extend(
+            ["", "**Indicator Thresholds**: " + "; ".join(decision.indicator_thresholds)]
+        )
     if decision.risks:
         parts.extend(
             ["", "**Risks**: " + "; ".join(research_item_texts(decision.risks))]
@@ -647,6 +736,10 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "invalidation": decision.invalidation,
         "entry_zone": decision.entry_zone,
         "target_zones": decision.target_zones,
+        "profit_targets": decision.profit_targets,
+        "downside_objectives": decision.downside_objectives,
+        "accumulation_zones": decision.accumulation_zones,
+        "indicator_thresholds": decision.indicator_thresholds,
         "key_reasons": _json_ready_items(decision.key_reasons),
         "risks": _json_ready_items(decision.risks),
         "monitor_next": _json_ready_items(decision.monitor_next),

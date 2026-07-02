@@ -56,7 +56,7 @@ export class ScenarioReliabilityService {
       ),
     );
     const groups = new Map<string, JsonRecord[]>();
-    for (const row of rows) {
+    for (const row of latestEvaluationPerScenarioWindow(rows)) {
       const key = [
         row.symbol ?? '',
         filters.market_type === 'mixed' ? 'mixed' : row.market_type ?? 'spot',
@@ -173,6 +173,31 @@ export class ScenarioReliabilityService {
 
 function countResult(rows: JsonRecord[], result: string): number {
   return rows.filter((row) => row.result === result).length;
+}
+
+function latestEvaluationPerScenarioWindow(rows: JsonRecord[]): JsonRecord[] {
+  const byWindow = new Map<string, JsonRecord>();
+  for (const row of [...rows].sort(compareEvaluatedAtDesc)) {
+    const key = scenarioEvaluationWindowKey(row);
+    if (!byWindow.has(key)) {
+      byWindow.set(key, row);
+    }
+  }
+  return [...byWindow.values()];
+}
+
+function scenarioEvaluationWindowKey(row: JsonRecord): string {
+  const window = recordValue(row.evaluation_window);
+  return [
+    row.scenario_id ?? row.id ?? '',
+    row.horizon ?? 'unknown',
+    window.starts_at ?? '',
+    window.ends_at ?? '',
+  ].map((value) => String(value ?? '')).join('|');
+}
+
+function compareEvaluatedAtDesc(left: JsonRecord, right: JsonRecord): number {
+  return String(right.evaluated_at ?? '').localeCompare(String(left.evaluated_at ?? ''));
 }
 
 function ratio(count: number, total: number): number {

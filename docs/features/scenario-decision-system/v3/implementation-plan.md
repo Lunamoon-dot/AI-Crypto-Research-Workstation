@@ -271,7 +271,7 @@ Run:
 
 ```powershell
 node scripts/python.cjs -m pytest tests/test_scenario_reliability_prompt.py tests/test_structured_agents.py
-node scripts/python.cjs -m mypy luna_workstation cli
+node scripts/python.cjs -m mypy luna_workstation
 ```
 
 ## Definition Of Done

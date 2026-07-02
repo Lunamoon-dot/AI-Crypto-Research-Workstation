@@ -17,6 +17,8 @@ from .divergence_signals import compute_rsi_divergence, compute_macd_signal
 from .volume_signals import compute_volume_signal, compute_liquidation_signal
 from .regime_signals import detect_regime
 from .onchain_signals import compute_onchain_signal
+from .evaluation.models import SignalCalibratorVersion, SignalWeightVersion
+from .evaluation.scoring import apply_promoted_probability_to_result
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,8 @@ class SignalEngine:
         buy_threshold: float = 0.25,
         sell_threshold: float = -0.25,
         strong_sell_threshold: float = -0.60,
+        empirical_weight_version: SignalWeightVersion | None = None,
+        empirical_calibrator_version: SignalCalibratorVersion | None = None,
     ):
         self.scorer = CompositeScorer(
             weights=weights,
@@ -64,6 +68,8 @@ class SignalEngine:
             sell_threshold=sell_threshold,
             strong_sell_threshold=strong_sell_threshold,
         )
+        self.empirical_weight_version = empirical_weight_version
+        self.empirical_calibrator_version = empirical_calibrator_version
 
     def generate(
         self,
@@ -203,6 +209,11 @@ class SignalEngine:
                 [*result.degradation_reasons, *reason_codes]
             )
 
+        result = apply_promoted_probability_to_result(
+            result,
+            self.empirical_weight_version,
+            self.empirical_calibrator_version,
+        )
         return result
 
     def generate_minimal(

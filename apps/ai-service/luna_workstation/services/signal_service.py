@@ -13,7 +13,7 @@ from .journal_service import JournalService
 
 
 class SignalService:
-    """Facade for CLI and app signal provenance reads."""
+    """Facade for app signal provenance reads."""
 
     def __init__(
         self,

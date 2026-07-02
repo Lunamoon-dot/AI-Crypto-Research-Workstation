@@ -274,18 +274,8 @@ class EvaluationService:
             for e in evals:
                 thesis = theses.get(e.thesis_id)
                 if thesis and thesis.direction is not None:
-                    if thesis.direction == ThesisDirection.LONG:
-                        if (
-                            e.max_favorable_excursion is not None
-                            and e.max_favorable_excursion > 0
-                        ):
-                            dir_correct += 1
-                    elif thesis.direction == ThesisDirection.SHORT:
-                        if (
-                            e.max_adverse_excursion is not None
-                            and e.max_adverse_excursion > 0
-                        ):
-                            dir_correct += 1
+                    if _thesis_direction_correct(thesis, e):
+                        dir_correct += 1
                     if thesis.confidence is not None:
                         confidences.append(thesis.confidence)
                 if e.result.value == "hit_target" and thesis:
@@ -465,15 +455,31 @@ class EvaluationService:
 
         buckets: list[ConfidenceBucket] = []
         weighted_errors: list[float] = []
+        signed_weighted_errors: list[float] = []
+        brier_terms: list[float] = []
         for lo, hi, label in bucket_defs:
             evals = bucket_evals.get(label, [])
             sample = len(evals)
             hits = sum(1 for e in evals if e.result.value == "hit_target")
             hit_rate = hits / sample if sample else None
-            expected = (lo + hi) / 2
-            error = (hit_rate - expected) if hit_rate is not None else None
-            if error is not None and sample > 0:
-                weighted_errors.append(error * sample)
+            predicted_values: list[float] = []
+            for e in evals:
+                thesis = theses.get(e.thesis_id)
+                if thesis and thesis.confidence is not None:
+                    predicted_values.append(thesis.confidence)
+            expected = _average(predicted_values)
+            if hit_rate is not None and expected is not None and sample > 0:
+                calibration_error = abs(hit_rate - expected)
+                error = calibration_error
+                weighted_errors.append(calibration_error * sample)
+                signed_weighted_errors.append((hit_rate - expected) * sample)
+            else:
+                error = None
+            for e in evals:
+                thesis = theses.get(e.thesis_id)
+                outcome = _binary_outcome(e)
+                if thesis and thesis.confidence is not None and outcome is not None:
+                    brier_terms.append((thesis.confidence - outcome) ** 2)
             buckets.append(
                 ConfidenceBucket(
                     bucket_label=label,
@@ -496,7 +502,7 @@ class EvaluationService:
         if overall_error is not None:
             if abs(overall_error) < 0.05:
                 quality = "well_calibrated"
-            elif overall_error > 0:
+            elif sum(signed_weighted_errors) > 0:
                 quality = "under_confident"
             else:
                 quality = "over_confident"
@@ -505,6 +511,7 @@ class EvaluationService:
             total_sample_size=len(evaluations),
             buckets=buckets,
             overall_calibration_error=overall_error,
+            brier_score=_average(brier_terms),
             calibration_quality=quality,
         )
 
@@ -641,7 +648,7 @@ def _parse_ohlcv(raw_csv: str) -> pd.DataFrame:
         )
     df = df.rename(columns={date_col: "date"})
     df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
-    if df["date"].isna().any():
+    if bool(df["date"].isna().to_numpy().any()):
         raise ValueError("OHLCV data contains unparseable candle dates")
     required = {"open", "high", "low", "close"}
     missing = required - set(df.columns)
@@ -781,6 +788,10 @@ def _infer_side(thesis: TradeThesis, start_price: float) -> str:
         return "short"
     if thesis.direction == ThesisDirection.LONG:
         return "long"
+    if _typed_levels(thesis, "downside_objectives"):
+        return "short"
+    if _typed_levels(thesis, "profit_targets"):
+        return "long"
     first_target = _select_target(thesis, start_price, "long")
     if first_target is not None and first_target < start_price:
         return "short"
@@ -788,7 +799,10 @@ def _infer_side(thesis: TradeThesis, start_price: float) -> str:
 
 
 def _select_target(thesis: TradeThesis, start_price: float, side: str) -> float | None:
-    levels = _extract_levels(thesis.target_zones)
+    typed_field = "downside_objectives" if side == "short" else "profit_targets"
+    levels = _extract_levels(_typed_levels(thesis, typed_field))
+    if not levels:
+        levels = _extract_levels(thesis.target_zones)
     if not levels:
         return None
     if side == "short":
@@ -796,6 +810,14 @@ def _select_target(thesis: TradeThesis, start_price: float, side: str) -> float 
         return max(below) if below else min(levels)
     above = [level for level in levels if level >= start_price]
     return min(above) if above else max(levels)
+
+
+def _typed_levels(thesis: TradeThesis, field_name: str) -> list[str]:
+    levels = list(getattr(thesis, field_name, []) or [])
+    summary = thesis.structured_summary
+    if not levels and summary is not None:
+        levels = list(getattr(summary, field_name, []) or [])
+    return levels
 
 
 def _first_trigger_index(
@@ -807,7 +829,7 @@ def _first_trigger_index(
 ) -> int | None:
     if level is None:
         return None
-    for idx, row in candles.iterrows():
+    for idx, (_, row) in enumerate(candles.iterrows()):
         high = float(row["high"])
         low = float(row["low"])
         if kind == "target":
@@ -815,7 +837,7 @@ def _first_trigger_index(
         else:
             triggered = high >= level if side == "short" else low <= level
         if triggered:
-            return int(idx)
+            return idx
     return None
 
 
@@ -861,6 +883,50 @@ def _thesis_map(
     """Batch-fetch theses to avoid N+1 queries."""
     unique_ids = list({evaluation.thesis_id for evaluation in evaluations})
     return repo.get_theses_by_ids(unique_ids)
+
+
+def _thesis_direction_correct(
+    thesis: TradeThesis,
+    evaluation: ThesisEvaluation,
+    *,
+    neutral_threshold: float = 0.0,
+) -> bool:
+    signed_return = _thesis_signed_forward_return(thesis, evaluation)
+    if signed_return is None:
+        return False
+    return signed_return > neutral_threshold
+
+
+def _thesis_signed_forward_return(
+    thesis: TradeThesis,
+    evaluation: ThesisEvaluation,
+) -> float | None:
+    if (
+        evaluation.start_price is not None
+        and evaluation.start_price > 0
+        and evaluation.end_price is not None
+    ):
+        forward_return = (
+            evaluation.end_price - evaluation.start_price
+        ) / evaluation.start_price
+        if thesis.direction == ThesisDirection.LONG:
+            return forward_return
+        if thesis.direction == ThesisDirection.SHORT:
+            return -forward_return
+        return None
+    if thesis.direction == ThesisDirection.LONG:
+        return evaluation.max_favorable_excursion
+    if thesis.direction == ThesisDirection.SHORT:
+        return evaluation.max_favorable_excursion
+    return None
+
+
+def _binary_outcome(evaluation: ThesisEvaluation) -> float | None:
+    if evaluation.result == OutcomeResult.HIT_TARGET:
+        return 1.0
+    if evaluation.result == OutcomeResult.INVALIDATED:
+        return 0.0
+    return None
 
 
 def _signal_key(signal: Signal | None, fallback_id: str) -> str:

@@ -419,50 +419,96 @@ export interface JournalRepository {
     symbol: string | undefined,
     workspaceId: string,
   ): Promise<SignalSummary>;
-  listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]>;
-  listEnabledWatchlists(limit: number): Promise<JsonRecord[]>;
-  createWatchlist(
-    input: { name: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord>;
-  getWatchlist(id: string, workspaceId: string): Promise<JsonRecord | null>;
-  getWatchlistByName(
-    name: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  listWatchlistItems(
-    watchlistId: string,
+  listSignalObservations?(
+    filters: {
+      symbol?: string;
+      factor?: string;
+      signalSnapshotId?: string;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
     workspaceId: string,
   ): Promise<JsonRecord[]>;
-  addWatchlistItem(
-    watchlistId: string,
-    item: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord>;
-  updateWatchlist(
+  getSignalObservation?(
     id: string,
-    input: { name?: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord>;
-  removeWatchlist(id: string, workspaceId: string): Promise<JsonRecord>;
-  removeWatchlistItem(
-    watchlistId: string,
-    itemId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord>;
-  listDailyBriefs(
-    date: string | undefined,
-    limit: number,
-    workspaceId: string,
-    watchlistName?: string,
-    throughDate?: string,
-  ): Promise<JsonRecord[]>;
-  getLatestMarketBrief(
-    watchlistName: string | undefined,
-    beforeDate: string | undefined,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
-  saveMarketBrief(brief: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  listSignalOutcomeLabels?(
+    filters: {
+      observationId?: string;
+      symbol?: string;
+      factor?: string;
+      horizonMinutes?: number;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  saveSignalEvaluationReport?(
+    report: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalEvaluationReports?(
+    filters: {
+      symbol?: string;
+      factor?: string;
+      horizonMinutes?: number;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getSignalEvaluationReport?(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveSignalModelArtifact?(
+    kind: 'weight' | 'calibrator',
+    artifact: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalModelArtifacts?(
+    kind: 'weight' | 'calibrator',
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  getSignalModelArtifact?(
+    kind: 'weight' | 'calibrator',
+    version: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveSignalModelPromotion?(
+    promotion: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalModelPromotions?(workspaceId: string): Promise<JsonRecord[]>;
+  saveSignalMonitoringSnapshot?(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalMonitoringSnapshots?(workspaceId: string): Promise<JsonRecord[]>;
+  getSignalMonitoringSnapshot?(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveSignalModelAlert?(
+    alert: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalModelAlerts?(
+    filters: { status?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  updateSignalModelAlert?(
+    id: string,
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveSignalModelRollback?(
+    rollback: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  listSignalModelRollbacks?(workspaceId: string): Promise<JsonRecord[]>;
   listAlerts(
     symbol: string | undefined,
     thesisId: string | undefined,
@@ -470,14 +516,6 @@ export interface JournalRepository {
     limit: number,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
-  findAlert(
-    alertType: string,
-    thesisId: string | undefined,
-    watchlistItemId: string | undefined,
-    triggerKey: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   markAlertRead(id: string, workspaceId: string): Promise<JsonRecord>;
   listProviderHealth(limit: number): Promise<JsonRecord[]>;
   listLlmCalls(limit: number, workspaceId: string): Promise<JsonRecord[]>;

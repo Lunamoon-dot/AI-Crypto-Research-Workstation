@@ -42,6 +42,7 @@ type CreatedPayloadRow = PayloadRow & {
 export class PostgresJournalRepository implements JournalRepository, OnModuleDestroy {
   private readonly pool?: Pool;
   private scenarioLifecycleSchemaReady = false;
+  private signalEvaluationSchemaReady = false;
 
   constructor(databaseUrl = process.env.DATABASE_URL) {
     if (databaseUrl) {
@@ -317,14 +318,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
         [workspaceId, thesisIds],
       );
-      const watchlistItemIds = await selectIds(
-        client,
-        `SELECT id
-         FROM watchlist_items
-         WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
-        [workspaceId, thesisIds],
-      );
-
       await client.query(
         `DELETE FROM thesis_evaluation_promotions
          WHERE workspace_id = $1
@@ -346,15 +339,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       );
       await client.query(
         `DELETE FROM alerts
-         WHERE workspace_id = $1
-           AND (
-             thesis_id = ANY($2::text[])
-             OR watchlist_item_id = ANY($3::text[])
-           )`,
-        [workspaceId, thesisIds, watchlistItemIds],
-      );
-      await client.query(
-        `DELETE FROM watchlist_items
          WHERE workspace_id = $1 AND thesis_id = ANY($2::text[])`,
         [workspaceId, thesisIds],
       );
@@ -1795,6 +1779,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          'market_type', market_type,
          'horizon', horizon,
          'evaluated_at', evaluated_at,
+         'evaluation_window', evaluation_window,
          'result', result,
          'data_quality', data_quality,
          'warnings', warnings_json,
@@ -2488,411 +2473,582 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     };
   }
 
-  async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
-    return this.many(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json
-       FROM watchlists
-       WHERE workspace_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2`,
-      [workspaceId, limit],
-    );
-  }
-
-  async listEnabledWatchlists(limit: number): Promise<JsonRecord[]> {
-    return this.many(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json
-       FROM watchlists
-       WHERE enabled <> 0
-       ORDER BY created_at DESC
-       LIMIT $1`,
-      [limit],
-    );
-  }
-
-  async createWatchlist(
-    input: { name: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const id = `watch_${randomUUID().replaceAll('-', '')}`;
-    const createdAt = new Date().toISOString();
-    const payload = {
-      id,
-      workspace_id: workspaceId,
-      name: input.name,
-      enabled: input.enabled ?? true,
-      created_at: createdAt,
-    };
-    const watchlist = await this.one(
-      `INSERT INTO watchlists
-       (id, workspace_id, name, enabled, created_at, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-       RETURNING payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json`,
-      [
-        id,
-        workspaceId,
-        input.name,
-        payload.enabled ? 1 : 0,
-        createdAt,
-        JSON.stringify(payload),
-      ],
-    );
-    if (!watchlist) {
-      throw new NotFoundException(`Watchlist ${id} not found`);
-    }
-    return watchlist;
-  }
-
-  async getWatchlist(
-    id: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json
-       FROM watchlists
-       WHERE id = $1 AND workspace_id = $2`,
-      [id, workspaceId],
-    );
-  }
-
-  async getWatchlistByName(
-    name: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json
-       FROM watchlists
-       WHERE name = $1 AND workspace_id = $2`,
-      [name, workspaceId],
-    );
-  }
-
-  async listWatchlistItems(
-    watchlistId: string,
+  async listSignalObservations(
+    filters: {
+      symbol?: string;
+      factor?: string;
+      signalSnapshotId?: string;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
     workspaceId: string,
   ): Promise<JsonRecord[]> {
-    return this.many(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'watchlist_id', watchlist_id,
-         'item_type', item_type,
-         'symbol', symbol,
-         'thesis_id', thesis_id,
-         'setup_type', setup_type,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json
-       FROM watchlist_items
-       WHERE watchlist_id = $1 AND workspace_id = $2
-       ORDER BY created_at DESC`,
-      [watchlistId, workspaceId],
-    );
-  }
-
-  async addWatchlistItem(
-    watchlistId: string,
-    item: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const watchlist = await this.one(
-      'SELECT payload_json FROM watchlists WHERE id = $1 AND workspace_id = $2',
-      [watchlistId, workspaceId],
-    );
-    if (!watchlist) {
-      throw new NotFoundException(`Watchlist ${watchlistId} not found`);
-    }
-    const id = `watch_item_${randomUUID().replaceAll('-', '')}`;
-    const payload = {
-      id,
-      workspace_id: workspaceId,
-      watchlist_id: watchlistId,
-      item_type: item.item_type ?? 'symbol',
-      symbol: item.symbol ?? null,
-      thesis_id: item.thesis_id ?? null,
-      setup_type: item.setup_type ?? null,
-      enabled: true,
-      created_at: new Date().toISOString(),
-    };
-    await this.exec(
-      `INSERT INTO watchlist_items
-       (id, workspace_id, watchlist_id, item_type, symbol, thesis_id, setup_type, enabled, created_at, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
-      [
-        id,
-        workspaceId,
-        watchlistId,
-        payload.item_type,
-        payload.symbol,
-        payload.thesis_id,
-        payload.setup_type,
-        1,
-        payload.created_at,
-        JSON.stringify(payload),
-      ],
-    );
-    return payload;
-  }
-
-  async updateWatchlist(
-    id: string,
-    input: { name?: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const existing = await this.getWatchlist(id, workspaceId);
-    if (!existing) {
-      throw new NotFoundException(`Watchlist ${id} not found`);
-    }
-    const name = input.name ?? stringValue(existing.name, '');
-    const enabled = input.enabled ?? booleanValue(existing.enabled, true);
-    const payload = {
-      ...existing,
-      id,
-      workspace_id: workspaceId,
-      name,
-      enabled,
-    };
-    const watchlist = await this.one(
-      `UPDATE watchlists
-       SET name = $3,
-           enabled = $4,
-           payload_json = payload_json || $5::jsonb
-       WHERE id = $1 AND workspace_id = $2
-       RETURNING payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'name', name,
-         'enabled', enabled,
-         'created_at', created_at
-       ) AS payload_json`,
-      [id, workspaceId, name, enabled ? 1 : 0, JSON.stringify(payload)],
-    );
-    if (!watchlist) {
-      throw new NotFoundException(`Watchlist ${id} not found`);
-    }
-    return watchlist;
-  }
-
-  async removeWatchlistItem(
-    watchlistId: string,
-    itemId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const removed = await this.one(
-      `DELETE FROM watchlist_items
-       WHERE id = $1 AND watchlist_id = $2 AND workspace_id = $3
-       RETURNING jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'watchlist_id', watchlist_id,
-         'removed', true
-       ) AS payload_json`,
-      [itemId, watchlistId, workspaceId],
-    );
-    if (!removed) {
-      throw new NotFoundException(`Watchlist item ${itemId} not found`);
-    }
-    return removed;
-  }
-
-  async removeWatchlist(
-    id: string,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const client = await this.requirePool().connect();
-    try {
-      await client.query('BEGIN');
-      const existing = await client.query(
-        `SELECT id, workspace_id, name
-         FROM watchlists
-         WHERE id = $1 AND workspace_id = $2
-         FOR UPDATE`,
-        [id, workspaceId],
-      );
-      const watchlist = existing.rows[0];
-      if (!watchlist) {
-        throw new NotFoundException(`Watchlist ${id} not found`);
-      }
-      const items = await client.query(
-        `SELECT id
-         FROM watchlist_items
-         WHERE watchlist_id = $1 AND workspace_id = $2`,
-        [id, workspaceId],
-      );
-      const itemIds = items.rows
-        .map((row) => nullableString(row.id))
-        .filter((itemId): itemId is string => itemId !== null);
-      if (itemIds.length > 0) {
-        await client.query(
-          `UPDATE alerts
-           SET watchlist_item_id = NULL,
-               payload_json = payload_json || jsonb_build_object('watchlist_item_removed', true)
-           WHERE workspace_id = $1 AND watchlist_item_id = ANY($2::text[])`,
-          [workspaceId, itemIds],
-        );
-      }
-      await client.query(
-        `DELETE FROM watchlist_items
-         WHERE watchlist_id = $1 AND workspace_id = $2`,
-        [id, workspaceId],
-      );
-      await client.query(
-        `DELETE FROM watchlists
-         WHERE id = $1 AND workspace_id = $2`,
-        [id, workspaceId],
-      );
-      await client.query('COMMIT');
-      return {
-        id,
-        workspace_id: workspaceId,
-        name: stringValue(watchlist.name, ''),
-        removed: true,
-        removed_item_count: itemIds.length,
-      };
-    } catch (error) {
-      await rollbackQuietly(client);
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async listDailyBriefs(
-    date: string | undefined,
-    limit: number,
-    workspaceId: string,
-    watchlistName?: string,
-    throughDate?: string,
-  ): Promise<JsonRecord[]> {
-    const filters = ['workspace_id = $1'];
+    await this.ensureSignalEvaluationSchema();
+    const where = ['workspace_id = $1'];
     const params: unknown[] = [workspaceId];
-    if (date) {
-      params.push(date);
-      filters.push(`brief_date = $${params.length}`);
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
     }
-    if (throughDate) {
-      params.push(throughDate);
-      filters.push(`brief_date <= $${params.length}`);
+    if (filters.factor) {
+      params.push(filters.factor);
+      where.push(`factor_name = $${params.length}`);
     }
-    if (watchlistName) {
-      params.push(watchlistName);
-      filters.push(`watchlist_name = $${params.length}`);
+    if (filters.signalSnapshotId) {
+      params.push(filters.signalSnapshotId);
+      where.push(`signal_snapshot_id = $${params.length}`);
     }
-    params.push(limit);
+    if (filters.from) {
+      params.push(filters.from);
+      where.push(`observed_at >= $${params.length}`);
+    }
+    if (filters.to) {
+      params.push(filters.to);
+      where.push(`observed_at <= $${params.length}`);
+    }
+    params.push(filters.limit);
     return this.many(
-      `SELECT payload_json FROM market_briefs
-       WHERE ${filters.join(' AND ')}
-       ORDER BY brief_date DESC, created_at DESC
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'research_run_id', research_run_id,
+         'signal_snapshot_id', signal_snapshot_id,
+         'signal_id', signal_id,
+         'symbol', symbol,
+         'factor_name', factor_name,
+         'factor_family', factor_family,
+         'horizon_source', 'signal_observations'
+       ) AS payload_json
+       FROM signal_observations
+       WHERE ${where.join(' AND ')}
+       ORDER BY observed_at DESC, id DESC
        LIMIT $${params.length}`,
       params,
     );
   }
 
-  async getLatestMarketBrief(
-    watchlistName: string | undefined,
-    beforeDate: string | undefined,
+  async getSignalObservation(
+    id: string,
     workspaceId: string,
   ): Promise<JsonRecord | null> {
-    const filters = ['workspace_id = $1'];
-    const params: unknown[] = [workspaceId];
-    if (watchlistName) {
-      params.push(watchlistName);
-      filters.push(`watchlist_name = $${params.length}`);
-    }
-    if (beforeDate) {
-      params.push(beforeDate);
-      filters.push(`brief_date < $${params.length}`);
-    }
+    await this.ensureSignalEvaluationSchema();
     return this.one(
       `SELECT payload_json || jsonb_build_object(
          'id', id,
-         'workspace_id', workspace_id,
-         'brief_date', brief_date,
-         'watchlist_name', watchlist_name,
-         'title', title,
-         'created_at', created_at,
-         'previous_brief_id', previous_brief_id,
-         'payload', payload_json
+         'workspace_id', workspace_id
        ) AS payload_json
-       FROM market_briefs
-       WHERE ${filters.join(' AND ')}
-       ORDER BY brief_date DESC, created_at DESC
-       LIMIT 1`,
+       FROM signal_observations
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async listSignalOutcomeLabels(
+    filters: {
+      observationId?: string;
+      symbol?: string;
+      factor?: string;
+      horizonMinutes?: number;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.observationId) {
+      params.push(filters.observationId);
+      where.push(`observation_id = $${params.length}`);
+    }
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    if (filters.horizonMinutes !== undefined) {
+      params.push(filters.horizonMinutes);
+      where.push(`horizon_minutes = $${params.length}`);
+    }
+    if (filters.factor) {
+      params.push(filters.factor);
+      where.push(
+        `EXISTS (
+          SELECT 1 FROM signal_observations o
+          WHERE o.workspace_id = signal_outcome_labels.workspace_id
+            AND o.id = signal_outcome_labels.observation_id
+            AND o.factor_name = $${params.length}
+        )`,
+      );
+    }
+    if (filters.from) {
+      params.push(filters.from);
+      where.push(`created_at >= $${params.length}`);
+    }
+    if (filters.to) {
+      params.push(filters.to);
+      where.push(`created_at <= $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'observation_id', observation_id,
+         'symbol', symbol,
+         'horizon_minutes', horizon_minutes,
+         'label_status', label_status,
+         'label_version', label_version
+       ) AS payload_json
+       FROM signal_outcome_labels
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${params.length}`,
       params,
     );
   }
 
-  async saveMarketBrief(
-    brief: JsonRecord,
+  async saveSignalEvaluationReport(
+    report: JsonRecord,
     workspaceId: string,
   ): Promise<JsonRecord> {
-    const saved = await this.one(
-      `INSERT INTO market_briefs
-       (id, workspace_id, brief_date, watchlist_name, title, created_at, previous_brief_id, payload_json)
+    await this.ensureSignalEvaluationSchema();
+    const id = stringValue(report.id, `signal_eval_report_${randomUUID()}`);
+    const generatedAt = stringValue(report.generated_at, new Date().toISOString());
+    const payload: JsonRecord = {
+      ...report,
+      id,
+      workspace_id: workspaceId,
+      generated_at: generatedAt,
+    };
+    return this.one(
+      `INSERT INTO signal_evaluation_reports (
+         id, workspace_id, report_version, generated_at, symbol,
+         factor_name, horizon_minutes, payload_json
+       )
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-       ON CONFLICT (id) DO UPDATE SET
-         workspace_id = EXCLUDED.workspace_id,
-         brief_date = EXCLUDED.brief_date,
-         watchlist_name = EXCLUDED.watchlist_name,
-         title = EXCLUDED.title,
-         created_at = EXCLUDED.created_at,
-         previous_brief_id = EXCLUDED.previous_brief_id,
-         payload_json = EXCLUDED.payload_json
+       ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json
        RETURNING payload_json || jsonb_build_object(
          'id', id,
          'workspace_id', workspace_id,
-         'brief_date', brief_date,
-         'watchlist_name', watchlist_name,
-         'title', title,
-         'created_at', created_at,
-         'previous_brief_id', previous_brief_id,
-         'payload', payload_json
+         'generated_at', generated_at
        ) AS payload_json`,
       [
-        stringValue(brief.id, ''),
+        id,
         workspaceId,
-        stringValue(brief.brief_date, new Date().toISOString().slice(0, 10)),
-        stringValue(brief.watchlist_name, 'default'),
-        stringValue(brief.title, 'Market Brief'),
-        stringValue(brief.created_at, new Date().toISOString()),
-        nullableString(brief.previous_brief_id),
-        JSON.stringify(brief),
+        stringValue(payload.report_version, 'signal_evaluation_report:v1'),
+        generatedAt,
+        nullableString(payload.symbol),
+        nullableString(payload.factor_name),
+        numberValue(payload.horizon_minutes) ?? 1440,
+        JSON.stringify(payload),
+      ],
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalEvaluationReports(
+    filters: { symbol?: string; factor?: string; horizonMinutes?: number; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.symbol) {
+      params.push(filters.symbol);
+      where.push(`symbol = $${params.length}`);
+    }
+    if (filters.factor) {
+      params.push(filters.factor);
+      where.push(`factor_name = $${params.length}`);
+    }
+    if (filters.horizonMinutes !== undefined) {
+      params.push(filters.horizonMinutes);
+      where.push(`horizon_minutes = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_evaluation_reports
+       WHERE ${where.join(' AND ')}
+       ORDER BY generated_at DESC, id DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
+  async getSignalEvaluationReport(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureSignalEvaluationSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_evaluation_reports
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async saveSignalModelArtifact(
+    kind: 'weight' | 'calibrator',
+    artifact: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureSignalEvaluationSchema();
+    const table =
+      kind === 'weight' ? 'signal_weight_versions' : 'signal_calibrator_versions';
+    const id = stringValue(artifact.id, `signal_${kind}_${randomUUID()}`);
+    const payload: JsonRecord = { ...artifact, id, workspace_id: workspaceId };
+    const columns =
+      kind === 'weight'
+        ? `(id, workspace_id, version, status, horizon_minutes, payload_json, created_at, promoted_at)`
+        : `(id, workspace_id, version, weight_version, status, horizon_minutes, publishable, payload_json, created_at, promoted_at)`;
+    const values =
+      kind === 'weight'
+        ? `($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`
+        : `($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`;
+    const params =
+      kind === 'weight'
+        ? [
+            id,
+            workspaceId,
+            stringValue(payload.version, `signal_${kind}_version:${id}`),
+            stringValue(payload.status, 'candidate'),
+            numberValue(payload.horizon_minutes) ?? 1440,
+            JSON.stringify(payload),
+            stringValue(payload.created_at, new Date().toISOString()),
+            nullableString(payload.promoted_at),
+          ]
+        : [
+            id,
+            workspaceId,
+            stringValue(payload.version, `signal_${kind}_version:${id}`),
+            stringValue(payload.weight_version, ''),
+            stringValue(payload.status, 'candidate'),
+            numberValue(payload.horizon_minutes) ?? 1440,
+            booleanValue(payload.publishable, false),
+            JSON.stringify(payload),
+            stringValue(payload.created_at, new Date().toISOString()),
+            nullableString(payload.promoted_at),
+          ];
+    return this.one(
+      `INSERT INTO ${table} ${columns}
+       VALUES ${values}
+       ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      params,
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalModelArtifacts(
+    kind: 'weight' | 'calibrator',
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    const table =
+      kind === 'weight' ? 'signal_weight_versions' : 'signal_calibrator_versions';
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM ${table}
+       WHERE workspace_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [workspaceId],
+    );
+  }
+
+  async getSignalModelArtifact(
+    kind: 'weight' | 'calibrator',
+    version: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureSignalEvaluationSchema();
+    const table =
+      kind === 'weight' ? 'signal_weight_versions' : 'signal_calibrator_versions';
+    return this.one(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM ${table}
+       WHERE workspace_id = $1 AND (version = $2 OR id = $2)
+       LIMIT 1`,
+      [workspaceId, version],
+    );
+  }
+
+  async saveSignalModelPromotion(
+    promotion: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureSignalEvaluationSchema();
+    const id = stringValue(promotion.id, `signal_promotion_${randomUUID()}`);
+    const promotedAt = stringValue(promotion.promoted_at, new Date().toISOString());
+    const payload: JsonRecord = {
+      ...promotion,
+      id,
+      workspace_id: workspaceId,
+      promoted_at: promotedAt,
+    };
+    return this.one(
+      `INSERT INTO signal_model_promotions (
+         id, workspace_id, to_weight_version, to_calibrator_version,
+         promoted_at, payload_json
+       )
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(payload.to_weight_version, ''),
+        stringValue(payload.to_calibrator_version, ''),
+        promotedAt,
+        JSON.stringify(payload),
+      ],
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalModelPromotions(workspaceId: string): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_promotions
+       WHERE workspace_id = $1
+       ORDER BY promoted_at DESC, id DESC`,
+      [workspaceId],
+    );
+  }
+
+  async saveSignalMonitoringSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureSignalEvaluationSchema();
+    const id = stringValue(snapshot.id, `signal_monitoring_${randomUUID()}`);
+    const generatedAt = stringValue(snapshot.generated_at, new Date().toISOString());
+    const payload: JsonRecord = {
+      ...snapshot,
+      id,
+      workspace_id: workspaceId,
+      generated_at: generatedAt,
+    };
+    return this.one(
+      `INSERT INTO signal_model_monitoring_snapshots (
+         id, workspace_id, generated_at, status, active_weight_version,
+         active_calibrator_version, payload_json
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      [
+        id,
+        workspaceId,
+        generatedAt,
+        stringValue(payload.status, 'insufficient_data'),
+        nullableString(payload.active_weight_version),
+        nullableString(payload.active_calibrator_version),
+        JSON.stringify(payload),
+      ],
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalMonitoringSnapshots(workspaceId: string): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_monitoring_snapshots
+       WHERE workspace_id = $1
+       ORDER BY generated_at DESC, id DESC`,
+      [workspaceId],
+    );
+  }
+
+  async getSignalMonitoringSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureSignalEvaluationSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_monitoring_snapshots
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+  }
+
+  async saveSignalModelAlert(
+    alert: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureSignalEvaluationSchema();
+    const id = stringValue(alert.id, `signal_model_alert_${randomUUID()}`);
+    const createdAt = stringValue(alert.created_at, new Date().toISOString());
+    const payload: JsonRecord = {
+      ...alert,
+      id,
+      workspace_id: workspaceId,
+      created_at: createdAt,
+    };
+    return this.one(
+      `INSERT INTO signal_model_alerts (
+         id, workspace_id, alert_type, severity, status,
+         active_weight_version, active_calibrator_version, symbol, factor_name,
+         message, evidence_json, payload_json, created_at,
+         acknowledged_at, resolved_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13, $14, $15)
+       ON CONFLICT(id) DO UPDATE SET
+         status = excluded.status,
+         acknowledged_at = excluded.acknowledged_at,
+         resolved_at = excluded.resolved_at,
+         payload_json = excluded.payload_json
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(payload.alert_type, 'model_version_missing'),
+        stringValue(payload.severity, 'info'),
+        stringValue(payload.status, 'open'),
+        nullableString(payload.active_weight_version),
+        nullableString(payload.active_calibrator_version),
+        nullableString(payload.symbol),
+        nullableString(payload.factor_name),
+        stringValue(payload.message, ''),
+        JSON.stringify(recordOrDefault(payload.evidence_json, {})),
+        JSON.stringify(payload),
+        createdAt,
+        nullableString(payload.acknowledged_at),
+        nullableString(payload.resolved_at),
+      ],
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalModelAlerts(
+    filters: { status?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    const where = ['workspace_id = $1'];
+    const params: unknown[] = [workspaceId];
+    if (filters.status) {
+      params.push(filters.status);
+      where.push(`status = $${params.length}`);
+    }
+    params.push(filters.limit);
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_alerts
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $${params.length}`,
+      params,
+    );
+  }
+
+  async updateSignalModelAlert(
+    id: string,
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureSignalEvaluationSchema();
+    const existing = await this.one(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_alerts
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+    if (!existing) {
+      return null;
+    }
+    const status = stringValue(input.status, stringValue(existing.status, 'open'));
+    const now = new Date().toISOString();
+    const payload = {
+      ...existing,
+      ...input,
+      status,
+      acknowledged_at:
+        status === 'acknowledged'
+          ? stringValue(input.acknowledged_at, now)
+          : nullableString(existing.acknowledged_at),
+      resolved_at:
+        status === 'resolved'
+          ? stringValue(input.resolved_at, now)
+          : nullableString(existing.resolved_at),
+      updated_at: now,
+    };
+    return this.one(
+      `UPDATE signal_model_alerts
+       SET status = $3,
+           acknowledged_at = $4,
+           resolved_at = $5,
+           payload_json = $6::jsonb
+       WHERE id = $1 AND workspace_id = $2
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      [
+        id,
+        workspaceId,
+        status,
+        nullableString(payload.acknowledged_at),
+        nullableString(payload.resolved_at),
+        JSON.stringify(payload),
       ],
     );
-    if (!saved) {
-      throw new NotFoundException(`Market brief ${brief.id} not found`);
-    }
-    return saved;
+  }
+
+  async saveSignalModelRollback(
+    rollback: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureSignalEvaluationSchema();
+    const id = stringValue(rollback.id, `signal_rollback_${randomUUID()}`);
+    const executedAt = stringValue(rollback.executed_at, new Date().toISOString());
+    const payload: JsonRecord = {
+      ...rollback,
+      id,
+      workspace_id: workspaceId,
+      executed_at: executedAt,
+    };
+    return this.one(
+      `INSERT INTO signal_model_rollbacks (
+         id, workspace_id, from_weight_version, to_weight_version,
+         from_calibrator_version, to_calibrator_version, executed_at, payload_json
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       RETURNING payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(payload.from_weight_version, ''),
+        stringValue(payload.to_weight_version, ''),
+        stringValue(payload.from_calibrator_version, ''),
+        stringValue(payload.to_calibrator_version, ''),
+        executedAt,
+        JSON.stringify(payload),
+      ],
+    ) as Promise<JsonRecord>;
+  }
+
+  async listSignalModelRollbacks(workspaceId: string): Promise<JsonRecord[]> {
+    await this.ensureSignalEvaluationSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object('id', id, 'workspace_id', workspace_id)
+       AS payload_json
+       FROM signal_model_rollbacks
+       WHERE workspace_id = $1
+       ORDER BY executed_at DESC, id DESC`,
+      [workspaceId],
+    );
   }
 
   async listAlerts(
@@ -2923,7 +3079,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          'alert_type', alert_type,
          'symbol', symbol,
          'thesis_id', thesis_id,
-         'watchlist_item_id', watchlist_item_id,
          'trigger_key', trigger_key,
          'created_at', created_at,
          'read_at', read_at,
@@ -2951,7 +3106,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
          'alert_type', alert_type,
          'symbol', symbol,
          'thesis_id', thesis_id,
-         'watchlist_item_id', watchlist_item_id,
          'trigger_key', trigger_key,
          'created_at', created_at,
          'read_at', read_at,
@@ -2964,82 +3118,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       throw new NotFoundException(`Alert ${id} not found`);
     }
     return alert;
-  }
-
-  async findAlert(
-    alertType: string,
-    thesisId: string | undefined,
-    watchlistItemId: string | undefined,
-    triggerKey: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'alert_type', alert_type,
-         'symbol', symbol,
-         'thesis_id', thesis_id,
-         'watchlist_item_id', watchlist_item_id,
-         'trigger_key', trigger_key,
-         'created_at', created_at,
-         'read_at', read_at,
-         'message', message,
-         'payload', payload_json
-       ) AS payload_json
-       FROM alerts
-       WHERE workspace_id = $1
-         AND alert_type = $2
-         AND trigger_key = $3
-         AND COALESCE(thesis_id, '') = COALESCE($4, '')
-         AND COALESCE(watchlist_item_id, '') = COALESCE($5, '')
-       LIMIT 1`,
-      [
-        workspaceId,
-        alertType,
-        triggerKey,
-        thesisId ?? null,
-        watchlistItemId ?? null,
-      ],
-    );
-  }
-
-  async createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord> {
-    const saved = await this.one(
-      `INSERT INTO alerts
-       (id, workspace_id, alert_type, symbol, thesis_id, watchlist_item_id, trigger_key, created_at, read_at, message, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
-       RETURNING payload_json || jsonb_build_object(
-         'id', id,
-         'workspace_id', workspace_id,
-         'alert_type', alert_type,
-         'symbol', symbol,
-         'thesis_id', thesis_id,
-         'watchlist_item_id', watchlist_item_id,
-         'trigger_key', trigger_key,
-         'created_at', created_at,
-         'read_at', read_at,
-         'message', message,
-         'payload', payload_json
-       ) AS payload_json`,
-      [
-        stringValue(alert.id, ''),
-        workspaceId,
-        stringValue(alert.alert_type, ''),
-        stringValue(alert.symbol, ''),
-        nullableString(alert.thesis_id),
-        nullableString(alert.watchlist_item_id),
-        nullableString(alert.trigger_key),
-        stringValue(alert.created_at, new Date().toISOString()),
-        nullableString(alert.read_at),
-        stringValue(alert.message, ''),
-        JSON.stringify(alert),
-      ],
-    );
-    if (!saved) {
-      throw new NotFoundException(`Alert ${alert.id} not found`);
-    }
-    return saved;
   }
 
   async listProviderHealth(limit: number): Promise<JsonRecord[]> {
@@ -3244,6 +3322,175 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       );
     `);
     this.scenarioLifecycleSchemaReady = true;
+  }
+
+  private async ensureSignalEvaluationSchema(): Promise<void> {
+    if (this.signalEvaluationSchemaReady) {
+      return;
+    }
+    const pool = this.requirePool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS signal_observations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        research_run_id TEXT,
+        signal_snapshot_id TEXT,
+        signal_id TEXT,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        observed_at TIMESTAMPTZ NOT NULL,
+        source_timestamp TIMESTAMPTZ,
+        observation_kind TEXT NOT NULL,
+        factor_name TEXT NOT NULL,
+        factor_family TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        directional_edge DOUBLE PRECISION,
+        heuristic_strength DOUBLE PRECISION,
+        detector_confidence DOUBLE PRECISION,
+        data_quality DOUBLE PRECISION,
+        availability TEXT NOT NULL,
+        raw_value DOUBLE PRECISION,
+        threshold_breached BOOLEAN NOT NULL DEFAULT FALSE,
+        market_regime TEXT NOT NULL DEFAULT 'unknown',
+        volatility_regime TEXT NOT NULL DEFAULT 'unknown',
+        provider TEXT,
+        source_snapshot_hash TEXT,
+        code_sha TEXT,
+        signal_weight_version TEXT NOT NULL DEFAULT 'unknown',
+        signal_threshold_version TEXT NOT NULL DEFAULT 'unknown',
+        detector_version TEXT NOT NULL DEFAULT 'unknown',
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_observations_workspace_observed
+        ON signal_observations(workspace_id, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_signal_observations_workspace_symbol
+        ON signal_observations(workspace_id, symbol, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_signal_observations_factor
+        ON signal_observations(workspace_id, factor_name, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_signal_observations_snapshot
+        ON signal_observations(workspace_id, signal_snapshot_id);
+
+      CREATE TABLE IF NOT EXISTS signal_outcome_labels (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        observation_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        horizon_minutes INTEGER NOT NULL,
+        label_status TEXT NOT NULL,
+        label_version TEXT NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_outcome_labels_identity
+        ON signal_outcome_labels(workspace_id, observation_id, horizon_minutes, label_version);
+      CREATE INDEX IF NOT EXISTS idx_signal_outcome_labels_symbol_horizon
+        ON signal_outcome_labels(workspace_id, symbol, horizon_minutes);
+
+      CREATE TABLE IF NOT EXISTS signal_evaluation_reports (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        report_version TEXT NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL,
+        symbol TEXT,
+        factor_name TEXT,
+        horizon_minutes INTEGER NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_workspace_generated
+        ON signal_evaluation_reports(workspace_id, generated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_symbol_horizon
+        ON signal_evaluation_reports(workspace_id, symbol, horizon_minutes, generated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_signal_evaluation_reports_factor_horizon
+        ON signal_evaluation_reports(workspace_id, factor_name, horizon_minutes, generated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS signal_weight_versions (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        status TEXT NOT NULL,
+        horizon_minutes INTEGER NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        promoted_at TIMESTAMPTZ
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_weight_versions_workspace_version
+        ON signal_weight_versions(workspace_id, version);
+
+      CREATE TABLE IF NOT EXISTS signal_calibrator_versions (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        weight_version TEXT NOT NULL,
+        status TEXT NOT NULL,
+        horizon_minutes INTEGER NOT NULL,
+        publishable BOOLEAN NOT NULL DEFAULT FALSE,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        promoted_at TIMESTAMPTZ
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_signal_calibrator_versions_workspace_version
+        ON signal_calibrator_versions(workspace_id, version);
+
+      CREATE TABLE IF NOT EXISTS signal_model_promotions (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        to_weight_version TEXT NOT NULL,
+        to_calibrator_version TEXT NOT NULL,
+        promoted_at TIMESTAMPTZ NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_model_promotions_workspace_promoted
+        ON signal_model_promotions(workspace_id, promoted_at DESC);
+
+      CREATE TABLE IF NOT EXISTS signal_model_monitoring_snapshots (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL,
+        active_weight_version TEXT,
+        active_calibrator_version TEXT,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_model_monitoring_workspace_generated
+        ON signal_model_monitoring_snapshots(workspace_id, generated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS signal_model_alerts (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        alert_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        status TEXT NOT NULL,
+        active_weight_version TEXT,
+        active_calibrator_version TEXT,
+        symbol TEXT,
+        factor_name TEXT,
+        message TEXT NOT NULL,
+        evidence_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        acknowledged_at TIMESTAMPTZ,
+        resolved_at TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_model_alerts_workspace_status
+        ON signal_model_alerts(workspace_id, status, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS signal_model_rollbacks (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        from_weight_version TEXT NOT NULL,
+        to_weight_version TEXT NOT NULL,
+        from_calibrator_version TEXT NOT NULL,
+        to_calibrator_version TEXT NOT NULL,
+        executed_at TIMESTAMPTZ NOT NULL,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+      );
+      CREATE INDEX IF NOT EXISTS idx_signal_model_rollbacks_workspace_executed
+        ON signal_model_rollbacks(workspace_id, executed_at DESC);
+    `);
+    this.signalEvaluationSchemaReady = true;
   }
 
   private requirePool(): Pool {

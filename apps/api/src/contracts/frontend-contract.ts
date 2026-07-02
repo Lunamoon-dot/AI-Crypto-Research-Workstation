@@ -216,6 +216,10 @@ export interface ThesisSummaryResponse {
   upside_catalyst: string;
   invalidation: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   key_reasons: string[];
   risks: string[];
   spot_notes: string;
@@ -278,6 +282,10 @@ export interface ThesisResponse {
   confirmation_condition: string;
   invalidation_level: string;
   target_zones: string[];
+  profit_targets: string[];
+  downside_objectives: string[];
+  accumulation_zones: string[];
+  indicator_thresholds: string[];
   thesis_text: string;
   summary: ThesisSummaryResponse;
   supporting_signal_ids: string[];
@@ -857,25 +865,6 @@ export interface ScenarioMonitorResponse {
   items: ScenarioMonitorItemResponse[];
 }
 
-export interface WatchlistPollResponse {
-  checked_watchlists: number;
-  alerts_created: number;
-  skipped_items: string[];
-}
-
-export interface AlertSchedulerStatusResponse {
-  enabled: boolean;
-  configured_by_env: boolean;
-  interval_ms: number;
-  poll_on_start: boolean;
-  limit: number;
-  running: boolean;
-  last_run_at: string | null;
-  last_error: string | null;
-  last_result: WatchlistPollResponse | null;
-  workspace_enabled_watchlists: number;
-}
-
 export interface ProviderHealthResponse {
   id: string | null;
   provider: string;
@@ -982,6 +971,10 @@ export interface SignalResponse {
   signal_type: string;
   direction: string;
   confidence: number | null;
+  heuristic_strength: number | null;
+  confidence_semantics: 'heuristic' | 'empirical' | 'unavailable';
+  availability: 'valid' | 'missing' | 'stale' | 'parse_failed' | 'error' | 'unknown';
+  display_name: string;
   observed_at: string | null;
   source: string;
   source_timestamp: string | null;
@@ -997,6 +990,10 @@ export interface SignalDetailResponse extends SignalResponse {
   empirical_confidence: number | null;
   empirical_confidence_sample_size: number | null;
   empirical_confidence_oos_sample_size: number | null;
+  empirical_probability: number | null;
+  empirical_probability_sample_size: number | null;
+  empirical_probability_oos_sample_size: number | null;
+  source_note: string | null;
   confidence_version: string;
   freshness_status: string;
   is_stale: boolean;
@@ -1010,85 +1007,12 @@ export interface SignalDetailResponse extends SignalResponse {
   payload: JsonRecord;
 }
 
-export interface WatchlistResponse {
-  id: string | null;
-  workspace_id: string;
-  name: string;
-  enabled: boolean;
-  created_at: string | null;
-}
-
-export interface WatchlistItemResponse {
-  id: string | null;
-  workspace_id: string;
-  watchlist_id: string;
-  item_type: string;
-  symbol: string | null;
-  thesis_id: string | null;
-  setup_type: string | null;
-  enabled: boolean;
-  created_at: string | null;
-}
-
-export interface RemoveWatchlistResponse {
-  id: string;
-  workspace_id: string;
-  name: string;
-  removed: boolean;
-  removed_item_count: number;
-}
-
-export interface BriefAssetSummaryResponse {
-  symbol: string;
-  current_price: number | null;
-  market_regime: string;
-  trend_direction: string;
-  volatility_regime: string;
-  source: string | null;
-  source_timestamp: string | null;
-  summary: string;
-  change_from_previous: string | null;
-}
-
-export interface BriefThesisUpdateResponse {
-  thesis_id: string;
-  symbol: string;
-  direction: string;
-  setup_type: string;
-  confidence: number | null;
-  status: string;
-  update: string;
-  invalidation_level: string | null;
-  recent_alerts: string[];
-}
-
-export interface BriefResponse {
-  id: string | null;
-  workspace_id: string;
-  brief_date: string | null;
-  watchlist_name: string | null;
-  title: string;
-  created_at: string | null;
-  previous_brief_id: string | null;
-  summary: string;
-  key_points: string[];
-  thesis_ids: string[];
-  signal_ids: string[];
-  asset_summaries: BriefAssetSummaryResponse[];
-  thesis_updates: BriefThesisUpdateResponse[];
-  watchlist_changes: string[];
-  top_setups: string[];
-  top_risks: string[];
-  memory_notes: string[];
-}
-
 export interface AlertResponse {
   id: string | null;
   workspace_id: string;
   alert_type: string;
   symbol: string;
   thesis_id: string | null;
-  watchlist_item_id: string | null;
   trigger_key: string | null;
   created_at: string | null;
   read_at: string | null;
@@ -1105,9 +1029,7 @@ export type AttentionSourceType =
   | 'thesis'
   | 'scenario'
   | 'run'
-  | 'provider'
-  | 'brief'
-  | 'watchlist';
+  | 'provider';
 
 export interface AttentionBadgeResponse {
   label: string;
@@ -1169,9 +1091,7 @@ export interface WorkbenchAttentionResponse {
   generated_at: string;
   item_count: number;
   unresolved_count: number;
-  latest_brief: BriefResponse | null;
   active_scenarios: ScenarioResponse[];
-  brief_actions: AttentionItemResponse[];
   queues: AttentionQueueResponse[];
   items: AttentionItemResponse[];
   notifications: NotificationResponse[];
@@ -1688,12 +1608,29 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     summary.invalidation,
   );
   const targets = firstStringList(thesis.target_zones, summary.target_zones);
+  const profitTargets = firstStringList(thesis.profit_targets, summary.profit_targets);
+  const downsideObjectives = firstStringList(
+    thesis.downside_objectives,
+    summary.downside_objectives,
+  );
+  const accumulationZones = firstStringList(
+    thesis.accumulation_zones,
+    summary.accumulation_zones,
+  );
+  const indicatorThresholds = firstStringList(
+    thesis.indicator_thresholds,
+    summary.indicator_thresholds,
+  );
   const summaryResponse = toThesisSummaryResponse(
     summary,
     entryZone,
     confirmationCondition,
     invalidation,
     targets,
+    profitTargets,
+    downsideObjectives,
+    accumulationZones,
+    indicatorThresholds,
   );
   const direction = directionForRating(
     summaryResponse.rating,
@@ -1745,6 +1682,10 @@ export function toThesisResponse(thesis: JsonRecord): ThesisResponse {
     confirmation_condition: confirmationCondition,
     invalidation_level: invalidation,
     target_zones: targets,
+    profit_targets: profitTargets,
+    downside_objectives: downsideObjectives,
+    accumulation_zones: accumulationZones,
+    indicator_thresholds: indicatorThresholds,
     thesis_text: stringValue(thesis.thesis_text),
     summary: summaryResponse,
     supporting_signal_ids: stringList(thesis.supporting_signal_ids),
@@ -2579,9 +2520,123 @@ export function toDataFreshnessResponse(row: JsonRecord): DataFreshnessResponse 
   };
 }
 
+function signalConfidenceSemantics(
+  signal: JsonRecord,
+  payload: JsonRecord,
+  heuristicStrength: number | null,
+  empiricalProbability: number | null,
+): SignalResponse['confidence_semantics'] {
+  const explicit = stringValue(
+    signal.confidence_semantics ?? payload.confidence_semantics,
+  );
+  if (
+    explicit === 'heuristic' ||
+    explicit === 'empirical' ||
+    explicit === 'unavailable'
+  ) {
+    return explicit;
+  }
+  if (empiricalProbability !== null) {
+    return 'empirical';
+  }
+  return heuristicStrength === null ? 'unavailable' : 'heuristic';
+}
+
+function signalAvailability(
+  signal: JsonRecord,
+  payload: JsonRecord,
+  evidence: JsonRecord,
+  provenance: JsonRecord,
+): SignalResponse['availability'] {
+  const provenanceMetadata = recordValue(provenance.metadata);
+  const raw = stringValue(
+    signal.availability ??
+      payload.availability ??
+      evidence.availability ??
+      provenanceMetadata.availability,
+  );
+  if (
+    raw === 'valid' ||
+    raw === 'missing' ||
+    raw === 'stale' ||
+    raw === 'parse_failed' ||
+    raw === 'error'
+  ) {
+    return raw;
+  }
+  const freshness = stringValue(
+    signal.freshness_status ?? payload.freshness_status ?? provenance.freshness,
+  );
+  return freshness === 'stale' ? 'stale' : 'unknown';
+}
+
+function signalDisplayName(
+  signal: JsonRecord,
+  payload: JsonRecord,
+  evidence: JsonRecord,
+  provenanceMetadata: JsonRecord,
+): string {
+  const explicit = stringValue(
+    signal.display_name ??
+      payload.display_name ??
+      evidence.display_name ??
+      provenanceMetadata.display_name,
+  );
+  if (explicit) {
+    return explicit;
+  }
+  const signalType = stringValue(signal.signal_type ?? payload.signal_type);
+  return signalType === 'onchain' ? 'Market structure proxy' : signalType;
+}
+
+function publishableEmpiricalProbability(
+  signal: JsonRecord,
+  payload: JsonRecord,
+): number | null {
+  const explicit = nullableNumber(
+    signal.empirical_probability ?? payload.empirical_probability,
+  );
+  if (explicit !== null) {
+    return explicit;
+  }
+  const empirical = nullableNumber(
+    signal.empirical_confidence ?? payload.empirical_confidence,
+  );
+  const sampleSize = nullableNumber(
+    signal.empirical_confidence_sample_size ??
+      payload.empirical_confidence_sample_size,
+  );
+  const oosSampleSize = nullableNumber(
+    signal.empirical_confidence_oos_sample_size ??
+      payload.empirical_confidence_oos_sample_size,
+  );
+  if (
+    empirical !== null &&
+    sampleSize !== null &&
+    oosSampleSize !== null &&
+    sampleSize >= 30 &&
+    oosSampleSize >= 10
+  ) {
+    return empirical;
+  }
+  return null;
+}
+
 export function toSignalResponse(signal: JsonRecord): SignalResponse {
   const payload = recordValue(signal.payload ?? signal.payload_json);
   const provenance = recordValue(signal.provenance ?? payload.provenance);
+  const provenanceMetadata = recordValue(provenance.metadata);
+  const evidence = recordValue(signal.evidence ?? payload.evidence);
+  const heuristicStrength = nullableNumber(
+    signal.heuristic_strength ??
+      payload.heuristic_strength ??
+      signal.heuristic_confidence ??
+      payload.heuristic_confidence ??
+      evidence.heuristic_confidence ??
+      signal.confidence ??
+      payload.confidence,
+  );
+  const empiricalProbability = publishableEmpiricalProbability(signal, payload);
   return {
     id: nullableString(signal.id),
     workspace_id: stringValue(signal.workspace_id, 'local'),
@@ -2595,6 +2650,15 @@ export function toSignalResponse(signal: JsonRecord): SignalResponse {
     signal_type: stringValue(signal.signal_type ?? payload.signal_type),
     direction: stringValue(signal.direction ?? payload.direction),
     confidence: nullableNumber(signal.confidence ?? payload.confidence),
+    heuristic_strength: heuristicStrength,
+    confidence_semantics: signalConfidenceSemantics(
+      signal,
+      payload,
+      heuristicStrength,
+      empiricalProbability,
+    ),
+    availability: signalAvailability(signal, payload, evidence, provenance),
+    display_name: signalDisplayName(signal, payload, evidence, provenanceMetadata),
     observed_at: nullableString(
       signal.observed_at ?? payload.observed_at ?? provenance.observed_at,
     ),
@@ -2622,6 +2686,19 @@ export function toSignalDetailResponse(signal: JsonRecord): SignalDetailResponse
   const inferredStale =
     provenanceFreshness === 'stale' ||
     (expiresAt ? Date.parse(expiresAt) < Date.now() : false);
+  const empiricalProbability = publishableEmpiricalProbability(signal, payload);
+  const empiricalProbabilitySampleSize = nullableNumber(
+    signal.empirical_probability_sample_size ??
+      payload.empirical_probability_sample_size ??
+      signal.empirical_confidence_sample_size ??
+      payload.empirical_confidence_sample_size,
+  );
+  const empiricalProbabilityOosSampleSize = nullableNumber(
+    signal.empirical_probability_oos_sample_size ??
+      payload.empirical_probability_oos_sample_size ??
+      signal.empirical_confidence_oos_sample_size ??
+      payload.empirical_confidence_oos_sample_size,
+  );
   return {
     ...base,
     expires_at: expiresAt,
@@ -2643,6 +2720,15 @@ export function toSignalDetailResponse(signal: JsonRecord): SignalDetailResponse
     empirical_confidence_oos_sample_size: nullableNumber(
       signal.empirical_confidence_oos_sample_size ??
         payload.empirical_confidence_oos_sample_size,
+    ),
+    empirical_probability: empiricalProbability,
+    empirical_probability_sample_size: empiricalProbabilitySampleSize,
+    empirical_probability_oos_sample_size: empiricalProbabilityOosSampleSize,
+    source_note: nullableString(
+      signal.source_note ??
+        payload.source_note ??
+        evidence.source_note ??
+        provenanceMetadata.source_note,
     ),
     confidence_version: stringValue(
       signal.confidence_version ?? payload.confidence_version,
@@ -2706,89 +2792,6 @@ export function toEvidenceBundleResponse(
   };
 }
 
-export function toWatchlistResponse(watchlist: JsonRecord): WatchlistResponse {
-  return {
-    id: nullableString(watchlist.id),
-    workspace_id: stringValue(watchlist.workspace_id, 'local'),
-    name: stringValue(watchlist.name),
-    enabled: booleanValue(watchlist.enabled, true),
-    created_at: nullableString(watchlist.created_at),
-  };
-}
-
-export function toWatchlistItemResponse(
-  item: JsonRecord,
-): WatchlistItemResponse {
-  return {
-    id: nullableString(item.id),
-    workspace_id: stringValue(item.workspace_id, 'local'),
-    watchlist_id: stringValue(item.watchlist_id),
-    item_type: stringValue(item.item_type, 'symbol'),
-    symbol: nullableString(item.symbol),
-    thesis_id: nullableString(item.thesis_id),
-    setup_type: nullableString(item.setup_type),
-    enabled: booleanValue(item.enabled, true),
-    created_at: nullableString(item.created_at),
-  };
-}
-
-export function toBriefResponse(brief: JsonRecord): BriefResponse {
-  const payload = recordValue(brief.payload ?? brief.payload_json);
-  const assetSummaries = uniqueBriefAssetSummaries(
-    toBriefAssetSummaryResponses(brief.asset_summaries ?? payload.asset_summaries),
-  );
-  const thesisUpdates = uniqueBriefThesisUpdates(
-    toBriefThesisUpdateResponses(brief.thesis_updates ?? payload.thesis_updates),
-  );
-  const watchlistChanges = uniqueStrings(
-    firstStringList(brief.watchlist_changes, payload.watchlist_changes),
-  );
-  const topSetups = uniqueStrings(
-    firstStringList(brief.top_setups, payload.top_setups),
-  );
-  const topRisks = uniqueStrings(
-    firstStringList(brief.top_risks, payload.top_risks),
-  );
-  const memoryNotes = uniqueStrings(
-    firstStringList(brief.memory_notes, payload.memory_notes),
-  );
-  return {
-    id: nullableString(brief.id),
-    workspace_id: stringValue(brief.workspace_id, 'local'),
-    brief_date: nullableString(brief.brief_date),
-    watchlist_name: nullableString(brief.watchlist_name),
-    title: stringValue(brief.title),
-    created_at: nullableString(brief.created_at),
-    previous_brief_id: nullableString(brief.previous_brief_id),
-    summary: stringValue(
-      brief.summary ?? brief.action_summary ?? brief.regime_summary,
-    ),
-    key_points: uniqueStrings(
-      firstStringList(
-        brief.key_points,
-        payload.key_points,
-        [...watchlistChanges, ...topSetups, ...topRisks].slice(0, 8),
-      ),
-    ),
-    thesis_ids: uniqueStrings(
-      firstStringList(
-        brief.thesis_ids,
-        payload.thesis_ids,
-        thesisUpdates.map((update) => update.thesis_id),
-      ),
-    ),
-    signal_ids: uniqueStrings(
-      firstStringList(brief.signal_ids, payload.signal_ids),
-    ),
-    asset_summaries: assetSummaries,
-    thesis_updates: thesisUpdates,
-    watchlist_changes: watchlistChanges,
-    top_setups: topSetups,
-    top_risks: topRisks,
-    memory_notes: memoryNotes,
-  };
-}
-
 export function toAlertResponse(alert: JsonRecord): AlertResponse {
   return {
     id: nullableString(alert.id),
@@ -2796,7 +2799,6 @@ export function toAlertResponse(alert: JsonRecord): AlertResponse {
     alert_type: stringValue(alert.alert_type),
     symbol: stringValue(alert.symbol),
     thesis_id: nullableString(alert.thesis_id),
-    watchlist_item_id: nullableString(alert.watchlist_item_id),
     trigger_key: nullableString(alert.trigger_key),
     created_at: nullableString(alert.created_at),
     read_at: nullableString(alert.read_at),
@@ -2811,6 +2813,10 @@ function toThesisSummaryResponse(
   confirmationCondition: string,
   invalidation: string,
   targetZones: string[],
+  profitTargets: string[],
+  downsideObjectives: string[],
+  accumulationZones: string[],
+  indicatorThresholds: string[],
 ): ThesisSummaryResponse {
   return {
     rating: stringValue(summary.rating, 'Hold'),
@@ -2826,6 +2832,10 @@ function toThesisSummaryResponse(
     upside_catalyst: stringValue(summary.upside_catalyst),
     invalidation,
     target_zones: targetZones,
+    profit_targets: profitTargets,
+    downside_objectives: downsideObjectives,
+    accumulation_zones: accumulationZones,
+    indicator_thresholds: indicatorThresholds,
     key_reasons: researchItemTextList(summary.key_reasons),
     risks: researchItemTextList(summary.risks),
     spot_notes: stringValue(summary.spot_notes),
@@ -2837,96 +2847,6 @@ function toThesisSummaryResponse(
     is_degraded: booleanValue(summary.is_degraded),
     degradation_reasons: stringList(summary.degradation_reasons),
   };
-}
-
-function toBriefAssetSummaryResponses(value: unknown): BriefAssetSummaryResponse[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map((item) => {
-    const asset = recordValue(item);
-    return {
-      symbol: stringValue(asset.symbol),
-      current_price: nullableNumber(asset.current_price),
-      market_regime: stringValue(asset.market_regime, 'unknown'),
-      trend_direction: stringValue(asset.trend_direction, 'unknown'),
-      volatility_regime: stringValue(asset.volatility_regime, 'unknown'),
-      source: nullableString(asset.source),
-      source_timestamp: nullableString(asset.source_timestamp),
-      summary: stringValue(asset.summary),
-      change_from_previous: nullableString(asset.change_from_previous),
-    };
-  });
-}
-
-function toBriefThesisUpdateResponses(value: unknown): BriefThesisUpdateResponse[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map((item) => {
-    const update = recordValue(item);
-    return {
-      thesis_id: stringValue(update.thesis_id),
-      symbol: stringValue(update.symbol),
-      direction: stringValue(update.direction, 'watch'),
-      setup_type: stringValue(update.setup_type, 'unspecified'),
-      confidence: nullableNumber(update.confidence),
-      status: stringValue(update.status, 'review'),
-      update: stringValue(update.update),
-      invalidation_level: nullableString(update.invalidation_level),
-      recent_alerts: stringList(update.recent_alerts),
-    };
-  });
-}
-
-function uniqueBriefAssetSummaries(
-  assets: BriefAssetSummaryResponse[],
-): BriefAssetSummaryResponse[] {
-  const seen = new Set<string>();
-  const deduped: BriefAssetSummaryResponse[] = [];
-  for (const asset of assets) {
-    const key = asset.symbol.trim().toUpperCase();
-    if (key && seen.has(key)) {
-      continue;
-    }
-    if (key) {
-      seen.add(key);
-    }
-    deduped.push(asset);
-  }
-  return deduped;
-}
-
-function uniqueBriefThesisUpdates(
-  updates: BriefThesisUpdateResponse[],
-): BriefThesisUpdateResponse[] {
-  const seen = new Set<string>();
-  const deduped: BriefThesisUpdateResponse[] = [];
-  for (const update of updates) {
-    const key =
-      update.thesis_id ||
-      [
-        update.symbol,
-        update.direction,
-        update.setup_type,
-        update.update,
-      ].join(':');
-    if (key && seen.has(key)) {
-      continue;
-    }
-    if (key) {
-      seen.add(key);
-    }
-    deduped.push({
-      ...update,
-      recent_alerts: uniqueStrings(update.recent_alerts),
-    });
-  }
-  return deduped;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
 }
 
 function calibrationRecordReviewBlockers(
@@ -3440,6 +3360,9 @@ function derivedScenarioActionBias(
   triggerCondition: ScenarioDecisionCondition | null,
 ): ScenarioRecommendation['action_bias'] {
   const actionText = normalizeScenarioConditionText(input.suggestedUserAction);
+  const isWatchOnlyAction = actionText.match(
+    /\b(watch|wait|review|theo doi|cho|quan sat|khong mua|khong ban|do not act|not an exchange order|no trade|avoid)\b/,
+  );
   if (
     actionText.match(/\b(short|sell|ban|entry short|consider short)\b/) &&
     !actionText.match(/\b(khong ban|not sell|do not sell|no trade|avoid)\b/)
@@ -3459,7 +3382,7 @@ function derivedScenarioActionBias(
   if (explicitDirection.match(/\b(long|bull|bullish|tang)\b/)) {
     return 'long';
   }
-  if (actionText.match(/\b(watch|wait|review|theo doi|cho|quan sat|khong mua|khong ban|no trade|avoid)\b/)) {
+  if (isWatchOnlyAction) {
     return 'neutral';
   }
   const directionText = normalizeScenarioConditionText(

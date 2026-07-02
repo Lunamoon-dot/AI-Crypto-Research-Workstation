@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AlertsModule } from './alerts/alerts.module';
 import { AuthModule } from './auth/auth.module';
 import { BacktestsModule } from './backtests/backtests.module';
-import { BriefsModule } from './briefs/briefs.module';
 import { CalibrationModule } from './calibration/calibration.module';
 import { DatabaseModule } from './database/database.module';
 import { JobsController } from './jobs/jobs.controller';
@@ -21,7 +20,6 @@ import { SignalsModule } from './signals/signals.module';
 import { SystemController } from './system.controller';
 import { ThesesModule } from './theses/theses.module';
 import { UsersModule } from './users/users.module';
-import { WatchlistsModule } from './watchlists/watchlists.module';
 import { WorkbenchModule } from './workbench/workbench.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
@@ -39,8 +37,6 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     MarketDataModule,
     ThesesModule,
     SignalsModule,
-    WatchlistsModule,
-    BriefsModule,
     AlertsModule,
     CalibrationModule,
     PerformanceModule,

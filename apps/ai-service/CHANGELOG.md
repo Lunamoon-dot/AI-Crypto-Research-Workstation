@@ -19,13 +19,13 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ### Changed
 
-- `lunacrypto analyze --clear-checkpoints` with no `--ticker` / `--non-interactive` / `--plain` now exits after clearing checkpoint files instead of opening the interactive wizard.
+- The public human command-line surface has been decommissioned; API workers use the machine-only `python -m luna_workstation.engine ...` contract.
 - Formatted the repository with Ruff so the configured format gate can pass.
 - `ResearchRun` provenance fields (`deep_think_model`, `quick_think_model`, `llm_provider`, `config_hash`) are now stored in structured SQLite columns as well as in `payload_json`.
 - Journal migrations now add provenance columns to older `research_runs` tables.
 - Developer docs now point to `pip install -e ".[dev]"` and include the release quality gates.
 - `scripts/smoke_structured_output.py` now passes the default config into the Portfolio Manager and uses ASCII-safe smoke labels for Windows log capture.
-- Watchlist/dashboard reads now batch thesis, latest snapshot, scenario, and scoped alert lookups for brief/check workflows.
+- Dashboard reads now batch thesis, latest snapshot, scenario, and scoped alert lookups without Watchlist or Daily Brief workflow dependencies.
 
 ### Removed
 

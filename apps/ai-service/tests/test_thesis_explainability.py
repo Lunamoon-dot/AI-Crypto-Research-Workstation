@@ -82,7 +82,7 @@ def test_graph_builds_explicit_thesis_explainability_fields():
     assert thesis.contradicting_evidence == ["Funding is overheated."]
     assert thesis.stale_or_missing_data == ["regime: unknown", "funding: stale"]
     assert thesis.invalidation == "95000"
-    assert "target: 110000" in thesis.monitor_next
+    assert "objective zone: 110000" in thesis.monitor_next
     assert "0.72" in thesis.confidence_rationale
     assert thesis.structured_summary.is_degraded is True
     assert "structured_summary_missing" in thesis.structured_summary.degradation_reasons
@@ -462,7 +462,7 @@ def test_graph_preserves_object_first_research_evidence_contract():
         "entry: Pullback near support",
         "confirmation: Daily close above resistance with expanding spot volume",
         "invalidation: Close back below support",
-        "target: range high",
+        "objective zone: range high",
     ]
     assert thesis.risk_notes == ["Funding data is unavailable for this run."]
 
@@ -1188,6 +1188,58 @@ def test_graph_adds_price_sanity_note_when_trigger_already_crossed():
     note = "price-only above $638 has already occurred at current price $682"
     assert any(note in risk for risk in thesis.risk_notes)
     assert thesis.evidence["current_price"] == 682.0
+
+
+def test_graph_does_not_treat_downside_objective_zones_as_stale_upside_targets():
+    graph = object.__new__(ResearchAgentsGraph)
+    graph.ticker = "BNB/USDT"
+    graph.signal_processor = SimpleNamespace(process_signal=lambda _text: "Hold")
+    graph.quant_signal_result = SimpleNamespace(confidence=0.09, current_price=552.65)
+    graph.current_debate = None
+    graph.current_agent_opinions = []
+    graph.current_research_run = ResearchRun(id="run_price_downside", symbol="BNB/USDT")
+    graph.current_signals = []
+
+    thesis = ResearchAgentsGraph._build_trade_thesis(
+        graph,
+        {
+            "company_of_interest": "BNB/USDT",
+            "final_trade_candidate_source": "portfolio_decision_structured",
+            "final_trade_candidate_schema_version": "thesis_candidate.v1",
+            "final_trade_decision": "**Rating**: Underweight\n\nWatch downside zones.",
+            "final_trade_summary_json": """
+            {
+              "schema_version": "thesis_candidate.v1",
+              "rating": "Underweight",
+              "direction": "watch",
+              "confidence": 0.09,
+              "market_type": "spot",
+              "action_summary": "Avoid fresh longs while downside remains open.",
+              "investment_thesis": "Weak momentum keeps BNB in review mode.",
+              "confirmation_condition": "Daily close below $540 with volume confirms weakness.",
+              "invalidation": "Daily close above $560 invalidates the bearish review.",
+              "entry_zone": "$540-$545 review zone",
+              "target_zones": ["$480", "$450", "$420"],
+              "key_reasons": [
+                {"text": "Crowded longs increase downside risk.", "supporting_evidence": []}
+              ],
+              "risks": [
+                {"text": "Short squeeze can force review.", "supporting_evidence": []}
+              ],
+              "monitor_next": [
+                {"text": "Watch daily close around $540.", "supporting_evidence": []}
+              ],
+              "supporting_evidence": [],
+              "missing_data": []
+            }
+            """,
+        },
+    )
+
+    joined_risks = "\n".join(thesis.risk_notes)
+    assert "upside target $480 is below current price" not in joined_risks
+    assert "upside target $450 is below current price" not in joined_risks
+    assert "upside target $420 is below current price" not in joined_risks
 
 
 def test_graph_stability_guard_holds_recent_same_symbol_flip():

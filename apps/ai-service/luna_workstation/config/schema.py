@@ -255,7 +255,7 @@ def validate_and_normalize_config(
                 )
             else:
                 # Drop primary from fallbacks (default.toml lists alternates including
-                # openai, which clashes when CLI sets llm_provider=openai). Log only;
+                # openai, which clashes when runtime overrides set llm_provider=openai). Log only;
                 # do not fail — users should still reach credential checks.
                 primary = str(normalized.get("llm_provider", "")).lower().strip()
                 seen_fb: set[str] = set()

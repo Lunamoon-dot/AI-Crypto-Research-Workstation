@@ -51,6 +51,7 @@ export class BacktestService {
       throw new NotFoundException(`Playbook ${playbookId} not found`);
     }
     const playbook = toTradePlaybookResponse(rawPlaybook);
+    validateBacktestablePlaybook(playbook);
     const assumptions = normalizeAssumptions(assumptionsInput);
     const candles = await this.loadCandles({
       workspaceId,
@@ -69,13 +70,14 @@ export class BacktestService {
       win_rate: null,
       profit_factor: null,
     };
+    const id = `backtest_${randomUUID().replaceAll('-', '')}`;
 
     if (candles.length === 0) {
       status = 'failed';
       dataQuality = 'insufficient';
       warnings.push('missing_ohlcv');
     } else {
-      const simulation = simulate(playbook, candles, assumptions);
+      const simulation = simulate(playbook, candles, assumptions, id);
       result = simulation.result;
       events.push(...simulation.events);
       warnings.push(...simulation.warnings);
@@ -85,7 +87,6 @@ export class BacktestService {
       }
     }
 
-    const id = `backtest_${randomUUID().replaceAll('-', '')}`;
     const saved = await this.journal.saveBacktestRun(
       {
         version: 'backtest_run.v1',
@@ -212,10 +213,26 @@ function normalizeAssumptions(
   };
 }
 
+function validateBacktestablePlaybook(
+  playbook: ReturnType<typeof toTradePlaybookResponse>,
+): void {
+  if (
+    playbook.direction === 'avoid' ||
+    !entryTrigger(playbook.entry) ||
+    playbook.invalidation.level === null ||
+    firstTargetLevel(playbook.targets) === null
+  ) {
+    throw new BadRequestException(
+      'Backtest requires numeric entry, invalidation, and target levels.',
+    );
+  }
+}
+
 function simulate(
   playbook: ReturnType<typeof toTradePlaybookResponse>,
   candles: MarketOhlcvCandleResponse[],
   assumptions: BacktestAssumptionSetResponse,
+  runId: string,
 ): {
   result: BacktestRunResponse['result'];
   events: JsonRecord[];
@@ -252,7 +269,6 @@ function simulate(
     };
   }
   const entryIndex = entry.index;
-  const entryCandle = candles[entryIndex]!;
   const exit = findExit(candles, entryIndex, playbook);
   warnings.push(...exit.warnings);
   const cost = (assumptions.fee_bps + assumptions.slippage_bps) / 10_000;
@@ -282,7 +298,7 @@ function simulate(
     },
     events: [
       {
-        id: `event_entry_${entryCandle.time}`,
+        id: `${runId}_event_1_entry`,
         event_index: 1,
         event_type: 'entry',
         event_time: entry.time,
@@ -293,7 +309,7 @@ function simulate(
         exposure_fraction: exposure,
       },
       {
-        id: `event_exit_${exit.time}`,
+        id: `${runId}_event_2_exit`,
         event_index: 2,
         event_type: 'exit',
         event_time: exit.time,

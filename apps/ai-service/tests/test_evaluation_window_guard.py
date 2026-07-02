@@ -79,3 +79,64 @@ def test_evaluation_marks_future_windows_incomplete(tmp_path):
     assert "incomplete_window" in evaluation.warnings
     assert evaluation.evidence["candle_count"] == 1
     assert evaluation.evidence["target_hit"] is True
+
+
+def test_evaluation_prefers_profit_targets_over_legacy_objectives(tmp_path):
+    def _price_loader(symbol: str, start_date: str, end_date: str) -> str:
+        return "\n".join(
+            [
+                "Date,Open,High,Low,Close,Volume",
+                "2026-01-01,100,106,96,105,10",
+            ]
+        )
+
+    service = EvaluationService(config=_config(tmp_path), price_loader=_price_loader)
+    run = service.repo.save_research_run(ResearchRun(symbol="BTC/USDT"))
+    thesis = service.repo.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BTC/USDT",
+            direction=ThesisDirection.LONG,
+            thesis_text="Long while support holds.",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            target_zones=["80"],
+            profit_targets=["105"],
+            invalidation_level="95",
+        )
+    )
+
+    evaluation = service.evaluate_thesis(thesis.id, window_days=14)
+
+    assert evaluation.target_level == 105
+    assert evaluation.target_hit is True
+
+
+def test_evaluation_uses_downside_objectives_for_watch_theses(tmp_path):
+    def _price_loader(symbol: str, start_date: str, end_date: str) -> str:
+        return "\n".join(
+            [
+                "Date,Open,High,Low,Close,Volume",
+                "2026-01-01,100,104,84,86,10",
+            ]
+        )
+
+    service = EvaluationService(config=_config(tmp_path), price_loader=_price_loader)
+    run = service.repo.save_research_run(ResearchRun(symbol="BNB/USDT"))
+    thesis = service.repo.save_thesis(
+        TradeThesis(
+            research_run_id=run.id,
+            symbol="BNB/USDT",
+            direction=ThesisDirection.WATCH,
+            thesis_text="Watch downside objectives before reconsidering exposure.",
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            target_zones=["120"],
+            downside_objectives=["85"],
+            invalidation_level="110",
+        )
+    )
+
+    evaluation = service.evaluate_thesis(thesis.id, window_days=14)
+
+    assert evaluation.target_level == 85
+    assert evaluation.target_hit is True
+    assert any("inferred short side" in note for note in evaluation.notes)

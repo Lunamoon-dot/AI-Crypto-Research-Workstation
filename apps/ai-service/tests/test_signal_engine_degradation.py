@@ -1,6 +1,10 @@
 from luna_workstation.graph import quant_signals
 from luna_workstation.signals import engine as engine_module
 from luna_workstation.signals.base import FactorSignal, SignalResult, SignalScore
+from luna_workstation.signals.evaluation.models import (
+    SignalCalibratorVersion,
+    SignalWeightVersion,
+)
 from luna_workstation.signals.engine import SignalEngine
 from luna_workstation.signals.provenance import signal_result_to_domain_signals
 
@@ -75,6 +79,70 @@ def test_signal_engine_records_failed_factor_as_degradation(monkeypatch):
     assert composite.evidence["factor_failures"][0]["reason"] == (
         "signal_factor_macd_failed"
     )
+
+
+def test_signal_engine_attaches_promoted_empirical_probability(monkeypatch):
+    monkeypatch.setattr(
+        engine_module,
+        "detect_regime",
+        lambda _csv: {
+            "signal": _factor("regime"),
+            "trend_direction": "up",
+            "trend_strength": 0.7,
+            "volatility_regime": "normal",
+            "market_regime": "trending",
+        },
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "compute_rsi_divergence",
+        lambda _csv: _factor("rsi_divergence"),
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "compute_macd_signal",
+        lambda _csv: _factor("macd"),
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "compute_volume_signal",
+        lambda _csv: _factor("volume_profile"),
+    )
+    weight = SignalWeightVersion(
+        id="weight_promoted",
+        workspace_id="ws_1",
+        version="signal_weights:v1:1440:runtime",
+        status="promoted",
+        horizon_minutes=1440,
+        weights_json={
+            "feature_columns": ["valid_factor_count"],
+            "weights": {"valid_factor_count": 0.5},
+            "intercept": 0.0,
+        },
+    )
+    calibrator = SignalCalibratorVersion(
+        id="calibrator_promoted",
+        workspace_id="ws_1",
+        version="signal_calibrator:v1:1440:runtime",
+        weight_version=weight.version,
+        status="promoted",
+        horizon_minutes=1440,
+        params_json={"method": "platt", "slope": 1.0, "intercept": 0.0},
+        sample_size=200,
+        oos_sample_size=160,
+        publishable=True,
+    )
+
+    result = SignalEngine(
+        empirical_weight_version=weight,
+        empirical_calibrator_version=calibrator,
+    ).generate("BTC/USDT", _OHLCV_CSV)
+
+    assert result.empirical_confidence is not None
+    assert result.empirical_sample_size == 200
+    assert result.empirical_oos_sample_size == 160
+    assert result.empirical_confidence_is_publishable() is True
+    assert result.signal_weight_version == weight.version
 
 
 def test_precompute_quant_signal_preserves_engine_degradation(monkeypatch):

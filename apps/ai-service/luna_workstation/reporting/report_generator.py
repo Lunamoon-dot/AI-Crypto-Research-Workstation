@@ -155,6 +155,9 @@ class ReportGenerator:
         return section
 
     def _executive_summary_from_thesis(self, thesis: dict, state: dict) -> str:
+        if self._is_blocked_thesis(thesis):
+            return self._blocked_thesis_section("## Executive Summary", thesis)
+
         summary = self._thesis_summary(thesis)
         rating = str(summary.get("rating") or "Hold")
         direction = str(summary.get("direction") or thesis.get("direction") or "watch")
@@ -214,6 +217,8 @@ class ReportGenerator:
         }.get(rating, "neutral")
 
     def _publication_mode(self, thesis: dict, state: dict) -> str:
+        if self._is_blocked_thesis(thesis):
+            return "Blocked diagnostic"
         summary = self._thesis_summary(thesis)
         run_quality = state.get("run_quality") or {}
         confidence = self._number(summary.get("confidence") or thesis.get("confidence"))
@@ -292,6 +297,12 @@ class ReportGenerator:
         return section
 
     def _trader_plan(self, state: dict) -> str:
+        thesis = self._canonical_thesis(state)
+        if thesis and self._is_blocked_thesis(thesis):
+            return (
+                "## Setup Planner Proposal\n\n"
+                "_Withheld because the final thesis artifact is blocked._"
+            )
         plan = state.get("trader_investment_plan", "")
         section = "## Setup Planner Proposal\n\n"
         section += plan if plan else "_No setup proposal available._"
@@ -322,6 +333,9 @@ class ReportGenerator:
         return section
 
     def _final_decision_from_thesis(self, thesis: dict, state: dict) -> str:
+        if self._is_blocked_thesis(thesis):
+            return self._blocked_thesis_section("## Final Thesis Decision", thesis)
+
         summary = self._thesis_summary(thesis)
         lines = [
             "## Final Thesis Decision",
@@ -338,20 +352,80 @@ class ReportGenerator:
             "confirmation_condition"
         )
         invalidation = summary.get("invalidation") or thesis.get("invalidation_level")
-        targets = summary.get("target_zones") or thesis.get("target_zones") or []
+        profit_targets = self._text_list(
+            summary.get("profit_targets") or thesis.get("profit_targets")
+        )
+        downside_objectives = self._text_list(
+            summary.get("downside_objectives") or thesis.get("downside_objectives")
+        )
+        accumulation_zones = self._text_list(
+            summary.get("accumulation_zones") or thesis.get("accumulation_zones")
+        )
+        objective_zones = self._text_list(
+            summary.get("target_zones") or thesis.get("target_zones")
+        )
         if entry:
             lines.append(f"**Entry/Review Zone**: {entry}")
         if confirmation:
             lines.append(f"**Confirmation**: {confirmation}")
         if invalidation:
             lines.append(f"**Invalidation**: {invalidation}")
-        if targets:
-            lines.append(f"**Targets**: {', '.join(str(target) for target in targets)}")
+        if profit_targets:
+            lines.append(f"**Profit Targets**: {', '.join(profit_targets)}")
+        if downside_objectives:
+            lines.append(
+                f"**Downside Objectives**: {', '.join(downside_objectives)}"
+            )
+        if accumulation_zones:
+            lines.append(
+                f"**Review / Accumulation Zones**: {', '.join(accumulation_zones)}"
+            )
+        if objective_zones:
+            lines.append(
+                "**Objective Zones (unclassified)**: "
+                + ", ".join(objective_zones)
+            )
         risks = summary.get("risks") or thesis.get("risk_notes") or []
         if risks:
             lines.extend(["", "Risks / gates:"])
             lines.extend(f"- {risk}" for risk in risks)
         return "\n".join(lines)
+
+    @staticmethod
+    def _is_blocked_thesis(thesis: dict) -> bool:
+        status = str(thesis.get("artifact_status") or "").strip().lower()
+        if status == "blocked":
+            return True
+        text = str(thesis.get("thesis_text") or "").strip().lower()
+        return text.startswith("thesis blocked.")
+
+    def _blocked_thesis_section(self, heading: str, thesis: dict) -> str:
+        lines = [
+            heading,
+            "",
+            "**Publication Mode**: Blocked diagnostic",
+            "",
+        ]
+        thesis_text = str(thesis.get("thesis_text") or "").strip()
+        if thesis_text:
+            lines.append(thesis_text)
+        else:
+            lines.append("Thesis blocked.")
+        reasons = self._text_list(thesis.get("blocked_reasons"))
+        if reasons and "Reasons:" not in thesis_text:
+            lines.extend(["", "Reasons:"])
+            lines.extend(f"- {reason}" for reason in reasons)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _text_list(value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
 
     def _price_level_sanity(self, state: dict) -> str:
         current_price = extract_current_price(state.get("quant_signal"))
@@ -446,13 +520,18 @@ class ReportGenerator:
             import re
 
             entry_m = re.search(
-                r"\*\*(?:Entry Zone|Entry Price)\*\*:\s*([\d.]+)", setup_plan
+                r"\*\*(?:Entry Zone|Entry Price)\*\*:\s*\$?([\d.]+)", setup_plan
             )
             sl_m = re.search(
-                r"\*\*(?:Invalidation|Stop Loss)\*\*:\s*([\d.]+)", setup_plan
+                r"\*\*(?:Invalidation|Stop Loss)\*\*:\s*\$?([\d.]+)", setup_plan
             )
             tp_m = re.search(
-                r"\*\*(?:Target Zones|Take Profit)\*\*:\s*([\d.]+)", setup_plan
+                r"\*\*(?:Profit Targets|Take Profit)\*\*:\s*\$?([\d.]+)",
+                setup_plan,
+            )
+            objective_m = re.search(
+                r"\*\*(?:Objective Zones|Target Zones)\*\*:\s*\$?([\d.]+)",
+                setup_plan,
             )
 
             if entry_m:
@@ -473,6 +552,15 @@ class ReportGenerator:
                 tp = float(tp_m.group(1))
                 ax.axhline(
                     y=tp, color="green", linestyle=":", alpha=0.5, label=f"TP ${tp:.2f}"
+                )
+            if objective_m:
+                objective = float(objective_m.group(1))
+                ax.axhline(
+                    y=objective,
+                    color="purple",
+                    linestyle=":",
+                    alpha=0.5,
+                    label=f"Objective ${objective:.2f}",
                 )
 
             ax.set_title(f"{ticker} — Price Action", fontsize=14, fontweight="bold")

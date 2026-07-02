@@ -26,6 +26,12 @@ import {
 import { clampListLimit } from '../common/query-limit';
 import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
 import { ScenarioReliabilityService } from '../scenarios/scenario-reliability.service';
+import {
+  latestUsableBacktestRun,
+  latestValidScenarioEvaluation,
+} from '../scenarios/scenario-lifecycle-artifacts';
+import { evaluateScenario } from '../scenarios/scenario-evaluator';
+import { evaluateScenarioRuntimeDecision } from '../scenarios/scenario-runtime-evaluator';
 
 @Injectable()
 export class ThesesService {
@@ -163,7 +169,12 @@ export class ThesesService {
     if (!scenarioId) {
       return scenario;
     }
-    const baseResponse = toScenarioResponse(scenario, thesis);
+    const scenarioWithRuntime = await this.scenarioWithRuntimeDecision(
+      scenario,
+      thesis,
+      workspaceId,
+    );
+    const baseResponse = toScenarioResponse(scenarioWithRuntime, thesis);
     const [evaluations, playbooks, reliabilityProfile] = await Promise.all([
       optionalScenarioLifecycleRows(() =>
         this.journal.listScenarioEvaluations(scenarioId, workspaceId),
@@ -182,7 +193,7 @@ export class ThesesService {
           ),
         )
       : [];
-    const latestBacktest = backtests[0] ?? null;
+    const latestBacktest = latestUsableBacktestRun(backtests);
     const tradeEvents = latestBacktest
       ? await optionalScenarioLifecycleRows(() =>
           this.journal.listBacktestTradeEvents(
@@ -192,13 +203,63 @@ export class ThesesService {
         )
       : [];
     return {
-      ...scenario,
-      latest_evaluation: evaluations[0] ?? null,
+      ...scenarioWithRuntime,
+      latest_evaluation: latestValidScenarioEvaluation(evaluations),
       latest_playbook: latestPlaybook,
       latest_backtest: latestBacktest
         ? { ...latestBacktest, trade_events: tradeEvents }
         : null,
       reliability_profile: reliabilityProfile,
+    };
+  }
+
+  private async scenarioWithRuntimeDecision(
+    scenario: JsonRecord,
+    thesis: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const payload = recordFromValue(scenario.payload ?? scenario.payload_json) ?? {};
+    const symbol = stringField(thesis.symbol ?? payload.symbol);
+    const snapshot = symbol
+      ? await this.journal.getLatestMarketSnapshot(symbol, workspaceId)
+      : null;
+    const existingRuntime = recordFromValue(
+      scenario.runtime_decision ?? payload.runtime_decision,
+    );
+    if (!snapshot && existingRuntime?.version === 'scenario_runtime_decision.v1') {
+      return scenario;
+    }
+    const nowIso = new Date().toISOString();
+    const evaluation = evaluateScenario(scenario, snapshot, nowIso);
+    const scenarioForRuntime = {
+      ...scenario,
+      status: evaluation.status,
+      status_reason: evaluation.status_reason,
+      distance_to_trigger: evaluation.distance_to_trigger,
+      last_evaluated_at: evaluation.last_evaluated_at,
+      trigger_spec: evaluation.trigger_spec,
+      decision_playbook: recordFromValue(payload.decision_playbook) ?? {},
+      payload: {
+        ...payload,
+        status: evaluation.status,
+        status_reason: evaluation.status_reason,
+        distance_to_trigger: evaluation.distance_to_trigger,
+        last_evaluated_at: evaluation.last_evaluated_at,
+        trigger_spec: evaluation.trigger_spec,
+      },
+    };
+    const runtimeDecision = evaluateScenarioRuntimeDecision(
+      scenarioForRuntime,
+      snapshot,
+      nowIso,
+    );
+    return {
+      ...scenarioForRuntime,
+      runtime_decision: runtimeDecision,
+      payload: {
+        ...recordFromValue(scenarioForRuntime.payload),
+        runtime_decision: runtimeDecision,
+      },
     };
   }
 

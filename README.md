@@ -32,7 +32,7 @@ invalidation, monitoring, and review in one durable paper trail.
 
 ```text
 apps/
-  ai-service/      Python LunaCrypto service and CLI
+  ai-service/      Python LunaCrypto engine service
   api/             NestJS product API boundary
   web/             Vite/React research workstation
 packages/
@@ -42,7 +42,7 @@ docs/
   and UX references
 ```
 
-The Python import namespace intentionally remains `luna_workstation` for compatibility; the public CLI command is `lunacrypto`.
+The Python import namespace intentionally remains `luna_workstation` for compatibility. The public command-line UI has been decommissioned; API workers use `python -m luna_workstation.engine`.
 
 Project documentation starts at [docs/README.md](docs/README.md). Feature
 implementation plans use the versioned layout documented in
@@ -82,7 +82,7 @@ pnpm db:push
 ```
 
 The Prisma config defaults to
-`postgresql://postgres:postgres@localhost:5432/lunacrypto` for CLI schema work.
+`postgresql://postgres:postgres@localhost:5432/lunacrypto` for Prisma schema work.
 When running `apps/api`, set `DATABASE_URL` explicitly if API routes need real
 journal reads/writes. Without `DATABASE_URL`, API tests can still exercise
 static membership and queue behavior, but repository-backed reads will return a
@@ -111,7 +111,7 @@ pnpm --filter @lunaperception/api test
 cd apps/ai-service
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy luna_workstation cli
+python -m mypy luna_workstation
 python -m pytest
 ```
 
@@ -127,23 +127,17 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
-Run the CLI:
+The human command-line UI has been decommissioned. Run the worker-style engine contract
+directly when testing API/worker integration:
 
 ```bash
-lunacrypto
-python -m cli.main
-```
-
-Run the worker-style engine contract:
-
-```bash
-lunacrypto engine run --request request.json
+python -m luna_workstation.engine run --request request.json
 ```
 
 ## API Boundary
 
-The NestJS API exposes research, journal, thesis, signal, watchlist, brief, and
-alert routes for the web workstation. Local API requests currently require
+The NestJS API exposes research, journal, thesis, signal, scenario, alert, calibration,
+performance, and operations routes for the web workstation. Local API requests currently require
 `x-user-id` and `x-workspace-id` headers, and workspace access must come from
 Postgres memberships or the `WORKSPACE_MEMBERSHIPS` environment variable.
 
@@ -184,8 +178,8 @@ worst-case sequential repair time.
 The web app is a local-first research workstation built with Vite, React,
 React Router, TanStack Query, and local CSS primitives. It provides workbench,
 research launcher/history/workspace, journal workspace, thesis library/detail,
-signals, scenarios, alerts, watchlists, briefs, operations, settings,
-performance, and comparison routes.
+signals, scenarios, alerts, operations, settings, performance, and comparison
+routes.
 
 Run it with the API:
 
@@ -205,20 +199,8 @@ Queue behavior is controlled by:
 ```text
 JOBS_EXECUTION_MODE=memory
 REDIS_URL=redis://...
-PYTHON_ENGINE_COMMAND=lunacrypto
-PYTHON_ENGINE_ARGS="engine run --request"
-```
-
-Watchlist alert checks refresh exchange prices before evaluating thesis rules.
-The live price feed defaults to Binance public ticker and can be configured with:
-
-```text
-PRICE_REFRESH_ON_CHECK=true
-PRICE_FEED_BASE_URL=https://api.binance.com
-PRICE_FEED_TIMEOUT_MS=2500
-WATCHLIST_ALERT_POLL_ENABLED=false
-WATCHLIST_ALERT_POLL_INTERVAL_MS=60000
-WATCHLIST_ALERT_POLL_LIMIT=100
+PYTHON_ENGINE_COMMAND=python
+PYTHON_ENGINE_ARGS="-m luna_workstation.engine run --request"
 ```
 
 ## Docker
@@ -233,6 +215,6 @@ docker compose up --build
 
 The API publishes `GET /health` and `GET /openapi.json`. The web app listens on
 `http://localhost:3001` and proxies `/backend` to the API container. The Python
-AI CLI image remains available with `docker compose --profile ai run --rm ai-service`.
+AI service image remains available with `docker compose --profile ai run --rm ai-service`.
 
 For local secrets, copy `apps/ai-service/.env.example` to `.env` at the repo root when using Docker Compose.

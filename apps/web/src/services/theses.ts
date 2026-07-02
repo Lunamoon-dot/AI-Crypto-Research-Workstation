@@ -1,5 +1,6 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
+import { normalizeThesisResponse } from './thesis-response-normalizer';
 import {
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
@@ -17,7 +18,7 @@ export function listTheses(
     '/theses',
     { query: { limit: params.limit ?? 50 } },
     auth,
-  );
+  ).then((theses) => theses.map(normalizeThesisResponse));
 }
 
 export function getThesis(id: string, auth: WorkspaceRequestContext) {
@@ -25,7 +26,7 @@ export function getThesis(id: string, auth: WorkspaceRequestContext) {
     `/theses/${encodeURIComponent(id)}`,
     {},
     auth,
-  );
+  ).then(normalizeThesisResponse);
 }
 
 export function getThesisScenarios(id: string, auth: WorkspaceRequestContext) {

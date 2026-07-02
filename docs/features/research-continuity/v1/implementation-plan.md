@@ -104,8 +104,8 @@ Current repo facts:
   Postgres, then mark the job completed.
 - Comparisons currently provide pairwise run/thesis diffs, not a durable
   continuity memory layer.
-- Daily briefs have limited previous-brief comparison, but not symbol-level
-  research continuity.
+- Workbench attention and scenario/alert surfaces are operational views, not a
+  symbol-level research continuity memory layer.
 - Calibration evaluates thesis outcomes after a maturity window. This feature
   must not duplicate that.
 

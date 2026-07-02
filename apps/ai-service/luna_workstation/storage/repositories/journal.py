@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 from .base import JournalRepositoryBase
-from .briefs import BriefsRepositoryMixin
 from .evaluations import EvaluationsRepositoryMixin
 from .observability import ObservabilityRepositoryMixin
 from .runs import RunsRepositoryMixin
+from .signal_evaluation import SignalEvaluationRepositoryMixin
 from .signals import SignalsRepositoryMixin
 from .theses import ThesesRepositoryMixin
-from .watchlists import WatchlistsRepositoryMixin
 
 
 class JournalRepository(
     RunsRepositoryMixin,
     SignalsRepositoryMixin,
+    SignalEvaluationRepositoryMixin,
     ThesesRepositoryMixin,
-    WatchlistsRepositoryMixin,
-    BriefsRepositoryMixin,
     EvaluationsRepositoryMixin,
     ObservabilityRepositoryMixin,
     JournalRepositoryBase,

@@ -22,6 +22,11 @@ def test_portfolio_manager_trade_thesis_json_includes_plan_boundaries():
 
     assert '"entry_zone"' in source
     assert '"target_zones"' in source
+    assert '"profit_targets"' in source
+    assert '"downside_objectives"' in source
+    assert '"accumulation_zones"' in source
+    assert '"indicator_thresholds"' in source
+    assert "legacy unclassified objective zone only" in source
 
 
 def test_structured_pm_schema_discourages_pipe_rows_in_list_items():

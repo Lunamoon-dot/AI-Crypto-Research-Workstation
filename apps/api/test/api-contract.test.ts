@@ -49,8 +49,6 @@ import { ThesesService } from '../src/theses/theses.service';
 import { MarketDataController } from '../src/market-data/market-data.controller';
 import { MarketOhlcvService } from '../src/market-data/market-ohlcv.service';
 import { MarketPriceService } from '../src/market-data/market-price.service';
-import { WatchlistsService } from '../src/watchlists/watchlists.service';
-import { BriefsService } from '../src/briefs/briefs.service';
 import { AlertsService } from '../src/alerts/alerts.service';
 import { CalibrationService } from '../src/calibration/calibration.service';
 import { CreateEvaluationRerunDto } from '../src/calibration/dto/evaluation-rerun.dto';
@@ -123,9 +121,15 @@ class FakeJournalRepository implements JournalRepository {
   readonly backtestTradeEvents = new Map<string, JsonRecord[]>();
   readonly scenarioDecisionItemStates = new Map<string, JsonRecord>();
   readonly signals: JsonRecord[] = [];
-  readonly watchlists: JsonRecord[] = [];
-  readonly watchlistItems: JsonRecord[] = [];
-  readonly briefs: JsonRecord[] = [];
+  readonly signalObservations: JsonRecord[] = [];
+  readonly signalOutcomeLabels: JsonRecord[] = [];
+  readonly signalEvaluationReports: JsonRecord[] = [];
+  readonly signalWeightVersions: JsonRecord[] = [];
+  readonly signalCalibratorVersions: JsonRecord[] = [];
+  readonly signalModelPromotions: JsonRecord[] = [];
+  readonly signalMonitoringSnapshots: JsonRecord[] = [];
+  readonly signalModelAlerts: JsonRecord[] = [];
+  readonly signalModelRollbacks: JsonRecord[] = [];
   readonly alerts: JsonRecord[] = [];
   readonly outcomeReviews: JsonRecord[] = [];
   readonly providerHealthRows: JsonRecord[] = [];
@@ -316,12 +320,6 @@ class FakeJournalRepository implements JournalRepository {
       this.scenarios.delete(key(thesisId, workspaceId));
     }
     removeArrayItems(
-      this.watchlistItems,
-      (item) =>
-        item.workspace_id === workspaceId &&
-        deletedThesisIds.has(String(item.thesis_id ?? '')),
-    );
-    removeArrayItems(
       this.alerts,
       (alert) =>
         alert.workspace_id === workspaceId &&
@@ -406,17 +404,6 @@ class FakeJournalRepository implements JournalRepository {
     };
     this.marketSnapshots.set(key(String(saved.id), workspaceId), saved);
     return saved;
-  }
-
-  async listEnabledWatchlists(limit: number): Promise<JsonRecord[]> {
-    return this.watchlists
-      .filter(
-        (watchlist) => watchlist.enabled !== false && watchlist.enabled !== 0,
-      )
-      .sort((a, b) =>
-        String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')),
-      )
-      .slice(0, limit);
   }
 
   async getSignalSnapshot(
@@ -1245,7 +1232,7 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord> {
     const id = String(input.id ?? '');
-    const saved = { ...input, id, workspace_id: workspaceId };
+    const saved: JsonRecord = { ...input, id, workspace_id: workspaceId };
     this.scenarioDecisionItemStates.set(key(id, workspaceId), saved);
     return saved;
   }
@@ -1377,6 +1364,244 @@ class FakeJournalRepository implements JournalRepository {
       );
   }
 
+  async listSignalObservations(
+    filters: {
+      symbol?: string;
+      factor?: string;
+      signalSnapshotId?: string;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.signalObservations
+      .filter((row) => row.workspace_id === workspaceId)
+      .filter((row) => !filters.symbol || row.symbol === filters.symbol)
+      .filter((row) => !filters.factor || row.factor_name === filters.factor)
+      .filter(
+        (row) =>
+          !filters.signalSnapshotId ||
+          row.signal_snapshot_id === filters.signalSnapshotId,
+      )
+      .filter((row) => !filters.from || String(row.observed_at ?? '') >= filters.from)
+      .filter((row) => !filters.to || String(row.observed_at ?? '') <= filters.to)
+      .slice(0, filters.limit);
+  }
+
+  async getSignalObservation(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      this.signalObservations.find(
+        (row) => row.id === id && row.workspace_id === workspaceId,
+      ) ?? null
+    );
+  }
+
+  async listSignalOutcomeLabels(
+    filters: {
+      observationId?: string;
+      symbol?: string;
+      factor?: string;
+      horizonMinutes?: number;
+      from?: string;
+      to?: string;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const factorObservationIds = new Set(
+      this.signalObservations
+        .filter((row) => row.workspace_id === workspaceId)
+        .filter((row) => !filters.factor || row.factor_name === filters.factor)
+        .map((row) => String(row.id ?? '')),
+    );
+    return this.signalOutcomeLabels
+      .filter((row) => row.workspace_id === workspaceId)
+      .filter(
+        (row) =>
+          !filters.observationId || row.observation_id === filters.observationId,
+      )
+      .filter((row) => !filters.symbol || row.symbol === filters.symbol)
+      .filter(
+        (row) =>
+          filters.horizonMinutes === undefined ||
+          row.horizon_minutes === filters.horizonMinutes,
+      )
+      .filter(
+        (row) =>
+          !filters.factor ||
+          factorObservationIds.has(String(row.observation_id ?? '')),
+      )
+      .filter((row) => !filters.from || String(row.created_at ?? '') >= filters.from)
+      .filter((row) => !filters.to || String(row.created_at ?? '') <= filters.to)
+      .slice(0, filters.limit);
+  }
+
+  async saveSignalEvaluationReport(
+    report: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...report, workspace_id: workspaceId };
+    this.signalEvaluationReports.unshift(saved);
+    return saved;
+  }
+
+  async listSignalEvaluationReports(
+    filters: {
+      symbol?: string;
+      factor?: string;
+      horizonMinutes?: number;
+      limit: number;
+    },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.signalEvaluationReports
+      .filter((row) => row.workspace_id === workspaceId)
+      .filter((row) => !filters.symbol || row.symbol === filters.symbol)
+      .filter((row) => !filters.factor || row.factor_name === filters.factor)
+      .filter(
+        (row) =>
+          filters.horizonMinutes === undefined ||
+          row.horizon_minutes === filters.horizonMinutes,
+      )
+      .slice(0, filters.limit);
+  }
+
+  async getSignalEvaluationReport(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      this.signalEvaluationReports.find(
+        (row) => row.id === id && row.workspace_id === workspaceId,
+      ) ?? null
+    );
+  }
+
+  async saveSignalModelArtifact(
+    kind: 'weight' | 'calibrator',
+    artifact: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...artifact, workspace_id: workspaceId };
+    const rows =
+      kind === 'weight' ? this.signalWeightVersions : this.signalCalibratorVersions;
+    const index = rows.findIndex(
+      (row) => row.id === saved.id && row.workspace_id === workspaceId,
+    );
+    if (index >= 0) {
+      rows[index] = saved;
+    } else {
+      rows.unshift(saved);
+    }
+    return saved;
+  }
+
+  async listSignalModelArtifacts(
+    kind: 'weight' | 'calibrator',
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const rows =
+      kind === 'weight' ? this.signalWeightVersions : this.signalCalibratorVersions;
+    return rows.filter((row) => row.workspace_id === workspaceId);
+  }
+
+  async getSignalModelArtifact(
+    kind: 'weight' | 'calibrator',
+    version: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      (await this.listSignalModelArtifacts(kind, workspaceId)).find(
+        (row) => row.version === version || row.id === version,
+      ) ?? null
+    );
+  }
+
+  async saveSignalModelPromotion(
+    promotion: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...promotion, workspace_id: workspaceId };
+    this.signalModelPromotions.unshift(saved);
+    return saved;
+  }
+
+  async listSignalModelPromotions(workspaceId: string): Promise<JsonRecord[]> {
+    return this.signalModelPromotions.filter(
+      (row) => row.workspace_id === workspaceId,
+    );
+  }
+
+  async saveSignalMonitoringSnapshot(
+    snapshot: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...snapshot, workspace_id: workspaceId };
+    this.signalMonitoringSnapshots.unshift(saved);
+    return saved;
+  }
+
+  async listSignalMonitoringSnapshots(workspaceId: string): Promise<JsonRecord[]> {
+    return this.signalMonitoringSnapshots.filter(
+      (row) => row.workspace_id === workspaceId,
+    );
+  }
+
+  async getSignalMonitoringSnapshot(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      this.signalMonitoringSnapshots.find(
+        (row) => row.id === id && row.workspace_id === workspaceId,
+      ) ?? null
+    );
+  }
+
+  async listSignalModelAlerts(
+    filters: { status?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.signalModelAlerts
+      .filter((row) => row.workspace_id === workspaceId)
+      .filter((row) => !filters.status || row.status === filters.status)
+      .slice(0, filters.limit);
+  }
+
+  async updateSignalModelAlert(
+    id: string,
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    const alert = this.signalModelAlerts.find(
+      (row) => row.id === id && row.workspace_id === workspaceId,
+    );
+    if (!alert) {
+      return null;
+    }
+    Object.assign(alert, input);
+    return alert;
+  }
+
+  async saveSignalModelRollback(
+    rollback: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const saved: JsonRecord = { ...rollback, workspace_id: workspaceId };
+    this.signalModelRollbacks.unshift(saved);
+    return saved;
+  }
+
+  async listSignalModelRollbacks(workspaceId: string): Promise<JsonRecord[]> {
+    return this.signalModelRollbacks.filter(
+      (row) => row.workspace_id === workspaceId,
+    );
+  }
+
   private isSignalPublishable(signal: JsonRecord): boolean {
     const runId = typeof signal.research_run_id === 'string'
       ? signal.research_run_id
@@ -1394,212 +1619,6 @@ class FakeJournalRepository implements JournalRepository {
     return ['completed', 'completed_degraded'].includes(String(run.status));
   }
 
-  async listWatchlists(limit: number, workspaceId: string): Promise<JsonRecord[]> {
-    return this.watchlists
-      .filter((watchlist) => watchlist.workspace_id === workspaceId)
-      .slice(0, limit);
-  }
-
-  async createWatchlist(
-    input: { name: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const watchlist = {
-      id: `watch_${this.watchlists.length + 1}`,
-      workspace_id: workspaceId,
-      name: input.name,
-      enabled: input.enabled ?? true,
-      created_at: '2026-05-12T00:00:00.000Z',
-    };
-    this.watchlists.unshift(watchlist);
-    return watchlist;
-  }
-
-  async getWatchlist(id: string, workspaceId: string): Promise<JsonRecord | null> {
-    return (
-      this.watchlists.find(
-        (watchlist) =>
-          watchlist.id === id && watchlist.workspace_id === workspaceId,
-      ) ?? null
-    );
-  }
-
-  async getWatchlistByName(
-    name: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return (
-      this.watchlists.find(
-        (watchlist) =>
-          watchlist.name === name && watchlist.workspace_id === workspaceId,
-      ) ?? null
-    );
-  }
-
-  async listWatchlistItems(
-    watchlistId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord[]> {
-    return this.watchlistItems.filter(
-      (item) =>
-        item.watchlist_id === watchlistId && item.workspace_id === workspaceId,
-    );
-  }
-
-  async addWatchlistItem(
-    watchlistId: string,
-    item: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const exists = this.watchlists.some(
-      (watchlist) =>
-        watchlist.id === watchlistId && watchlist.workspace_id === workspaceId,
-    );
-    if (!exists) {
-      throw new NotFoundException(`Watchlist ${watchlistId} not found`);
-    }
-    const created = {
-      id: `watch_item_${this.watchlistItems.length + 1}`,
-      workspace_id: workspaceId,
-      watchlist_id: watchlistId,
-      item_type: item.item_type ?? 'symbol',
-      symbol: item.symbol ?? null,
-      thesis_id: item.thesis_id ?? null,
-      setup_type: item.setup_type ?? null,
-      enabled: true,
-      created_at: '2026-05-12T00:00:00.000Z',
-    };
-    this.watchlistItems.unshift(created);
-    return created;
-  }
-
-  async updateWatchlist(
-    id: string,
-    input: { name?: string; enabled?: boolean },
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const watchlist = await this.getWatchlist(id, workspaceId);
-    if (!watchlist) {
-      throw new NotFoundException(`Watchlist ${id} not found`);
-    }
-    if (input.name !== undefined) {
-      watchlist.name = input.name;
-    }
-    if (input.enabled !== undefined) {
-      watchlist.enabled = input.enabled;
-    }
-    return watchlist;
-  }
-
-  async removeWatchlistItem(
-    watchlistId: string,
-    itemId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const index = this.watchlistItems.findIndex(
-      (item) =>
-        item.id === itemId &&
-        item.watchlist_id === watchlistId &&
-        item.workspace_id === workspaceId,
-    );
-    if (index === -1) {
-      throw new NotFoundException(`Watchlist item ${itemId} not found`);
-    }
-    this.watchlistItems.splice(index, 1);
-    return {
-      id: itemId,
-      workspace_id: workspaceId,
-      watchlist_id: watchlistId,
-      removed: true,
-    };
-  }
-
-  async removeWatchlist(id: string, workspaceId: string): Promise<JsonRecord> {
-    const index = this.watchlists.findIndex(
-      (watchlist) =>
-        watchlist.id === id && watchlist.workspace_id === workspaceId,
-    );
-    if (index === -1) {
-      throw new NotFoundException(`Watchlist ${id} not found`);
-    }
-    const [watchlist] = this.watchlists.splice(index, 1);
-    const itemIds = this.watchlistItems
-      .filter(
-        (item) =>
-          item.watchlist_id === id && item.workspace_id === workspaceId,
-      )
-      .map((item) => String(item.id));
-    for (let itemIndex = this.watchlistItems.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = this.watchlistItems[itemIndex];
-      if (item.watchlist_id === id && item.workspace_id === workspaceId) {
-        this.watchlistItems.splice(itemIndex, 1);
-      }
-    }
-    for (const alert of this.alerts) {
-      if (itemIds.includes(String(alert.watchlist_item_id ?? ''))) {
-        alert.watchlist_item_id = null;
-      }
-    }
-    return {
-      id,
-      workspace_id: workspaceId,
-      name: String(watchlist.name ?? ''),
-      removed: true,
-      removed_item_count: itemIds.length,
-    };
-  }
-
-  async listDailyBriefs(
-    date: string | undefined,
-    limit: number,
-    workspaceId: string,
-    watchlistName?: string,
-    throughDate?: string,
-  ): Promise<JsonRecord[]> {
-    return this.briefs
-      .filter((brief) => brief.workspace_id === workspaceId)
-      .filter((brief) => !date || brief.brief_date === date)
-      .filter((brief) => !throughDate || String(brief.brief_date) <= throughDate)
-      .filter((brief) => !watchlistName || brief.watchlist_name === watchlistName)
-      .slice(0, limit);
-  }
-
-  async getLatestMarketBrief(
-    watchlistName: string | undefined,
-    beforeDate: string | undefined,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return (
-      this.briefs
-        .filter((brief) => brief.workspace_id === workspaceId)
-        .filter((brief) => !watchlistName || brief.watchlist_name === watchlistName)
-        .filter((brief) => !beforeDate || String(brief.brief_date) < beforeDate)
-        .sort((a, b) =>
-          String(b.brief_date ?? '').localeCompare(String(a.brief_date ?? '')),
-        )[0] ?? null
-    );
-  }
-
-  async saveMarketBrief(
-    brief: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const saved: JsonRecord = {
-      ...brief,
-      workspace_id: workspaceId,
-    };
-    const index = this.briefs.findIndex(
-      (candidate) =>
-        candidate.id === saved.id && candidate.workspace_id === workspaceId,
-    );
-    if (index === -1) {
-      this.briefs.unshift(saved);
-    } else {
-      this.briefs[index] = saved;
-    }
-    return saved;
-  }
-
   async listAlerts(
     symbol: string | undefined,
     thesisId: string | undefined,
@@ -1613,31 +1632,6 @@ class FakeJournalRepository implements JournalRepository {
       .filter((alert) => !thesisId || alert.thesis_id === thesisId)
       .filter((alert) => !unreadOnly || !alert.read_at)
       .slice(0, limit);
-  }
-
-  async findAlert(
-    alertType: string,
-    thesisId: string | undefined,
-    watchlistItemId: string | undefined,
-    triggerKey: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return (
-      this.alerts.find(
-        (alert) =>
-          alert.workspace_id === workspaceId &&
-          alert.alert_type === alertType &&
-          alert.trigger_key === triggerKey &&
-          (alert.thesis_id ?? null) === (thesisId ?? null) &&
-          (alert.watchlist_item_id ?? null) === (watchlistItemId ?? null),
-      ) ?? null
-    );
-  }
-
-  async createAlert(alert: JsonRecord, workspaceId: string): Promise<JsonRecord> {
-    const saved = { ...alert, workspace_id: workspaceId };
-    this.alerts.unshift(saved);
-    return saved;
   }
 
   async markAlertRead(id: string, workspaceId: string): Promise<JsonRecord> {
@@ -2061,6 +2055,40 @@ test('thesis response prioritizes ai-service decision semantic fields', () => {
   assert.equal(response.market_bias_label, 'Defensive');
   assert.equal(response.entry_plan_status, 'no_trade');
   assert.equal(response.entry_plan_status_label, 'No trade');
+});
+
+test('thesis response exposes typed objective level fields', () => {
+  const response = toThesisResponse({
+    id: 'thesis_typed_levels',
+    workspace_id: 'workspace_a',
+    research_run_id: 'run_typed_levels',
+    symbol: 'BNB/USDT',
+    direction: 'watch',
+    structured_summary: {
+      rating: 'Underweight',
+      target_zones: [],
+      profit_targets: ['$620'],
+      downside_objectives: ['$500-$520'],
+      accumulation_zones: ['$480', '$440', '$400'],
+      indicator_thresholds: ['RSI 4H above 50', 'Long/Short ratio above 3.0'],
+    },
+  });
+
+  assert.deepEqual(response.target_zones, []);
+  assert.deepEqual(response.profit_targets, ['$620']);
+  assert.deepEqual(response.downside_objectives, ['$500-$520']);
+  assert.deepEqual(response.accumulation_zones, ['$480', '$440', '$400']);
+  assert.deepEqual(response.indicator_thresholds, [
+    'RSI 4H above 50',
+    'Long/Short ratio above 3.0',
+  ]);
+  assert.deepEqual(response.summary.profit_targets, ['$620']);
+  assert.deepEqual(response.summary.downside_objectives, ['$500-$520']);
+  assert.deepEqual(response.summary.accumulation_zones, ['$480', '$440', '$400']);
+  assert.deepEqual(response.summary.indicator_thresholds, [
+    'RSI 4H above 50',
+    'Long/Short ratio above 3.0',
+  ]);
 });
 
 test('thesis response exposes contract validation status fields', () => {
@@ -3551,21 +3579,33 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/signals', ['get']],
     ['/signals/{id}', ['get']],
     ['/signals/count', ['get']],
+    ['/signals/observations', ['get']],
+    ['/signals/observations/{id}', ['get']],
+    ['/signals/observations/{id}/outcomes', ['get']],
+    ['/signals/outcomes', ['get']],
+    ['/signals/outcomes/label', ['post']],
+    ['/signals/evaluation/reports', ['get', 'post']],
+    ['/signals/evaluation/reports/{id}', ['get']],
+    ['/signals/evaluation/summary', ['get']],
+    ['/signals/models/train', ['post']],
+    ['/signals/models/weights', ['get']],
+    ['/signals/models/weights/{version}', ['get']],
+    ['/signals/models/calibrators', ['get']],
+    ['/signals/models/calibrators/{version}', ['get']],
+    ['/signals/models/promotions', ['get', 'post']],
+    ['/signals/models/monitoring/latest', ['get']],
+    ['/signals/models/monitoring/snapshots', ['get']],
+    ['/signals/models/monitoring/snapshots/{id}', ['get']],
+    ['/signals/models/alerts', ['get']],
+    ['/signals/models/alerts/{id}', ['patch']],
+    ['/signals/models/rollbacks', ['get', 'post']],
     ['/theses', ['get']],
     ['/theses/{id}', ['get']],
     ['/theses/{id}/scenarios', ['get']],
     ['/theses/{id}/decision', ['post']],
     ['/theses/{id}/review', ['post']],
-    ['/watchlists', ['get', 'post']],
-    ['/watchlists/{id}', ['get', 'patch', 'delete']],
-    ['/watchlists/{id}/items', ['get', 'post']],
-    ['/watchlists/{id}/items/{itemId}', ['delete']],
-    ['/watchlists/{id}/check', ['post']],
-    ['/briefs/daily', ['get', 'post']],
     ['/alerts', ['get']],
     ['/alerts/{id}/read', ['post']],
-    ['/alerts/scheduler', ['get']],
-    ['/alerts/scheduler/run', ['post']],
     ['/workbench/attention', ['get']],
     ['/calibration/evaluations/thesis', ['post']],
     ['/calibration/evaluations/matured/preview', ['post']],
@@ -3610,6 +3650,22 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     for (const method of methods) {
       assert.ok(paths[path]?.[method], `OpenAPI missing ${method.toUpperCase()} ${path}`);
     }
+  }
+});
+
+test('OpenAPI contract omits decommissioned watchlist and daily brief routes', () => {
+  const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
+  for (const removedPath of [
+    '/watchlists',
+    '/watchlists/{id}',
+    '/watchlists/{id}/items',
+    '/watchlists/{id}/items/{itemId}',
+    '/watchlists/{id}/check',
+    '/briefs/daily',
+    '/alerts/scheduler',
+    '/alerts/scheduler/run',
+  ]) {
+    assert.equal(paths[removedPath], undefined, `${removedPath} should be removed`);
   }
 });
 
@@ -4258,6 +4314,17 @@ test('POST /jobs/:id/cancel records durable cancellation for queued jobs', async
       await lifecycle.onModuleDestroy();
     },
   );
+});
+
+test('PythonEngineClient uses the engine module entrypoint instead of the retired public CLI', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src', 'jobs', 'python-engine.client.ts'),
+    'utf8',
+  );
+
+  assert.equal(source.includes("'-m', 'cli.main'"), false);
+  assert.equal(source.includes("'lunacrypto'"), false);
+  assert.ok(source.includes("'-m', 'luna_workstation.engine'"));
 });
 
 test('PythonEngineClient resolves JSON output from the configured command', async () => {
@@ -5005,6 +5072,171 @@ test('signals and theses limits reject invalid values before repository reads', 
 
   assert.equal(limitedSignals.length, 100);
   assert.equal(limitedTheses.length, 100);
+});
+
+test('signal evaluation APIs scope rows and fail closed without model data', async () => {
+  const { journal, signals } = buildHarness();
+  journal.signalObservations.push(
+    {
+      id: 'obs_a',
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      factor_name: 'regime',
+      factor_family: 'price_structure',
+      observed_at: '2026-06-01T00:00:00.000Z',
+      availability: 'valid',
+      heuristic_strength: 0.7,
+    },
+    {
+      id: 'obs_b',
+      workspace_id: 'workspace_b',
+      symbol: 'BTC/USDT',
+      factor_name: 'regime',
+      factor_family: 'price_structure',
+      observed_at: '2026-06-01T00:00:00.000Z',
+      availability: 'valid',
+      heuristic_strength: 0.2,
+    },
+  );
+  journal.signalOutcomeLabels.push({
+    id: 'label_a',
+    workspace_id: 'workspace_a',
+    observation_id: 'obs_a',
+    symbol: 'BTC/USDT',
+    horizon_minutes: 1440,
+    label_status: 'complete',
+    direction_correct: true,
+    heuristic_strength: 0.7,
+    signed_return: 0.03,
+    created_at: '2026-06-02T00:00:00.000Z',
+  });
+  journal.signalMonitoringSnapshots.push(
+    {
+      id: 'monitor_b',
+      workspace_id: 'workspace_b',
+      status: 'healthy',
+      observation_count: 1,
+    },
+    {
+      id: 'monitor_a',
+      workspace_id: 'workspace_a',
+      status: 'insufficient_data',
+      observation_count: 1,
+    },
+  );
+
+  const observations = await signals.listObservations(
+    { symbol: 'BTC', limit: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  assert.deepEqual(observations.map((row) => row.id), ['obs_a']);
+  await assert.rejects(
+    () => signals.getObservation('obs_a', 'user_1', 'workspace_b'),
+    isException(NotFoundException),
+  );
+
+  const outcomes = await signals.listObservationOutcomes(
+    'obs_a',
+    'user_1',
+    'workspace_a',
+  );
+  assert.deepEqual(outcomes.map((row) => row.id), ['label_a']);
+
+  const report = await signals.createEvaluationReport(
+    { symbol: 'BTC', horizon_minutes: 1440 },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(report.workspace_id, 'workspace_a');
+  assert.equal(report.sample_size, 1);
+  assert.equal(report.directional_sample_size, 1);
+
+  const reports = await signals.listEvaluationReports(
+    { symbol: 'BTC', horizonMinutes: 1440, limit: 10 },
+    'user_1',
+    'workspace_a',
+  );
+  assert.deepEqual(reports.map((row) => row.id), [report.id]);
+
+  const monitoring = await signals.latestMonitoring('user_1', 'workspace_a');
+  assert.equal(monitoring.id, 'monitor_a');
+
+  const training = await signals.trainModel(
+    { horizon_minutes: 1440, dry_run: true },
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(training.status, 'insufficient_data');
+  assert.equal(training.publishable, false);
+});
+
+test('signal evaluation model training promotes only publishable OOS artifacts', async () => {
+  const { journal, signals } = buildHarness();
+  const start = Date.parse('2026-01-01T00:00:00.000Z');
+  for (let index = 0; index < 800; index += 1) {
+    const correct = index % 2 === 0;
+    const observedAt = new Date(start + index * 86_400_000).toISOString();
+    const observationId = `train_obs_${index}`;
+    journal.signalObservations.push({
+      id: observationId,
+      workspace_id: 'workspace_a',
+      symbol: 'BTC/USDT',
+      factor_name: 'regime',
+      factor_family: 'price_structure',
+      observed_at: observedAt,
+      availability: 'valid',
+      heuristic_strength: correct ? 0.8 : 0.2,
+    });
+    journal.signalOutcomeLabels.push({
+      id: `train_label_${index}`,
+      workspace_id: 'workspace_a',
+      observation_id: observationId,
+      symbol: 'BTC/USDT',
+      horizon_minutes: 1440,
+      label_status: 'complete',
+      direction_correct: correct,
+      signed_return: correct ? 0.03 : -0.02,
+      created_at: observedAt,
+    });
+  }
+
+  const report = await signals.createEvaluationReport(
+    { symbol: 'BTC', horizon_minutes: 1440 },
+    'user_1',
+    'workspace_a',
+  );
+
+  const foldsJson = report.folds_json as JsonRecord;
+  const qualityWarnings = report.quality_warnings as unknown[];
+  assert.equal(report.oos_sample_size, 160);
+  assert.equal(foldsJson.fold_count, 1);
+  assert.equal(qualityWarnings.length, 0);
+  assert.notEqual(report.brier_score, null);
+  assert.notEqual(report.ece, null);
+
+  const training = await signals.trainModel(
+    { symbol: 'BTC', horizon_minutes: 1440 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(training.status, 'shadow');
+  assert.equal(training.publishable, true);
+  assert.equal(training.calibrator.publishable, true);
+
+  const promotion = await signals.createPromotion(
+    {
+      weight_version: training.weight.version,
+      calibrator_version: training.calibrator.version,
+      evidence_report_id: report.id,
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(promotion.to_weight_version, training.weight.version);
+  assert.equal((await signals.listPromotions('user_1', 'workspace_a'))[0]?.id, promotion.id);
 });
 
 test('thesis decision and review verify workspace before writing', async () => {
@@ -7106,462 +7338,6 @@ test('postgres calibration promotion schema declares append-only version policy 
   }
 });
 
-test('frontend contract responses are normalized for thesis, watchlist, and brief', async () => {
-  const { journal, theses, watchlists, briefs } = buildHarness();
-  journal.theses.set(key('thesis_2', 'workspace_a'), {
-    id: 'thesis_2',
-    workspace_id: 'workspace_a',
-    symbol: 'SOL/USDT',
-    direction: 'short',
-    confidence: '0.7',
-    thesis_text: 'Fade failed reclaim.',
-    structured_summary: {
-      rating: 'Sell',
-      direction: 'short',
-      action_summary: 'Fade failed reclaim',
-      entry_zone: '180',
-      invalidation: '190',
-      target_zones: ['160'],
-      is_degraded: false,
-    },
-  });
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: 1,
-  });
-  journal.briefs.push({
-    id: 'brief_1',
-    workspace_id: 'workspace_a',
-    brief_date: '2026-05-12',
-    title: 'Daily Brief',
-    summary: 'Risk-on tone.',
-    key_points: ['Liquidity improving'],
-    thesis_ids: ['thesis_2', 'thesis_2'],
-    thesis_updates: [
-      {
-        thesis_id: 'thesis_2',
-        symbol: 'SOL/USDT',
-        direction: 'short',
-        setup_type: 'agent_debate',
-        confidence: '0.7',
-        status: 'review',
-        update: 'Fade failed reclaim.',
-        recent_alerts: ['Review failed reclaim', 'Review failed reclaim'],
-      },
-      {
-        thesis_id: 'thesis_2',
-        symbol: 'SOL/USDT',
-        direction: 'short',
-        setup_type: 'agent_debate',
-        confidence: '0.7',
-        status: 'review',
-        update: 'Fade failed reclaim.',
-        recent_alerts: ['Review failed reclaim'],
-      },
-    ],
-  });
-
-  const thesis = await theses.get('thesis_2', 'user_1', 'workspace_a');
-  const listedWatchlists = await watchlists.list(50, 'user_1', 'workspace_a');
-  const item = await watchlists.addItem(
-    'watch_1',
-    { symbol: 'SOL/USDT', item_type: 'symbol' },
-    'user_1',
-    'workspace_a',
-  );
-  const createdWatchlist = await watchlists.create(
-    { name: 'Momentum' },
-    'user_1',
-    'workspace_a',
-  );
-  const watchItems = await watchlists.items('watch_1', 'user_1', 'workspace_a');
-  const updatedWatchlist = await watchlists.update(
-    'watch_1',
-    { name: 'Core renamed', enabled: false },
-    'user_1',
-    'workspace_a',
-  );
-  const removedItem = await watchlists.removeItem(
-    'watch_1',
-    item.id ?? '',
-    'user_1',
-    'workspace_a',
-  );
-  const removedWatchlist = await watchlists.remove(
-    'watch_1',
-    'user_1',
-    'workspace_a',
-  );
-  const dailyBriefs = await briefs.daily(
-    '2026-05-12',
-    20,
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(thesis.summary.entry_zone, '180');
-  assert.deepEqual(thesis.summary.target_zones, ['160']);
-  assert.equal(listedWatchlists[0]?.enabled, true);
-  assert.equal(createdWatchlist.name, 'Momentum');
-  assert.equal(item.workspace_id, 'workspace_a');
-  assert.equal(watchItems[0]?.id, item.id);
-  assert.equal(updatedWatchlist.name, 'Core renamed');
-  assert.equal(updatedWatchlist.enabled, false);
-  assert.equal(removedItem.removed, true);
-  assert.equal(removedWatchlist.removed, true);
-  assert.equal(removedWatchlist.removed_item_count, 0);
-  assert.equal(dailyBriefs[0]?.summary, 'Risk-on tone.');
-  assert.deepEqual(dailyBriefs[0]?.thesis_ids, ['thesis_2']);
-  assert.equal(dailyBriefs[0]?.thesis_updates.length, 1);
-  assert.deepEqual(dailyBriefs[0]?.thesis_updates[0]?.recent_alerts, [
-    'Review failed reclaim',
-  ]);
-});
-
-test('watchlist thesis tracking rejects pasted run IDs with a useful correction', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-  });
-  journal.researchRuns.set(key('run_b97', 'workspace_a'), {
-    id: 'run_b97',
-    workspace_id: 'workspace_a',
-    symbol: 'ETH/USDT',
-    status: 'completed',
-    thesis_id: 'thesis_b39b6f77',
-  });
-  journal.theses.set(key('thesis_b39b6f77', 'workspace_a'), {
-    id: 'thesis_b39b6f77',
-    workspace_id: 'workspace_a',
-    research_run_id: 'run_b97',
-    symbol: 'ETH/USDT',
-    direction: 'long',
-    confidence: 0.35,
-  });
-
-  await assert.rejects(
-    () =>
-      watchlists.addItem(
-        'watch_1',
-        { item_type: 'thesis', thesis_id: 'run_b97' },
-        'user_1',
-        'workspace_a',
-      ),
-    (error) =>
-      error instanceof BadRequestException &&
-      error.message ===
-        'No thesis found for this ID. You pasted a run ID. Use thesis thesis_b39b6f77 instead.',
-  );
-
-  const item = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'thesis', thesis_id: 'thesis_b39b6f77' },
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(item.symbol, 'ETH/USDT');
-  assert.equal(item.thesis_id, 'thesis_b39b6f77');
-});
-
-test('watchlist symbol tracking normalizes common crypto input', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-  });
-
-  const item = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'symbol', symbol: 'btc' },
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(item.symbol, 'BTC/USDT');
-  assert.equal(item.item_type, 'symbol');
-});
-
-test('watchlist tracking reuses existing logical tracks', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-  });
-  journal.theses.set(key('thesis_1', 'workspace_a'), {
-    id: 'thesis_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-  });
-
-  const firstSymbol = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'symbol', symbol: 'btc' },
-    'user_1',
-    'workspace_a',
-  );
-  const secondSymbol = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'symbol', symbol: 'BTC/USDT' },
-    'user_1',
-    'workspace_a',
-  );
-  const firstThesis = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'thesis', thesis_id: 'thesis_1' },
-    'user_1',
-    'workspace_a',
-  );
-  const secondThesis = await watchlists.addItem(
-    'watch_1',
-    { item_type: 'thesis', thesis_id: 'thesis_1' },
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(secondSymbol.id, firstSymbol.id);
-  assert.equal(secondThesis.id, firstThesis.id);
-  assert.equal(journal.watchlistItems.length, 2);
-  assert.equal(
-    (await watchlists.items('watch_1', 'user_1', 'workspace_a')).length,
-    2,
-  );
-});
-
-test('watchlist removal deletes tracks and keeps alert history', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_1',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'symbol',
-    symbol: 'BTC/USDT',
-    enabled: true,
-  });
-  journal.alerts.push({
-    id: 'alert_1',
-    workspace_id: 'workspace_a',
-    alert_type: 'target_zone_reached',
-    symbol: 'BTC/USDT',
-    watchlist_item_id: 'watch_item_1',
-    message: 'Target reached',
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-
-  const removed = await watchlists.remove('watch_1', 'user_1', 'workspace_a');
-
-  assert.equal(removed.removed, true);
-  assert.equal(removed.removed_item_count, 1);
-  assert.equal(await journal.getWatchlist('watch_1', 'workspace_a'), null);
-  assert.deepEqual(await journal.listWatchlistItems('watch_1', 'workspace_a'), []);
-  assert.equal(journal.alerts[0]?.watchlist_item_id, null);
-});
-
-test('watchlist check creates deduped alerts from latest snapshots', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_1',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_duplicate',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:01:00.000Z',
-  });
-  journal.theses.set(key('thesis_1', 'workspace_a'), {
-    id: 'thesis_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-    setup_type: 'breakout',
-    confidence: 0.82,
-    thesis_text: 'Breakout continuation.',
-    target_zones: ['110000'],
-    invalidation_level: '95000',
-  });
-  journal.marketSnapshots.set(key('market_1', 'workspace_a'), {
-    id: 'market_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    captured_at: '2026-05-12T01:00:00.000Z',
-    current_price: 111000,
-    source: 'fixture',
-    source_timestamp: '2026-05-12T01:00:00.000Z',
-  });
-
-  const first = await watchlists.check(
-    'watch_1',
-    {},
-    'user_1',
-    'workspace_a',
-  );
-  const second = await watchlists.check(
-    'watch_1',
-    {},
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(first.checked_items, 1);
-  assert.equal(first.alerts_created.length, 1);
-  assert.equal(first.alerts_created[0]?.alert_type, 'target_zone_reached');
-  assert.equal(second.alerts_created.length, 0);
-});
-
-test('watchlist check honors invalidation crossing cues for non-directional theses', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_1',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_avoid',
-    symbol: 'BNB/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.theses.set(key('thesis_avoid', 'workspace_a'), {
-    id: 'thesis_avoid',
-    workspace_id: 'workspace_a',
-    symbol: 'BNB/USDT',
-    direction: 'avoid',
-    setup_type: 'agent_debate',
-    confidence: 0.35,
-    thesis_text: 'Avoid until confirmation clears resistance.',
-    target_zones: [],
-    invalidation_level:
-      'Break above $638 with increasing volume and RSI sustained above 50.',
-  });
-
-  const beforeBreak = await watchlists.check(
-    'watch_1',
-    { prices: { 'BNB/USDT': 637 } },
-    'user_1',
-    'workspace_a',
-  );
-  const afterBreak = await watchlists.check(
-    'watch_1',
-    { prices: { 'BNB/USDT': 650 } },
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(beforeBreak.alerts_created.length, 0);
-  assert.equal(afterBreak.alerts_created.length, 1);
-  assert.equal(afterBreak.alerts_created[0]?.alert_type, 'thesis_invalidated');
-  assert.equal(
-    afterBreak.alerts_created[0]?.trigger_key,
-    'thesis_invalidated:thesis_avoid:638',
-  );
-});
-
-test('watchlist alert poll checks enabled watchlists across workspaces', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push(
-    {
-      id: 'watch_1',
-      workspace_id: 'workspace_a',
-      name: 'Core',
-      enabled: true,
-      created_at: '2026-05-12T00:00:00.000Z',
-    },
-    {
-      id: 'watch_disabled',
-      workspace_id: 'workspace_a',
-      name: 'Disabled',
-      enabled: false,
-      created_at: '2026-05-12T01:00:00.000Z',
-    },
-  );
-  journal.watchlistItems.push({
-    id: 'watch_item_1',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_duplicate',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:01:00.000Z',
-  });
-  journal.theses.set(key('thesis_1', 'workspace_a'), {
-    id: 'thesis_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-    confidence: 0.82,
-    thesis_text: 'Breakout continuation.',
-    target_zones: ['110000'],
-    invalidation_level: '95000',
-  });
-  journal.marketSnapshots.set(key('market_1', 'workspace_a'), {
-    id: 'market_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    captured_at: '2026-05-12T01:00:00.000Z',
-    current_price: 111000,
-    source: 'fixture',
-    source_timestamp: '2026-05-12T01:00:00.000Z',
-  });
-
-  const result = await watchlists.pollAlerts();
-
-  assert.equal(result.checked_watchlists, 1);
-  assert.equal(result.alerts_created, 1);
-  assert.equal(journal.alerts.length, 1);
-  assert.equal(journal.alerts[0]?.watchlist_item_id, 'watch_item_1');
-});
-
 test('MarketPriceService refreshes exchange prices and persists snapshots', async () => {
   const journal = new FakeJournalRepository();
   const marketPrices = new MarketPriceService(journal);
@@ -7964,172 +7740,6 @@ test('MarketDataController returns controlled OHLCV provider errors', async () =
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test('daily brief generation persists a usable watchlist brief', async () => {
-  const { journal, briefs } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_1',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_1',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_brief_duplicate',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_1',
-    item_type: 'thesis',
-    thesis_id: 'thesis_1',
-    symbol: 'BTC/USDT',
-    enabled: true,
-    created_at: '2026-05-12T00:01:00.000Z',
-  });
-  journal.theses.set(key('thesis_1', 'workspace_a'), {
-    id: 'thesis_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-    setup_type: 'breakout',
-    confidence: 0.82,
-    thesis_text: 'Breakout continuation.',
-    target_zones: ['110000'],
-    invalidation_level: '95000',
-    supporting_signal_ids: ['sig_1'],
-  });
-  journal.alerts.push(
-    {
-      id: 'alert_1',
-      workspace_id: 'workspace_a',
-      alert_type: 'target_zone_reached',
-      symbol: 'BTC/USDT',
-      thesis_id: 'thesis_1',
-      watchlist_item_id: 'watch_item_1',
-      trigger_key: 'target_zone_reached:thesis_1:110000',
-      created_at: '2026-05-12T02:00:00.000Z',
-      message: 'Target reached',
-    },
-    {
-      id: 'alert_duplicate',
-      workspace_id: 'workspace_a',
-      alert_type: 'target_zone_reached',
-      symbol: 'BTC/USDT',
-      thesis_id: 'thesis_1',
-      watchlist_item_id: 'watch_item_brief_duplicate',
-      trigger_key: 'target_zone_reached:thesis_1:110000',
-      created_at: '2026-05-12T02:01:00.000Z',
-      message: 'Target reached',
-    },
-  );
-  journal.marketSnapshots.set(key('market_1', 'workspace_a'), {
-    id: 'market_1',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    captured_at: '2026-05-12T01:00:00.000Z',
-    current_price: 108000,
-    market_regime: 'risk-on',
-    source: 'fixture',
-    source_timestamp: '2026-05-12T01:00:00.000Z',
-  });
-
-  const brief = await briefs.createDaily(
-    { watchlist_id: 'watch_1', date: '2026-05-14' },
-    'user_1',
-    'workspace_a',
-  );
-
-  assert.equal(brief.watchlist_name, 'Core');
-  assert.equal(brief.brief_date, '2026-05-14');
-  assert.deepEqual(brief.thesis_ids, ['thesis_1']);
-  assert.equal(brief.thesis_updates.length, 1);
-  assert.deepEqual(brief.thesis_updates[0]?.recent_alerts, ['Target reached']);
-  assert.deepEqual(brief.signal_ids, ['sig_1']);
-  assert.deepEqual(
-    brief.asset_summaries.map((asset) => asset.symbol),
-    ['BTC/USDT'],
-  );
-  assert.deepEqual(brief.watchlist_changes, [
-    "Watchlist 'Core' has 1 active item(s).",
-    '1 thesis-backed watch(es), 0 symbol-only watch(es).',
-  ]);
-  assert.equal(journal.briefs.length, 1);
-});
-
-test('daily brief archive can be scoped to a selected watchlist and rejects future dates', async () => {
-  const { journal, briefs } = buildHarness();
-  journal.watchlists.push(
-    {
-      id: 'watch_1',
-      workspace_id: 'workspace_a',
-      name: 'Core',
-      enabled: true,
-    },
-    {
-      id: 'watch_2',
-      workspace_id: 'workspace_a',
-      name: 'Alt',
-      enabled: true,
-    },
-  );
-  journal.briefs.push(
-    {
-      id: 'brief_core',
-      workspace_id: 'workspace_a',
-      brief_date: '2026-05-14',
-      watchlist_name: 'Core',
-      title: 'Core brief',
-    },
-    {
-      id: 'brief_alt',
-      workspace_id: 'workspace_a',
-      brief_date: '2026-05-14',
-      watchlist_name: 'Alt',
-      title: 'Alt brief',
-    },
-    {
-      id: 'brief_future',
-      workspace_id: 'workspace_a',
-      brief_date: '2999-01-01',
-      watchlist_name: 'Core',
-      title: 'Future brief',
-    },
-  );
-
-  const scoped = await briefs.daily(
-    undefined,
-    20,
-    'user_1',
-    'workspace_a',
-    'watch_1',
-  );
-
-  assert.deepEqual(
-    scoped.map((brief) => brief.id),
-    ['brief_core'],
-  );
-  await assert.rejects(
-    () => briefs.daily('2999-01-01', 20, 'user_1', 'workspace_a', 'watch_1'),
-    isException(BadRequestException),
-  );
-  await assert.rejects(
-    () =>
-      briefs.createDaily(
-        { watchlist_id: 'watch_1', date: '2999-01-01' },
-        'user_1',
-        'workspace_a',
-      ),
-    isException(BadRequestException),
-  );
 });
 
 test('research workspace exposes snapshots, debate, scenarios, and events', async () => {
@@ -12560,6 +12170,81 @@ test('scenario read surfaces tolerate missing optional lifecycle tables', async 
   );
 });
 
+test('thesis scenario detail includes runtime invalidation from latest market snapshot', async () => {
+  const { journal, theses } = buildHarness();
+  journal.theses.set(key('thesis_runtime_detail', 'workspace_a'), {
+    id: 'thesis_runtime_detail',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    thesis_text: 'Watch breakdown confirmation.',
+  });
+  journal.scenarios.set(key('thesis_runtime_detail', 'workspace_a'), [
+    {
+      id: 'scenario_runtime_detail',
+      workspace_id: 'workspace_a',
+      thesis_id: 'thesis_runtime_detail',
+      scenario_name: 'Breakdown confirmation',
+      condition: 'Daily close below $500 with volume.',
+      invalidation: 'Price holds above $530.',
+      evidence: ['bearish alignment'],
+      payload: {
+        horizon: 'mid_term',
+        decision_playbook: {
+          version: 'scenario_decision_playbook.v1',
+          source: 'derived_v1',
+          action_bias: 'short',
+          confidence: 0.8,
+          preferred_action_if_triggered: 'entry_short_now',
+          fallback_action: 'wait',
+          validity_window: {
+            valid_from: '2026-07-02T00:00:00.000Z',
+            valid_until: null,
+            timeframe: '1D',
+            rationale: 'test',
+            refresh_policy: 'refresh_on_next_research_run',
+          },
+          entry_conditions: [{ type: 'price_below', level: 500 }],
+          invalidation_conditions: [{ type: 'price_above', level: 530 }],
+          avoid_if: [],
+          wait_for: [],
+          risk_notes: [],
+          evidence_refs: [
+            {
+              type: 'scenario',
+              id: 'scenario_runtime_detail',
+              field: 'condition',
+              label: 'Breakdown trigger',
+              supports: 'Daily close below $500.',
+            },
+          ],
+          rationale: 'test',
+        },
+      },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_bnb_runtime_detail', 'workspace_a'), {
+    id: 'snap_bnb_runtime_detail',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    captured_at: '2026-07-02T08:00:00.000Z',
+    current_price: 552,
+    source: 'test',
+  });
+
+  const detailScenarios = await theses.scenarios(
+    'thesis_runtime_detail',
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(detailScenarios[0]?.runtime_decision.playbook_source, 'derived_v1');
+  assert.equal(detailScenarios[0]?.runtime_decision.validity_status, 'invalidated');
+  assert.equal(detailScenarios[0]?.runtime_decision.status_reason, 'Scenario is invalidated.');
+  assert.deepEqual(detailScenarios[0]?.runtime_decision.blocking_reasons, [
+    'invalidation_hit',
+  ]);
+});
+
 test('scenario lifecycle enrichment rethrows non-missing table failures', async () => {
   const { journal, theses } = buildHarness();
   journal.theses.set(key('thesis_lifecycle_failure', 'workspace_a'), {
@@ -12798,6 +12483,38 @@ test('scenario response derives a safe recommendation from legacy Vietnamese tri
   assert.equal(response.evaluation_snapshot?.outcome, 'pending');
 });
 
+test('scenario response derives trigger from reaches text with thousands separators', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_reaches_thousands_trigger',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_reaches_thousands_trigger',
+    scenario_name: 'Short-Term Oversold Bounce Failure',
+    direction: 'bearish',
+    condition: 'RSI oversold triggers a bounce attempt.',
+    expected_behavior: 'Price fails near resistance and rolls over.',
+    invalidation: 'Daily close above $62,000 with volume >20d average.',
+    suggested_user_action: 'Watch confirmation - do not act on first green candle. Monitor volume and price action at $59,500.',
+    watch_triggers: ['Price reaches $59,500 with decreasing volume (< average).'],
+    horizon: 'short_term',
+    timeframe: '4H',
+  }, {
+    id: 'thesis_reaches_thousands_trigger',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+  });
+
+  assert.equal(response.trigger_spec?.type, 'price_above');
+  assert.equal(response.trigger_spec?.level, 59500);
+  assert.equal(response.scenario_recommendation?.action, 'wait');
+  assert.equal(response.scenario_recommendation?.action_bias, 'short');
+  assert.equal(response.scenario_recommendation?.required_conditions[0]?.level, 59500);
+  assert.equal(response.scenario_recommendation?.invalidation_conditions[0]?.level, 62000);
+  assert.equal(
+    response.scenario_recommendation?.blocking_reasons.includes('Missing trigger.'),
+    false,
+  );
+});
+
 test('scenario response does not parse RSI thresholds as legacy price triggers', () => {
   const response = toScenarioResponse({
     id: 'scenario_legacy_rsi_threshold',
@@ -13023,6 +12740,51 @@ test('scenario evaluation service refuses an unmatured evaluation window', async
   );
 });
 
+test('scenario evaluation derives a fresh missing window instead of scanning default history', async () => {
+  const { journal, scenarioEvaluations } = buildHarness();
+  const thesisId = 'thesis_eval_missing_window';
+  const scenarioId = 'scenario_eval_missing_window';
+  const createdAt = new Date(Date.now() - 60_000).toISOString();
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'spot',
+    direction: 'short',
+    setup_type: 'breakdown',
+    created_at: createdAt,
+  });
+  const scenario = scenarioLifecycleRecord({
+    scenarioId,
+    thesisId,
+    symbol: 'BNB/USDT',
+    actionBias: 'short',
+  });
+  scenario.created_at = createdAt;
+  scenario.scenario_recommendation = {
+    ...(scenario.scenario_recommendation as JsonRecord),
+    evaluation_window: {
+      starts_at: null,
+      ends_at: null,
+      horizon: 'short_term',
+      metric_hint: 'trigger_then_mfe_mae',
+    },
+  };
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [scenario]);
+  scenarioEvaluations.setOhlcvForTest([
+    candle('2025-07-02T00:00:00.000Z', 580, 620, 530, 540),
+  ]);
+
+  await assert.rejects(
+    () => scenarioEvaluations.evaluateScenario(
+      scenarioId,
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
 test('scenario evaluation stores grouping metadata for reliability profiles', async () => {
   const { scenarioEvaluations } = buildHarness();
   seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
@@ -13044,6 +12806,45 @@ test('scenario evaluation stores grouping metadata for reliability profiles', as
   assert.equal(response.evidence.relation_to_thesis, 'supports');
   assert.equal(response.evidence.action_bias, 'long');
   assert.equal(response.evidence.setup_type, 'breakout');
+});
+
+test('scenario evaluation is idempotent for the same scenario window', async () => {
+  const { scenarioEvaluations, scenarioReliability } = buildHarness();
+  const journal = scenarioEvaluations.journalForTest as FakeJournalRepository;
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_eval_idempotent',
+    thesisId: 'thesis_eval_idempotent',
+    symbol: 'BTC/USDT',
+  });
+  scenarioEvaluations.setOhlcvForTest([
+    candle('2026-06-24T00:00:00.000Z', 61000, 61800, 60900, 61600),
+    candle('2026-06-25T00:00:00.000Z', 61600, 62600, 61500, 62400),
+  ]);
+
+  const first = await scenarioEvaluations.evaluateScenario(
+    'scenario_eval_idempotent',
+    'user_1',
+    'workspace_a',
+  );
+  const second = await scenarioEvaluations.evaluateScenario(
+    'scenario_eval_idempotent',
+    'user_1',
+    'workspace_a',
+  );
+
+  const evaluations = await journal.listScenarioEvaluations(
+    'scenario_eval_idempotent',
+    'workspace_a',
+  );
+  const profiles = await scenarioReliability.profile(
+    { symbol: 'BTC/USDT', market_type: 'spot', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(second.id, first.id);
+  assert.equal(evaluations.length, 1);
+  assert.equal(profiles[0]?.sample_size, 1);
 });
 
 test('scenario reliability hides rates below sample size and counts inconclusive', async () => {
@@ -13076,6 +12877,37 @@ test('scenario reliability hides rates below sample size and counts inconclusive
     profiles[0]?.data_quality_notes.includes('Not enough history.'),
     true,
   );
+});
+
+test('scenario reliability deduplicates repeated evaluations for the same scenario window', async () => {
+  const { journal, scenarioReliability } = buildHarness();
+  for (const index of [1, 2]) {
+    await journal.saveScenarioEvaluation({
+      id: `eval_duplicate_window_${index}`,
+      workspace_id: 'workspace_a',
+      scenario_id: 'scenario_duplicate_window',
+      thesis_id: 'thesis_duplicate_window',
+      symbol: 'BTC/USDT',
+      market_type: 'spot',
+      horizon: 'short_term',
+      evaluated_at: `2026-06-2${index}T00:00:00.000Z`,
+      evaluation_window: {
+        starts_at: '2026-06-24T00:00:00.000Z',
+        ends_at: '2026-06-28T00:00:00.000Z',
+      },
+      result: 'hit',
+      data_quality: 'complete',
+      evidence: { relation_to_thesis: 'supports', action_bias: 'long' },
+    }, 'workspace_a');
+  }
+
+  const profiles = await scenarioReliability.profile(
+    { symbol: 'BTC/USDT', market_type: 'spot', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(profiles[0]?.sample_size, 1);
 });
 
 test('scenario monitor and thesis detail expose aggregated reliability profiles', async () => {
@@ -13175,6 +13007,63 @@ test('scenario monitor and thesis detail expose latest backtest trade events', a
   );
 });
 
+test('scenario monitor and thesis detail hide obsolete invalid lifecycle artifacts', async () => {
+  const { journal, scenarios, theses } = buildHarness();
+  seedScenarioLifecycleFixture(journal, {
+    scenarioId: 'scenario_obsolete_lifecycle',
+    thesisId: 'thesis_obsolete_lifecycle',
+    symbol: 'BTC/USDT',
+  });
+  await journal.saveScenarioEvaluation({
+    id: 'eval_obsolete_missing_window',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_obsolete_lifecycle',
+    thesis_id: 'thesis_obsolete_lifecycle',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    horizon: 'short_term',
+    evaluated_at: '2026-07-01T00:00:00.000Z',
+    evaluation_window: {
+      starts_at: null,
+      ends_at: null,
+    },
+    result: 'hit',
+    data_quality: 'complete',
+    warnings: [],
+    evidence: {},
+  }, 'workspace_a');
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_obsolete_lifecycle'),
+    source_scenario_id: 'scenario_obsolete_lifecycle',
+    source_thesis_id: 'thesis_obsolete_lifecycle',
+  }, 'workspace_a');
+  await journal.saveBacktestRun({
+    id: 'backtest_obsolete_missing_target',
+    workspace_id: 'workspace_a',
+    playbook_id: 'playbook_obsolete_lifecycle',
+    status: 'partial',
+    assumptions: { version: 'backtest_assumption_set.v1' },
+    result: { trade_count: 1 },
+    warnings: ['missing_numeric_target'],
+    data_quality: 'partial',
+  }, 'workspace_a');
+
+  const monitor = await scenarios.monitor({ limit: 10 }, 'user_1', 'workspace_a');
+  const detail = await theses.scenarios(
+    'thesis_obsolete_lifecycle',
+    'user_1',
+    'workspace_a',
+  );
+  const monitorScenario = monitor.items.find(
+    (item) => item.scenario.id === 'scenario_obsolete_lifecycle',
+  )?.scenario;
+
+  assert.equal(monitorScenario?.latest_evaluation, null);
+  assert.equal(monitorScenario?.latest_backtest, null);
+  assert.equal(detail[0]?.latest_evaluation, null);
+  assert.equal(detail[0]?.latest_backtest, null);
+});
+
 test('playbook compiler rejects missing invalidation and compiles valid long scenario', async () => {
   const { playbooks } = buildHarness();
   const missingInvalidation = await playbooks.compileScenario(
@@ -13260,7 +13149,7 @@ test('playbook compiler uses thesis target zones when scenario has no targets', 
       id: 'thesis_playbook_thesis_targets',
       symbol: 'BTC/USDT',
       market_type: 'spot',
-      target_zones: ['First target 63200', 'Second target 65000'],
+      target_zones: ['First target $63,200', 'Second target $65k', 'Stale lower target $59,000'],
     },
     'workspace_a',
   );
@@ -13269,6 +13158,10 @@ test('playbook compiler uses thesis target zones when scenario has no targets', 
   assert.deepEqual(
     report.playbook?.targets.map((target) => target.level),
     [63200, 65000],
+  );
+  assert.equal(
+    report.warnings.includes('Filtered 1 target(s) outside long playbook direction.'),
+    true,
   );
 });
 
@@ -13382,7 +13275,7 @@ test('playbook compiler compiles directional watch confirmation scenarios', asyn
     workspace_id: 'workspace_a',
     symbol: 'BNB/USDT',
     market_type: 'spot',
-    target_zones: ['Target zone $500-$510'],
+    target_zones: ['Target zone $500-$510', 'Upside reclaim target $600-$620'],
   });
   journal.scenarios.set(key(thesisId, 'workspace_a'), [
     {
@@ -13413,9 +13306,153 @@ test('playbook compiler compiles directional watch confirmation scenarios', asyn
   assert.equal(report.playbook?.direction, 'short');
   assert.equal(report.playbook?.entry.level, 546);
   assert.equal(report.playbook?.invalidation.level, 570);
+  assert.deepEqual(
+    report.playbook?.targets.map((target) => target.level),
+    [500],
+  );
+  assert.equal(
+    report.warnings.includes('Filtered 1 target(s) outside short playbook direction.'),
+    true,
+  );
   assert.equal(
     report.rejection_reasons.includes('Recommendation is not directional.'),
     false,
+  );
+});
+
+test('playbook compiler skips incoherent entry conditions before compiling short playbook', async () => {
+  const { playbooks } = buildHarness();
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_compile_metric_entry_guard',
+    thesisId: 'thesis_compile_metric_entry_guard',
+    symbol: 'BNB/USDT',
+    actionBias: 'short',
+  });
+  const recommendation = record(scenario.scenario_recommendation);
+  const runtimeDecision = record(scenario.runtime_decision);
+  const evidenceRefs = recommendation.evidence_refs;
+  scenario.scenario_recommendation = {
+    ...recommendation,
+    action: 'consider_short',
+    action_bias: 'short',
+    summary: 'Short only after support break confirmation.',
+    thesis_link: 'Challenges the parent long thesis if support fails.',
+    required_conditions: [
+      { type: 'price_above', level: 3, timeframe: '4h' },
+      {
+        type: 'price_below',
+        level: 540,
+        timeframe: '1d',
+        candle_close_required: true,
+      },
+    ],
+    invalidation_conditions: [
+      { type: 'price_above', level: 560, timeframe: '1d' },
+    ],
+    wait_for: [
+      'Long/Short ratio above 3.0',
+      'Daily close below $540 with volume confirmation.',
+    ],
+    evidence_refs: evidenceRefs,
+  };
+  scenario.decision_playbook = {
+    version: 'scenario_decision_playbook.v1',
+    source: 'llm',
+    generated_at: '2026-06-29T00:00:00.000Z',
+    generated_from_run_id: null,
+    action_bias: 'short',
+    confidence: 0.72,
+    preferred_action_if_triggered: 'consider_short',
+    fallback_action: 'wait',
+    near_trigger_threshold_pct: 0.025,
+    validity_window: {
+      valid_from: null,
+      valid_until: '2026-07-03T00:00:00.000Z',
+      timeframe: 'short_term',
+      rationale: 'Manual confirmation only.',
+      refresh_policy: 'manual_review',
+    },
+    entry_conditions: [
+      {
+        type: 'price_below',
+        level: 540,
+        timeframe: '1d',
+        candle_close_required: true,
+      },
+    ],
+    avoid_if: [],
+    invalidation_conditions: [
+      { type: 'price_above', level: 560, timeframe: '1d' },
+    ],
+    wait_for: ['Daily close below $540 with volume confirmation.'],
+    risk_notes: ['Short squeeze risk.'],
+    evidence_refs: evidenceRefs,
+    rationale: 'Use the support break as the tradable trigger.',
+  };
+  scenario.runtime_decision = {
+    ...runtimeDecision,
+    recommended_action: 'consider_short',
+    blocking_reasons: [],
+    validity_status: 'valid',
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    targets: ['Downside target $520', 'Downside target $500'],
+    scenario_recommendation: scenario.scenario_recommendation,
+    decision_playbook: scenario.decision_playbook,
+    runtime_decision: scenario.runtime_decision,
+  };
+
+  const report = await playbooks.compileScenario(
+    scenario,
+    {
+      id: 'thesis_compile_metric_entry_guard',
+      symbol: 'BNB/USDT',
+      market_type: 'perp',
+    },
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, true);
+  assert.equal(report.playbook?.entry.level, 540);
+  assert.deepEqual(
+    report.playbook?.targets.map((target) => target.level),
+    [520, 500],
+  );
+});
+
+test('playbook compiler rejects scenarios with runtime blockers', async () => {
+  const { playbooks } = buildHarness();
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_compile_runtime_blocker',
+    thesisId: 'thesis_compile_runtime_blocker',
+  });
+  scenario.runtime_decision = {
+    ...record(scenario.runtime_decision),
+    validity_status: 'overextended',
+    recommended_action: 'wait',
+    blocking_reasons: ['Price is overextended from trigger.'],
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    runtime_decision: scenario.runtime_decision,
+  };
+
+  const report = await playbooks.compileScenario(
+    scenario,
+    { id: 'thesis_compile_runtime_blocker', symbol: 'BTC/USDT', market_type: 'spot' },
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, false);
+  assert.equal(report.playbook, null);
+  assert.equal(
+    report.rejection_reasons.includes('Runtime decision has unresolved blockers.'),
+    true,
+  );
+  assert.equal(
+    report.warnings.includes('Runtime blocker: Price is overextended from trigger.'),
+    true,
   );
 });
 
@@ -13617,6 +13654,27 @@ test('backtest exits on target or invalidation before the final candle', async (
   assert.equal(invalidation.result.total_return_pct, -3.23);
 });
 
+test('backtest rejects playbooks without a numeric target', async () => {
+  const { backtests, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_backtest_missing_target');
+  playbook.targets = [];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 62200, 61000, 61100),
+  ]);
+
+  await assert.rejects(
+    () => backtests.createBacktest(
+      'playbook_backtest_missing_target',
+      { fee_bps: 0, slippage_bps: 0 },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
 test('backtest detail and events endpoint expose ordered trade events', async () => {
   const { backtests, journal } = buildHarness();
   await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_events'), 'workspace_a');
@@ -13652,6 +13710,32 @@ test('backtest detail and events endpoint expose ordered trade events', async ()
   );
   assert.equal(detail.trade_events[0]?.version, 'backtest_trade_event.v1');
   assert.equal(detail.trade_events[0]?.details.fill_policy, 'touch');
+});
+
+test('backtest reruns create distinct trade event ids', async () => {
+  const { backtests, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_backtest_rerun'), 'workspace_a');
+  backtests.setOhlcvForTest([
+    candle('2026-06-01T00:00:00.000Z', 61000, 62100, 60900, 62000),
+    candle('2026-06-02T00:00:00.000Z', 62000, 63200, 61900, 63100),
+  ]);
+
+  const first = await backtests.createBacktest(
+    'playbook_backtest_rerun',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+  const second = await backtests.createBacktest(
+    'playbook_backtest_rerun',
+    { fee_bps: 0, slippage_bps: 0 },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.notEqual(first.id, second.id);
+  assert.notEqual(first.trade_events[0]?.id, second.trade_events[0]?.id);
+  assert.notEqual(first.trade_events[1]?.id, second.trade_events[1]?.id);
 });
 
 test('scenario decision workbench prioritizes triggered and due items', async () => {
@@ -14536,50 +14620,6 @@ test('scenario runtime decision does not default neutral bias into long actions'
   );
 });
 
-test('alert scheduler status and manual run are workspace scoped', async () => {
-  const { journal, watchlists } = buildHarness();
-  journal.watchlists.push({
-    id: 'watch_scheduler',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-    created_at: '2026-05-12T00:00:00.000Z',
-  });
-  journal.watchlistItems.push({
-    id: 'watch_item_scheduler',
-    workspace_id: 'workspace_a',
-    watchlist_id: 'watch_scheduler',
-    item_type: 'thesis',
-    thesis_id: 'thesis_scheduler',
-    enabled: true,
-  });
-  journal.theses.set(key('thesis_scheduler', 'workspace_a'), {
-    id: 'thesis_scheduler',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    direction: 'long',
-    invalidation_level: '65000',
-    target_zones: ['70000'],
-  });
-  journal.marketSnapshots.set(key('snap_btc_scheduler', 'workspace_a'), {
-    id: 'snap_btc_scheduler',
-    workspace_id: 'workspace_a',
-    symbol: 'BTC/USDT',
-    captured_at: '2026-05-12T00:00:00.000Z',
-    current_price: 70500,
-    source: 'test',
-  });
-
-  const status = await watchlists.schedulerStatus('user_1', 'workspace_a');
-  const result = await watchlists.runWorkspaceAlertPoll('user_1', 'workspace_a');
-  const after = await watchlists.schedulerStatus('user_1', 'workspace_a');
-
-  assert.equal(status.workspace_enabled_watchlists, 1);
-  assert.equal(result.checked_watchlists, 1);
-  assert.equal(result.alerts_created, 1);
-  assert.equal(after.last_result?.alerts_created, 1);
-});
-
 test('operations health summarizes provider, llm, and freshness telemetry', async () => {
   const { journal, operations } = buildHarness();
   journal.providerHealthRows.push({
@@ -14635,7 +14675,6 @@ test('operations health summarizes provider, llm, and freshness telemetry', asyn
 
 test('workbench attention aggregates and prioritizes unresolved operating items', async () => {
   const { journal, workbench } = buildHarness();
-  const today = localDateStringForTest(new Date());
   journal.theses.set(key('thesis_attention', 'workspace_a'), {
     id: 'thesis_attention',
     workspace_id: 'workspace_a',
@@ -14698,46 +14737,20 @@ test('workbench attention aggregates and prioritizes unresolved operating items'
     threshold_seconds: 60,
     status: 'stale',
   });
-  journal.briefs.push({
-    id: 'brief_attention',
-    workspace_id: 'workspace_a',
-    brief_date: today,
-    watchlist_name: 'Core',
-    title: 'Market Brief',
-    created_at: `${today}T00:00:00.000Z`,
-    summary: 'Brief summary.',
-    thesis_updates: [
-      {
-        thesis_id: 'thesis_attention',
-        symbol: 'BTC/USDT',
-        direction: 'long',
-        setup_type: 'breakout',
-        confidence: 0.82,
-        status: 'review alerts',
-        update: 'Review invalidation.',
-        invalidation_level: '65000',
-        recent_alerts: ['Invalidation level reached.'],
-      },
-    ],
-    top_risks: ['BTC invalidation needs review.'],
-  });
-  journal.watchlists.push({
-    id: 'watch_attention',
-    workspace_id: 'workspace_a',
-    name: 'Core',
-    enabled: true,
-    created_at: '2026-05-10T00:00:00.000Z',
-  });
 
   const response = await workbench.attention(10, 'user_1', 'workspace_a');
-  const sourceTypes = new Set(response.items.map((item) => item.source_type));
+  const responseRecord = response as unknown as Record<string, unknown>;
+  const sourceTypes = new Set<string>(response.items.map((item) => item.source_type));
+  const notificationTypes = new Set<string>(
+    response.notifications.map((notification) => notification.type),
+  );
   const alertItem = response.items.find((item) => item.source_id === 'alert_attention');
 
   assert.equal(response.workspace_id, 'workspace_a');
   assert.ok(response.items.length <= 10);
   assert.ok(response.unresolved_count > 0);
-  assert.equal(response.latest_brief?.id, 'brief_attention');
-  assert.ok(response.brief_actions.some((item) => item.action.href === '/theses/thesis_attention'));
+  assert.equal('latest_brief' in responseRecord, false);
+  assert.equal('brief_actions' in responseRecord, false);
   assert.equal(response.queues[0]?.priority, 'critical');
   assert.ok(response.queues.some((queue) => queue.priority === 'review'));
   assert.ok(sourceTypes.has('alert'));
@@ -14745,7 +14758,8 @@ test('workbench attention aggregates and prioritizes unresolved operating items'
   assert.ok(sourceTypes.has('provider'));
   assert.ok(sourceTypes.has('thesis'));
   assert.ok(sourceTypes.has('scenario'));
-  assert.ok(sourceTypes.has('brief'));
+  assert.equal(sourceTypes.has('brief'), false);
+  assert.equal(sourceTypes.has('watchlist'), false);
   assert.equal(alertItem?.priority, 'critical');
   assert.equal(alertItem?.action.href, '/theses/thesis_attention');
   assert.deepEqual(
@@ -14759,13 +14773,8 @@ test('workbench attention aggregates and prioritizes unresolved operating items'
         notification.action.href === '/theses/thesis_attention',
     ),
   );
-  assert.ok(
-    response.notifications.some(
-      (notification) =>
-        notification.type === 'watchlist' &&
-        notification.action.href === '/watchlists',
-    ),
-  );
+  assert.equal(notificationTypes.has('watchlist'), false);
+  assert.equal(notificationTypes.has('brief'), false);
 });
 
 test('workbench attention is workspace scoped and capped', async () => {
@@ -15292,33 +15301,6 @@ function buildHarness() {
       };
     },
   } as unknown as PythonEngineClient;
-  const marketPriceCalls: Array<{
-    overrides: Record<string, number>;
-    symbol: string;
-    workspaceId: string;
-  }> = [];
-  const marketPrices = {
-    resolveFreshPrice: async (
-      symbol: string,
-      workspaceId: string,
-      overrides: Record<string, number>,
-    ) => {
-      marketPriceCalls.push({ overrides, symbol, workspaceId });
-      const override =
-        overrides[symbol] ?? overrides[symbol.replace('/', '')] ?? null;
-      if (Number.isFinite(override)) {
-        return { symbol, price: override, source: 'override' as const };
-      }
-      const snapshot = await journal.getLatestMarketSnapshot(symbol, workspaceId);
-      const price = Number(snapshot?.current_price);
-      return {
-        symbol,
-        price: Number.isFinite(price) ? price : null,
-        source: Number.isFinite(price) ? ('snapshot' as const) : ('missing' as const),
-        snapshot: snapshot ?? undefined,
-      };
-    },
-  } as unknown as MarketPriceService;
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
   const scenarioOhlcv = new MarketOhlcvService();
   const backtestOhlcv = new MarketOhlcvService();
@@ -15332,7 +15314,6 @@ function buildHarness() {
   researchContinuity.setMarkdownExporterForTest(
     new NoopContinuityMarkdownExporter(),
   );
-  const watchlists = new WatchlistsService(journal, auth, workspaces, marketPrices);
   const scenarioReliability = new ScenarioReliabilityService(
     journal,
     auth,
@@ -15346,7 +15327,6 @@ function buildHarness() {
     workspaces,
     evaluationEngineCalls,
     jobs,
-    marketPriceCalls,
     researchRuns,
     researchContinuity,
     researchContinuityController: new ResearchContinuityController(
@@ -15365,8 +15345,6 @@ function buildHarness() {
       scenarioReliability,
       undefined,
     ),
-    watchlists,
-    briefs: new BriefsService(journal, auth, workspaces),
     alerts: new AlertsService(journal, auth, workspaces),
     calibration: new CalibrationService(
       journal,
@@ -15873,13 +15851,6 @@ function appendUniqueString(value: unknown, item: string): string[] {
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
   return current.includes(item) ? current : [...current, item];
-}
-
-function localDateStringForTest(date: Date): string {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function isException(

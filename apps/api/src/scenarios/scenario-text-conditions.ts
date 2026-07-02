@@ -1,9 +1,7 @@
 import type { JsonRecord } from '../database/journal.types';
 import type { ScenarioDecisionCondition } from './scenario-decision.types';
 
-type PriceConditionDirection = 'above' | 'below';
-
-const PRICE_PATTERN = String.raw`(\d+(?:[\.,]\d+)?)(k|m)?`;
+const PRICE_PATTERN = String.raw`(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[\.,]\d+)?)(k|m)?`;
 
 export function derivePriceConditionFromText(
   value: unknown,
@@ -21,6 +19,14 @@ export function derivePriceConditionFromText(
     'over',
     'reclaim',
     'reclaims',
+    'reach',
+    'reaches',
+    'hit',
+    'hits',
+    'touch',
+    'touches',
+    'price action at',
+    'at',
     'tren',
     'vuot',
     'dong cua tren',
@@ -65,6 +71,25 @@ export function derivePriceConditionFromTexts(
 export function priceTriggerSpecFromText(values: unknown[]): JsonRecord | null {
   const condition = derivePriceConditionFromTexts(values);
   return condition ? { ...condition } : null;
+}
+
+export function firstPriceLevelFromText(value: unknown): number | null {
+  const text = normalizeScenarioConditionText(value);
+  if (!text) {
+    return null;
+  }
+  const currencyMatch = text.match(new RegExp(`\\$${PRICE_PATTERN}\\b`, 'i'));
+  if (currencyMatch) {
+    return parsePriceLevel(currencyMatch[1], currencyMatch[2]);
+  }
+  const pattern = new RegExp(`\\b${PRICE_PATTERN}\\b`, 'gi');
+  for (const match of text.matchAll(pattern)) {
+    const level = parsePriceLevel(match[1], match[2]);
+    if (level !== null && (match[2] || level >= 10)) {
+      return level;
+    }
+  }
+  return null;
 }
 
 export function decisionConditionFromRecord(
@@ -177,6 +202,13 @@ function hasPriceContext(
       'breaks below',
       'reclaim',
       'reclaims',
+      'reach',
+      'reaches',
+      'hit',
+      'hits',
+      'touch',
+      'touches',
+      'price action at',
       'lose',
       'loses',
       'close above',
@@ -211,7 +243,10 @@ function parsePriceLevel(raw: string | undefined, suffix: string | undefined): n
   if (!raw) {
     return null;
   }
-  const parsed = Number(raw.replace(',', '.'));
+  const normalized = /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(raw)
+    ? raw.replaceAll(',', '')
+    : raw.replace(',', '.');
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) {
     return null;
   }
