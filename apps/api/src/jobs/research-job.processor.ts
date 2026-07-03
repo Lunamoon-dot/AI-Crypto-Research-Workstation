@@ -11,6 +11,14 @@ import {
   SqliteJournalSyncService,
 } from './sqlite-journal-sync.service';
 
+type PostgresSyncAudit = {
+  status: 'completed' | 'skipped' | 'failed';
+  synced_tables: string[];
+  sqlite_path: string | null;
+  error: string | null;
+  tables?: Record<string, number>;
+};
+
 export interface ResearchJobProcessorContext {
   jobId: string;
   backend: JobBackend;
@@ -184,15 +192,26 @@ export class ResearchJobProcessor {
     const result = await this.pythonEngine.runInline(enrichedRequest, { signal });
     const status = resultStatus(result);
     await this.lifecycle.heartbeat(request.run_id, { phase: 'postgres_sync' });
-    const sync = await this.syncRun(request, result, {
-      publishSignals: shouldPublishSignals(status),
-    });
-    return sync
-      ? ({
-          ...result,
-          postgres_sync: sync,
-        } satisfies JsonRecord)
-      : result;
+    try {
+      const sync = await this.syncRun(request, result, {
+        publishSignals: shouldPublishSignals(status),
+      });
+      return {
+        ...result,
+        postgres_sync: postgresSyncAudit(sync, result),
+      };
+    } catch (error) {
+      return {
+        ...result,
+        warnings: uniqueStrings([...stringList(result.warnings), 'postgres_sync_failed']),
+        postgres_sync: {
+          status: 'failed',
+          synced_tables: [],
+          sqlite_path: optionalString(result.journal_path) ?? null,
+          error: errorMessage(error),
+        },
+      };
+    }
   }
 
   private async withContinuityContext(
@@ -257,6 +276,50 @@ function stringValue(value: unknown, fallback: string): string {
     return value;
   }
   return fallback;
+}
+
+function postgresSyncAudit(
+  sync: SqliteJournalSyncResult | null,
+  result: JsonRecord,
+): PostgresSyncAudit {
+  if (!sync) {
+    return {
+      status: 'skipped',
+      synced_tables: [],
+      sqlite_path: optionalString(result.journal_path) ?? null,
+      error: null,
+    };
+  }
+  return {
+    status: 'completed',
+    synced_tables: sync.synced_tables ?? syncedTablesFromCounts(sync.tables),
+    sqlite_path: sync.sqlite_path ?? optionalString(result.journal_path) ?? null,
+    error: null,
+    tables: sync.tables,
+  };
+}
+
+function syncedTablesFromCounts(tables: Record<string, number> | undefined): string[] {
+  return Object.entries(tables ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .map(([table]) => table);
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function optionalString(value: unknown): string | undefined {

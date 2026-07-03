@@ -1,6 +1,6 @@
 # Scenario Decision System
 
-Last updated: 2026-07-02
+Last updated: 2026-07-04
 Status: draft master spec
 
 ## Purpose
@@ -395,6 +395,14 @@ Backtest Lab must consume playbooks, not scenario prose.
 | V5 | Backtest Lab | [V5 implementation plan](v5/implementation-plan.md) |
 | V6 | Scenario Decision Workbench | [V6 implementation plan](v6/implementation-plan.md) |
 | V7 | Visual Scenario Monitoring | [V7 implementation plan](v7/implementation-plan.md) |
+| V7.1 | Scenario Lifecycle Hardening | [V7.1 implementation plan](v7.1/implementation-plan.md) |
+| V8 | Paper Execution | [V8 implementation plan](v8/implementation-plan.md) |
+
+Current roadmap status:
+
+- V7 Visual Scenario Monitoring: in-progress on the current branch evidence.
+- V7.1 Scenario Lifecycle Hardening: goal-ready.
+- V8 Paper Execution: design-ready spec, blocked until P0 execution semantics and the V7.1 definition of done pass.
 
 Each version must be independently valuable and testable. Do not skip from V1
 directly to V5. Without V2 and V3, Backtest Lab would be disconnected from the
@@ -1508,15 +1516,223 @@ V7 is done when:
 - Event history can explain major scenario state transitions.
 - The UI remains a monitoring surface, not an execution surface.
 
-### Exit Criteria To V8
+### Required Hardening Gate
 
-Move to Order Draft V8 only when:
+V7.1 is the required hardening checkpoint before Paper Execution V8. Move to V8
+only when:
 
 - Watch zones cannot be misread as entries.
 - Stale playbooks cannot produce current trade overlays.
 - Scenario live state and event history are stable enough to freeze into an
   immutable order analysis snapshot.
 - Chart UI has no execution language.
+
+## V7.1: Scenario Lifecycle Hardening
+
+Status: goal-ready.
+
+Primary spec:
+
+```text
+docs/features/scenario-decision-system/v7.1/implementation-plan.md
+```
+
+### Goal
+
+Harden V7 visual scenario monitoring so live state, chart projection, playbook
+freshness, event history, workspace guardrails, and compact feedback are stable
+enough for future paper execution work.
+
+### User Outcome
+
+The operator can trust the scenario monitoring surface to answer:
+
+- Is the trade playbook current, stale, or unverifiable?
+- Which live-state transition actually happened, and when?
+- Which conditions are confirmed by candles versus unknown from missing data?
+- Why is a full chart showing a trigger, invalidation, target, or blocker?
+- Can monitor cards scale without polling full OHLCV charts for every scenario?
+- Which compact lessons should future runs see without raw continuity noise?
+
+### Hardened Capabilities
+
+V7.1 hardens or adds:
+
+```text
+trade_playbook freshness status
+scenario_live_state_snapshot.v1
+scenario_chart_summary.v1
+scenario_feedback_playbook.v1
+transition event semantics for scenario_event.v1
+candle-aware condition evaluation context
+```
+
+### Scope
+
+V7.1 focuses on:
+
+- Stable source hashes that exclude volatile runtime fields.
+- Transition events instead of mutable current-state events.
+- Candle-aware reclaim, reject, close-confirmation, and volume checks.
+- Shared context loading for live state and chart projection.
+- Chart overlay semantics that keep watch zones distinct from trade entries.
+- Summary polling for monitor lists and full chart loading only when needed.
+- API, OpenAPI, generated-client, and web type alignment.
+- Compact scenario feedback through the Portfolio Manager boundary.
+- Cross-workspace and viewer-write guardrails.
+- SQLite-to-Postgres sync visibility for hosted-read surfaces.
+
+### Non-Goals
+
+V7.1 must not implement:
+
+- Order drafts.
+- Paper orders.
+- Paper positions.
+- Broker integration.
+- Automated execution.
+- Raw continuity injection into Scenario Planner.
+- Full migration from SQLite journal writes to direct Postgres writes.
+
+### Definition Of Done
+
+V7.1 is done when:
+
+- Structurally unchanged trade playbooks stay current across runtime refreshes.
+- Legacy playbooks without source hashes are blocked as `unverifiable`.
+- Scenario transition events preserve repeated occurrences without mutating
+  history.
+- Runtime condition checks do not overclaim from current price alone.
+- Full chart projection and monitor summaries share the same scenario context.
+- Stale trade overlays cannot render as current chart trade overlays.
+- API and web contracts agree on chart source versions and stale reasons.
+- Compact feedback excludes raw continuity prose.
+- Cross-workspace tests cover live, chart, event, playbook, and feedback paths.
+- Sync failures are visible as lifecycle warnings.
+
+### Exit Criteria To V8
+
+Move to Paper Execution V8 only when the V7.1 definition of done passes and a
+future simulation can freeze a stable scenario, playbook, chart, and analysis
+snapshot without reading mutable live projection as historical rationale.
+
+## V8: Paper Execution
+
+Status: design-ready spec, gated by P0 semantic acceptance and V7.1 completion.
+
+Primary spec:
+
+```text
+docs/features/scenario-decision-system/v8/implementation-plan.md
+```
+
+### Goal
+
+Turn current trade playbooks into deterministic paper simulations that wait for
+entry triggers, create virtual orders, manage virtual positions, write an
+append-only execution ledger, and produce outcomes that can update reliability
+memory.
+
+### User Outcome
+
+The operator can open an Autochartist-like opportunity card and answer:
+
+- What setup exists and why?
+- What entry, stop, target, and expiry define the current playbook?
+- Is the simulation waiting for trigger, open, closed, cancelled, or failed?
+- What virtual fill, target, stop, or expiry event actually happened?
+- Did the outcome fail because the thesis was wrong or because execution was
+  poor?
+
+### New Capabilities Needed
+
+V8 should create:
+
+```text
+simulation_run.v1
+simulation_assumptions.v1
+market_data_snapshot.v1
+paper_order.v1
+paper_position.v1
+execution_event.v1
+simulation_outcome.v1
+```
+
+### Source Of Truth
+
+V8 must keep these boundaries:
+
+- `trade_playbook.v1` is the immutable source plan for a simulation.
+- `simulation_run.v1` freezes playbook, scenario, thesis, chart source versions,
+  and assumptions at start time.
+- `execution_event.v1` is the append-only source of truth for fills, exits, and
+  lifecycle transitions.
+- Paper orders, paper positions, chart markers, opportunity cards, and PnL
+  snapshots are derived from the frozen run snapshot plus ledger events.
+- Existing simulations keep their frozen rationale when the source scenario or
+  playbook later changes.
+- Source changes after run start are informational only; stale snapshots must be
+  rejected before start, and integrity failures only affect reliability
+  eligibility.
+
+### P0 Semantic Locks
+
+V8 implementation must not start until these semantics are accepted:
+
+- V8 excludes `risk_fraction` sizing; only `fixed_notional` and
+  `fixed_quantity` are in scope.
+- Waiting for trigger is a simulation-run state, not a paper-order state.
+- Paper positions are created only after the first fill.
+- Execution events require sequence, aggregate version, correlation, causation,
+  and idempotency keys.
+- Refresh must be atomic and concurrency-safe.
+- Fill, gap, intrabar, expiry, cancellation, and data-end behavior must be
+  deterministic.
+- Numeric invalidation must compile into an explicit risk exit or be treated as
+  a hard paper stop with touch semantics.
+- Engine failure must not create a synthetic closing trade.
+
+### Scope
+
+V8 focuses on:
+
+- Replay and forward simulation modes.
+- Waiting for entry trigger instead of opening immediately at current price.
+- Virtual orders and virtual positions only.
+- Stop, target, partial close, expiry, and invalidation handling.
+- Deterministic gap, fill, cancellation, and data-end handling.
+- No-lookahead replay processing.
+- Outcome diagnosis that separates thesis quality from execution quality.
+- Reliability eligibility for completed simulations.
+- Reliability sample identity deduplication.
+
+### Non-Goals
+
+V8 must not implement:
+
+- Broker integration.
+- Live orders.
+- Exchange account linking.
+- Strategy optimization.
+- Portfolio-level sizing optimization.
+- Free-text scenario simulation without a current numeric trade playbook.
+
+### Definition Of Done
+
+V8 is done when:
+
+- Current numeric trade playbooks can start replay simulations.
+- Simulations wait for entry by default.
+- V8 rejects `risk_fraction` sizing.
+- Virtual orders, fills, positions, and outcomes are persisted.
+- Execution events are sequenced, idempotent, append-only, and can rebuild
+  visible state.
+- Refresh cannot emit duplicate transitions under concurrent requests.
+- Chart and opportunity card render from simulation read models.
+- Stale or unverifiable playbooks cannot start new simulations.
+- Outcome evaluation separates thesis quality from execution quality.
+- Reliability updates deduplicate repeated runs over the same sample identity.
+- UI copy remains simulation-only and contains no live execution language.
 
 ## Version Dependencies
 
@@ -1569,6 +1785,21 @@ V7 Visual Scenario Monitoring
     V5 backtest events
     V6 scenario workbench
     Market OHLCV API
+
+V7.1 Scenario Lifecycle Hardening
+  depends on:
+    V7 visual scenario monitoring
+    Scenario Runtime Evaluator
+    Trade Playbook source hashes
+    Market OHLCV API
+    Research Continuity compact feedback boundary
+
+V8 Paper Execution
+  depends on:
+    V7.1 definition of done
+    Stable scenario/playbook/chart snapshot contracts
+    Current numeric trade playbooks
+    Market OHLCV replay/forward data
 ```
 
 ## Do Not Build Out Of Order
@@ -1620,6 +1851,19 @@ scenario_reliability_profile.v1
 trade_playbook.v1
 backtest_run.v1
 scenario_decision_queue.v1
+scenario_live_state.v1
+scenario_event.v1
+scenario_chart_projection.v1
+scenario_live_state_snapshot.v1
+scenario_chart_summary.v1
+scenario_feedback_playbook.v1
+simulation_run.v1
+simulation_assumptions.v1
+market_data_snapshot.v1
+paper_order.v1
+paper_position.v1
+execution_event.v1
+simulation_outcome.v1
 ```
 
 Rules:

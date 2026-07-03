@@ -3,6 +3,7 @@ import { apiRequest } from '@/services/client';
 import type {
   MarketChartInterval,
   ScenarioChartProjectionResponse,
+  ScenarioChartSummaryResponse,
   ScenarioEventResponse,
   ScenarioLiveStateResponse,
 } from '@/types';
@@ -57,6 +58,31 @@ export function getScenarioChartProjection(
         interval: params.interval ?? '15m',
         limit: params.limit ?? 200,
       },
+    },
+    auth,
+  );
+}
+
+export function getScenarioChartSummary(
+  scenarioId: string,
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ScenarioChartSummaryResponse>(
+    `/scenarios/${encodeURIComponent(scenarioId)}/chart-summary`,
+    {},
+    auth,
+  );
+}
+
+export function getScenarioChartSummaries(
+  scenarioIds: string[],
+  auth: WorkspaceRequestContext,
+) {
+  return apiRequest<ScenarioChartSummaryResponse[]>(
+    '/scenarios/chart-summaries',
+    {
+      method: 'POST',
+      body: { scenario_ids: scenarioIds },
     },
     auth,
   );

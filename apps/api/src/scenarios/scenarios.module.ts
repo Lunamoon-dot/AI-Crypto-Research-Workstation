@@ -5,6 +5,9 @@ import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ScenarioEvaluationService } from './scenario-evaluation.service';
 import { ScenarioEvaluationsController } from './scenario-evaluations.controller';
 import { ScenarioChartProjectionService } from './scenario-chart-projection.service';
+import { ScenarioChartSummaryService } from './scenario-chart-summary.service';
+import { ScenarioContextLoaderService } from './scenario-context-loader.service';
+import { ScenarioFeedbackPlaybookService } from './scenario-feedback-playbook.service';
 import { ScenarioLiveStateService } from './scenario-live-state.service';
 import { ScenarioReliabilityController } from './scenario-reliability.controller';
 import { ScenarioReliabilityService } from './scenario-reliability.service';
@@ -22,6 +25,9 @@ import { ScenariosService } from './scenarios.service';
     ScenariosService,
     ScenarioEvaluationService,
     ScenarioChartProjectionService,
+    ScenarioChartSummaryService,
+    ScenarioContextLoaderService,
+    ScenarioFeedbackPlaybookService,
     ScenarioLiveStateService,
     ScenarioReliabilityService,
   ],
@@ -29,6 +35,9 @@ import { ScenariosService } from './scenarios.service';
     ScenariosService,
     ScenarioEvaluationService,
     ScenarioChartProjectionService,
+    ScenarioChartSummaryService,
+    ScenarioContextLoaderService,
+    ScenarioFeedbackPlaybookService,
     ScenarioLiveStateService,
     ScenarioReliabilityService,
   ],

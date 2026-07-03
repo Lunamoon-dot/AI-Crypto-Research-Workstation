@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-22
+Last updated: 2026-07-03
 
 Use this file as the short current-state monitor. It should stay much smaller
 than the roadmaps and feature plans.
@@ -35,6 +35,14 @@ apps/web
 | Backend boundary | Current NestJS API plus production hardening targets | [backend-system-design.md](backend-system-design.md) |
 | Frontend boundary | Current route model and UX rules documented | [frontend-system-design.md](frontend-system-design.md) |
 | AI service operations | Local beta posture with release evidence | [../apps/ai-service/docs/GO_LIVE_READINESS.md](../apps/ai-service/docs/GO_LIVE_READINESS.md) |
+| Scenario decision system | V7.1 hardening in progress for live state, chart projection, feedback, and sync audit boundaries | [features/scenario-decision-system/v7.1/implementation-plan.md](features/scenario-decision-system/v7.1/implementation-plan.md) |
+
+## Current Scenario Decision Focus
+
+V7.1 is the next recommended hardening slice before any order-draft or
+paper-trading surface. It stabilizes scenario live semantics, transition events,
+chart scalability, contract drift, compact feedback, workspace guardrails, and
+SQLite-to-Postgres sync visibility.
 
 ## Recently Documented Direction
 
@@ -43,6 +51,8 @@ apps/web
   plans around without a specific implementation need.
 - Operations tracking should cover quality gates, runtime health, queue health,
   provider/data freshness, LLM cost/latency, and product-quality metrics.
+- Scenario Decision V7.1 keeps order execution out of scope while hardening
+  scenario chart/live-state state, compact feedback, and sync observability.
 
 ## Open Risks To Watch
 
@@ -56,6 +66,8 @@ important themes are:
 - stale docs and release evidence must be refreshed before production-like tags;
 - typed contracts and repository boundaries should keep tightening as features
   cross API, web, and Python service boundaries.
+- completed Python runs can still require SQLite-to-Postgres sync before every
+  product API surface sees the same scenario lifecycle artifacts.
 
 ## Next Three Recommended Moves
 

@@ -568,6 +568,32 @@ CREATE TABLE IF NOT EXISTS scenario_events (
 CREATE INDEX IF NOT EXISTS idx_scenario_events_scenario
 ON scenario_events(workspace_id, scenario_id, event_time DESC, id DESC);
 
+CREATE TABLE IF NOT EXISTS scenario_live_state_snapshots (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    market_snapshot_id TEXT,
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    state_json JSONB NOT NULL,
+    source_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenario_live_state_snapshots_latest
+ON scenario_live_state_snapshots(workspace_id, scenario_id, evaluated_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS scenario_feedback_playbooks (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenario_feedback_playbooks_latest
+ON scenario_feedback_playbooks(workspace_id, symbol, generated_at DESC, id DESC);
+
 CREATE TABLE IF NOT EXISTS backtest_runs (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,

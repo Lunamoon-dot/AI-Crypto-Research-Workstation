@@ -1,22 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, Radar } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BentoGrid } from '@/components/research/bento';
 import { HeaderStats } from '@/components/research/header-stats';
 import { PageHeader } from '@/components/research/page-header';
 import { Panel } from '@/components/research/panel';
-import { ScenarioChart } from '@/components/scenarios/ScenarioChart';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/state';
-import { getScenarioChartProjection } from '@/services/scenario-chart';
+import { getScenarioChartSummaries } from '@/services/scenario-chart';
 import { getScenarioMonitor } from '@/services/scenarios';
 import { queryKeys } from '@/services/query-keys';
 import { useWorkspaceStore } from '@/store/useWorkspaceStore';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { routes } from '@/lib/routes';
 import { scenarioMonitorViewModel } from './scenario-view-model';
-import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
-import type { ScenarioHorizon, ScenarioMonitorItemResponse } from '@/types';
+import type {
+  ScenarioChartSummaryResponse,
+  ScenarioHorizon,
+  ScenarioMonitorItemResponse,
+} from '@/types';
 
 type Tone = 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
 type ScenarioHorizonFilter = 'all' | ScenarioHorizon;
@@ -38,6 +40,37 @@ export function ScenarioMonitorPage() {
   const filteredItems = (monitor.data?.items ?? []).filter((item) => (
     horizonFilter === 'all' || item.scenario.horizon === horizonFilter
   ));
+  const scenarioIds = useMemo(
+    () =>
+      monitor.data?.items
+        .map((item) => item.scenario.id)
+        .filter((id): id is string => Boolean(id)) ?? [],
+    [monitor.data],
+  );
+  const chartSummariesQuery = useQuery({
+    enabled: scenarioIds.length > 0,
+    queryKey: queryKeys.scenarioChartSummaries(scenarioIds),
+    queryFn: () => getScenarioChartSummaries(scenarioIds, auth),
+    refetchInterval: (query) => {
+      const summaries = query.state.data ?? [];
+      return summaries.some((summary) =>
+        summary.trigger_status === 'near_trigger' ||
+        summary.trigger_status === 'triggered'
+      )
+        ? 30_000
+        : 180_000;
+    },
+  });
+  const chartSummariesById = useMemo(
+    () =>
+      new Map(
+        (chartSummariesQuery.data ?? []).map((summary) => [
+          summary.scenario_id,
+          summary,
+        ]),
+      ),
+    [chartSummariesQuery.data],
+  );
   const scenarioFilters = (
     <div className="scenario-filter-controls scenario-queue-filters">
       <label className="scenario-filter-label">
@@ -136,7 +169,12 @@ export function ScenarioMonitorPage() {
           <div className="scenario-monitor-list">
             {filteredItems.map((item) => (
               <ScenarioMonitorCard
-                auth={auth}
+                chartSummary={
+                  item.scenario.id
+                    ? chartSummariesById.get(item.scenario.id)
+                    : undefined
+                }
+                chartSummaryLoading={chartSummariesQuery.isLoading}
                 item={item}
                 key={item.scenario.id ?? item.trigger_summary}
               />
@@ -149,21 +187,16 @@ export function ScenarioMonitorPage() {
 }
 
 function ScenarioMonitorCard({
-  auth,
+  chartSummary,
+  chartSummaryLoading,
   item,
 }: {
-  auth: WorkspaceRequestContext;
+  chartSummary: ScenarioChartSummaryResponse | undefined;
+  chartSummaryLoading: boolean;
   item: ScenarioMonitorItemResponse;
 }) {
   const vm = scenarioMonitorViewModel(item.scenario);
   const scenarioId = item.scenario.id ?? '';
-  const chartQuery = useQuery({
-    enabled: Boolean(scenarioId),
-    queryKey: queryKeys.scenarioChart(scenarioId || 'derived-scenario', '15m'),
-    queryFn: () => getScenarioChartProjection(scenarioId, { interval: '15m', limit: 160 }, auth),
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: true,
-  });
   const condition = vm.condition;
   const actionToneValue = vm.actionTone;
   const expected = vm.expected;
@@ -212,10 +245,9 @@ function ScenarioMonitorCard({
       </div>
 
       {scenarioId ? (
-        <ScenarioChart
-          compact
-          isLoading={chartQuery.isLoading}
-          projection={chartQuery.data ?? null}
+        <ScenarioChartSummaryStrip
+          isLoading={chartSummaryLoading && !chartSummary}
+          summary={chartSummary}
         />
       ) : null}
 
@@ -320,6 +352,54 @@ function ScenarioMonitorCard({
   );
 }
 
+function ScenarioChartSummaryStrip({
+  isLoading,
+  summary,
+}: {
+  isLoading: boolean;
+  summary: ScenarioChartSummaryResponse | undefined;
+}) {
+  if (isLoading) {
+    return (
+      <div className="scenario-monitor-facts scenario-recommendation-grid">
+        <div className="scenario-monitor-fact">
+          <span>Chart</span>
+          <p>Loading chart summary...</p>
+        </div>
+      </div>
+    );
+  }
+  if (!summary) {
+    return null;
+  }
+  return (
+    <div className="scenario-monitor-facts scenario-recommendation-grid">
+      <div className="scenario-monitor-fact">
+        <span>Chart mode</span>
+        <p>{titleCaseSummary(summary.mode)}</p>
+        <p className="small muted">{summary.trade_playbook_status} playbook</p>
+      </div>
+      <div className="scenario-monitor-fact">
+        <span>Runtime</span>
+        <p>{titleCaseSummary(summary.trigger_status)}</p>
+        <p className="small muted">{titleCaseSummary(summary.validity_status)}</p>
+      </div>
+      <div className="scenario-monitor-fact">
+        <span>Overlays</span>
+        <p>{summary.overlay_counts.total}</p>
+        <p className="small muted">
+          {summary.overlay_counts.decision} decision | {summary.overlay_counts.trade} trade
+        </p>
+      </div>
+      <div className="scenario-monitor-fact">
+        <span>Chart warnings</span>
+        <p>{summary.warning_count}</p>
+        <p className="small muted">Blockers {summary.blocker_count}</p>
+      </div>
+    </div>
+  );
+}
+
 function statusBadgeClass(status: string): string {
   if (status === 'alerting' || status === 'action_required' || status === 'triggered') {
     return 'badge warning scenario-status-badge';
@@ -348,6 +428,14 @@ function statusTone(status: string): Tone {
 
 function statusLabel(status: string): string {
   return status
+    .split('_')
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(' ') || 'Unknown';
+}
+
+function titleCaseSummary(value: string): string {
+  return value
     .split('_')
     .filter(Boolean)
     .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)

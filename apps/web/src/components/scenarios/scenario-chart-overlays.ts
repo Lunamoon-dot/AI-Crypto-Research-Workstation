@@ -1,22 +1,41 @@
-import { LineStyle, type ISeriesApi, type LineWidth, type Time } from 'lightweight-charts';
+import {
+  LineStyle,
+  type ISeriesApi,
+  type LineWidth,
+  type SeriesMarker,
+  type Time,
+} from 'lightweight-charts';
 import type { ScenarioChartOverlay } from '@/types';
 
-type CandleSeries = Pick<ISeriesApi<'Candlestick', Time>, 'createPriceLine'>;
+type CandleSeries = Pick<ISeriesApi<'Candlestick', Time>, 'createPriceLine'> & {
+  setMarkers: (markers: SeriesMarker<Time>[]) => void;
+};
 
 export function renderScenarioOverlays(
   candleSeries: CandleSeries,
   overlays: ScenarioChartOverlay[],
 ) {
+  const markers = overlays
+    .filter(
+      (overlay): overlay is Extract<ScenarioChartOverlay, { type: 'event_marker' }> =>
+        overlay.type === 'event_marker',
+    )
+    .map((overlay) => ({
+      time: Math.floor(new Date(overlay.time).getTime() / 1000) as Time,
+      position: 'aboveBar' as const,
+      color: overlayColor(overlay),
+      shape: 'circle' as const,
+      text: overlay.label,
+    }))
+    .filter((marker) => Number.isFinite(marker.time as number));
+  if (markers.length > 0) {
+    candleSeries.setMarkers(markers);
+  }
+
   overlays.forEach((overlay) => {
     if (overlay.type === 'price_zone') {
-      if (overlay.role === 'watch') {
-        renderZoneBoundary(candleSeries, overlay, overlay.price_low, 'low');
-        renderZoneBoundary(candleSeries, overlay, overlay.price_high, 'high');
-      }
-      if (overlay.role === 'entry') {
-        renderZoneBoundary(candleSeries, overlay, overlay.price_low, 'low');
-        renderZoneBoundary(candleSeries, overlay, overlay.price_high, 'high');
-      }
+      renderZoneBoundary(candleSeries, overlay, overlay.price_low, 'low');
+      renderZoneBoundary(candleSeries, overlay, overlay.price_high, 'high');
       return;
     }
 

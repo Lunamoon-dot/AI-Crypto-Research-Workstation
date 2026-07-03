@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
 import { ScenariosService } from './scenarios.service';
 
@@ -68,6 +68,28 @@ export class ScenariosController {
   ) {
     return this.scenarios.getChartProjection(
       { scenarioId: id, interval, limit },
+      userId,
+      workspaceId,
+    );
+  }
+
+  @Get(':id/chart-summary')
+  chartSummary(
+    @Param('id') id: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.getChartSummary(id, userId, workspaceId);
+  }
+
+  @Post('chart-summaries')
+  chartSummaries(
+    @Body() dto: { scenario_ids?: string[] },
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.scenarios.getChartSummaries(
+      Array.isArray(dto?.scenario_ids) ? dto.scenario_ids : [],
       userId,
       workspaceId,
     );

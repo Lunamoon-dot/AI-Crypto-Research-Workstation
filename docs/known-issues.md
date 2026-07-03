@@ -1,6 +1,6 @@
 # Known Issues And Technical Debt
 
-Last updated: 2026-05-22
+Last updated: 2026-07-03
 
 This tracker is seeded from the existing architecture reviews, roadmaps, and
 implementation plans. Treat it as a navigation aid: verify current code before
@@ -12,6 +12,7 @@ fixing anything.
 | --- | --- | --- | --- | --- |
 | P0 hosted | Cloud readiness | Real hosted use still depends on durable queue, worker isolation, auth, tenant isolation, and secret isolation. | Hosted users need scoped data, recoverable jobs, and safe provider credentials. | [cloud/job/tenant plan](../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md) |
 | P0 hosted | Workspace security | Cross-workspace reads/writes need explicit tests before team/cloud mode. | Tenant isolation cannot rely on convention. | [cloud/job/tenant plan](../CLOUD_JOB_QUEUE_TENANT_ISOLATION_PLAN.md) |
+| P0 hosted | Scenario lifecycle sync | Completed Python runs can still depend on SQLite-to-Postgres sync for product API visibility; sync failures must be audited and repairable before hosted beta. | Scenario chart, feedback, evaluation, and playbook surfaces need consistent persisted artifacts. | Scenario Decision V7.1 |
 | P0 release | Evidence freshness | Release-readiness docs contain dated snapshots and should be refreshed before a production-like tag. | Old green gates are not proof of the current workspace. | [AI go-live checklist](../apps/ai-service/docs/GO_LIVE_READINESS.md) |
 | P1 product | Evaluation language | Historical evaluation and calibration must not imply broker-accurate PnL unless a real simulator exists. | Users can over-trust research-quality metrics. | [Workflow](../Workflow.md), [technical review](../TECHNICAL_REVIEW_PHASE_1_11_ARCHITECT_REVIEW.md) |
 | P1 architecture | Graph/runtime size | The Python research graph remains a high-complexity runtime boundary. | Future features can pile into one central orchestration path. | [technical review](../TECHNICAL_REVIEW_PHASE_1_11_ARCHITECT_REVIEW.md) |

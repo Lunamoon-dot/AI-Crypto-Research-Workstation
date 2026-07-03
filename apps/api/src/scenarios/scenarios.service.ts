@@ -12,13 +12,17 @@ import {
   toMarketSnapshotResponse,
   toScenarioResponse,
   toThesisResponse,
+  toTradePlaybookResponse,
 } from '../contracts/frontend-contract';
 import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
-import { playbookSourceHashes } from '../playbooks/playbook-source-hash';
+import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
+import type { TradePlaybookResponse } from '../playbooks/playbook.types';
 import { WorkspacesService, WorkspaceRole } from '../workspaces/workspaces.service';
 import { ScenarioChartProjectionService } from './scenario-chart-projection.service';
+import { ScenarioChartSummaryService } from './scenario-chart-summary.service';
 import type {
   ScenarioChartProjectionResponse,
+  ScenarioChartSummaryResponse,
   ScenarioEventResponse,
   ScenarioLiveStateResponse,
 } from './scenario-chart.types';
@@ -41,6 +45,7 @@ export class ScenariosService {
     private readonly reliability: ScenarioReliabilityService,
     private readonly liveState: ScenarioLiveStateService,
     private readonly chartProjection: ScenarioChartProjectionService,
+    private readonly chartSummary: ScenarioChartSummaryService,
   ) {}
 
   async monitor(
@@ -157,6 +162,29 @@ export class ScenariosService {
       ...input,
       workspaceId,
     });
+  }
+
+  async getChartSummary(
+    scenarioId: string,
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioChartSummaryResponse> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    return this.chartSummary.getSummary({ scenarioId, workspaceId });
+  }
+
+  async getChartSummaries(
+    scenarioIds: string[],
+    userId?: string,
+    workspaceHeader?: string,
+  ): Promise<ScenarioChartSummaryResponse[]> {
+    const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const uniqueIds = uniqueStrings(scenarioIds).slice(0, 100);
+    return Promise.all(
+      uniqueIds.map((scenarioId) =>
+        this.chartSummary.getSummary({ scenarioId, workspaceId }),
+      ),
+    );
   }
 
   private async enrichScenarioLifecycle(
@@ -356,72 +384,23 @@ function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(4);
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
 function playbookWithStaleness(
   playbook: JsonRecord | null,
   response: ReturnType<typeof toScenarioResponse>,
-): JsonRecord | null {
+): TradePlaybookResponse | null {
   if (!playbook) {
     return null;
   }
-  const storedHashes = recordValue(playbook.source_hashes);
-  if (Object.keys(storedHashes).length === 0) {
-    return playbook;
-  }
-  const currentHashes = playbookSourceHashes({
+  return evaluateTradePlaybookFreshness(toTradePlaybookResponse(playbook), {
     scenario: response.payload,
     decisionPlaybook: response.decision_playbook,
     recommendation: response.scenario_recommendation,
     runtimeDecision: response.runtime_decision,
   });
-  const staleReasons: string[] = [];
-  addStaleReason(
-    staleReasons,
-    storedHashes.scenario,
-    currentHashes.scenario,
-    'source_scenario_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.decision_playbook,
-    currentHashes.decision_playbook,
-    'source_decision_playbook_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.recommendation,
-    currentHashes.recommendation,
-    'source_recommendation_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.runtime_decision,
-    currentHashes.runtime_decision,
-    'source_runtime_decision_changed',
-  );
-  if (staleReasons.length === 0) {
-    return {
-      ...playbook,
-      status: playbook.status ?? 'current',
-      stale_reasons: [],
-    };
-  }
-  return {
-    ...playbook,
-    status: 'stale',
-    stale_reasons: staleReasons,
-  };
-}
-
-function addStaleReason(
-  staleReasons: string[],
-  storedHash: unknown,
-  currentHash: string,
-  reason: string,
-): void {
-  const stored = nullableString(storedHash);
-  if (stored && stored !== currentHash) {
-    staleReasons.push(reason);
-  }
 }
 
 function toScenarioEventResponse(value: JsonRecord): ScenarioEventResponse {

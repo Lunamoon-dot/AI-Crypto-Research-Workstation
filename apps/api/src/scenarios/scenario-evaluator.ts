@@ -111,12 +111,12 @@ export function evaluateScenario(
 
 function inferPriceTrigger(scenario: JsonRecord, payload: JsonRecord): ScenarioTriggerSpec | null {
   const trigger = priceTriggerSpecFromText([
+    scenario.condition,
+    payload.condition,
     scenario.watch_triggers,
     payload.watch_triggers,
     payload.watchTriggers,
     payload.watch,
-    scenario.condition,
-    payload.condition,
     scenario.expected_behavior,
     scenario.expected_market_behavior,
     payload.expected_behavior,

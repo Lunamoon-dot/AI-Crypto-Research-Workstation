@@ -365,17 +365,45 @@ def _get_feedback_context(config) -> str:
         return ""
 
 
-def _render_latest_continuity_context(context: object) -> str:
+def _render_scenario_feedback_playbook(context: object) -> str:
     if not isinstance(context, dict) or not context:
         return ""
-    rendered = json.dumps(context, ensure_ascii=True, indent=2, sort_keys=True)
+    playbook = context.get("scenario_feedback_playbook")
+    if not isinstance(playbook, dict):
+        return ""
+    lessons = playbook.get("lessons") or []
+    gates = playbook.get("gates") or []
+    lines = ["Scenario feedback playbook:"]
+    if isinstance(lessons, list):
+        for lesson in lessons[:8]:
+            if not isinstance(lesson, dict):
+                continue
+            statement = str(lesson.get("statement") or "").strip()
+            if not statement:
+                continue
+            confidence = str(lesson.get("confidence") or "low").strip() or "low"
+            lines.append(f"- {statement} ({confidence})")
+    if isinstance(gates, list):
+        for gate in gates[:5]:
+            if not isinstance(gate, dict):
+                continue
+            reason = str(gate.get("reason") or "").strip()
+            applies_to = str(gate.get("applies_to") or "entry").strip() or "entry"
+            if reason:
+                lines.append(f"- gate:{applies_to}: {reason}")
+    return "\n".join(line for line in lines if line.strip() and line != "- ()")
+
+
+def _render_latest_continuity_context(context: object) -> str:
+    rendered = _render_scenario_feedback_playbook(context)
+    if not rendered:
+        return ""
     return (
-        "- Latest Research Continuity prior memory for the same workspace/symbol/market type:\n"
-        f"{guard_untrusted_context('latest_continuity_context', rendered)}\n"
-        "Treat this only as prior memory. Do not treat it as current evidence. "
-        "Use it only to explain whether the current thesis continues, weakens, "
-        "invalidates, or supersedes the prior thesis.\n"
-        "If you cite this prior memory in supporting_evidence, set "
+        "- Latest compact scenario feedback for the same workspace/symbol/market type:\n"
+        f"{guard_untrusted_context('scenario_feedback_playbook', rendered)}\n"
+        "Treat this only as evaluated prior feedback, not current evidence. "
+        "Use it only as guardrails for confirmation, invalidation, and data-quality discipline.\n"
+        "If you cite this feedback in supporting_evidence, set "
         "`source_artifact` to `research_continuity`.\n"
     )
 

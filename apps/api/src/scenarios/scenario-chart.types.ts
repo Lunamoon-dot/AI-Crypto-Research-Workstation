@@ -7,6 +7,10 @@ import type {
   ScenarioDecisionConditionRole,
   ScenarioRuntimeDecision,
 } from './scenario-decision.types';
+import type {
+  TradePlaybookStaleReason,
+  TradePlaybookStatus,
+} from '../playbooks/playbook.types';
 
 export type ScenarioConditionEvaluationStatus =
   | 'passed'
@@ -82,6 +86,14 @@ export type ScenarioChartMode =
   | 'event'
   | 'narrative';
 
+export type ScenarioChartZoneRole =
+  | 'watch'
+  | 'trigger'
+  | 'entry'
+  | 'invalidation'
+  | 'target'
+  | 'avoid';
+
 export type ScenarioChartOverlay =
   | {
       id: string;
@@ -95,7 +107,7 @@ export type ScenarioChartOverlay =
   | {
       id: string;
       type: 'price_zone';
-      role: 'watch' | 'entry' | 'avoid';
+      role: ScenarioChartZoneRole;
       source: 'decision_playbook' | 'trade_playbook';
       price_low: number;
       price_high: number;
@@ -126,10 +138,34 @@ export interface ScenarioChartProjectionResponse {
   source_versions: {
     decision_playbook_source: 'llm' | 'derived_v1' | 'missing';
     trade_playbook_id: string | null;
-    trade_playbook_status: 'current' | 'stale' | 'superseded' | 'missing';
+    trade_playbook_status: TradePlaybookStatus | 'missing';
+    stale_reasons: TradePlaybookStaleReason[];
   };
   candles: MarketOhlcvCandleResponse[];
   overlays: ScenarioChartOverlay[];
   live_state: ScenarioLiveStateResponse;
   warnings: string[];
+}
+
+export interface ScenarioChartSummaryResponse {
+  version: 'scenario_chart_summary.v1';
+  workspace_id: string;
+  scenario_id: string;
+  mode: ScenarioChartMode;
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  generated_at: string;
+  trigger_status: ScenarioRuntimeDecision['trigger_status'];
+  validity_status: ScenarioRuntimeDecision['validity_status'];
+  trade_playbook_status: TradePlaybookStatus | 'missing';
+  blocker_count: number;
+  warning_count: number;
+  overlay_counts: {
+    decision: number;
+    trade: number;
+    runtime: number;
+    events: number;
+    total: number;
+  };
+  latest_event: ScenarioEventResponse | null;
 }

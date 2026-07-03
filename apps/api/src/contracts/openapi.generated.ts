@@ -1186,6 +1186,17 @@ export const openApiDocument = {
         ),
       },
     },
+    '/scenarios/chart-summaries': {
+      post: {
+        operationId: 'getScenarioChartSummaries',
+        tags: ['scenarios'],
+        requestBody: jsonRequest('ScenarioChartSummariesRequest'),
+        responses: jsonArrayResponse(
+          'Batch scenario chart summaries without OHLCV candles.',
+          'ScenarioChartSummaryResponse',
+        ),
+      },
+    },
     '/scenarios/{id}/live': {
       get: {
         operationId: 'getScenarioLiveState',
@@ -1236,6 +1247,17 @@ export const openApiDocument = {
         responses: jsonResponse(
           'Derived scenario chart projection.',
           'ScenarioChartProjectionResponse',
+        ),
+      },
+    },
+    '/scenarios/{id}/chart-summary': {
+      get: {
+        operationId: 'getScenarioChartSummary',
+        tags: ['scenarios'],
+        parameters: [pathParameter('id')],
+        responses: jsonResponse(
+          'Scenario chart summary without OHLCV candles.',
+          'ScenarioChartSummaryResponse',
         ),
       },
     },
@@ -3540,11 +3562,12 @@ export const openApiDocument = {
           generated_at: { type: 'string' },
           source_versions: {
             type: 'object',
-            required: ['decision_playbook_source', 'trade_playbook_id', 'trade_playbook_status'],
+            required: ['decision_playbook_source', 'trade_playbook_id', 'trade_playbook_status', 'stale_reasons'],
             properties: {
               decision_playbook_source: { type: 'string', enum: ['llm', 'derived_v1', 'missing'] },
               trade_playbook_id: { type: ['string', 'null'] },
-              trade_playbook_status: { type: 'string', enum: ['current', 'stale', 'superseded', 'missing'] },
+              trade_playbook_status: { type: 'string', enum: ['current', 'stale', 'superseded', 'unverifiable', 'missing'] },
+              stale_reasons: { type: 'array', items: { type: 'string' } },
             },
           },
           candles: {
@@ -3557,6 +3580,52 @@ export const openApiDocument = {
           },
           live_state: { $ref: '#/components/schemas/ScenarioLiveStateResponse' },
           warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
+      ScenarioChartSummariesRequest: {
+        type: 'object',
+        required: ['scenario_ids'],
+        properties: {
+          scenario_ids: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+      },
+      ScenarioChartOverlayCounts: {
+        type: 'object',
+        required: ['decision', 'trade', 'runtime', 'events', 'total'],
+        properties: {
+          decision: { type: 'integer' },
+          trade: { type: 'integer' },
+          runtime: { type: 'integer' },
+          events: { type: 'integer' },
+          total: { type: 'integer' },
+        },
+      },
+      ScenarioChartSummaryResponse: {
+        type: 'object',
+        required: ['version', 'workspace_id', 'scenario_id', 'mode', 'symbol', 'market_type', 'generated_at', 'trigger_status', 'validity_status', 'trade_playbook_status', 'blocker_count', 'warning_count', 'overlay_counts', 'latest_event'],
+        properties: {
+          version: { type: 'string', enum: ['scenario_chart_summary.v1'] },
+          workspace_id: { type: 'string' },
+          scenario_id: { type: 'string' },
+          mode: { type: 'string', enum: ['watch', 'trade', 'indicator', 'event', 'narrative'] },
+          symbol: { type: 'string' },
+          market_type: { type: 'string', enum: ['spot', 'perp'] },
+          generated_at: { type: 'string' },
+          trigger_status: { type: 'string' },
+          validity_status: { type: 'string' },
+          trade_playbook_status: { type: 'string', enum: ['current', 'stale', 'superseded', 'unverifiable', 'missing'] },
+          blocker_count: { type: 'integer' },
+          warning_count: { type: 'integer' },
+          overlay_counts: { $ref: '#/components/schemas/ScenarioChartOverlayCounts' },
+          latest_event: {
+            anyOf: [
+              { $ref: '#/components/schemas/ScenarioEventResponse' },
+              { type: 'null' },
+            ],
+          },
         },
       },
       ProviderHealthResponse: {

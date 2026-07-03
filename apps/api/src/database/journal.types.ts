@@ -371,6 +371,22 @@ export interface JournalRepository {
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]>;
+  saveScenarioLiveStateSnapshot?(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  getLatestScenarioLiveStateSnapshot?(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  saveScenarioFeedbackPlaybook(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
+  getLatestScenarioFeedbackPlaybook(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
   saveBacktestRun(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
   getBacktestRun(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listBacktestRunsForPlaybook(

@@ -25,6 +25,7 @@ import type {
   ResearchContinuityWorkspaceSettingsResponse,
   RunResearchContinuityRepairRequest,
   ScenarioChartProjectionResponse,
+  ScenarioChartSummaryResponse,
   ScenarioDecisionConditionRole,
   ScenarioEventResponse,
   ScenarioLiveStateResponse,
@@ -1060,6 +1061,16 @@ export function createApiClient(request: ApiTransport) {
           },
         },
       ),
+    getScenarioChartSummary: (scenarioId: string) =>
+      request<ScenarioChartSummaryResponse>(
+        `/scenarios/${encodeURIComponent(scenarioId)}/chart-summary`,
+        {},
+      ),
+    getScenarioChartSummaries: (scenarioIds: string[]) =>
+      request<ScenarioChartSummaryResponse[]>('/scenarios/chart-summaries', {
+        method: 'POST',
+        body: { scenario_ids: scenarioIds },
+      }),
     listScenarioPlaybooks: (id: string) =>
       request<TradePlaybookResponse[]>(
         `/scenarios/${encodeURIComponent(id)}/playbook`,

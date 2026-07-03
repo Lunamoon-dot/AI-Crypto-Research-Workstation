@@ -40,6 +40,7 @@ from luna_workstation.agents.planners.setup_planner import (
 )
 from luna_workstation.agents.planners.scenario_planner import (
     create_scenario_planner,
+    render_scenario_feedback_playbook,
     render_scenario_reliability_digest,
 )
 
@@ -722,6 +723,26 @@ def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
 
 @pytest.mark.unit
 class TestScenarioPlannerAgent:
+    def test_scenario_feedback_playbook_renders_without_raw_continuity(self):
+        digest = render_scenario_feedback_playbook(
+            {
+                "raw_notes": "raw continuity paragraph",
+                "scenario_feedback_playbook": {
+                    "version": "scenario_feedback_playbook.v1",
+                    "lessons": [
+                        {
+                            "statement": "Require volume confirmation.",
+                            "confidence": "medium",
+                        }
+                    ],
+                    "gates": [],
+                },
+            }
+        )
+
+        assert "Require volume confirmation." in digest
+        assert "raw continuity paragraph" not in digest
+
     def test_scenario_reliability_digest_renders_compact_aggregates(self):
         digest = render_scenario_reliability_digest(
             {
@@ -793,6 +814,42 @@ class TestScenarioPlannerAgent:
         assert "Require volume confirmation." in prompt
         assert "raw_scenarios" not in prompt
         assert "raw scenario history should stay out" not in prompt
+
+    def test_scenario_planner_prompt_uses_feedback_playbook_not_raw_continuity(self):
+        captured = {}
+        llm = _structured_scenario_llm(captured)
+        scenario_planner = create_scenario_planner(llm)
+
+        scenario_planner(
+            {
+                "company_of_interest": "BTC/USDT",
+                "trade_date": "2026-06-10",
+                "investment_plan": "Overweight if reclaim confirms.",
+                "final_trade_decision": "Watch reclaim and invalidation.",
+                "market_report": "Price is below resistance.",
+                "sentiment_report": "",
+                "news_report": "",
+                "fundamentals_report": "",
+                "setup_type": "agent_debate",
+                "latest_continuity_context": {
+                    "raw_notes": "raw continuity paragraph",
+                    "scenario_feedback_playbook": {
+                        "version": "scenario_feedback_playbook.v1",
+                        "lessons": [
+                            {
+                                "statement": "Require volume confirmation.",
+                                "confidence": "medium",
+                            }
+                        ],
+                        "gates": [],
+                    },
+                },
+            }
+        )
+
+        prompt = captured["prompt"][1]["content"]
+        assert "Require volume confirmation." in prompt
+        assert "raw continuity paragraph" not in prompt
 
     def test_scenario_plan_renders_horizon_identity(self):
         plan = ScenarioPlan(

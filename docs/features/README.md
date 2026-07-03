@@ -1,6 +1,6 @@
 # Feature Registry
 
-Last updated: 2026-06-29
+Last updated: 2026-07-04
 
 Use this page to find long-lived feature plans. Feature docs capture intent,
 scope, decisions, and verification rules; code and tests remain the executable
@@ -23,7 +23,7 @@ Rules:
   enough scope that implementation can drift.
 - Use `README.md` for the feature overview, product boundary, version links, and
   roadmap.
-- Use a version folder for each goal-ready implementation slice.
+- Use a version folder for each design-ready or goal-ready implementation slice.
 - Keep each version focused on one deliverable.
 - Mark old or replaced plans as `superseded`; do not erase useful history.
 - Do not create versioned docs for tiny bug fixes or cosmetic cleanup.
@@ -35,7 +35,7 @@ Rules:
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
 | Research Data Foundation | [research-data-foundation/README.md](research-data-foundation/README.md) | draft | Data gap ledger and source strategy for market, derivatives, on-chain, news, social, and provenance. |
 | Research Continuity | [research-continuity/v2.0/implementation-plan.md](research-continuity/v2.0/implementation-plan.md) | implemented | Timeline and item lifecycle explorer as the graph-ready continuity substrate. |
-| Scenario Decision System | [scenario-decision-system/README.md](scenario-decision-system/README.md) | draft | Master product spec for scenario recommendation, evaluation, reliability memory, playbooks, backtests, and workbench. |
+| Scenario Decision System | [scenario-decision-system/v8/implementation-plan.md](scenario-decision-system/v8/implementation-plan.md) | design-ready | V8 defines deterministic paper execution, with implementation blocked until P0 semantics and V7.1 are locked. |
 | Scenario Horizon Planner | [scenario-horizon-planner/v1/implementation-plan.md](scenario-horizon-planner/v1/implementation-plan.md) | goal-ready | Keep one Scenario Planner node while specializing outputs into short, mid, and long horizon branches. |
 
 ## Status Labels
@@ -45,6 +45,7 @@ Use one of these labels in feature docs:
 | Status | Meaning |
 | --- | --- |
 | `draft` | Direction exists, but scope or decisions are not ready for implementation. |
+| `design-ready` | Product direction and contract boundaries are stable, but implementation semantics or task-level details still need acceptance. |
 | `goal-ready` | An engineer or agent can implement from the plan without broad discovery. |
 | `in-progress` | Implementation has started and the doc should reflect current checkpoints. |
 | `implemented` | The version's definition of done is met and verification is recorded. |

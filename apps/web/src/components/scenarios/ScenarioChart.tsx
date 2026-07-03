@@ -4,6 +4,7 @@ import {
   ColorType,
   CrosshairMode,
   createChart,
+  createSeriesMarkers,
   type CandlestickData,
   type UTCTimestamp,
 } from 'lightweight-charts';
@@ -77,7 +78,14 @@ export function ScenarioChart({
     });
 
     candleSeries.setData(candles);
-    renderScenarioOverlays(candleSeries, projection.overlays);
+    const markerPlugin = createSeriesMarkers(candleSeries, []);
+    renderScenarioOverlays(
+      {
+        createPriceLine: candleSeries.createPriceLine.bind(candleSeries),
+        setMarkers: markerPlugin.setMarkers.bind(markerPlugin),
+      },
+      projection.overlays,
+    );
     chart.timeScale().fitContent();
 
     const resizeObserver = new ResizeObserver(() => {

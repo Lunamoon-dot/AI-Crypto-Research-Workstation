@@ -22,10 +22,12 @@ import {
   toThesisDecisionResponse,
   toThesisResponse,
   toThesisReviewResponse,
+  toTradePlaybookResponse,
 } from '../contracts/frontend-contract';
 import { clampListLimit } from '../common/query-limit';
 import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
-import { playbookSourceHashes } from '../playbooks/playbook-source-hash';
+import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
+import type { TradePlaybookResponse } from '../playbooks/playbook.types';
 import { ScenarioReliabilityService } from '../scenarios/scenario-reliability.service';
 import {
   latestUsableBacktestRun,
@@ -351,67 +353,14 @@ function stringField(value: unknown): string | null {
 function playbookWithStaleness(
   playbook: JsonRecord | null,
   response: ReturnType<typeof toScenarioResponse>,
-): JsonRecord | null {
+): TradePlaybookResponse | null {
   if (!playbook) {
     return null;
   }
-  const storedHashes = recordFromValue(playbook.source_hashes);
-  if (!storedHashes || Object.keys(storedHashes).length === 0) {
-    return playbook;
-  }
-  const currentHashes = playbookSourceHashes({
+  return evaluateTradePlaybookFreshness(toTradePlaybookResponse(playbook), {
     scenario: response.payload,
     decisionPlaybook: response.decision_playbook,
     recommendation: response.scenario_recommendation,
     runtimeDecision: response.runtime_decision,
   });
-  const staleReasons: string[] = [];
-  addStaleReason(
-    staleReasons,
-    storedHashes.scenario,
-    currentHashes.scenario,
-    'source_scenario_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.decision_playbook,
-    currentHashes.decision_playbook,
-    'source_decision_playbook_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.recommendation,
-    currentHashes.recommendation,
-    'source_recommendation_changed',
-  );
-  addStaleReason(
-    staleReasons,
-    storedHashes.runtime_decision,
-    currentHashes.runtime_decision,
-    'source_runtime_decision_changed',
-  );
-  if (staleReasons.length === 0) {
-    return {
-      ...playbook,
-      status: playbook.status ?? 'current',
-      stale_reasons: [],
-    };
-  }
-  return {
-    ...playbook,
-    status: 'stale',
-    stale_reasons: staleReasons,
-  };
-}
-
-function addStaleReason(
-  staleReasons: string[],
-  storedHash: unknown,
-  currentHash: string,
-  reason: string,
-): void {
-  const stored = stringField(storedHash);
-  if (stored && stored !== currentHash) {
-    staleReasons.push(reason);
-  }
 }

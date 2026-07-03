@@ -1,10 +1,14 @@
 import { Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
+import { ScenarioFeedbackPlaybookService } from './scenario-feedback-playbook.service';
 import { ScenarioReliabilityService } from './scenario-reliability.service';
 
 @Controller('scenario-reliability')
 export class ScenarioReliabilityController {
-  constructor(private readonly reliability: ScenarioReliabilityService) {}
+  constructor(
+    private readonly reliability: ScenarioReliabilityService,
+    private readonly feedback: ScenarioFeedbackPlaybookService,
+  ) {}
 
   @Get()
   list(
@@ -25,6 +29,24 @@ export class ScenarioReliabilityController {
       userId,
       workspaceId,
     );
+  }
+
+  @Get('feedback')
+  feedbackForSymbol(
+    @Query('symbol') symbol: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.feedback.latest(symbol, userId, workspaceId);
+  }
+
+  @Post('feedback/rebuild')
+  rebuildFeedbackForSymbol(
+    @Query('symbol') symbol: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-workspace-id') workspaceId?: string,
+  ) {
+    return this.feedback.rebuild(symbol, userId, workspaceId);
   }
 
   @Get(':symbol')

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   JOURNAL_REPOSITORY,
   JournalRepository,
@@ -9,13 +9,27 @@ import {
   toScenarioResponse,
   toTradePlaybookResponse,
 } from '../contracts/frontend-contract';
-import { playbookSourceHashes } from '../playbooks/playbook-source-hash';
+import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
+import {
+  MarketChartInterval,
+  MarketOhlcvCandleResponse,
+  MarketOhlcvService,
+} from '../market-data/market-ohlcv.service';
 import type {
   ScenarioDecisionCondition,
   ScenarioDecisionConditionRole,
   ScenarioRuntimeDecision,
 } from './scenario-decision.types';
+import {
+  conditionIntervalsForPlaybook,
+  evaluateScenarioCondition,
+  type ScenarioConditionEvaluationContext,
+} from './scenario-condition-evaluator';
+import {
+  ScenarioContext,
+  ScenarioContextLoaderService,
+} from './scenario-context-loader.service';
 import { evaluateScenarioRuntimeDecision } from './scenario-runtime-evaluator';
 import type {
   ScenarioConditionEvaluationResponse,
@@ -24,87 +38,144 @@ import type {
   ScenarioLiveStateResponse,
   ScenarioTargetProgressResponse,
 } from './scenario-chart.types';
+import { scenarioTransitionEvents } from './scenario-live-transitions';
 
 @Injectable()
 export class ScenarioLiveStateService {
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
+    private readonly ohlcv: MarketOhlcvService,
+    private readonly contextLoader: ScenarioContextLoaderService,
   ) {}
 
   async getLiveState(
     scenarioId: string,
     workspaceId: string,
   ): Promise<ScenarioLiveStateResponse> {
-    const context = await this.loadContext(scenarioId, workspaceId);
-    return buildScenarioLiveState(context);
+    const context = await this.contextLoader.load({
+      scenarioId,
+      workspaceId,
+      eventLimit: 20,
+    });
+    return this.getLiveStateFromContext(context);
+  }
+
+  async getLiveStateFromContext(
+    context: ScenarioContext,
+  ): Promise<ScenarioLiveStateResponse> {
+    return buildScenarioLiveState(await this.toLiveStateContext(context));
   }
 
   async refreshLiveState(
     scenarioId: string,
     workspaceId: string,
   ): Promise<ScenarioLiveStateResponse> {
-    const context = await this.loadContext(scenarioId, workspaceId);
-    const state = buildScenarioLiveState(context);
-    for (const event of eventsFromState(state, context.thesisId)) {
+    const previousSnapshot =
+      (await this.journal.getLatestScenarioLiveStateSnapshot?.(
+        scenarioId,
+        workspaceId,
+      )) ?? null;
+    const context = await this.contextLoader.load({
+      scenarioId,
+      workspaceId,
+      eventLimit: 20,
+    });
+    const state = await this.getLiveStateFromContext(context);
+    for (const event of scenarioTransitionEvents({
+      previous: liveStateFromSnapshot(previousSnapshot),
+      current: state,
+      thesisId: context.thesisId || null,
+      marketSnapshotId: nullableString(context.snapshot?.id),
+    })) {
       await this.journal.saveScenarioEvent(event as unknown as JsonRecord, workspaceId);
     }
+    await this.journal.saveScenarioLiveStateSnapshot?.(
+      {
+        id: scenarioLiveStateSnapshotId(state),
+        workspace_id: workspaceId,
+        scenario_id: scenarioId,
+        market_snapshot_id: nullableString(context.snapshot?.id),
+        evaluated_at: state.evaluated_at,
+        state,
+        source_hash: stateSourceHash(state),
+      },
+      workspaceId,
+    );
     return this.getLiveState(scenarioId, workspaceId);
   }
 
-  private async loadContext(
-    scenarioId: string,
-    workspaceId: string,
+  private async toLiveStateContext(
+    context: ScenarioContext,
   ): Promise<LiveStateContext> {
-    const scenario = await this.journal.getScenario(scenarioId, workspaceId);
-    if (!scenario) {
-      throw new NotFoundException('Scenario not found.');
-    }
-    const payload = recordValue(scenario.payload ?? scenario.payload_json);
-    const thesisId = stringValue(scenario.thesis_id);
-    const thesis = thesisId
-      ? await this.journal.getThesis(thesisId, workspaceId)
-      : null;
-    const symbol = stringValue(thesis?.symbol ?? scenario.symbol ?? payload.symbol);
-    const snapshot = symbol
-      ? await this.journal.getLatestMarketSnapshot(symbol, workspaceId)
-      : null;
     const evaluatedAt = new Date().toISOString();
-    const runtime = evaluateScenarioRuntimeDecision(
-      scenario,
-      snapshot,
+    const baseResponse = toScenarioResponse(context.scenario, context.thesis);
+    const closedCandlesByInterval = await this.loadClosedCandles({
+      workspaceId: context.workspaceId,
+      symbol: context.symbol,
+      marketType: context.marketType,
+      intervals: conditionIntervalsForPlaybook(baseResponse.decision_playbook),
+      limit: 120,
+    });
+    const conditionContext: ScenarioConditionEvaluationContext = {
+      currentPrice: nullableNumber(context.snapshot?.current_price),
       evaluatedAt,
+      marketSnapshotId: nullableString(context.snapshot?.id),
+      closedCandlesByInterval,
+    };
+    const runtime = evaluateScenarioRuntimeDecision(
+      context.scenario,
+      context.snapshot,
+      evaluatedAt,
+      conditionContext,
     );
     const scenarioWithRuntime = {
-      ...scenario,
+      ...context.scenario,
       runtime_decision: runtime,
       payload: {
-        ...payload,
+        ...context.payload,
         runtime_decision: runtime,
       },
     };
-    const response = toScenarioResponse(scenarioWithRuntime, thesis);
-    const rawPlaybooks = await this.journal.listTradePlaybooksForScenario(
-      scenarioId,
-      workspaceId,
-    );
-    const latestPlaybook = currentPlaybook(rawPlaybooks[0] ?? null, response);
-    const events = await this.journal.listScenarioEvents(
-      scenarioId,
-      workspaceId,
-      20,
-    );
+    const response = toScenarioResponse(scenarioWithRuntime, context.thesis);
+    const latestPlaybook = currentPlaybook(context.playbooks[0] ?? null, response);
     return {
-      scenarioId,
-      workspaceId,
-      thesisId,
+      scenarioId: context.scenarioId,
+      workspaceId: context.workspaceId,
+      thesisId: context.thesisId,
       response,
       runtime,
-      snapshot,
+      snapshot: context.snapshot,
       latestPlaybook,
-      events,
+      events: context.events,
       evaluatedAt,
+      conditionContext,
     };
+  }
+
+  private async loadClosedCandles(input: {
+    workspaceId: string;
+    symbol: string;
+    marketType: 'spot' | 'perp';
+    intervals: MarketChartInterval[];
+    limit: number;
+  }): Promise<Partial<Record<MarketChartInterval, MarketOhlcvCandleResponse[]>>> {
+    if (!input.symbol || input.intervals.length === 0) {
+      return {};
+    }
+    const entries = await Promise.all(
+      input.intervals.map(async (interval) => {
+        const response = await this.ohlcv.getOhlcv({
+          workspaceId: input.workspaceId,
+          symbol: input.symbol,
+          marketType: input.marketType,
+          interval,
+          limit: String(input.limit),
+        });
+        return [interval, response.candles] as const;
+      }),
+    );
+    return Object.fromEntries(entries);
   }
 }
 
@@ -118,6 +189,7 @@ interface LiveStateContext {
   latestPlaybook: TradePlaybookResponse | null;
   events: JsonRecord[];
   evaluatedAt: string;
+  conditionContext: ScenarioConditionEvaluationContext;
 }
 
 function buildScenarioLiveState(
@@ -129,7 +201,7 @@ function buildScenarioLiveState(
         context.response.decision_playbook.entry_conditions,
         context.response.decision_playbook.invalidation_conditions,
         context.response.decision_playbook.avoid_if,
-        currentPrice,
+        context.conditionContext,
       )
     : [];
   const targetProgress = targetProgressFor(
@@ -137,6 +209,7 @@ function buildScenarioLiveState(
     currentPrice,
     context.evaluatedAt,
   );
+  const latestEvent = latestEventRecord(context.events);
   return {
     version: 'scenario_live_state.v1',
     scenario_id: context.scenarioId,
@@ -151,9 +224,7 @@ function buildScenarioLiveState(
     target_progress: targetProgress,
     blockers: context.runtime.blocking_reasons,
     commentary: commentaryFor(context.runtime, targetProgress),
-    latest_event: context.events[0]
-      ? toScenarioEventResponse(context.events[0])
-      : null,
+    latest_event: latestEvent ? toScenarioEventResponse(latestEvent) : null,
   };
 }
 
@@ -161,12 +232,12 @@ function conditionEvaluationsFor(
   entryConditions: ScenarioDecisionCondition[],
   invalidationConditions: ScenarioDecisionCondition[],
   avoidConditions: ScenarioDecisionCondition[],
-  currentPrice: number | null,
+  context: ScenarioConditionEvaluationContext,
 ): ScenarioConditionEvaluationResponse[] {
   const rows: ScenarioConditionEvaluationResponse[] = [];
-  addConditionRows(rows, entryConditions, 'entry', currentPrice);
-  addConditionRows(rows, invalidationConditions, 'invalidation', currentPrice);
-  addConditionRows(rows, avoidConditions, 'avoid', currentPrice);
+  addConditionRows(rows, entryConditions, 'entry', context);
+  addConditionRows(rows, invalidationConditions, 'invalidation', context);
+  addConditionRows(rows, avoidConditions, 'avoid', context);
   return rows;
 }
 
@@ -174,12 +245,13 @@ function addConditionRows(
   rows: ScenarioConditionEvaluationResponse[],
   conditions: ScenarioDecisionCondition[],
   fallbackRole: ScenarioDecisionConditionRole,
-  currentPrice: number | null,
+  context: ScenarioConditionEvaluationContext,
 ): void {
   for (const [index, condition] of conditions.entries()) {
     const role = condition.role ?? fallbackRole;
     const label = condition.label ?? conditionLabel(condition);
-    const status = conditionStatus(role, conditionResult(condition, currentPrice));
+    const evaluation = evaluateScenarioCondition(condition, context);
+    const status = conditionStatus(role, conditionResultFromEvaluation(evaluation));
     rows.push({
       id:
         condition.id ??
@@ -188,7 +260,7 @@ function addConditionRows(
       role,
       type: condition.type,
       status,
-      reason: conditionReason(role, status),
+      reason: conditionReason(role, status, evaluation.reason),
       level: nullableNumber(condition.level),
       zone_low: nullableNumber(condition.zone_low),
       zone_high: nullableNumber(condition.zone_high),
@@ -230,110 +302,6 @@ function targetProgressFor(
   });
 }
 
-function eventsFromState(
-  state: ScenarioLiveStateResponse,
-  thesisId: string,
-): ScenarioEventResponse[] {
-  const events: ScenarioEventResponse[] = [];
-  if (state.validity_status === 'invalidated') {
-    events.push(scenarioEvent(state, thesisId, 'scenario.invalidated', 'validity:invalidated', 'Scenario invalidated.'));
-  }
-  if (state.validity_status === 'expired') {
-    events.push(scenarioEvent(state, thesisId, 'scenario.expired', 'validity:expired', 'Scenario expired.'));
-  }
-  if (state.validity_status === 'overextended') {
-    events.push(scenarioEvent(state, thesisId, 'scenario.overextended', 'validity:overextended', 'Scenario overextended.'));
-  }
-  if (state.trigger_status === 'triggered') {
-    events.push(scenarioEvent(state, thesisId, 'scenario.triggered', 'trigger:triggered', 'Scenario triggered.'));
-  }
-  if (state.trigger_status === 'near_trigger') {
-    events.push(scenarioEvent(state, thesisId, 'scenario.near_trigger', 'trigger:near', 'Scenario near trigger.'));
-  }
-  for (const target of state.target_progress) {
-    if (target.status === 'hit') {
-      events.push(
-        scenarioEvent(
-          state,
-          thesisId,
-          'scenario.target_hit',
-          `target:${target.label}`,
-          `Target hit: ${target.label}.`,
-        ),
-      );
-    }
-  }
-  for (const condition of state.condition_evaluations) {
-    if (condition.status === 'passed') {
-      events.push(
-        scenarioEvent(
-          state,
-          thesisId,
-          'scenario.condition_passed',
-          `condition:${condition.id}:passed`,
-          `Condition passed: ${condition.label}.`,
-        ),
-      );
-    }
-    if (condition.status === 'failed') {
-      events.push(
-        scenarioEvent(
-          state,
-          thesisId,
-          'scenario.condition_failed',
-          `condition:${condition.id}:failed`,
-          `Condition failed: ${condition.label}.`,
-        ),
-      );
-    }
-  }
-  return events;
-}
-
-function scenarioEvent(
-  state: ScenarioLiveStateResponse,
-  thesisId: string,
-  eventType: ScenarioEventResponse['event_type'],
-  eventKey: string,
-  summary: string,
-): ScenarioEventResponse {
-  return {
-    version: 'scenario_event.v1',
-    id: scenarioEventId({
-      workspaceId: state.workspace_id,
-      scenarioId: state.scenario_id,
-      eventType,
-      eventKey,
-    }),
-    workspace_id: state.workspace_id,
-    scenario_id: state.scenario_id,
-    thesis_id: thesisId || null,
-    event_type: eventType,
-    event_time: state.evaluated_at,
-    summary,
-    payload: {
-      trigger_status: state.trigger_status,
-      validity_status: state.validity_status,
-      recommended_action: state.recommended_action,
-      current_price: state.current_price,
-      event_key: eventKey,
-    },
-    created_at: state.evaluated_at,
-  };
-}
-
-function scenarioEventId(input: {
-  workspaceId: string;
-  scenarioId: string;
-  eventType: string;
-  eventKey: string;
-}): string {
-  return `scenario_event_${createHash('sha256')
-    .update(`${input.workspaceId}:${input.scenarioId}:${input.eventType}:${input.eventKey}`)
-    .digest('hex')
-    .slice(0, 24)}`;
-}
-
 function toScenarioEventResponse(value: JsonRecord): ScenarioEventResponse {
   return {
     version: 'scenario_event.v1',
@@ -349,6 +317,71 @@ function toScenarioEventResponse(value: JsonRecord): ScenarioEventResponse {
   };
 }
 
+function latestEventRecord(events: JsonRecord[]): JsonRecord | null {
+  return [...events].sort(
+    (left, right) =>
+      String(right.event_time ?? '').localeCompare(String(left.event_time ?? '')) ||
+      eventPriority(right.event_type) - eventPriority(left.event_type) ||
+      String(right.id ?? '').localeCompare(String(left.id ?? '')),
+  )[0] ?? null;
+}
+
+function eventPriority(eventType: unknown): number {
+  if (
+    eventType === 'scenario.invalidated' ||
+    eventType === 'scenario.triggered' ||
+    eventType === 'scenario.expired' ||
+    eventType === 'scenario.overextended'
+  ) {
+    return 3;
+  }
+  if (eventType === 'scenario.target_hit') {
+    return 2;
+  }
+  if (
+    eventType === 'scenario.condition_passed' ||
+    eventType === 'scenario.condition_failed'
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function liveStateFromSnapshot(
+  snapshot: JsonRecord | null,
+): ScenarioLiveStateResponse | null {
+  const state = recordValue(snapshot?.state ?? snapshot?.state_json);
+  return state.version === 'scenario_live_state.v1'
+    ? (state as unknown as ScenarioLiveStateResponse)
+    : null;
+}
+
+function scenarioLiveStateSnapshotId(state: ScenarioLiveStateResponse): string {
+  return `scenario_live_state_${createHash('sha256')
+    .update(`${state.workspace_id}:${state.scenario_id}:${state.evaluated_at}`)
+    .digest('hex')
+    .slice(0, 24)}`;
+}
+
+function stateSourceHash(state: ScenarioLiveStateResponse): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      scenario_id: state.scenario_id,
+      trigger_status: state.trigger_status,
+      validity_status: state.validity_status,
+      condition_evaluations: state.condition_evaluations.map((condition) => ({
+        id: condition.id,
+        status: condition.status,
+      })),
+      target_progress: state.target_progress.map((target) => ({
+        label: target.label,
+        status: target.status,
+      })),
+    }))
+    .digest('hex')
+    .slice(0, 16);
+}
+
 function currentPlaybook(
   playbook: JsonRecord | null,
   scenario: ReturnType<typeof toScenarioResponse>,
@@ -356,46 +389,12 @@ function currentPlaybook(
   if (!playbook) {
     return null;
   }
-  const storedHashes = recordValue(playbook.source_hashes);
-  if (Object.keys(storedHashes).length === 0) {
-    return toTradePlaybookResponse(playbook);
-  }
-  const currentHashes = playbookSourceHashes({
+  return evaluateTradePlaybookFreshness(toTradePlaybookResponse(playbook), {
     scenario: scenario.payload,
     decisionPlaybook: scenario.decision_playbook,
     recommendation: scenario.scenario_recommendation,
     runtimeDecision: scenario.runtime_decision,
   });
-  const staleReasons = staleReasonsFor(storedHashes, currentHashes);
-  return toTradePlaybookResponse(
-    staleReasons.length === 0
-      ? playbook
-      : { ...playbook, status: 'stale', stale_reasons: staleReasons },
-  );
-}
-
-function staleReasonsFor(
-  storedHashes: JsonRecord,
-  currentHashes: TradePlaybookResponse['source_hashes'],
-): string[] {
-  const reasons: string[] = [];
-  addStaleReason(reasons, storedHashes.scenario, currentHashes.scenario, 'source_scenario_changed');
-  addStaleReason(reasons, storedHashes.decision_playbook, currentHashes.decision_playbook, 'source_decision_playbook_changed');
-  addStaleReason(reasons, storedHashes.recommendation, currentHashes.recommendation, 'source_recommendation_changed');
-  addStaleReason(reasons, storedHashes.runtime_decision, currentHashes.runtime_decision, 'source_runtime_decision_changed');
-  return reasons;
-}
-
-function addStaleReason(
-  reasons: string[],
-  storedHash: unknown,
-  currentHash: string,
-  reason: string,
-): void {
-  const stored = nullableString(storedHash);
-  if (stored && stored !== currentHash) {
-    reasons.push(reason);
-  }
 }
 
 function conditionStatus(
@@ -414,6 +413,7 @@ function conditionStatus(
 function conditionReason(
   role: ScenarioDecisionConditionRole,
   status: ScenarioConditionEvaluationStatus,
+  fallbackReason: string,
 ): string {
   if (status === 'passed') {
     return 'Condition is currently satisfied.';
@@ -424,37 +424,19 @@ function conditionReason(
   if (status === 'pending') {
     return 'Condition is not currently satisfied.';
   }
-  return 'Condition cannot be evaluated from the latest price.';
+  return fallbackReason;
 }
 
-function conditionResult(
-  condition: ScenarioDecisionCondition,
-  currentPrice: number | null,
+function conditionResultFromEvaluation(
+  evaluation: {
+    status: 'passed' | 'failed' | 'pending' | 'unknown';
+  },
 ): 'matched' | 'failed' | 'unknown' {
-  if (currentPrice === null) {
-    return 'unknown';
+  if (evaluation.status === 'passed') {
+    return 'matched';
   }
-  if (condition.type === 'price_above' || condition.type === 'price_reclaim_level') {
-    return typeof condition.level === 'number'
-      ? currentPrice >= condition.level
-        ? 'matched'
-        : 'failed'
-      : 'unknown';
-  }
-  if (condition.type === 'price_below' || condition.type === 'price_reject_level') {
-    return typeof condition.level === 'number'
-      ? currentPrice <= condition.level
-        ? 'matched'
-        : 'failed'
-      : 'unknown';
-  }
-  if (condition.type === 'price_in_zone') {
-    return typeof condition.zone_low === 'number' &&
-      typeof condition.zone_high === 'number'
-      ? currentPrice >= condition.zone_low && currentPrice <= condition.zone_high
-        ? 'matched'
-        : 'failed'
-      : 'unknown';
+  if (evaluation.status === 'failed') {
+    return 'failed';
   }
   return 'unknown';
 }

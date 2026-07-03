@@ -100,6 +100,8 @@ export const queryKeys = {
     scopedFilters('scenario-monitor', filters),
   scenarioChart: (id: string, interval: string) =>
     ['scenario-chart', queryIdentity(), id, interval] as const,
+  scenarioChartSummaries: (ids: string[]) =>
+    ['scenario-chart-summaries', queryIdentity(), [...ids].sort()] as const,
   scenarioDecisionWorkbench: () =>
     scopedResource('scenario-decision-workbench'),
   signalsRoot: () => scopedResource('signals'),

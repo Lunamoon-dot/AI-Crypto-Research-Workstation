@@ -124,6 +124,7 @@ export function ThesisDetailPage() {
   const [scenarioHorizonFilter, setScenarioHorizonFilter] = useState<ScenarioHorizonFilter>('all');
   const [scenarioActionFeedback, setScenarioActionFeedback] = useState<Record<string, ScenarioActionFeedback>>({});
   const [pendingScenarioAction, setPendingScenarioAction] = useState<PendingScenarioAction | null>(null);
+  const [expandedScenarioId, setExpandedScenarioId] = useState<string | null>(null);
 
   const decisionMutation = useMutation({
     mutationFn: () =>
@@ -554,24 +555,33 @@ export function ThesisDetailPage() {
               <EmptyState label={emptyScenarioFilterLabel(scenarioHorizonFilter)} />
             ) : null}
             <div className="scenario-radar-list">
-              {filteredScenarioCards.map((scenario, index) => (
-                <ScenarioRadarCard
-                  auth={auth}
-                  index={index}
-                  key={scenario.id ?? scenario.condition}
-                  lifecycle={{
-                    canRun: Boolean(persistedScenarioId(scenario)),
-                    feedback: scenarioActionFeedback[scenarioActionKey(scenario)],
-                    onAction: (action) => scenarioLifecycleMutation.mutate({ action, scenario }),
-                    pendingAction:
-                      pendingScenarioAction?.key === scenarioActionKey(scenario)
-                        ? pendingScenarioAction.action
-                        : null,
-                  }}
-                  scenario={scenario}
-                  thesis={thesis}
-                />
-              ))}
+              {filteredScenarioCards.map((scenario, index) => {
+                const scenarioId = persistedScenarioId(scenario);
+                return (
+                  <ScenarioRadarCard
+                    auth={auth}
+                    index={index}
+                    isExpandedScenario={scenarioId === expandedScenarioId}
+                    key={scenario.id ?? scenario.condition}
+                    lifecycle={{
+                      canRun: Boolean(scenarioId),
+                      feedback: scenarioActionFeedback[scenarioActionKey(scenario)],
+                      onAction: (action) => scenarioLifecycleMutation.mutate({ action, scenario }),
+                      pendingAction:
+                        pendingScenarioAction?.key === scenarioActionKey(scenario)
+                          ? pendingScenarioAction.action
+                          : null,
+                    }}
+                    onToggleExpanded={() =>
+                      setExpandedScenarioId((current) =>
+                        scenarioId && current !== scenarioId ? scenarioId : null,
+                      )
+                    }
+                    scenario={scenario}
+                    thesis={thesis}
+                  />
+                );
+              })}
             </div>
           </Panel>
         ) : null}
@@ -982,13 +992,17 @@ function scenarioFeedbackText(value: string): string {
 function ScenarioRadarCard({
   auth,
   scenario,
+  isExpandedScenario,
   index,
+  onToggleExpanded,
   thesis,
   lifecycle,
 }: {
   auth: WorkspaceRequestContext;
   scenario: ScenarioResponse;
+  isExpandedScenario: boolean;
   index: number;
+  onToggleExpanded: () => void;
   thesis: ThesisResponse;
   lifecycle: {
     canRun: boolean;
@@ -1001,11 +1015,13 @@ function ScenarioRadarCard({
   const vm = scenarioDetailViewModel(scenario, index);
   const scenarioId = persistedScenarioId(scenario);
   const chartQuery = useQuery({
-    enabled: Boolean(scenarioId),
+    enabled: Boolean(scenarioId && isExpandedScenario),
     queryKey: queryKeys.scenarioChart(scenarioId ?? 'derived-scenario', '15m'),
     queryFn: () => getScenarioChartProjection(scenarioId ?? '', { interval: '15m', limit: 200 }, auth),
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: true,
+    refetchInterval:
+      vm.triggerStatus === 'triggered' || vm.triggerStatus === 'near_trigger'
+        ? 30_000
+        : false,
   });
   const refreshStateMutation = useMutation({
     mutationFn: () => {
@@ -1176,6 +1192,13 @@ function ScenarioRadarCard({
             ) : null}
             <button
               className="button ghost"
+              onClick={onToggleExpanded}
+              type="button"
+            >
+              {isExpandedScenario ? 'Hide chart' : 'Show chart'}
+            </button>
+            <button
+              className="button ghost"
               disabled={refreshStateMutation.isPending}
               onClick={() => refreshStateMutation.mutate()}
               type="button"
@@ -1184,10 +1207,12 @@ function ScenarioRadarCard({
               {refreshStateMutation.isPending ? 'Refreshing' : 'Refresh state'}
             </button>
           </div>
-          <ScenarioChart
-            isLoading={chartQuery.isLoading}
-            projection={chartProjection}
-          />
+          {isExpandedScenario ? (
+            <ScenarioChart
+              isLoading={chartQuery.isLoading}
+              projection={chartProjection}
+            />
+          ) : null}
           {chartBlockers.length > 0 ? (
             <ul className="scenario-watch-list">
               {chartBlockers.slice(0, 4).map((blocker) => (

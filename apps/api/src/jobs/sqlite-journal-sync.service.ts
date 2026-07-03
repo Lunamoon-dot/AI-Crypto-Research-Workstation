@@ -12,6 +12,7 @@ export interface SqliteJournalSyncResult {
   run_id: string;
   workspace_id: string;
   sqlite_path: string;
+  synced_tables: string[];
   tables: Record<string, number>;
 }
 
@@ -319,6 +320,9 @@ export class SqliteJournalSyncService implements OnModuleDestroy {
         run_id: runId,
         workspace_id: workspaceId,
         sqlite_path: sqlitePath,
+        synced_tables: Object.entries(counts)
+          .filter(([, count]) => count > 0)
+          .map(([table]) => table),
         tables: counts,
       };
     } catch (error) {

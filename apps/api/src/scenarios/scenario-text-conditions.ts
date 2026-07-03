@@ -14,6 +14,14 @@ export function derivePriceConditionFromText(
   if (zone) {
     return zone;
   }
+  const supportBreak = matchSupportBreak(text);
+  if (supportBreak !== null) {
+    return { type: 'price_below', level: supportBreak };
+  }
+  const resistanceBreak = matchResistanceBreak(text);
+  if (resistanceBreak !== null) {
+    return { type: 'price_above', level: resistanceBreak };
+  }
   const above = matchPriceCondition(text, [
     'above',
     'over',
@@ -145,17 +153,80 @@ function matchPriceCondition(
     }
     const matchIndex = match.index ?? 0;
     const hasCurrency = match[1] === '$';
+    const hasExplicitPriceContext = nearbyPriceContext(
+      normalizedText,
+      matchIndex,
+    );
     if (isNegatedPricePhrase(normalizedText, matchIndex)) {
       continue;
     }
     if (
       !hasCurrency &&
-      !hasPriceContext(normalizedText, matchIndex, phrase) &&
-      hasIndicatorContext(normalizedText, matchIndex)
+      hasIndicatorContext(normalizedText, matchIndex) &&
+      !hasExplicitPriceContext
     ) {
       continue;
     }
     if (!hasCurrency && !hasPriceContext(normalizedText, matchIndex, phrase)) {
+      continue;
+    }
+    const level = parsePriceLevel(match[2], match[3]);
+    if (level !== null) {
+      return level;
+    }
+  }
+  return null;
+}
+
+function matchSupportBreak(normalizedText: string): number | null {
+  return firstDirectionalLevel(normalizedText, [
+    new RegExp(
+      `\\b(?:price\\s+)?breaks?\\s+(?:below\\s+)?support\\s+(?:at|near)?\\s*(\\$?)${PRICE_PATTERN}\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\b(?:gia\\s+)?pha\\s+vo\\s+(?:duoi\\s+)?(?:ho\\s+tro\\s+)?(?:tai|o|muc|vung)?\\s*(\\$?)${PRICE_PATTERN}\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\bsupport\\s+(?:at|near)?\\s*(\\$?)${PRICE_PATTERN}\\b.{0,48}\\bbreaks?\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\bho\\s+tro\\s+(?:tai|o|muc|vung)?\\s*(\\$?)${PRICE_PATTERN}\\b.{0,48}\\b(?:bi\\s+)?pha\\s+vo\\b`,
+      'i',
+    ),
+  ]);
+}
+
+function matchResistanceBreak(normalizedText: string): number | null {
+  return firstDirectionalLevel(normalizedText, [
+    new RegExp(
+      `\\b(?:price\\s+)?breaks?\\s+(?:above\\s+)?resistance\\s+(?:at|near)?\\s*(\\$?)${PRICE_PATTERN}\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\b(?:gia\\s+)?pha\\s+vo\\s+(?:tren\\s+)?(?:khang\\s+cu\\s+)?(?:tai|o|muc|vung)?\\s*(\\$?)${PRICE_PATTERN}\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\bresistance\\s+(?:at|near)?\\s*(\\$?)${PRICE_PATTERN}\\b.{0,48}\\bbreaks?\\b`,
+      'i',
+    ),
+    new RegExp(
+      `\\bkhang\\s+cu\\s+(?:tai|o|muc|vung)?\\s*(\\$?)${PRICE_PATTERN}\\b.{0,48}\\b(?:bi\\s+)?pha\\s+vo\\b`,
+      'i',
+    ),
+  ]);
+}
+
+function firstDirectionalLevel(
+  normalizedText: string,
+  patterns: RegExp[],
+): number | null {
+  for (const pattern of patterns) {
+    const match = normalizedText.match(pattern);
+    if (!match) {
       continue;
     }
     const level = parsePriceLevel(match[2], match[3]);
@@ -231,6 +302,13 @@ function hasIndicatorContext(normalizedText: string, matchIndex: number): boolea
   const start = Math.max(0, matchIndex - 24);
   const nearby = normalizedText.slice(start, matchIndex);
   return /\b(rsi|volume|funding|oi|long\/short|l\/s|ratio|atr)\b/.test(nearby);
+}
+
+function nearbyPriceContext(normalizedText: string, matchIndex: number): boolean {
+  const start = Math.max(0, matchIndex - 32);
+  const end = Math.min(normalizedText.length, matchIndex + 32);
+  const nearby = normalizedText.slice(start, end);
+  return /\b(price|gia|close|dong cua|support|resistance|khang cu|ho tro|level|muc|zone|vung)\b/.test(nearby);
 }
 
 function isNegatedPricePhrase(normalizedText: string, matchIndex: number): boolean {

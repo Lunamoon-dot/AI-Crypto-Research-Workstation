@@ -554,4 +554,11 @@ class ResearchRunOrchestrator:
         if not isinstance(metadata, dict):
             return None
         context = metadata.get("latest_continuity_context")
-        return context if isinstance(context, dict) else None
+        if not isinstance(context, dict):
+            return None
+        if context.get("version") == "scenario_feedback_playbook.v1":
+            return {"scenario_feedback_playbook": context}
+        playbook = context.get("scenario_feedback_playbook")
+        if isinstance(playbook, dict) and playbook.get("version") == "scenario_feedback_playbook.v1":
+            return {"scenario_feedback_playbook": playbook}
+        return None

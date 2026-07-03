@@ -1,9 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import {
-  JOURNAL_REPOSITORY,
-  JournalRepository,
-  JsonRecord,
-} from '../database/journal.types';
+import { Injectable } from '@nestjs/common';
+import { JsonRecord } from '../database/journal.types';
 import {
   MarketChartInterval,
   MarketOhlcvResponse,
@@ -13,12 +9,14 @@ import {
   toScenarioResponse,
   toTradePlaybookResponse,
 } from '../contracts/frontend-contract';
-import { playbookSourceHashes } from '../playbooks/playbook-source-hash';
+import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
 import type {
   ScenarioDecisionCondition,
   ScenarioDecisionPlaybook,
+  ScenarioRecommendation,
 } from './scenario-decision.types';
+import { ScenarioContextLoaderService } from './scenario-context-loader.service';
 import type {
   ScenarioChartOverlay,
   ScenarioChartProjectionResponse,
@@ -31,8 +29,7 @@ import { ScenarioLiveStateService } from './scenario-live-state.service';
 @Injectable()
 export class ScenarioChartProjectionService {
   constructor(
-    @Inject(JOURNAL_REPOSITORY)
-    private readonly journal: JournalRepository,
+    private readonly contextLoader: ScenarioContextLoaderService,
     private readonly ohlcv: MarketOhlcvService,
     private readonly liveState: ScenarioLiveStateService,
   ) {}
@@ -43,55 +40,42 @@ export class ScenarioChartProjectionService {
     interval?: string;
     limit?: string;
   }): Promise<ScenarioChartProjectionResponse> {
-    const scenario = await this.journal.getScenario(
-      input.scenarioId,
-      input.workspaceId,
+    const context = await this.contextLoader.load({
+      scenarioId: input.scenarioId,
+      workspaceId: input.workspaceId,
+      eventLimit: 50,
+    });
+    const liveState = await this.liveState.getLiveStateFromContext(context);
+    const scenarioResponse = toScenarioResponse(context.scenario, context.thesis);
+    const latestPlaybook = currentPlaybook(
+      context.playbooks[0] ?? null,
+      scenarioResponse,
     );
-    if (!scenario) {
-      throw new NotFoundException('Scenario not found.');
-    }
-    const payload = recordValue(scenario.payload ?? scenario.payload_json);
-    const thesisId = stringValue(scenario.thesis_id);
-    const thesis = thesisId
-      ? await this.journal.getThesis(thesisId, input.workspaceId)
-      : null;
-    const symbol = stringValue(thesis?.symbol ?? scenario.symbol ?? payload.symbol);
-    const marketType = marketTypeValue(thesis?.market_type ?? scenario.market_type);
-    const liveState = await this.liveState.getLiveState(
-      input.scenarioId,
-      input.workspaceId,
-    );
-    const scenarioResponse = toScenarioResponse(scenario, thesis);
-    const rawPlaybooks = await this.journal.listTradePlaybooksForScenario(
-      input.scenarioId,
-      input.workspaceId,
-    );
-    const latestPlaybook = currentPlaybook(rawPlaybooks[0] ?? null, scenarioResponse);
-    const events = await this.journal.listScenarioEvents(
-      input.scenarioId,
-      input.workspaceId,
-      50,
-    );
-    const candles = symbol
+    const candles = context.symbol
       ? await this.ohlcv.getOhlcv({
           workspaceId: input.workspaceId,
-          symbol,
-          marketType,
+          symbol: context.symbol,
+          marketType: context.marketType,
           interval: input.interval,
           limit: input.limit,
         })
-      : emptyOhlcv(input.workspaceId, marketType, chartIntervalValue(input.interval));
+      : emptyOhlcv(
+          input.workspaceId,
+          context.marketType,
+          chartIntervalValue(input.interval),
+        );
     return buildScenarioChartProjection({
-      workspaceId: input.workspaceId,
       scenarioId: input.scenarioId,
-      thesisId,
-      symbol,
-      marketType,
+      workspaceId: input.workspaceId,
+      thesisId: context.thesisId,
+      symbol: context.symbol,
+      marketType: context.marketType,
       decisionPlaybook: scenarioResponse.decision_playbook,
+      scenarioRecommendation: scenarioResponse.scenario_recommendation,
       latestPlaybook,
       liveState,
       ohlcv: candles,
-      events,
+      events: context.events,
     });
   }
 }
@@ -103,6 +87,7 @@ function buildScenarioChartProjection(input: {
   symbol: string;
   marketType: 'spot' | 'perp';
   decisionPlaybook: ScenarioDecisionPlaybook | null;
+  scenarioRecommendation: ScenarioRecommendation | null;
   latestPlaybook: TradePlaybookResponse | null;
   liveState: ScenarioLiveStateResponse;
   ohlcv: MarketOhlcvResponse;
@@ -110,9 +95,11 @@ function buildScenarioChartProjection(input: {
 }): ScenarioChartProjectionResponse {
   const currentTradePlaybook =
     input.latestPlaybook?.status === 'current' ? input.latestPlaybook : null;
+  const chartDecisionPlaybook =
+    input.decisionPlaybook ?? playbookFromRecommendation(input.scenarioRecommendation);
   const overlays: ScenarioChartOverlay[] = [
     ...decisionPlaybookOverlays(
-      input.decisionPlaybook,
+      chartDecisionPlaybook,
       input.liveState.condition_evaluations,
     ),
     ...tradePlaybookOverlays(currentTradePlaybook, input.liveState),
@@ -138,14 +125,54 @@ function buildScenarioChartProjection(input: {
     interval: input.ohlcv.interval,
     generated_at: input.ohlcv.generated_at,
     source_versions: {
-      decision_playbook_source: input.decisionPlaybook?.source ?? 'missing',
+      decision_playbook_source: chartDecisionPlaybook?.source ?? 'missing',
       trade_playbook_id: input.latestPlaybook?.id ?? null,
       trade_playbook_status: input.latestPlaybook?.status ?? 'missing',
+      stale_reasons: input.latestPlaybook?.stale_reasons ?? [],
     },
     candles: input.ohlcv.candles,
     overlays,
     live_state: input.liveState,
     warnings,
+  };
+}
+
+function playbookFromRecommendation(
+  recommendation: ScenarioRecommendation | null,
+): ScenarioDecisionPlaybook | null {
+  if (!recommendation) {
+    return null;
+  }
+  return {
+    version: 'scenario_decision_playbook.v1',
+    source: recommendation.source,
+    generated_at: recommendation.generated_at,
+    generated_from_run_id: null,
+    action_bias: recommendation.action_bias,
+    confidence: recommendation.confidence,
+    preferred_action_if_triggered: recommendation.action,
+    fallback_action: 'wait',
+    near_trigger_threshold_pct: 2,
+    validity_window: {
+      valid_from: recommendation.evaluation_window.starts_at,
+      valid_until: recommendation.valid_until,
+      timeframe: recommendation.evaluation_window.horizon,
+      rationale: 'Derived from scenario recommendation for chart projection.',
+      refresh_policy: 'refresh_on_next_research_run',
+    },
+    entry_conditions: recommendation.required_conditions.map((condition) => ({
+      ...condition,
+      role: condition.role ?? 'trigger',
+    })),
+    avoid_if: [],
+    invalidation_conditions: recommendation.invalidation_conditions.map((condition) => ({
+      ...condition,
+      role: condition.role ?? 'invalidation',
+    })),
+    wait_for: recommendation.wait_for,
+    risk_notes: recommendation.risk_notes,
+    evidence_refs: recommendation.evidence_refs,
+    rationale: recommendation.summary,
   };
 }
 
@@ -158,17 +185,18 @@ function decisionPlaybookOverlays(
   }
   const overlays: ScenarioChartOverlay[] = [];
   for (const condition of playbook.entry_conditions) {
-    if (condition.role === 'watch' && condition.type === 'price_in_zone') {
+    if (condition.type === 'price_in_zone') {
       const zone = zoneValue(condition);
-      if (zone) {
+      const role = zoneOverlayRole(condition.role ?? 'entry');
+      if (zone && role) {
         overlays.push({
-          id: overlayId('decision_watch', condition),
+          id: overlayId(`decision_${role}`, condition),
           type: 'price_zone',
-          role: 'watch',
+          role,
           source: 'decision_playbook',
           price_low: zone.low,
           price_high: zone.high,
-          label: condition.label ?? 'Watch zone',
+          label: condition.label ?? titleForRole(role),
           status: overlayStatus(condition, evaluations),
         });
       }
@@ -190,6 +218,22 @@ function decisionPlaybookOverlays(
     }
   }
   for (const condition of playbook.invalidation_conditions) {
+    if (condition.type === 'price_in_zone') {
+      const zone = zoneValue(condition);
+      if (zone) {
+        overlays.push({
+          id: overlayId('decision_invalidation', condition),
+          type: 'price_zone',
+          role: 'invalidation',
+          source: 'decision_playbook',
+          price_low: zone.low,
+          price_high: zone.high,
+          label: condition.label ?? 'Invalidation',
+          status: overlayStatus(condition, evaluations),
+        });
+      }
+      continue;
+    }
     const level = nullableNumber(condition.level);
     if (level === null) {
       continue;
@@ -201,6 +245,25 @@ function decisionPlaybookOverlays(
       source: 'decision_playbook',
       price: level,
       label: condition.label ?? 'Invalidation',
+      status: overlayStatus(condition, evaluations),
+    });
+  }
+  for (const condition of playbook.avoid_if) {
+    if (condition.type !== 'price_in_zone') {
+      continue;
+    }
+    const zone = zoneValue(condition);
+    if (!zone) {
+      continue;
+    }
+    overlays.push({
+      id: overlayId('decision_avoid', condition),
+      type: 'price_zone',
+      role: 'avoid',
+      source: 'decision_playbook',
+      price_low: zone.low,
+      price_high: zone.high,
+      label: condition.label ?? 'Avoid zone',
       status: overlayStatus(condition, evaluations),
     });
   }
@@ -311,46 +374,12 @@ function currentPlaybook(
   if (!playbook) {
     return null;
   }
-  const storedHashes = recordValue(playbook.source_hashes);
-  if (Object.keys(storedHashes).length === 0) {
-    return toTradePlaybookResponse(playbook);
-  }
-  const currentHashes = playbookSourceHashes({
+  return evaluateTradePlaybookFreshness(toTradePlaybookResponse(playbook), {
     scenario: scenario.payload,
     decisionPlaybook: scenario.decision_playbook,
     recommendation: scenario.scenario_recommendation,
     runtimeDecision: scenario.runtime_decision,
   });
-  const staleReasons = staleReasonsFor(storedHashes, currentHashes);
-  return toTradePlaybookResponse(
-    staleReasons.length === 0
-      ? playbook
-      : { ...playbook, status: 'stale', stale_reasons: staleReasons },
-  );
-}
-
-function staleReasonsFor(
-  storedHashes: JsonRecord,
-  currentHashes: TradePlaybookResponse['source_hashes'],
-): string[] {
-  const reasons: string[] = [];
-  addStaleReason(reasons, storedHashes.scenario, currentHashes.scenario, 'source_scenario_changed');
-  addStaleReason(reasons, storedHashes.decision_playbook, currentHashes.decision_playbook, 'source_decision_playbook_changed');
-  addStaleReason(reasons, storedHashes.recommendation, currentHashes.recommendation, 'source_recommendation_changed');
-  addStaleReason(reasons, storedHashes.runtime_decision, currentHashes.runtime_decision, 'source_runtime_decision_changed');
-  return reasons;
-}
-
-function addStaleReason(
-  reasons: string[],
-  storedHash: unknown,
-  currentHash: string,
-  reason: string,
-): void {
-  const stored = nullableString(storedHash);
-  if (stored && stored !== currentHash) {
-    reasons.push(reason);
-  }
 }
 
 function overlayStatus(
@@ -422,6 +451,28 @@ function zoneValue(
   return { low: Math.min(low, high), high: Math.max(low, high) };
 }
 
+function zoneOverlayRole(
+  role: ScenarioDecisionCondition['role'],
+): Extract<ScenarioChartOverlay, { type: 'price_zone' }>['role'] | null {
+  if (
+    role === 'watch' ||
+    role === 'trigger' ||
+    role === 'entry' ||
+    role === 'invalidation' ||
+    role === 'target' ||
+    role === 'avoid'
+  ) {
+    return role;
+  }
+  return null;
+}
+
+function titleForRole(
+  role: Extract<ScenarioChartOverlay, { type: 'price_zone' }>['role'],
+): string {
+  return `${role.charAt(0).toUpperCase()}${role.slice(1)} zone`;
+}
+
 function overlayId(prefix: string, condition: ScenarioDecisionCondition): string {
   return `${prefix}:${condition.id ?? conditionLabel(condition)}`;
 }
@@ -471,10 +522,6 @@ function chartIntervalValue(value: unknown): MarketChartInterval {
     return value;
   }
   return '15m';
-}
-
-function marketTypeValue(value: unknown): 'spot' | 'perp' {
-  return value === 'perp' ? 'perp' : 'spot';
 }
 
 function recordValue(value: unknown): JsonRecord {

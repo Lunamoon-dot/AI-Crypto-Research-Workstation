@@ -58,10 +58,16 @@ import { CreateEvaluationRerunDto } from '../src/calibration/dto/evaluation-reru
 import { PerformanceService } from '../src/performance/performance.service';
 import { ScenariosService } from '../src/scenarios/scenarios.service';
 import { ScenarioChartProjectionService } from '../src/scenarios/scenario-chart-projection.service';
+import { ScenarioChartSummaryService } from '../src/scenarios/scenario-chart-summary.service';
+import { ScenarioContextLoaderService } from '../src/scenarios/scenario-context-loader.service';
+import { evaluateScenarioCondition } from '../src/scenarios/scenario-condition-evaluator';
 import { ScenarioEvaluationService } from '../src/scenarios/scenario-evaluation.service';
+import { ScenarioFeedbackPlaybookService } from '../src/scenarios/scenario-feedback-playbook.service';
 import { ScenarioLiveStateService } from '../src/scenarios/scenario-live-state.service';
 import { ScenarioReliabilityService } from '../src/scenarios/scenario-reliability.service';
+import { evaluateScenarioRuntimeDecision } from '../src/scenarios/scenario-runtime-evaluator';
 import { PlaybookCompilerService } from '../src/playbooks/playbook-compiler.service';
+import { playbookSourceHashes } from '../src/playbooks/playbook-source-hash';
 import { BacktestService } from '../src/backtests/backtest.service';
 import { ScenarioDecisionWorkbenchService } from '../src/scenario-decision/scenario-decision-workbench.service';
 import { OperationsService } from '../src/operations/operations.service';
@@ -124,6 +130,8 @@ class FakeJournalRepository implements JournalRepository {
   readonly scenarioEvaluations = new Map<string, JsonRecord>();
   readonly tradePlaybooks = new Map<string, JsonRecord>();
   readonly scenarioEvents = new Map<string, JsonRecord>();
+  readonly scenarioLiveStateSnapshots = new Map<string, JsonRecord>();
+  readonly scenarioFeedbackPlaybooks = new Map<string, JsonRecord>();
   readonly backtestRuns = new Map<string, JsonRecord>();
   readonly backtestTradeEvents = new Map<string, JsonRecord[]>();
   readonly scenarioDecisionItemStates = new Map<string, JsonRecord>();
@@ -159,6 +167,19 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string;
     metrics?: ThesisReviewMetrics;
   }> = [];
+  private readonly readCounters = new Map<string, number>();
+
+  resetReadCounters(): void {
+    this.readCounters.clear();
+  }
+
+  readCount(name: string): number {
+    return this.readCounters.get(name) ?? 0;
+  }
+
+  private countRead(name: string): void {
+    this.readCounters.set(name, (this.readCounters.get(name) ?? 0) + 1);
+  }
 
   async listResearchRuns(
     filters: { symbol?: string; status?: string; limit: number },
@@ -389,6 +410,7 @@ class FakeJournalRepository implements JournalRepository {
     symbol: string,
     workspaceId: string,
   ): Promise<JsonRecord | null> {
+    this.countRead('getLatestMarketSnapshot');
     return (
       [...this.marketSnapshots.values()]
         .filter(
@@ -741,6 +763,7 @@ class FakeJournalRepository implements JournalRepository {
   }
 
   async getThesis(id: string, workspaceId: string): Promise<JsonRecord | null> {
+    this.countRead('getThesis');
     return this.theses.get(key(id, workspaceId)) ?? null;
   }
 
@@ -1062,6 +1085,7 @@ class FakeJournalRepository implements JournalRepository {
     id: string,
     workspaceId: string,
   ): Promise<JsonRecord | null> {
+    this.countRead('getScenario');
     for (const [scenarioKey, scenarios] of this.scenarios) {
       if (!scenarioKey.startsWith(`${workspaceId}:`)) {
         continue;
@@ -1149,6 +1173,7 @@ class FakeJournalRepository implements JournalRepository {
     scenarioId: string,
     workspaceId: string,
   ): Promise<JsonRecord[]> {
+    this.countRead('listTradePlaybooksForScenario');
     return [...this.tradePlaybooks.values()]
       .filter((item) => item.workspace_id === workspaceId)
       .filter((item) => item.source_scenario_id === scenarioId)
@@ -1181,11 +1206,9 @@ class FakeJournalRepository implements JournalRepository {
       created_at: input.created_at ?? '2026-07-02T00:00:00.000Z',
     };
     const existing = this.scenarioEvents.get(key(id, workspaceId));
-    this.scenarioEvents.set(key(id, workspaceId), {
-      ...existing,
-      ...saved,
-      created_at: existing?.created_at ?? saved.created_at,
-    });
+    if (!existing) {
+      this.scenarioEvents.set(key(id, workspaceId), saved);
+    }
     return this.scenarioEvents.get(key(id, workspaceId))!;
   }
 
@@ -1194,6 +1217,7 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string,
     limit: number,
   ): Promise<JsonRecord[]> {
+    this.countRead('listScenarioEvents');
     return [...this.scenarioEvents.values()]
       .filter((event) => event.workspace_id === workspaceId)
       .filter((event) => event.scenario_id === scenarioId)
@@ -1203,6 +1227,79 @@ class FakeJournalRepository implements JournalRepository {
           String(b.id ?? '').localeCompare(String(a.id ?? '')),
       )
       .slice(0, limit);
+  }
+
+  async saveScenarioLiveStateSnapshot(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(
+      input.id ?? `scenario_live_state_${this.scenarioLiveStateSnapshots.size + 1}`,
+    );
+    const state = record(input.state ?? input.state_json ?? input);
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      scenario_id: String(input.scenario_id ?? state.scenario_id ?? ''),
+      market_snapshot_id: input.market_snapshot_id ?? null,
+      evaluated_at: String(input.evaluated_at ?? state.evaluated_at ?? new Date().toISOString()),
+      state,
+      source_hash: String(input.source_hash ?? ''),
+      created_at: String(input.created_at ?? new Date().toISOString()),
+    };
+    this.scenarioLiveStateSnapshots.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async getLatestScenarioLiveStateSnapshot(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.scenarioLiveStateSnapshots.values()]
+        .filter((snapshot) => snapshot.workspace_id === workspaceId)
+        .filter((snapshot) => snapshot.scenario_id === scenarioId)
+        .sort(
+          (a, b) =>
+            String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')) ||
+            String(b.id ?? '').localeCompare(String(a.id ?? '')),
+        )[0] ?? null
+    );
+  }
+
+  async saveScenarioFeedbackPlaybook(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(
+      input.id ?? `scenario_feedback_playbook_${this.scenarioFeedbackPlaybooks.size + 1}`,
+    );
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      generated_at: input.generated_at ?? '2026-07-01T00:00:00.000Z',
+      version: 'scenario_feedback_playbook.v1',
+    };
+    this.scenarioFeedbackPlaybooks.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async getLatestScenarioFeedbackPlaybook(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.scenarioFeedbackPlaybooks.values()]
+        .filter((item) => item.workspace_id === workspaceId)
+        .filter((item) => item.symbol === symbol)
+        .sort(
+          (a, b) =>
+            String(b.generated_at ?? '').localeCompare(String(a.generated_at ?? '')) ||
+            String(b.id ?? '').localeCompare(String(a.id ?? '')),
+        )[0] ?? null
+    );
   }
 
   async saveBacktestRun(
@@ -3671,10 +3768,12 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/performance/trend', ['get']],
     ['/performance/health', ['get']],
     ['/scenarios/monitor', ['get']],
+    ['/scenarios/chart-summaries', ['post']],
     ['/scenarios/{id}/live', ['get']],
     ['/scenarios/{id}/live/refresh', ['post']],
     ['/scenarios/{id}/events', ['get']],
     ['/scenarios/{id}/chart', ['get']],
+    ['/scenarios/{id}/chart-summary', ['get']],
     ['/scenarios/{id}/evaluations', ['get', 'post']],
     ['/scenario-evaluations/{id}', ['get']],
     ['/scenario-reliability', ['get']],
@@ -3702,6 +3801,15 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
       assert.ok(paths[path]?.[method], `OpenAPI missing ${method.toUpperCase()} ${path}`);
     }
   }
+});
+
+test('scenario chart projection source_versions includes stale reasons in OpenAPI', () => {
+  // This test protects the manual generated client until an automated OpenAPI client generator is added.
+  const schema = openApiDocument.components.schemas.ScenarioChartProjectionResponse;
+  const sourceVersions = record(record(schema.properties).source_versions);
+  const properties = record(sourceVersions.properties);
+
+  assert.ok(properties.stale_reasons);
 });
 
 test('OpenAPI contract omits decommissioned watchlist and daily brief routes', () => {
@@ -3744,6 +3852,12 @@ test('JobsService inline mode returns engine result without memory queue', async
         status: 'completed',
         run_id: 'run_inline',
         workspace_id: 'workspace_a',
+        postgres_sync: {
+          status: 'skipped',
+          synced_tables: [],
+          sqlite_path: null,
+          error: null,
+        },
       });
       assert.equal(captured?.run_id, 'run_inline');
       assert.deepEqual(jobs.listMemoryJobs(), []);
@@ -4031,13 +4145,69 @@ test('ResearchJobProcessor persists completion and syncs SQLite artifacts from w
       maxAttempts: 2,
     });
     const status = await lifecycle.get('run_processor_sync');
+    const syncAudit = record(result.postgres_sync);
 
     assert.equal(result.postgres_sync && typeof result.postgres_sync, 'object');
+    assert.equal(syncAudit.status, 'completed');
+    assert.deepEqual(syncAudit.synced_tables, ['research_runs', 'run_events']);
+    assert.equal(syncAudit.sqlite_path, '/tmp/engine-written-research.sqlite');
+    assert.equal(syncAudit.error, null);
     assert.equal(syncOptions?.sqlitePath, '/tmp/engine-written-research.sqlite');
     assert.equal(syncOptions?.publishSignals, true);
     assert.equal(status?.status, 'completed');
     assert.equal(status?.attempts, 1);
     assert.equal(status?.heartbeat_at !== null, true);
+    assert.deepEqual(status?.result_summary, result);
+    await lifecycle.onModuleDestroy();
+  });
+});
+
+test('ResearchJobProcessor records postgres_sync failure without failing completed engine runs', async () => {
+  await withEnv({ DATABASE_URL: undefined }, async () => {
+    const lifecycle = new JobLifecycleService();
+    const request = engineRequest('run_processor_sync_failure_audit');
+    await lifecycle.create({
+      id: 'job_processor_sync_failure_audit',
+      request,
+      backend: 'bullmq',
+      queueName: 'research-runs',
+      queueJobId: 'job_processor_sync_failure_audit',
+      maxAttempts: 1,
+    });
+    const sqliteSync = {
+      syncRun: async () => {
+        throw new Error('SQLite export failed during sync.');
+      },
+    } as unknown as SqliteJournalSyncService;
+    const processor = new ResearchJobProcessor(
+      {
+        runInline: async (engineRequest: EngineRunRequest) => ({
+          status: 'completed',
+          run_id: engineRequest.run_id,
+          workspace_id: engineRequest.workspace_id,
+          journal_path: '/tmp/sync-failed-research.sqlite',
+        }),
+      } as unknown as PythonEngineClient,
+      lifecycle,
+      sqliteSync,
+    );
+
+    const result = await processor.process(request, {
+      jobId: 'job_processor_sync_failure_audit',
+      backend: 'bullmq',
+      attempt: 1,
+      maxAttempts: 1,
+    });
+    const status = await lifecycle.get('run_processor_sync_failure_audit');
+    const syncAudit = record(result.postgres_sync);
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.warnings, ['postgres_sync_failed']);
+    assert.equal(syncAudit.status, 'failed');
+    assert.deepEqual(syncAudit.synced_tables, []);
+    assert.equal(syncAudit.sqlite_path, '/tmp/sync-failed-research.sqlite');
+    assert.match(String(syncAudit.error), /SQLite export failed/);
+    assert.equal(status?.status, 'completed');
     assert.deepEqual(status?.result_summary, result);
     await lifecycle.onModuleDestroy();
   });
@@ -4106,6 +4276,7 @@ test('ResearchJobProcessor does not publish signal artifacts from failed runs', 
     assert.equal(syncOptions?.publishSignals, false);
     assert.equal(status?.status, 'failed');
     assert.equal(status?.error_code, 'APITimeoutError');
+    assert.equal(record(result.postgres_sync).status, 'completed');
     assert.deepEqual(record(result.postgres_sync).tables, {
       research_runs: 1,
       run_events: 4,
@@ -12834,11 +13005,65 @@ test('journal saves scenario events idempotently', async () => {
   );
 
   assert.equal(events.length, 1);
-  assert.equal(events[0]?.summary, 'Updated trigger.');
+  assert.equal(events[0]?.summary, 'Initial trigger.');
   assert.deepEqual(events[0]?.payload, {
     trigger_status: 'triggered',
-    refreshed: true,
   });
+});
+
+test('scenario transition events preserve repeated passed failed passed occurrences', async () => {
+  const { journal, scenarioLiveState } = buildHarness();
+  const scenarioId = 'scenario_transition_repeats';
+  seedTransitionScenario(journal, scenarioId, 'workspace_a');
+
+  await refreshWithSnapshot(journal, scenarioLiveState, scenarioId, 'workspace_a', 'snap_a', 101);
+  await refreshWithSnapshot(journal, scenarioLiveState, scenarioId, 'workspace_a', 'snap_b', 99);
+  await refreshWithSnapshot(journal, scenarioLiveState, scenarioId, 'workspace_a', 'snap_c', 102);
+
+  const events = await journal.listScenarioEvents(scenarioId, 'workspace_a', 20);
+  assert.equal(
+    events.filter((event) => event.event_type === 'scenario.condition_passed').length,
+    2,
+  );
+  assert.equal(
+    events.filter((event) => event.event_type === 'scenario.condition_failed').length,
+    1,
+  );
+});
+
+test('scenario transition event payload does not mutate historical event_time', async () => {
+  const { journal } = buildHarness();
+  await journal.saveScenarioEvent({
+    id: 'transition_same_id',
+    version: 'scenario_event.v1',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_event_time_immutable',
+    thesis_id: 'thesis_event_time_immutable',
+    event_type: 'scenario.triggered',
+    event_time: '2026-07-01T00:00:00.000Z',
+    summary: 'first',
+    payload: { current_price: 100 },
+  }, 'workspace_a');
+
+  await journal.saveScenarioEvent({
+    id: 'transition_same_id',
+    version: 'scenario_event.v1',
+    workspace_id: 'workspace_a',
+    scenario_id: 'scenario_event_time_immutable',
+    thesis_id: 'thesis_event_time_immutable',
+    event_type: 'scenario.triggered',
+    event_time: '2026-07-01T01:00:00.000Z',
+    summary: 'second',
+    payload: { current_price: 101 },
+  }, 'workspace_a');
+
+  const events = await journal.listScenarioEvents(
+    'scenario_event_time_immutable',
+    'workspace_a',
+    10,
+  );
+  assert.equal(events[0]?.event_time, '2026-07-01T00:00:00.000Z');
+  assert.equal(record(events[0]?.payload).current_price, 100);
 });
 
 test('journal lists scenario events by time for one scenario', async () => {
@@ -13012,6 +13237,7 @@ test('scenario live state marks target hit when latest price crosses target', as
     entry: { type: 'level', condition: 'Reclaim 620.', level: 620 },
     invalidation: { condition: 'Lose 600.', level: 600 },
     targets: [{ label: 'Target 1', level: 632, rationale: 'First target.' }],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
     status: 'current',
   }, 'workspace_a');
 
@@ -13108,6 +13334,150 @@ test('scenario chart projection renders watch overlays from decision playbook', 
   assert.equal(projection.source_versions.decision_playbook_source, 'llm');
 });
 
+test('scenario chart projection derives overlays from recommendation when decision playbook is missing', async () => {
+  const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_chart_recommendation_fallback';
+  const scenarioId = 'scenario_chart_recommendation_fallback';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'spot',
+    thesis_text: 'Watch BNB breakdown.',
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Break support',
+      condition: 'Price breaks below $540 with stronger sell volume.',
+      expected_behavior: 'Price tests $520-$530.',
+      invalidation: 'Price recovers above $570.',
+      suggested_user_action: 'reassess',
+      watch_triggers: ['Daily close below $540.'],
+      evidence: ['Crowded long positioning.'],
+      horizon: 'short_term',
+      payload: {
+        horizon: 'short_term',
+      },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_chart_recommendation_fallback', 'workspace_a'), {
+    id: 'snap_chart_recommendation_fallback',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 566,
+    captured_at: '2026-07-02T00:00:00.000Z',
+    source: 'test',
+  });
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 565, 568, 560, 566),
+    ]);
+
+  const projection = await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '10',
+  });
+
+  assert.equal(projection.source_versions.decision_playbook_source, 'derived_v1');
+  assert.equal(
+    projection.overlays.some(
+      (overlay) =>
+        overlay.type === 'horizontal_line' &&
+        overlay.role === 'trigger' &&
+        overlay.source === 'decision_playbook' &&
+        overlay.price === 540,
+    ),
+    true,
+  );
+  assert.equal(
+    projection.overlays.some(
+      (overlay) =>
+        overlay.type === 'horizontal_line' &&
+        overlay.role === 'invalidation' &&
+        overlay.source === 'decision_playbook' &&
+        overlay.price === 570,
+    ),
+    true,
+  );
+});
+
+test('scenario chart projection loads scenario context once', async () => {
+  const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_chart_context_once';
+  const scenarioId = 'scenario_chart_context_once';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 615, 622, 614, 621),
+    ]);
+  journal.resetReadCounters();
+
+  await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '160',
+  });
+
+  assert.equal(journal.readCount('getScenario'), 1);
+  assert.equal(journal.readCount('getThesis'), 1);
+  assert.equal(journal.readCount('listTradePlaybooksForScenario'), 1);
+  assert.equal(journal.readCount('listScenarioEvents'), 1);
+});
+
+test('scenario chart summary excludes candles', async () => {
+  const { journal, scenarios } = buildHarness();
+  const thesisId = 'thesis_chart_summary';
+  const scenarioId = 'scenario_chart_summary';
+  seedChartScenario(journal, { thesisId, scenarioId });
+
+  const summary = await scenarios.getChartSummary(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(summary.version, 'scenario_chart_summary.v1');
+  assert.equal('candles' in summary, false);
+  assert.equal(summary.scenario_id, scenarioId);
+});
+
+test('scenario chart endpoints deny cross-workspace reads', async () => {
+  const { scenarios, journal } = buildHarness();
+  const thesisId = 'thesis_chart_cross_workspace';
+  const scenarioId = 'scenario_chart_cross_workspace';
+  seedChartScenario(journal, { thesisId, scenarioId });
+
+  await assert.rejects(
+    scenarios.getChartProjection(
+      { scenarioId, interval: '15m', limit: '100' },
+      'user_1',
+      'workspace_b',
+    ),
+    /not found|forbidden/i,
+  );
+});
+
+test('scenario live refresh denies viewer writes', async () => {
+  const { scenarios, journal, workspaces } = buildHarness();
+  const thesisId = 'thesis_chart_viewer_refresh';
+  const scenarioId = 'scenario_chart_viewer_refresh';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  workspaces.setMembershipsForTest([
+    { user_id: 'user_1', workspace_id: 'workspace_a', role: 'viewer' },
+  ]);
+
+  await assert.rejects(
+    scenarios.refreshLiveState(scenarioId, 'user_1', 'workspace_a'),
+    ForbiddenException,
+  );
+});
+
 test('scenario chart projection renders trade overlays from current trade playbook', async () => {
   const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
   const thesisId = 'thesis_chart_trade';
@@ -13121,6 +13491,7 @@ test('scenario chart projection renders trade overlays from current trade playbo
     entry: { type: 'level', condition: 'Reclaim 620.', level: 620 },
     invalidation: { condition: 'Lose 600.', level: 600 },
     targets: [{ label: 'Target 1', level: 632, rationale: 'First target.' }],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
     status: 'current',
   }, 'workspace_a');
   scenarioOhlcv.getOhlcv = async () =>
@@ -13173,6 +13544,12 @@ test('scenario chart projection excludes stale trade overlays', async () => {
     entry: { type: 'level', condition: 'Reclaim 620.', level: 620 },
     invalidation: { condition: 'Lose 600.', level: 600 },
     targets: [{ label: 'Target 1', level: 632, rationale: 'First target.' }],
+    source_hashes: {
+      scenario: 'stale',
+      decision_playbook: 'stale',
+      recommendation: 'stale',
+      runtime_decision: 'stale',
+    },
     status: 'stale',
     stale_reasons: ['source_recommendation_changed'],
   }, 'workspace_a');
@@ -13193,6 +13570,63 @@ test('scenario chart projection excludes stale trade overlays', async () => {
   assert.equal(
     projection.overlays.some((overlay) => overlay.source === 'trade_playbook'),
     false,
+  );
+});
+
+test('scenario chart projection renders trigger zones', async () => {
+  const { journal, scenarios, scenarioOhlcv } = buildHarness();
+  const scenarioId = seedScenarioWithCondition(journal, {
+    workspaceId: 'workspace_a',
+    role: 'trigger',
+    type: 'price_in_zone',
+    zone_low: 100,
+    zone_high: 105,
+  });
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 100, 103, 99, 102),
+    ]);
+
+  const projection = await scenarios.getChartProjection(
+    { scenarioId, interval: '15m', limit: '100' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(
+    projection.overlays.some(
+      (overlay) => overlay.type === 'price_zone' && overlay.role === 'trigger',
+    ),
+    true,
+  );
+});
+
+test('scenario chart projection renders invalidation zones', async () => {
+  const { journal, scenarios, scenarioOhlcv } = buildHarness();
+  const scenarioId = seedScenarioWithCondition(journal, {
+    workspaceId: 'workspace_a',
+    role: 'invalidation',
+    type: 'price_in_zone',
+    zone_low: 95,
+    zone_high: 97,
+  });
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 100, 103, 99, 102),
+    ]);
+
+  const projection = await scenarios.getChartProjection(
+    { scenarioId, interval: '15m', limit: '100' },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(
+    projection.overlays.some(
+      (overlay) =>
+        overlay.type === 'price_zone' && overlay.role === 'invalidation',
+    ),
+    true,
   );
 });
 
@@ -13459,6 +13893,52 @@ test('scenario reliability hides rates below sample size and counts inconclusive
   assert.equal(profiles[0]?.inconclusive_rate, null);
   assert.equal(
     profiles[0]?.data_quality_notes.includes('Not enough history.'),
+    true,
+  );
+});
+
+test('scenario feedback playbook excludes raw continuity prose', async () => {
+  const { journal, scenarioFeedback } = buildHarness();
+  await seedScenarioEvaluation(journal, {
+    workspaceId: 'workspace_a',
+    symbol: 'BTC/USDT',
+    result: 'invalidated',
+    rawContinuityText: 'old raw continuity paragraph that must not enter prompt context',
+  });
+
+  const feedback = await scenarioFeedback.buildForSymbol({
+    workspaceId: 'workspace_a',
+    symbol: 'BTC/USDT',
+  });
+
+  assert.equal(feedback.version, 'scenario_feedback_playbook.v1');
+  assert.equal(
+    JSON.stringify(feedback).includes('old raw continuity paragraph'),
+    false,
+  );
+  assert.ok(feedback.lessons.length > 0);
+});
+
+test('scenario feedback playbook does not aggregate across workspaces', async () => {
+  const { journal, scenarioFeedback } = buildHarness();
+  await seedScenarioEvaluation(journal, {
+    workspaceId: 'workspace_a',
+    symbol: 'BTC/USDT',
+    result: 'hit',
+  });
+  await seedScenarioEvaluation(journal, {
+    workspaceId: 'workspace_b',
+    symbol: 'BTC/USDT',
+    result: 'invalidated',
+  });
+
+  const feedback = await scenarioFeedback.buildForSymbol({
+    workspaceId: 'workspace_a',
+    symbol: 'BTC/USDT',
+  });
+
+  assert.equal(
+    feedback.source_evaluation_ids.every((id) => id.includes('workspace_a')),
     true,
   );
 });
@@ -13782,6 +14262,149 @@ test('latest playbook is marked stale when source recommendation hash changes', 
   ]);
 });
 
+test('trade playbook stays current when only runtime evaluated_at changes', async () => {
+  const { journal, playbooks, theses } = buildHarness();
+  const thesisId = 'thesis_runtime_only_freshness';
+  const scenarioId = 'scenario_runtime_only_freshness';
+  seedScenarioLifecycleFixture(journal, {
+    thesisId,
+    scenarioId,
+    symbol: 'BTC/USDT',
+  });
+  journal.marketSnapshots.set(key('snap_runtime_initial', 'workspace_a'), {
+    id: 'snap_runtime_initial',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    current_price: 61_900,
+    captured_at: '2026-07-01T00:00:00.000Z',
+    source: 'test',
+  });
+
+  const compiled = await playbooks.compileScenarioById(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(compiled.playbook?.status, 'current');
+
+  journal.marketSnapshots.set(key('snap_runtime_later', 'workspace_a'), {
+    id: 'snap_runtime_later',
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    current_price: 61_900,
+    captured_at: '2026-07-01T00:01:00.000Z',
+    source: 'test',
+  });
+
+  const detailScenarios = await theses.scenarios(
+    thesisId,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(detailScenarios[0]?.latest_playbook?.status, 'current');
+  assert.deepEqual(detailScenarios[0]?.latest_playbook?.stale_reasons, []);
+});
+
+test('trade playbook stays current when chart path reads raw scenario without trigger spec', async () => {
+  const { journal, playbooks, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_chart_raw_freshness';
+  const scenarioId = 'scenario_chart_raw_freshness';
+  journal.theses.set(key(thesisId, 'workspace_a'), {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    market_type: 'spot',
+    target_zones: ['Target 540'],
+  });
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [
+    {
+      id: scenarioId,
+      workspace_id: 'workspace_a',
+      thesis_id: thesisId,
+      scenario_name: 'Dead cat bounce short',
+      direction: 'bearish',
+      condition: 'Price rallies above $580 and fails to hold.',
+      expected_behavior: 'Lower high then price drops toward $540.',
+      invalidation: 'Price breaks above $620 with strong volume.',
+      suggested_user_action: 'reassess',
+      watch_triggers: ['Price trades above $580 with weak follow-through.'],
+      evidence: ['Trend remains weak.'],
+      risk_map: ['Short squeeze risk.'],
+      horizon: 'mid_term',
+      payload: {
+        horizon: 'mid_term',
+      },
+    },
+  ]);
+  journal.marketSnapshots.set(key('snap_chart_raw_freshness', 'workspace_a'), {
+    id: 'snap_chart_raw_freshness',
+    workspace_id: 'workspace_a',
+    symbol: 'BNB/USDT',
+    current_price: 566,
+    captured_at: '2026-07-02T00:00:00.000Z',
+    source: 'test',
+  });
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 565, 568, 560, 566),
+    ]);
+
+  const compiled = await playbooks.compileScenarioById(
+    scenarioId,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(compiled.playbook?.status, 'current');
+
+  const projection = await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '10',
+  });
+
+  assert.equal(projection.source_versions.trade_playbook_status, 'current');
+  assert.deepEqual(projection.source_versions.stale_reasons, []);
+  assert.equal(
+    projection.overlays.some(
+      (overlay) =>
+        overlay.type === 'horizontal_line' &&
+        overlay.role === 'entry' &&
+        overlay.source === 'trade_playbook' &&
+        overlay.price === 580,
+    ),
+    true,
+  );
+});
+
+test('legacy trade playbook without source hashes is unverifiable', async () => {
+  const { journal, theses } = buildHarness();
+  const thesisId = 'thesis_legacy_playbook_freshness';
+  const scenarioId = 'scenario_legacy_playbook_freshness';
+  seedScenarioLifecycleFixture(journal, {
+    thesisId,
+    scenarioId,
+    symbol: 'BTC/USDT',
+  });
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('legacy_playbook_no_hashes'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BTC/USDT',
+    created_at: '2026-07-01T00:00:00.000Z',
+  }, 'workspace_a');
+
+  const detailScenarios = await theses.scenarios(
+    thesisId,
+    'user_1',
+    'workspace_a',
+  );
+  assert.equal(detailScenarios[0]?.latest_playbook?.status, 'unverifiable');
+  assert.deepEqual(detailScenarios[0]?.latest_playbook?.stale_reasons, [
+    'legacy_playbook_without_source_hashes',
+  ]);
+});
+
 test('playbook compiler uses thesis target zones when scenario has no targets', async () => {
   const { playbooks } = buildHarness();
   const scenario = scenarioLifecycleRecord({
@@ -13870,6 +14493,32 @@ test('playbook compiler rejects derived watch-only scenario without missing stru
     report.rejection_reasons.includes('Runtime decision has unresolved blockers.'),
     false,
   );
+});
+
+test('derived short-term recommendation does not treat Long/Short ratio threshold as price trigger', () => {
+  const response = toScenarioResponse({
+    id: 'scenario_ratio_not_price',
+    workspace_id: 'workspace_a',
+    thesis_id: 'thesis_ratio_not_price',
+    scenario_name: 'Cascade liquidation',
+    condition: 'Funding rate at 97th percentile and Long/Short ratio 2.88. Price breaks support at $540.',
+    expected_behavior: 'Price drops quickly toward $520-$530.',
+    invalidation: 'Price holds above $570 and funding falls.',
+    suggested_user_action: 'watch confirmation',
+    watch_triggers: [
+      'Price touches $540 with stronger sell volume.',
+      'Long/Short ratio rises above 3.0.',
+    ],
+    evidence: ['Crowded long positioning.'],
+    horizon: 'short_term',
+  });
+
+  assert.deepEqual(response.scenario_recommendation?.required_conditions, [
+    {
+      type: 'price_below',
+      level: 540,
+    },
+  ]);
 });
 
 test('playbook compiler compiles derived directional scenario without runtime snapshot', async () => {
@@ -15203,6 +15852,134 @@ test('scenario runtime decision triggers on explicit trigger role conditions', a
   assert.deepEqual(runtime?.matched_conditions, ['price_above:620']);
 });
 
+test('price reclaim requires a closed candle crossing sequence', () => {
+  const result = evaluateScenarioCondition(
+    {
+      id: 'reclaim_100',
+      role: 'trigger',
+      type: 'price_reclaim_level',
+      level: 100,
+      timeframe: '1h',
+      candle_close_required: true,
+    },
+    {
+      currentPrice: 101,
+      evaluatedAt: '2026-07-02T12:00:00.000Z',
+      marketSnapshotId: 'snap_reclaim',
+      closedCandlesByInterval: {
+        '1h': [
+          candle('2026-07-02T10:00:00.000Z', 101, 102, 99, 99),
+          candle('2026-07-02T11:00:00.000Z', 99, 102, 98, 101),
+        ],
+      },
+    },
+  );
+
+  assert.equal(result.status, 'passed');
+});
+
+test('volume confirmation is unknown when lookback candles are insufficient', () => {
+  const result = evaluateScenarioCondition(
+    {
+      id: 'volume_gate',
+      role: 'confirmation',
+      type: 'volume_above_average',
+      timeframe: '1h',
+      lookback_periods: 20,
+      multiplier: 1.5,
+    },
+    {
+      currentPrice: 101,
+      evaluatedAt: '2026-07-02T12:00:00.000Z',
+      marketSnapshotId: 'snap_volume',
+      closedCandlesByInterval: {
+        '1h': [
+          candle('2026-07-02T11:00:00.000Z', 100, 101, 99, 101, 10),
+        ],
+      },
+    },
+  );
+
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.blocksStrongAction, true);
+});
+
+test('scenario runtime decision blocks entry now when confirmation is unknown', () => {
+  const now = '2026-07-02T12:00:00.000Z';
+  const scenario = runtimeScenarioFixture({
+    id: 'scenario_confirmation_unknown',
+    thesisId: 'thesis_confirmation_unknown',
+    validUntil: '2999-01-01T00:00:00.000Z',
+    preferred: 'entry_long_now',
+    confidence: 0.82,
+    invalidationConditions: [
+      {
+        id: 'confirmation_invalidation',
+        label: 'Confirmation invalidation',
+        role: 'invalidation',
+        type: 'price_below',
+        level: 90,
+      },
+    ],
+    entryConditions: [
+      {
+        id: 'trigger_close',
+        label: 'Trigger close',
+        role: 'trigger',
+        type: 'price_above',
+        level: 100,
+      },
+      {
+        id: 'volume_gate',
+        label: 'Volume confirmation',
+        role: 'confirmation',
+        type: 'volume_above_average',
+        timeframe: '1h',
+        lookback_periods: 20,
+        multiplier: 1.5,
+      },
+    ],
+  });
+
+  const runtime = evaluateScenarioRuntimeDecision(
+    scenario,
+    {
+      id: 'snap_confirmation_unknown',
+      workspace_id: 'workspace_a',
+      symbol: 'TEST/USDT',
+      current_price: 101,
+      captured_at: now,
+      source: 'test',
+    },
+    now,
+    {
+      currentPrice: 101,
+      evaluatedAt: now,
+      marketSnapshotId: 'snap_confirmation_unknown',
+      closedCandlesByInterval: {
+        '1h': [
+          candle('2026-07-02T11:00:00.000Z', 100, 101, 99, 101, 10),
+        ],
+      },
+    },
+  );
+
+  assert.equal(runtime.trigger_status, 'triggered');
+  assert.equal(runtime.recommended_action, 'wait');
+  assert.equal(
+    runtime.blocking_reasons.includes(
+      'Confirmation not passed: Volume confirmation.',
+    ),
+    true,
+  );
+  assert.equal(
+    runtime.final_decision.overrides.includes(
+      'confirmation_not_passed:volume_gate',
+    ),
+    true,
+  );
+});
+
 test('scenario runtime decision blocks entry now when an entry condition fails', async () => {
   const { journal, scenarios } = buildHarness();
   journal.theses.set(key('thesis_failed_condition_runtime', 'workspace_a'), {
@@ -15815,6 +16592,7 @@ function runtimeScenarioFixture(input: {
   actionBias?: string;
   avoidIf?: JsonRecord[];
   entryConditions?: JsonRecord[];
+  invalidationConditions?: JsonRecord[];
   scenarioRecommendation?: JsonRecord;
 }): JsonRecord {
   return {
@@ -15846,7 +16624,7 @@ function runtimeScenarioFixture(input: {
         },
         entry_conditions: input.entryConditions ?? [{ type: 'price_above', level: 620 }],
         avoid_if: input.avoidIf ?? [{ type: 'overextended_from_trigger', threshold_pct: 2.5 }],
-        invalidation_conditions: [{ type: 'price_below', level: 600 }],
+        invalidation_conditions: input.invalidationConditions ?? [{ type: 'price_below', level: 600 }],
         wait_for: ['Price above 620.'],
         risk_notes: [],
         evidence_refs: [
@@ -16001,6 +16779,49 @@ function seedScenarioLifecycleFixture(
       evaluationWindowEndsAt: options.evaluationWindowEndsAt,
     }),
   ]);
+}
+
+async function seedScenarioEvaluation(
+  journal: FakeJournalRepository,
+  options: {
+    workspaceId: string;
+    symbol: string;
+    result: string;
+    rawContinuityText?: string;
+  },
+): Promise<JsonRecord> {
+  const suffix = [
+    options.workspaceId,
+    options.symbol,
+    options.result,
+    journal.scenarioEvaluations.size + 1,
+  ]
+    .join('_')
+    .replace(/[^a-zA-Z0-9_]+/g, '_')
+    .toLowerCase();
+  return journal.saveScenarioEvaluation(
+    {
+      id: `scenario_feedback_eval_${suffix}`,
+      scenario_id: `scenario_feedback_${suffix}`,
+      thesis_id: `thesis_feedback_${suffix}`,
+      symbol: options.symbol,
+      market_type: 'spot',
+      horizon: 'short_term',
+      evaluated_at: '2026-07-01T00:00:00.000Z',
+      evaluation_window: {
+        starts_at: '2026-06-28T00:00:00.000Z',
+        ends_at: '2026-07-01T00:00:00.000Z',
+      },
+      result: options.result,
+      data_quality: 'complete',
+      evidence: {
+        relation_to_thesis: 'supports',
+        action_bias: 'long',
+        raw_continuity_text: options.rawContinuityText,
+      },
+    },
+    options.workspaceId,
+  );
 }
 
 function scenarioLifecycleRecord(
@@ -16213,6 +17034,176 @@ function seedChartScenario(
   });
 }
 
+function seedScenarioWithCondition(
+  journal: FakeJournalRepository,
+  options: {
+    workspaceId: string;
+    role: 'trigger' | 'invalidation';
+    type: 'price_in_zone';
+    zone_low: number;
+    zone_high: number;
+  },
+): string {
+  const scenarioId = `scenario_${options.role}_zone`;
+  const thesisId = `thesis_${options.role}_zone`;
+  journal.theses.set(key(thesisId, options.workspaceId), {
+    id: thesisId,
+    workspace_id: options.workspaceId,
+    symbol: 'BNB/USDT',
+    market_type: 'spot',
+    thesis_text: 'Watch BNB zone behavior.',
+  });
+  journal.scenarios.set(key(thesisId, options.workspaceId), [
+    runtimeScenarioFixture({
+      id: scenarioId,
+      thesisId,
+      validUntil: '2999-01-01T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      entryConditions:
+        options.role === 'trigger'
+          ? [
+              {
+                id: 'trigger_zone',
+                label: 'Trigger zone',
+                role: 'trigger',
+                type: options.type,
+                zone_low: options.zone_low,
+                zone_high: options.zone_high,
+              },
+            ]
+          : [
+              {
+                id: 'trigger_close',
+                label: 'Trigger close',
+                role: 'trigger',
+                type: 'price_above',
+                level: 100,
+              },
+            ],
+      invalidationConditions:
+        options.role === 'invalidation'
+          ? [
+              {
+                id: 'invalidation_zone',
+                label: 'Invalidation zone',
+                role: 'invalidation',
+                type: options.type,
+                zone_low: options.zone_low,
+                zone_high: options.zone_high,
+              },
+            ]
+          : [
+              {
+                id: 'invalidation_floor',
+                label: 'Invalidation floor',
+                role: 'invalidation',
+                type: 'price_below',
+                level: 90,
+              },
+            ],
+    }),
+  ]);
+  journal.marketSnapshots.set(key(`snap_${scenarioId}`, options.workspaceId), {
+    id: `snap_${scenarioId}`,
+    workspace_id: options.workspaceId,
+    symbol: 'BNB/USDT',
+    current_price: 102,
+    captured_at: new Date().toISOString(),
+    source: 'test',
+  });
+  return scenarioId;
+}
+
+function seedTransitionScenario(
+  journal: FakeJournalRepository,
+  scenarioId: string,
+  workspaceId: string,
+): void {
+  const thesisId = `thesis_${scenarioId}`;
+  journal.theses.set(key(thesisId, workspaceId), {
+    id: thesisId,
+    workspace_id: workspaceId,
+    symbol: 'TEST/USDT',
+    market_type: 'spot',
+    thesis_text: 'Watch transition behavior.',
+  });
+  journal.scenarios.set(key(thesisId, workspaceId), [
+    runtimeScenarioFixture({
+      id: scenarioId,
+      thesisId,
+      validUntil: '2999-01-01T00:00:00.000Z',
+      preferred: 'entry_long_now',
+      confidence: 0.82,
+      entryConditions: [
+        {
+          id: 'transition_trigger',
+          label: 'Transition trigger',
+          role: 'trigger',
+          type: 'price_above',
+          level: 100,
+        },
+      ],
+      invalidationConditions: [
+        {
+          id: 'transition_invalidation',
+          label: 'Transition invalidation',
+          role: 'invalidation',
+          type: 'price_below',
+          level: 100,
+        },
+      ],
+    }),
+  ]);
+}
+
+async function refreshWithSnapshot(
+  journal: FakeJournalRepository,
+  scenarioLiveState: ScenarioLiveStateService,
+  scenarioId: string,
+  workspaceId: string,
+  snapshotId: string,
+  currentPrice: number,
+): Promise<void> {
+  journal.marketSnapshots.set(key(snapshotId, workspaceId), {
+    id: snapshotId,
+    workspace_id: workspaceId,
+    symbol: 'TEST/USDT',
+    current_price: currentPrice,
+    captured_at: `2026-07-02T00:0${journal.marketSnapshots.size}.000Z`,
+    source: 'test',
+  });
+  await scenarioLiveState.refreshLiveState(scenarioId, workspaceId);
+}
+
+function sourceHashesForScenario(
+  journal: FakeJournalRepository,
+  scenarioId: string,
+  workspaceId = 'workspace_a',
+) {
+  let scenario: JsonRecord | null = null;
+  for (const [scenarioKey, scenarios] of journal.scenarios) {
+    if (!scenarioKey.startsWith(`${workspaceId}:`)) {
+      continue;
+    }
+    scenario = scenarios.find((item) => item.id === scenarioId) ?? null;
+    if (scenario) {
+      break;
+    }
+  }
+  const thesisId = nullableString(scenario?.thesis_id);
+  const thesis = thesisId
+    ? journal.theses.get(key(thesisId, workspaceId)) ?? null
+    : null;
+  const response = toScenarioResponse(scenario ?? {}, thesis ?? {});
+  return playbookSourceHashes({
+    scenario: response.payload,
+    decisionPlaybook: response.decision_playbook,
+    recommendation: response.scenario_recommendation,
+    runtimeDecision: response.runtime_decision,
+  });
+}
+
 function chartOhlcvResponse(
   candles: MarketOhlcvResponse['candles'],
   warning: string | null = null,
@@ -16237,6 +17228,7 @@ function candle(
   high: number,
   low: number,
   close: number,
+  volume = 1000,
 ){
   return {
     time,
@@ -16244,7 +17236,7 @@ function candle(
     high,
     low,
     close,
-    volume: 1000,
+    volume,
   };
 }
 
@@ -16348,10 +17340,24 @@ function buildHarness() {
     auth,
     workspaces,
   );
-  const scenarioLiveState = new ScenarioLiveStateService(journal);
-  const scenarioChartProjection = new ScenarioChartProjectionService(
+  const scenarioFeedback = new ScenarioFeedbackPlaybookService(
+    journal,
+    auth,
+    workspaces,
+  );
+  const scenarioContextLoader = new ScenarioContextLoaderService(journal);
+  const scenarioLiveState = new ScenarioLiveStateService(
     journal,
     scenarioOhlcv,
+    scenarioContextLoader,
+  );
+  const scenarioChartProjection = new ScenarioChartProjectionService(
+    scenarioContextLoader,
+    scenarioOhlcv,
+    scenarioLiveState,
+  );
+  const scenarioChartSummary = new ScenarioChartSummaryService(
+    scenarioContextLoader,
     scenarioLiveState,
   );
   return {
@@ -16396,6 +17402,7 @@ function buildHarness() {
       scenarioReliability,
       scenarioLiveState,
       scenarioChartProjection,
+      scenarioChartSummary,
     ),
     scenarioEvaluations: new ScenarioEvaluationService(
       journal,
@@ -16404,6 +17411,9 @@ function buildHarness() {
       scenarioOhlcv,
     ),
     scenarioChartProjection,
+    scenarioChartSummary,
+    scenarioContextLoader,
+    scenarioFeedback,
     scenarioLiveState,
     scenarioReliability,
     playbooks: new PlaybookCompilerService(

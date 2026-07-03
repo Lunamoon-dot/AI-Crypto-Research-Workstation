@@ -1,8 +1,13 @@
 import type { JsonRecord } from '../database/journal.types';
 import {
   derivePriceConditionFromText,
+  derivePriceConditionFromTexts,
   normalizeScenarioConditionText,
 } from './scenario-text-conditions';
+import {
+  evaluateScenarioCondition,
+  type ScenarioConditionEvaluationContext,
+} from './scenario-condition-evaluator';
 import type {
   ScenarioActionBias,
   ScenarioDecisionCondition,
@@ -34,6 +39,7 @@ export function evaluateScenarioRuntimeDecision(
   scenario: JsonRecord,
   snapshot: JsonRecord | null,
   nowIso: string,
+  evaluationContext?: ScenarioConditionEvaluationContext,
 ): ScenarioRuntimeDecision {
   const payload = recordValue(scenario.payload ?? scenario.payload_json);
   const playbook = normalizedPlaybook(scenario, payload, nowIso);
@@ -46,8 +52,18 @@ export function evaluateScenarioRuntimeDecision(
       ? playbook.confidence
       : Math.min(playbook.confidence, recommendationConfidence);
   const currentPrice = nullableNumber(snapshot?.current_price);
+  const conditionContext =
+    evaluationContext ??
+    defaultConditionContext({
+      currentPrice,
+      evaluatedAt: nowIso,
+      marketSnapshotId: nullableString(snapshot?.id),
+    });
   const staleMarketData = marketIsStale(snapshot, nowIso);
   const entryConditions = runtimeEntryConditions(playbook.entry_conditions);
+  const confirmationConditions = playbook.entry_conditions.filter(
+    (condition) => condition.role === 'confirmation',
+  );
   const triggerTarget = primaryTriggerTarget(entryConditions);
   const triggerStatus = triggerStatusFor({
     currentPrice,
@@ -70,7 +86,9 @@ export function evaluateScenarioRuntimeDecision(
     playbook.invalidation_conditions.length > 0 || invalidationText.length > 0;
 
   for (const condition of entryConditions) {
-    const result = conditionResult(condition, currentPrice);
+    const result = runtimeConditionResult(
+      evaluateScenarioCondition(condition, conditionContext),
+    );
     const label = conditionLabel(condition);
     if (result === 'matched') {
       matchedConditions.push(label);
@@ -81,6 +99,15 @@ export function evaluateScenarioRuntimeDecision(
     }
     if (result === 'unknown') {
       conditionBlockers.push(`unknown_condition:${condition.type}`);
+    }
+  }
+  for (const condition of confirmationConditions) {
+    const result = evaluateScenarioCondition(condition, conditionContext);
+    if (result.blocksStrongAction) {
+      blockingReasons.push(
+        `Confirmation not passed: ${condition.label ?? condition.type}.`,
+      );
+      overrides.push(`confirmation_not_passed:${condition.id ?? condition.type}`);
     }
   }
 
@@ -196,6 +223,31 @@ export function evaluateScenarioRuntimeDecision(
   };
 }
 
+function defaultConditionContext(input: {
+  currentPrice: number | null;
+  evaluatedAt: string;
+  marketSnapshotId: string | null;
+}): ScenarioConditionEvaluationContext {
+  return {
+    currentPrice: input.currentPrice,
+    evaluatedAt: input.evaluatedAt,
+    marketSnapshotId: input.marketSnapshotId,
+    closedCandlesByInterval: {},
+  };
+}
+
+function runtimeConditionResult(input: {
+  status: 'passed' | 'failed' | 'pending' | 'unknown';
+}): 'matched' | 'failed' | 'unknown' {
+  if (input.status === 'passed') {
+    return 'matched';
+  }
+  if (input.status === 'failed') {
+    return 'failed';
+  }
+  return 'unknown';
+}
+
 function normalizedPlaybook(
   scenario: JsonRecord,
   payload: JsonRecord,
@@ -251,10 +303,8 @@ function derivedPlaybook(
   payload: JsonRecord,
   nowIso: string,
 ): ScenarioDecisionPlaybook {
-  const triggerSpec = recordValue(payload.trigger_spec ?? scenario.trigger_spec);
-  const entryConditions = triggerSpec.type
-    ? [conditionFromTriggerSpec(triggerSpec)]
-    : [];
+  const triggerSpec = firstTriggerSpec(scenario, payload);
+  const entryConditions = triggerSpec ? [conditionFromTriggerSpec(triggerSpec)] : [];
   const invalidation = firstScenarioString(
     scenario.invalidation,
     payload.invalidation,
@@ -367,6 +417,27 @@ function finalAction(input: {
     return input.preferred;
   }
   return directionalConsiderAction(input.actionBias);
+}
+
+function firstTriggerSpec(
+  scenario: JsonRecord,
+  payload: JsonRecord,
+): JsonRecord | null {
+  const explicit = recordValue(payload.trigger_spec ?? scenario.trigger_spec);
+  if (explicit.type) {
+    return explicit;
+  }
+  const derived = derivePriceConditionFromTexts([
+    firstScenarioString(scenario.condition, payload.condition),
+    ...stringList(scenario.watch_triggers ?? payload.watch_triggers ?? payload.watch),
+    firstScenarioString(
+      scenario.expected_behavior,
+      scenario.expected_market_behavior,
+      payload.expected_behavior,
+      payload.expected_market_behavior,
+    ),
+  ]);
+  return derived ? (derived as unknown as JsonRecord) : null;
 }
 
 function safeBlockedAction(

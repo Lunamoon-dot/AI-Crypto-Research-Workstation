@@ -1926,9 +1926,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       `INSERT INTO scenario_events
        (id, workspace_id, scenario_id, thesis_id, event_type, event_time, summary, payload_json)
        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::jsonb)
-       ON CONFLICT (id) DO UPDATE SET
-         summary = EXCLUDED.summary,
-         payload_json = EXCLUDED.payload_json
+       ON CONFLICT (id) DO NOTHING
        RETURNING payload_json || jsonb_build_object(
          'version', 'scenario_event.v1',
          'id', id,
@@ -1952,10 +1950,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         JSON.stringify(payload),
       ],
     );
-    if (!saved) {
-      throw new ServiceUnavailableException('Scenario event was not persisted.');
-    }
-    return saved;
+    return saved ?? this.getScenarioEventById(id, workspaceId);
   }
 
   async listScenarioEvents(
@@ -1983,6 +1978,171 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
        LIMIT $3`,
       [workspaceId, scenarioId, Math.max(1, Math.min(500, Math.trunc(limit)))],
     );
+  }
+
+  async saveScenarioLiveStateSnapshot(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(
+      input.id,
+      `scenario_live_state_${randomUUID().replaceAll('-', '')}`,
+    );
+    const state = recordValue(input.state ?? input.state_json);
+    const evaluatedAt = stringValue(
+      input.evaluated_at ?? state.evaluated_at,
+      new Date().toISOString(),
+    );
+    const saved = await this.one(
+      `INSERT INTO scenario_live_state_snapshots
+       (id, workspace_id, scenario_id, market_snapshot_id, evaluated_at, state_json, source_hash)
+       VALUES ($1, $2, $3, $4, $5::timestamptz, $6::jsonb, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         state_json = EXCLUDED.state_json,
+         source_hash = EXCLUDED.source_hash
+       RETURNING state_json || jsonb_build_object(
+         'version', 'scenario_live_state_snapshot.v1',
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'market_snapshot_id', market_snapshot_id,
+         'evaluated_at', evaluated_at,
+         'state', state_json,
+         'source_hash', source_hash,
+         'created_at', created_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.scenario_id, ''),
+        nullableString(input.market_snapshot_id),
+        evaluatedAt,
+        JSON.stringify(state),
+        stringValue(input.source_hash, ''),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario live state snapshot was not persisted.');
+    }
+    return saved;
+  }
+
+  async getLatestScenarioLiveStateSnapshot(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT state_json || jsonb_build_object(
+         'version', 'scenario_live_state_snapshot.v1',
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'market_snapshot_id', market_snapshot_id,
+         'evaluated_at', evaluated_at,
+         'state', state_json,
+         'source_hash', source_hash,
+         'created_at', created_at
+       ) AS payload_json
+       FROM scenario_live_state_snapshots
+       WHERE workspace_id = $1 AND scenario_id = $2
+       ORDER BY evaluated_at DESC, id DESC
+       LIMIT 1`,
+      [workspaceId, scenarioId],
+    );
+  }
+
+  async saveScenarioFeedbackPlaybook(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(
+      input.id,
+      `scenario_feedback_playbook_${randomUUID().replaceAll('-', '')}`,
+    );
+    const generatedAt = stringValue(input.generated_at, new Date().toISOString());
+    const payload = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      generated_at: generatedAt,
+    };
+    const saved = await this.one(
+      `INSERT INTO scenario_feedback_playbooks
+       (id, workspace_id, symbol, generated_at, payload_json)
+       VALUES ($1, $2, $3, $4::timestamptz, $5::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         generated_at = EXCLUDED.generated_at,
+         payload_json = EXCLUDED.payload_json
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'generated_at', generated_at,
+         'created_at', created_at
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.symbol, ''),
+        generatedAt,
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario feedback playbook was not persisted.');
+    }
+    return saved;
+  }
+
+  async getLatestScenarioFeedbackPlaybook(
+    symbol: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'symbol', symbol,
+         'generated_at', generated_at,
+         'created_at', created_at
+       ) AS payload_json
+       FROM scenario_feedback_playbooks
+       WHERE workspace_id = $1 AND symbol = $2
+       ORDER BY generated_at DESC, id DESC
+       LIMIT 1`,
+      [workspaceId, symbol],
+    );
+  }
+
+  private async getScenarioEventById(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const existing = await this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'version', 'scenario_event.v1',
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'event_type', event_type,
+         'event_time', event_time,
+         'summary', summary,
+         'payload', payload_json,
+         'created_at', created_at
+       ) AS payload_json
+       FROM scenario_events
+       WHERE id = $1 AND workspace_id = $2`,
+      [id, workspaceId],
+    );
+    if (!existing) {
+      throw new ServiceUnavailableException('Scenario event was not persisted.');
+    }
+    return existing;
   }
 
   async saveBacktestRun(
@@ -3380,6 +3540,30 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       );
       CREATE INDEX IF NOT EXISTS idx_scenario_events_scenario
         ON scenario_events(workspace_id, scenario_id, event_time DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS scenario_live_state_snapshots (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        market_snapshot_id TEXT,
+        evaluated_at TIMESTAMPTZ NOT NULL,
+        state_json JSONB NOT NULL,
+        source_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_scenario_live_state_snapshots_latest
+        ON scenario_live_state_snapshots(workspace_id, scenario_id, evaluated_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS scenario_feedback_playbooks (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL,
+        payload_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_scenario_feedback_playbooks_latest
+        ON scenario_feedback_playbooks(workspace_id, symbol, generated_at DESC, id DESC);
 
       CREATE TABLE IF NOT EXISTS backtest_runs (
         id TEXT PRIMARY KEY,

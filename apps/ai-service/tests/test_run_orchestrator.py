@@ -354,6 +354,17 @@ def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
                     "latest_continuity_context": {
                         "schema_version": "latest_continuity_context.v1",
                         "summary": "Prior thesis remains valid.",
+                        "scenario_feedback_playbook": {
+                            "version": "scenario_feedback_playbook.v1",
+                            "lessons": [
+                                {
+                                    "statement": "Require confirmation.",
+                                    "confidence": "medium",
+                                }
+                            ],
+                            "gates": [],
+                            "exclusions": [],
+                        },
                     }
                 }
             },
@@ -442,6 +453,15 @@ def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
     ResearchRunOrchestrator().run_graph(host, "BTC/USDT", "2026-05-31")
 
     assert captured["latest_continuity_context"] == {
-        "schema_version": "latest_continuity_context.v1",
-        "summary": "Prior thesis remains valid.",
+        "scenario_feedback_playbook": {
+            "version": "scenario_feedback_playbook.v1",
+            "lessons": [
+                {
+                    "statement": "Require confirmation.",
+                    "confidence": "medium",
+                }
+            ],
+            "gates": [],
+            "exclusions": [],
+        },
     }

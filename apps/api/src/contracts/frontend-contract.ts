@@ -17,6 +17,7 @@ import type { ScenarioReliabilityProfileResponse } from '../scenarios/scenario-r
 import type {
   PlaybookCompileReportResponse,
   TradePlaybookResponse,
+  TradePlaybookStaleReason,
 } from '../playbooks/playbook.types';
 import type {
   BacktestRunResponse,
@@ -30,6 +31,7 @@ import { researchItemTextList } from './research-evidence';
 import {
   decisionConditionFromRecord,
   derivePriceConditionFromText,
+  derivePriceConditionFromTexts,
   normalizeScenarioConditionText,
   priceTriggerSpecFromText,
 } from '../scenarios/scenario-text-conditions';
@@ -2027,7 +2029,7 @@ export function toTradePlaybookResponse(value: JsonRecord): TradePlaybookRespons
     compiler_version: 'playbook_compiler.v2',
     source_hashes: playbookSourceHashesValue(value.source_hashes),
     status: playbookStatusValue(value.status),
-    stale_reasons: stringList(value.stale_reasons),
+    stale_reasons: playbookStaleReasonsValue(value.stale_reasons),
     created_at: stringValue(value.created_at, new Date().toISOString()),
   };
 }
@@ -3292,11 +3294,11 @@ function derivedScenarioRecommendation(input: {
 }): ScenarioRecommendation | null {
   const triggerCondition =
     decisionConditionFromRecord(input.triggerSpec) ??
-    derivePriceConditionFromText([
+    derivePriceConditionFromTexts([
       input.condition,
       ...input.watchTriggers,
       input.expectedBehavior,
-    ].join(' '));
+    ]);
   const invalidationCondition = derivePriceConditionFromText(input.invalidation);
   if (!triggerCondition && !invalidationCondition) {
     return null;
@@ -3788,10 +3790,20 @@ function playbookSourceHashesValue(
 }
 
 function playbookStatusValue(value: unknown): TradePlaybookResponse['status'] {
-  if (value === 'stale' || value === 'superseded') {
+  if (value === 'stale' || value === 'superseded' || value === 'unverifiable') {
     return value;
   }
   return 'current';
+}
+
+function playbookStaleReasonsValue(value: unknown): TradePlaybookStaleReason[] {
+  return stringList(value).filter(
+    (reason): reason is TradePlaybookStaleReason =>
+      reason === 'source_scenario_changed' ||
+      reason === 'source_decision_playbook_changed' ||
+      reason === 'source_recommendation_changed' ||
+      reason === 'legacy_playbook_without_source_hashes',
+  );
 }
 
 function backtestStatusValue(value: unknown): BacktestRunResponse['status'] {

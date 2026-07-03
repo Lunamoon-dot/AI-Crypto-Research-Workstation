@@ -1,5 +1,17 @@
 import type { JsonRecord } from '../database/journal.types';
 
+export type TradePlaybookStatus =
+  | 'current'
+  | 'stale'
+  | 'superseded'
+  | 'unverifiable';
+
+export type TradePlaybookStaleReason =
+  | 'source_scenario_changed'
+  | 'source_decision_playbook_changed'
+  | 'source_recommendation_changed'
+  | 'legacy_playbook_without_source_hashes';
+
 export interface TradePlaybookResponse {
   version: 'trade_playbook.v1';
   id: string;
@@ -42,8 +54,8 @@ export interface TradePlaybookResponse {
     recommendation: string;
     runtime_decision: string;
   };
-  status: 'current' | 'stale' | 'superseded';
-  stale_reasons: string[];
+  status: TradePlaybookStatus;
+  stale_reasons: TradePlaybookStaleReason[];
   created_at: string;
 }
 
