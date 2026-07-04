@@ -69,6 +69,7 @@ import { evaluateScenarioRuntimeDecision } from '../src/scenarios/scenario-runti
 import { PlaybookCompilerService } from '../src/playbooks/playbook-compiler.service';
 import { playbookSourceHashes } from '../src/playbooks/playbook-source-hash';
 import { BacktestService } from '../src/backtests/backtest.service';
+import { PaperExecutionService } from '../src/paper-execution/paper-execution.service';
 import { ScenarioDecisionWorkbenchService } from '../src/scenario-decision/scenario-decision-workbench.service';
 import { OperationsService } from '../src/operations/operations.service';
 import { WorkbenchService } from '../src/workbench/workbench.service';
@@ -134,6 +135,13 @@ class FakeJournalRepository implements JournalRepository {
   readonly scenarioFeedbackPlaybooks = new Map<string, JsonRecord>();
   readonly backtestRuns = new Map<string, JsonRecord>();
   readonly backtestTradeEvents = new Map<string, JsonRecord[]>();
+  readonly simulationRuns = new Map<string, JsonRecord>();
+  readonly paperOrders = new Map<string, JsonRecord>();
+  readonly paperPositions = new Map<string, JsonRecord>();
+  readonly executionEvents = new Map<string, JsonRecord[]>();
+  readonly simulationOutcomes = new Map<string, JsonRecord>();
+  readonly simulationRunLocks = new Map<string, Promise<void>>();
+  readonly simulationRunLockCalls: string[] = [];
   readonly scenarioDecisionItemStates = new Map<string, JsonRecord>();
   readonly signals: JsonRecord[] = [];
   readonly signalObservations: JsonRecord[] = [];
@@ -1146,6 +1154,59 @@ class FakeJournalRepository implements JournalRepository {
       .slice(0, filters.limit);
   }
 
+  async listSimulationOutcomesForReliability(
+    filters: { symbol?: string; market_type?: string; horizon?: string; limit: number },
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    const rows: JsonRecord[] = [];
+    for (const outcome of this.simulationOutcomes.values()) {
+      if (outcome.workspace_id !== workspaceId || outcome.reliability_eligible !== true) {
+        continue;
+      }
+      const run = this.simulationRuns.get(key(String(outcome.simulation_run_id), workspaceId));
+      if (!run) {
+        continue;
+      }
+      const playbook = record(run.playbook_snapshot);
+      const reliabilityContext = record(playbook.reliability_context);
+      const evaluationWindow = record(run.evaluation_window);
+      const result = outcome.execution_result === 'win'
+        ? 'hit'
+        : outcome.execution_result === 'loss'
+          ? 'invalidated'
+          : outcome.execution_result === 'breakeven'
+            ? 'mixed'
+            : 'inconclusive';
+      rows.push({
+        ...outcome,
+        scenario_id: run.source_scenario_id,
+        thesis_id: run.source_thesis_id,
+        source_scenario_id: run.source_scenario_id,
+        source_thesis_id: run.source_thesis_id,
+        symbol: run.symbol,
+        market_type: run.market_type,
+        horizon: evaluationWindow.horizon ?? playbook.horizon ?? 'unknown',
+        evaluated_at: outcome.evaluated_at ?? run.completed_at ?? run.started_at,
+        evaluation_window: evaluationWindow,
+        result,
+        data_quality: 'complete',
+        evidence: {
+          relation_to_thesis: 'paper_execution',
+          action_bias: playbook.direction ?? 'unknown',
+          setup_type: reliabilityContext.setup_type ?? reliabilityContext.setup ?? null,
+          lesson: outcome.diagnosis_summary,
+        },
+        source_kind: 'simulation_outcome',
+      });
+    }
+    return rows
+      .filter((item) => !filters.symbol || item.symbol === filters.symbol)
+      .filter((item) => !filters.market_type || filters.market_type === 'mixed' || item.market_type === filters.market_type)
+      .filter((item) => !filters.horizon || item.horizon === filters.horizon)
+      .sort((a, b) => String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')))
+      .slice(0, filters.limit);
+  }
+
   async saveTradePlaybook(
     input: JsonRecord,
     workspaceId: string,
@@ -1369,6 +1430,160 @@ class FakeJournalRepository implements JournalRepository {
     workspaceId: string,
   ): Promise<JsonRecord[]> {
     return this.backtestTradeEvents.get(key(runId, workspaceId)) ?? [];
+  }
+
+  async saveSimulationRun(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `simulation_${this.simulationRuns.size + 1}`);
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      version: 'simulation_run.v1',
+      started_at: input.started_at ?? '2026-07-01T00:00:00.000Z',
+    };
+    this.simulationRuns.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async withSimulationRunLock<T>(
+    simulationRunId: string,
+    workspaceId: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const storageKey = key(simulationRunId, workspaceId);
+    this.simulationRunLockCalls.push(storageKey);
+    const previous = this.simulationRunLocks.get(storageKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = previous.then(() => current, () => current);
+    this.simulationRunLocks.set(storageKey, next);
+    await previous.catch(() => undefined);
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.simulationRunLocks.get(storageKey) === next) {
+        this.simulationRunLocks.delete(storageKey);
+      }
+    }
+  }
+
+  async getSimulationRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.simulationRuns.get(key(id, workspaceId)) ?? null;
+  }
+
+  async listSimulationRunsForPlaybook(
+    playbookId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.simulationRuns.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.source_playbook_id === playbookId)
+      .sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')));
+  }
+
+  async listSimulationRuns(
+    limit: number,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.simulationRuns.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')))
+      .slice(0, limit);
+  }
+
+  async savePaperOrder(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `paper_order_${this.paperOrders.size + 1}`);
+    const saved = { ...input, id, workspace_id: workspaceId, version: 'paper_order.v1' };
+    this.paperOrders.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async listPaperOrdersForSimulation(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.paperOrders.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.simulation_run_id === simulationRunId);
+  }
+
+  async savePaperPosition(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `paper_position_${this.paperPositions.size + 1}`);
+    const saved = { ...input, id, workspace_id: workspaceId, version: 'paper_position.v1' };
+    this.paperPositions.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
+  async getPaperPositionForSimulation(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return [...this.paperPositions.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.simulation_run_id === simulationRunId)
+      .sort((a, b) => String(b.id ?? '').localeCompare(String(a.id ?? '')))[0] ?? null;
+  }
+
+  async appendExecutionEvents(
+    simulationRunId: string,
+    events: JsonRecord[],
+    workspaceId: string,
+  ): Promise<void> {
+    const storageKey = key(simulationRunId, workspaceId);
+    const existing = this.executionEvents.get(storageKey) ?? [];
+    const seen = new Set(existing.map((event) => String(event.idempotency_key ?? '')));
+    for (const event of events) {
+      const idempotencyKey = String(event.idempotency_key ?? '');
+      if (seen.has(idempotencyKey)) continue;
+      seen.add(idempotencyKey);
+      existing.push({
+        ...event,
+        workspace_id: workspaceId,
+        simulation_run_id: simulationRunId,
+        version: 'execution_event.v1',
+      });
+    }
+    existing.sort((a, b) => Number(a.sequence ?? 0) - Number(b.sequence ?? 0));
+    this.executionEvents.set(storageKey, existing);
+  }
+
+  async listExecutionEvents(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return this.executionEvents.get(key(simulationRunId, workspaceId)) ?? [];
+  }
+
+  async saveSimulationOutcome(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(input.id ?? `simulation_outcome_${this.simulationOutcomes.size + 1}`);
+    const saved = { ...input, id, workspace_id: workspaceId, version: 'simulation_outcome.v1' };
+    this.simulationOutcomes.set(key(String(input.simulation_run_id ?? id), workspaceId), saved);
+    return saved;
+  }
+
+  async getSimulationOutcome(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return this.simulationOutcomes.get(key(simulationRunId, workspaceId)) ?? null;
   }
 
   async saveScenarioDecisionItemState(
@@ -3693,6 +3908,15 @@ test('openapi create research run schema exposes output language', () => {
   assert.equal(schema.properties.output_language.minLength, 1);
 });
 
+test('openapi simulation schema exposes partial take-profit assumptions', () => {
+  const schema = openApiDocument.components.schemas.CreateSimulationRequest;
+  const partial = schema.properties.partial_take_profit;
+
+  assert.equal(partial.type, 'array');
+  assert.equal(partial.items.properties.target_index.type, 'integer');
+  assert.equal(partial.items.properties.close_percent.type, 'string');
+});
+
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
   const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
   const expectedRoutes: Array<[string, string[]]> = [
@@ -3784,6 +4008,15 @@ test('OpenAPI contract covers the frontend-facing controller routes', () => {
     ['/playbooks/{id}/backtests', ['get', 'post']],
     ['/backtests/{id}', ['get']],
     ['/backtests/{id}/events', ['get']],
+    ['/playbooks/{id}/simulations', ['get', 'post']],
+    ['/simulations/{id}', ['get']],
+    ['/simulations/{id}/refresh', ['post']],
+    ['/simulations/{id}/cancel', ['post']],
+    ['/simulations/{id}/close', ['post']],
+    ['/simulations/{id}/events', ['get']],
+    ['/simulations/{id}/orders', ['get']],
+    ['/simulations/{id}/position', ['get']],
+    ['/simulations/{id}/outcome', ['get']],
     ['/scenario-decision/workbench', ['get']],
     ['/scenario-decision/items/{id}/resolve', ['post']],
     ['/scenario-decision/items/{id}/snooze', ['post']],
@@ -4004,6 +4237,12 @@ test('JobsService memory mode processes queued requests in the API process', asy
         status: 'completed',
         run_id: 'run_memory_background',
         workspace_id: 'workspace_a',
+        postgres_sync: {
+          status: 'skipped',
+          synced_tables: [],
+          sqlite_path: null,
+          error: null,
+        },
       });
       assert.deepEqual(jobs.listMemoryJobs(), []);
       await jobs.onModuleDestroy();
@@ -12573,7 +12812,7 @@ test('scenario response exposes normalized decision and provenance fields', asyn
   assert.equal(scenarios[0]?.as_of, '2026-06-05');
   assert.equal(scenarios[0]?.timeframe, '1D');
   assert.deepEqual(scenarios[0]?.source, ['market_report', 'quant_signal_text']);
-  assert.equal(scenarios[0]?.runtime_decision.playbook_source, 'missing');
+  assert.equal(scenarios[0]?.runtime_decision.playbook_source, 'derived_v1');
   assert.equal(scenarios[0]?.runtime_decision.recommended_action, 'review');
   assert.equal(scenarios[1]?.relation_to_thesis, 'invalidates');
 });
@@ -13719,6 +13958,7 @@ test('scenario evaluation service uses derived legacy trigger and invalidation',
       evidence: ['RSI >35'],
       horizon: 'short_term',
       timeframe: '4H',
+      created_at: '2026-06-29T00:00:00.000Z',
     },
   ]);
   scenarioEvaluations.setOhlcvForTest([
@@ -13741,11 +13981,12 @@ test('scenario evaluation service uses derived legacy trigger and invalidation',
 
 test('scenario evaluation service refuses an unmatured evaluation window', async () => {
   const { scenarioEvaluations } = buildHarness();
+  const futureWindowEnd = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
   seedScenarioLifecycleFixture(scenarioEvaluations.journalForTest as FakeJournalRepository, {
     scenarioId: 'scenario_eval_future_window',
     thesisId: 'thesis_eval_future_window',
     symbol: 'BTC/USDT',
-    evaluationWindowEndsAt: '2026-07-03T00:00:00.000Z',
+    evaluationWindowEndsAt: futureWindowEnd,
   });
 
   await assert.rejects(
@@ -13972,6 +14213,61 @@ test('scenario reliability deduplicates repeated evaluations for the same scenar
   );
 
   assert.equal(profiles[0]?.sample_size, 1);
+});
+
+test('scenario reliability deduplicates eligible paper simulation outcomes by sample identity', async () => {
+  const { paperExecution, journal, scenarioReliability } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_reliability_dedup');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+
+  const request = {
+    mode: 'replay' as const,
+    starts_at: '2026-07-04T00:00:00.000Z',
+    ends_at: '2026-07-04T01:00:00.000Z',
+    position_size: { mode: 'fixed_notional' as const, notional: '1164', quantity: null },
+  };
+  await paperExecution.createSimulation(
+    'playbook_paper_reliability_dedup',
+    request,
+    'user_1',
+    'workspace_a',
+  );
+  await paperExecution.createSimulation(
+    'playbook_paper_reliability_dedup',
+    request,
+    'user_1',
+    'workspace_a',
+  );
+
+  const profiles = await scenarioReliability.profile(
+    { symbol: 'BTC/USDT', market_type: 'spot', horizon: 'short_term', limit: 20 },
+    'user_1',
+    'workspace_a',
+  );
+  const paperProfile = profiles.find((profile) =>
+    profile.relation_to_thesis === 'paper_execution' &&
+    profile.action_bias === 'short');
+
+  assert.equal(paperProfile?.sample_size, 1);
+  assert.equal(
+    paperProfile?.recent_lessons.some((lesson) =>
+      lesson.includes('Paper execution closed by target.')),
+    true,
+  );
 });
 
 test('scenario monitor and thesis detail expose aggregated reliability profiles', async () => {
@@ -15200,6 +15496,1353 @@ test('backtest detail and events endpoint expose ordered trade events', async ()
   );
   assert.equal(detail.trade_events[0]?.version, 'backtest_trade_event.v1');
   assert.equal(detail.trade_events[0]?.details.fill_policy, 'touch');
+});
+
+test('paper execution rejects risk fraction sizing in V8', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_paper_risk_fraction'), 'workspace_a');
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_risk_fraction',
+      {
+        mode: 'forward',
+        position_size: {
+          mode: 'risk_fraction',
+          risk_fraction: '0.01',
+        } as never,
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
+test('paper execution rejects missing or invalid position sizing', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_paper_bad_sizing'), 'workspace_a');
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_sizing',
+      { mode: 'forward' },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_sizing',
+      {
+        mode: 'forward',
+        position_size: { mode: 'fixed_notional', notional: '0', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_sizing',
+      {
+        mode: 'forward',
+        position_size: { mode: 'fixed_quantity', notional: null, quantity: '-1' },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
+test('paper execution rejects replay simulations without a valid evaluation window', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_paper_bad_window'), 'workspace_a');
+  const positionSize = { mode: 'fixed_notional' as const, notional: '1000', quantity: null };
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_window',
+      { mode: 'replay', position_size: positionSize },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_window',
+      {
+        mode: 'replay',
+        starts_at: '2026-07-04T01:00:00.000Z',
+        ends_at: '2026-07-04T00:00:00.000Z',
+        position_size: positionSize,
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_window',
+      {
+        mode: 'replay',
+        starts_at: '2026-07-04T00:00:00.000Z',
+        ends_at: '2026-07-04T01:00:00.000Z',
+        setup_expiry_at: '2026-07-04T01:15:00.000Z',
+        position_size: positionSize,
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  assert.equal(journal.simulationRuns.size, 0);
+});
+
+test('paper execution rejects replay simulations when market data has no candles', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_paper_missing_ohlcv'), 'workspace_a');
+  paperExecution.setOhlcvForTest([]);
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_missing_ohlcv',
+      {
+        mode: 'replay',
+        starts_at: '2026-07-04T00:00:00.000Z',
+        ends_at: '2026-07-04T01:00:00.000Z',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+
+  assert.equal(journal.simulationRuns.size, 0);
+  assert.equal(journal.executionEvents.size, 0);
+  assert.equal(journal.simulationOutcomes.size, 0);
+});
+
+test('paper execution rejects sample kinds incompatible with simulation mode', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(tradePlaybookFixture('playbook_paper_bad_sample_kind'), 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+  ]);
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_sample_kind',
+      {
+        mode: 'forward',
+        sample_kind: 'in_sample_replay',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bad_sample_kind',
+      {
+        mode: 'replay',
+        sample_kind: 'forward_observation',
+        starts_at: '2026-07-04T00:00:00.000Z',
+        ends_at: '2026-07-04T01:00:00.000Z',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  assert.equal(journal.simulationRuns.size, 0);
+});
+
+test('paper execution rejects stale playbooks before creating simulations', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_stale');
+  playbook.status = 'stale';
+  playbook.stale_reasons = ['source_scenario_changed'];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_stale',
+      {
+        mode: 'replay',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
+test('paper execution rejects playbooks without numeric targets', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_text_target');
+  playbook.targets = [{ label: 'Target 1', level: null, rationale: 'Text-only target.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_text_target',
+      {
+        mode: 'replay',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+});
+
+test('paper execution keeps the frozen playbook snapshot after source playbook changes', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_frozen_snapshot');
+  playbook.entry = {
+    type: 'level',
+    condition: 'Long breakout above 620.',
+    level: 620,
+    zone_low: null,
+    zone_high: null,
+  };
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_frozen_snapshot',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const changedPlaybook = { ...playbook, entry: { ...record(playbook.entry), level: 999 } };
+  await journal.saveTradePlaybook(changedPlaybook, 'workspace_a');
+
+  const detail = await paperExecution.getSimulation(
+    simulation.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(detail.playbook_snapshot.entry.level, 620);
+  assert.equal(detail.source_drift_after_start, true);
+});
+
+test('paper execution freezes source thesis and scenario analysis snapshots', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const thesisId = 'thesis_paper_frozen_analysis';
+  const scenarioId = 'scenario_paper_frozen_analysis';
+  const thesis = {
+    id: thesisId,
+    workspace_id: 'workspace_a',
+    symbol: 'BTC/USDT',
+    market_type: 'spot',
+    thesis_text: 'Original thesis text.',
+  };
+  const scenario = scenarioLifecycleRecord({ scenarioId, thesisId });
+  scenario.condition = 'Original trigger condition.';
+  scenario.scenario_recommendation = {
+    ...record(scenario.scenario_recommendation),
+    summary: 'Original recommendation summary.',
+  };
+  scenario.decision_playbook = {
+    version: 'scenario_decision_playbook.v1',
+    entry_conditions: [
+      {
+        id: 'trigger',
+        role: 'trigger',
+        type: 'price_above',
+        level: 62000,
+      },
+    ],
+    invalidation_conditions: [],
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    scenario_recommendation: scenario.scenario_recommendation,
+    decision_playbook: scenario.decision_playbook,
+  };
+  journal.theses.set(key(thesisId, 'workspace_a'), thesis);
+  journal.scenarios.set(key(thesisId, 'workspace_a'), [scenario]);
+
+  const playbook = tradePlaybookFixture('playbook_paper_frozen_analysis');
+  playbook.source_scenario_id = scenarioId;
+  playbook.source_thesis_id = thesisId;
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_frozen_analysis',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  thesis.thesis_text = 'Changed thesis text after start.';
+  scenario.condition = 'Changed trigger condition after start.';
+  record(scenario.scenario_recommendation).summary = 'Changed recommendation.';
+  record(scenario.decision_playbook).mutated_after_start = true;
+
+  const detail = await paperExecution.getSimulation(
+    simulation.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(detail.analysis_snapshot.thesis.thesis_text, 'Original thesis text.');
+  assert.equal(
+    detail.analysis_snapshot.scenario.condition,
+    'Original trigger condition.',
+  );
+  assert.equal(
+    detail.analysis_snapshot.scenario_recommendation?.summary,
+    'Original recommendation summary.',
+  );
+  assert.equal(
+    detail.analysis_snapshot.decision_playbook?.mutated_after_start,
+    undefined,
+  );
+  assert.equal(
+    detail.analysis_snapshot.chart_source_versions?.source_scenario_id,
+    scenarioId,
+  );
+});
+
+test('paper execution next-open long breakout waits for the next candle without lookahead', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_long_next_open');
+  playbook.entry = {
+    type: 'level',
+    condition: 'Long breakout above 620.',
+    level: 620,
+    zone_low: null,
+    zone_high: null,
+  };
+  playbook.direction = 'long';
+  playbook.invalidation = { condition: 'Stop below 600.', level: 600 };
+  playbook.targets = [{ label: 'Target 1', level: 640, rationale: 'Breakout continuation.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+    candle('2026-07-04T00:15:00.000Z', 626, 632, 624, 630),
+    candle('2026-07-04T00:30:00.000Z', 630, 641, 628, 640),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_long_next_open',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:30:00.000Z',
+      fill_policy: 'next_open_after_trigger',
+      position_size: { mode: 'fixed_notional', notional: '1252', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders[0]?.filled_price, '626');
+  assert.equal(simulation.orders[0]?.filled_at_market_time, '2026-07-04T00:15:00.000Z');
+  assert.equal(simulation.position?.close_reason, 'target');
+  assert.equal(simulation.outcome?.execution_result, 'win');
+});
+
+test('paper execution next-open does not fill when replay lacks the next candle', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_next_open_no_lookahead');
+  playbook.entry = {
+    type: 'level',
+    condition: 'Long breakout above 620.',
+    level: 620,
+    zone_low: null,
+    zone_high: null,
+  };
+  playbook.direction = 'long';
+  playbook.invalidation = { condition: 'Stop below 600.', level: 600 };
+  playbook.targets = [{ label: 'Target 1', level: 640, rationale: 'Breakout continuation.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_next_open_no_lookahead',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:15:00.000Z',
+      fill_policy: 'next_open_after_trigger',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders.length, 0);
+  assert.equal(simulation.position, null);
+  assert.equal(simulation.outcome?.execution_result, 'inconclusive');
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('DATA_END_REACHED'), true);
+});
+
+test('paper execution forward refresh waits for entry instead of opening at current price', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_waits');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 566, 570, 562, 568),
+  ]);
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_waits',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const refreshed = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(refreshed.status, 'waiting_for_trigger');
+  assert.equal(refreshed.orders.length, 0);
+  assert.equal(refreshed.position, null);
+  assert.deepEqual(
+    refreshed.events.map((event) => event.event_type),
+    ['simulation_started', 'playbook_snapshot_frozen'],
+  );
+});
+
+test('paper execution replay writes sequenced ledger and derived projections', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_replay');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 566, 570, 562, 568),
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_replay',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+      fee_bps: '0',
+      slippage_bps: '0',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.status, 'completed');
+  assert.equal(simulation.orders.length, 2);
+  assert.equal(simulation.orders[0]?.status, 'filled');
+  assert.equal(simulation.orders[0]?.filled_price, '582');
+  assert.equal(simulation.position?.status, 'closed');
+  assert.equal(simulation.position?.close_reason, 'target');
+  assert.equal(simulation.outcome?.execution_result, 'win');
+  assert.equal(simulation.outcome?.research_evaluation_status, 'rule_based');
+  assert.equal(simulation.outcome?.thesis_outcome, 'supported');
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('THESIS_SUPPORTED'), true);
+  const replayDatasetHash = simulation.market_data_snapshot.dataset_hash;
+  assert.ok(replayDatasetHash);
+  assert.equal(replayDatasetHash.length, 64);
+  assert.equal(
+    simulation.sample_identity.market_data_hash,
+    replayDatasetHash,
+  );
+  assert.deepEqual(
+    simulation.events.map((event) => event.sequence),
+    simulation.events.map((_, index) => index + 1),
+  );
+  assert.equal(
+    new Set(simulation.events.map((event) => event.idempotency_key)).size,
+    simulation.events.length,
+  );
+  assert.equal(
+    simulation.events.some((event) => event.event_type === 'paper_order_filled'),
+    true,
+  );
+});
+
+test('paper execution includes replay candle identity in market-data hash', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_market_hash');
+  playbook.entry = {
+    type: 'level',
+    condition: 'Long breakout above 620.',
+    level: 620,
+    zone_low: null,
+    zone_high: null,
+  };
+  playbook.direction = 'long';
+  playbook.invalidation = { condition: 'Stop below 600.', level: 600 };
+  playbook.targets = [{ label: 'Target 1', level: 640, rationale: 'Breakout continuation.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+
+  const request = {
+    mode: 'replay' as const,
+    starts_at: '2026-07-04T00:00:00.000Z',
+    ends_at: '2026-07-04T00:30:00.000Z',
+    position_size: { mode: 'fixed_notional' as const, notional: '1000', quantity: null },
+  };
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+    candle('2026-07-04T00:15:00.000Z', 624, 641, 622, 640),
+  ]);
+  const first = await paperExecution.createSimulation(
+    'playbook_paper_market_hash',
+    request,
+    'user_1',
+    'workspace_a',
+  );
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+    candle('2026-07-04T00:15:00.000Z', 624, 642, 622, 641),
+  ]);
+  const second = await paperExecution.createSimulation(
+    'playbook_paper_market_hash',
+    request,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.notEqual(
+    first.market_data_snapshot.dataset_hash,
+    second.market_data_snapshot.dataset_hash,
+  );
+  assert.notEqual(
+    first.sample_identity.market_data_hash,
+    second.sample_identity.market_data_hash,
+  );
+});
+
+test('paper execution applies fee and slippage assumptions to fills and PnL', async () => {
+  const { paperExecution, journal } = buildHarness();
+  await journal.saveTradePlaybook(
+    tradePlaybookFixture('playbook_paper_fee_slippage'),
+    'workspace_a',
+  );
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 61950, 62100, 61900, 62050),
+    candle('2026-07-04T00:30:00.000Z', 62050, 63300, 62000, 63250),
+  ]);
+
+  const noCost = await paperExecution.createSimulation(
+    'playbook_paper_fee_slippage',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_quantity', notional: null, quantity: '1' },
+      fee_bps: '0',
+      slippage_bps: '0',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const withCost = await paperExecution.createSimulation(
+    'playbook_paper_fee_slippage',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_quantity', notional: null, quantity: '1' },
+      fee_bps: '100',
+      slippage_bps: '100',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(noCost.outcome?.execution_result, 'win');
+  assert.equal(noCost.position?.realized_pnl, '1200');
+  assert.equal(withCost.orders[0]?.requested_price, '62000');
+  assert.equal(withCost.orders[0]?.filled_price, '62620');
+  assert.equal(withCost.orders[0]?.fee, '626.2');
+  assert.equal(withCost.orders[1]?.requested_price, '63200');
+  assert.equal(withCost.orders[1]?.filled_price, '62568');
+  assert.equal(withCost.orders[1]?.fee, '625.68');
+  assert.equal(withCost.position?.realized_pnl, '-1303.88');
+  assert.equal(withCost.outcome?.execution_result, 'loss');
+
+  journal.paperOrders.clear();
+  journal.paperPositions.clear();
+  journal.simulationOutcomes.clear();
+  const rebuilt = await paperExecution.getSimulation(
+    withCost.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(rebuilt.orders[0]?.fee, withCost.orders[0]?.fee);
+  assert.equal(rebuilt.orders[1]?.filled_price, withCost.orders[1]?.filled_price);
+  assert.equal(rebuilt.position?.realized_pnl, withCost.position?.realized_pnl);
+  assert.equal(rebuilt.outcome?.execution_result, withCost.outcome?.execution_result);
+});
+
+test('paper execution rebuilds missing projections from the execution ledger', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_rebuild');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 566, 570, 562, 568),
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_rebuild',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  journal.paperOrders.clear();
+  journal.paperPositions.clear();
+  journal.simulationOutcomes.clear();
+
+  const rebuilt = await paperExecution.getSimulation(
+    simulation.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(rebuilt.orders.length, 2);
+  assert.equal(rebuilt.orders[0]?.intent, 'entry');
+  assert.equal(rebuilt.orders[1]?.intent, 'target');
+  assert.equal(rebuilt.position?.status, 'closed');
+  assert.equal(rebuilt.position?.close_reason, 'target');
+  assert.equal(rebuilt.outcome?.execution_result, 'win');
+  assert.equal(journal.paperOrders.size, 2);
+  assert.equal(journal.paperPositions.size, 1);
+  assert.equal(journal.simulationOutcomes.size, 1);
+});
+
+test('paper execution expires waiting setup before a late entry candle', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_setup_expiry');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 566, 570, 562, 568),
+    candle('2026-07-04T00:30:00.000Z', 575, 583, 574, 581),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_setup_expiry',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      setup_expiry_at: '2026-07-04T00:15:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.status, 'completed');
+  assert.equal(simulation.status_reason, 'setup_expiry');
+  assert.equal(simulation.orders.length, 0);
+  assert.equal(simulation.outcome?.execution_result, 'missed');
+  assert.equal(simulation.outcome?.close_reason, 'setup_expiry');
+});
+
+test('paper execution treats replay data end before entry as inconclusive', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_no_entry_data_end');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 566, 570, 562, 568),
+    candle('2026-07-04T00:15:00.000Z', 568, 572, 565, 570),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_no_entry_data_end',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:15:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.status, 'completed');
+  assert.equal(simulation.status_reason, 'data_end_reached');
+  assert.equal(simulation.outcome?.execution_result, 'inconclusive');
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('DATA_END_REACHED'), true);
+  assert.equal(simulation.outcome?.reliability_eligible, false);
+});
+
+test('paper execution closes open positions on configured position timeout', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_position_timeout');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 585, 575, 579),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_position_timeout',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:30:00.000Z',
+      position_max_duration_minutes: 15,
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.status, 'completed');
+  assert.equal(simulation.position?.close_reason, 'position_timeout');
+  assert.equal(
+    simulation.events.some((event) => event.event_type === 'position_timeout_hit'),
+    true,
+  );
+});
+
+test('paper execution marks same-candle stop and target as ambiguous when configured', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_ambiguous_intrabar');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 621, 548, 551),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_ambiguous_intrabar',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:30:00.000Z',
+      intrabar_policy: 'ambiguous_warning',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.outcome?.execution_result, 'inconclusive');
+  assert.equal(simulation.outcome?.research_evaluation_status, 'pending');
+  assert.equal(simulation.outcome?.thesis_outcome, null);
+  assert.equal(simulation.outcome?.reliability_eligible, false);
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('AMBIGUOUS_INTRABAR'), true);
+  assert.equal(
+    simulation.events.some((event) => event.reason_code === 'ambiguous_intrabar'),
+    true,
+  );
+});
+
+test('paper execution force-closes at data end without reliability eligibility', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_force_data_end');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 585, 575, 580),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_force_data_end',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:30:00.000Z',
+      force_close_at_data_end: true,
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.position?.status, 'closed');
+  assert.equal(simulation.position?.close_reason, 'data_end');
+  assert.equal(simulation.outcome?.execution_result, 'inconclusive');
+  assert.equal(simulation.outcome?.reliability_eligible, false);
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('DATA_END_REACHED'), true);
+  assert.equal(simulation.orders[1]?.intent, 'exit');
+});
+
+test('paper execution partially closes on target and rebuilds the remaining stop from ledger', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_partial_target');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+    candle('2026-07-04T00:45:00.000Z', 551, 621, 550, 618),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_partial_target',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+      partial_take_profit: [{ target_index: 0, close_percent: '0.5' }],
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders.length, 3);
+  assert.equal(simulation.orders[1]?.intent, 'target');
+  assert.equal(simulation.orders[1]?.quantity, '1');
+  assert.equal(simulation.orders[2]?.intent, 'stop');
+  assert.equal(simulation.orders[2]?.quantity, '1');
+  assert.equal(simulation.position?.status, 'closed');
+  assert.equal(simulation.position?.close_reason, 'stop');
+  assert.equal(simulation.position?.realized_pnl, '-6');
+  assert.equal(simulation.outcome?.execution_result, 'loss');
+  assert.equal(simulation.outcome?.research_evaluation_status, 'rule_based');
+  assert.equal(simulation.outcome?.thesis_outcome, 'challenged');
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('THESIS_CHALLENGED'), true);
+  assert.equal(simulation.outcome?.diagnosis_codes.includes('THESIS_INVALIDATED'), false);
+  assert.equal(simulation.outcome?.max_favorable_excursion, '0.058419244');
+  assert.equal(simulation.outcome?.max_adverse_excursion, '0.0670103093');
+  assert.equal(
+    simulation.events.some((event) => event.event_type === 'position_partially_closed'),
+    true,
+  );
+
+  journal.paperOrders.clear();
+  journal.paperPositions.clear();
+  journal.simulationOutcomes.clear();
+  const rebuilt = await paperExecution.getSimulation(
+    simulation.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(rebuilt.orders.length, 3);
+  assert.equal(rebuilt.position?.status, 'closed');
+  assert.equal(rebuilt.position?.close_reason, 'stop');
+  assert.equal(rebuilt.position?.realized_pnl, '-6');
+  assert.equal(rebuilt.outcome?.execution_result, 'loss');
+  assert.equal(
+    rebuilt.outcome?.research_evaluation_status,
+    simulation.outcome?.research_evaluation_status,
+  );
+  assert.equal(rebuilt.outcome?.thesis_outcome, simulation.outcome?.thesis_outcome);
+  assert.equal(
+    rebuilt.outcome?.max_favorable_excursion,
+    simulation.outcome?.max_favorable_excursion,
+  );
+  assert.equal(
+    rebuilt.outcome?.max_adverse_excursion,
+    simulation.outcome?.max_adverse_excursion,
+  );
+});
+
+test('paper execution source integrity failure makes deterministic outcomes reliability-ineligible', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_source_integrity_failed');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_source_integrity_failed',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const stored = journal.simulationRuns.get(key(created.id, 'workspace_a'));
+  assert.ok(stored);
+  journal.simulationRuns.set(key(created.id, 'workspace_a'), {
+    ...stored,
+    source_integrity_status: 'failed',
+  });
+
+  const refreshed = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(refreshed.outcome?.execution_result, 'win');
+  assert.equal(refreshed.outcome?.reliability_eligible, false);
+  assert.equal(refreshed.outcome?.execution_quality, 'invalid_experiment');
+  assert.equal(
+    refreshed.outcome?.diagnosis_codes.includes('SOURCE_INTEGRITY_FAILED'),
+    true,
+  );
+});
+
+test('paper execution fills skipped entry with first tradable gap policy', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_gap_first_tradable');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 590, 596, 585, 588),
+    candle('2026-07-04T00:30:00.000Z', 588, 589, 548, 551),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_gap_first_tradable',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      gap_fill_policy: 'first_tradable_price',
+      position_size: { mode: 'fixed_notional', notional: '1180', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders[0]?.filled_price, '590');
+  assert.equal(simulation.orders[0]?.reason_code, 'gap_first_tradable_price');
+  assert.equal(simulation.position?.close_reason, 'target');
+  assert.equal(simulation.outcome?.execution_result, 'win');
+});
+
+test('paper execution rejects skipped entry when gap policy requires a real touch', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_gap_reject');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 590, 596, 585, 588),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_gap_reject',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:15:00.000Z',
+      gap_fill_policy: 'reject_if_skipped',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders.length, 0);
+  assert.equal(simulation.position, null);
+  assert.equal(simulation.outcome?.execution_result, 'inconclusive');
+  assert.equal(
+    simulation.events.some((event) => event.event_type === 'entry_condition_confirmed'),
+    false,
+  );
+});
+
+test('paper execution serializes concurrent refresh transitions', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_concurrent_refresh');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_concurrent_refresh',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const lockCallsBeforeRefresh = journal.simulationRunLockCalls
+    .filter((item) => item === key(created.id, 'workspace_a')).length;
+  await Promise.all([
+    paperExecution.refreshSimulation(created.id, 'user_1', 'workspace_a'),
+    paperExecution.refreshSimulation(created.id, 'user_1', 'workspace_a'),
+  ]);
+  assert.equal(
+    journal.simulationRunLockCalls.filter((item) => item === key(created.id, 'workspace_a')).length -
+      lockCallsBeforeRefresh,
+    2,
+  );
+  const detail = await paperExecution.getSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(detail.status, 'completed');
+  assert.equal(detail.orders.length, 2);
+  assert.deepEqual(
+    detail.events.map((event) => event.sequence),
+    detail.events.map((_, index) => index + 1),
+  );
+  assert.equal(
+    new Set(detail.events.map((event) => event.sequence)).size,
+    detail.events.length,
+  );
+});
+
+test('paper execution refresh skips candles already processed before an open position', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_open_watermark');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 548, 581),
+  ]);
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_open_watermark',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const open = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+  const repeated = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(open.status, 'position_open');
+  assert.equal(repeated.status, 'position_open');
+  assert.equal(repeated.position?.status, 'open');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 548, 581),
+    candle('2026-07-04T00:30:00.000Z', 581, 582, 548, 551),
+  ]);
+  const closed = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(closed.status, 'completed');
+  assert.equal(closed.position?.close_reason, 'target');
+  assert.equal(closed.last_processed_candle_id, '2026-07-04T00:30:00.000Z');
+});
+
+test('paper execution records engine failure without synthetic position close', async () => {
+  const { journal, auth, workspaces } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_engine_failure');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  let throwOnOhlcv = false;
+  const ohlcv = {
+    getOhlcv: async (): Promise<MarketOhlcvResponse> => {
+      if (throwOnOhlcv) {
+        throw new Error('ohlcv backend failed');
+      }
+      return {
+        symbol: String(playbook.symbol),
+        market_type: playbook.market_type === 'perp' ? 'perp' : 'spot',
+        interval: '15m',
+        from: '2026-07-04T00:00:00.000Z',
+        to: '2026-07-04T00:15:00.000Z',
+        source: 'test',
+        provider: 'test',
+        generated_at: '2026-07-04T00:15:00.000Z',
+        candles: [candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581)],
+        warning: null,
+      };
+    },
+  } as unknown as MarketOhlcvService;
+  const paperExecution = new PaperExecutionService(
+    journal,
+    auth,
+    workspaces,
+    ohlcv,
+  );
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_engine_failure',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const open = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+  throwOnOhlcv = true;
+  const failed = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(open.status, 'position_open');
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.status_reason, 'engine_failure');
+  assert.equal(failed.position?.status, 'open');
+  assert.equal(failed.outcome?.execution_result, 'inconclusive');
+  assert.equal(failed.outcome?.reliability_eligible, false);
+  assert.equal(failed.outcome?.diagnosis_codes.includes('ENGINE_FAILURE'), true);
+  assert.equal(
+    failed.events.some((event) => event.event_type === 'simulation_failed'),
+    true,
+  );
+  assert.equal(
+    failed.events.some((event) => event.event_type === 'position_closed'),
+    false,
+  );
+});
+
+test('paper execution requires explicit close policy for open positions', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_manual_close');
+  playbook.entry = {
+    type: 'zone',
+    condition: 'Short retest 578-582.',
+    level: null,
+    zone_low: 578,
+    zone_high: 582,
+  };
+  playbook.direction = 'short';
+  playbook.invalidation = { condition: 'Stop above 620.', level: 620 };
+  playbook.targets = [{ label: 'Target 1', level: 550, rationale: 'Mean reversion.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 575, 583, 574, 581),
+  ]);
+
+  const created = await paperExecution.createSimulation(
+    'playbook_paper_manual_close',
+    {
+      mode: 'forward',
+      position_size: { mode: 'fixed_notional', notional: '1164', quantity: null },
+      fee_bps: '0',
+      slippage_bps: '0',
+    },
+    'user_1',
+    'workspace_a',
+  );
+  const open = await paperExecution.refreshSimulation(
+    created.id,
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(open.status, 'position_open');
+  assert.equal(open.position?.status, 'open');
+  await assert.rejects(
+    () => paperExecution.cancelSimulation(open.id, 'user_1', 'workspace_a'),
+    BadRequestException,
+  );
+
+  const closed = await paperExecution.closeSimulation(
+    open.id,
+    {
+      close_policy: 'manual_close',
+      price: '570',
+      market_time: '2026-07-04T00:30:00.000Z',
+      reason: 'manual QA close',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(closed.status, 'completed');
+  assert.equal(closed.status_reason, 'manual_close');
+  assert.equal(closed.position?.status, 'closed');
+  assert.equal(closed.position?.close_reason, 'manual_close');
+  assert.equal(closed.orders[1]?.intent, 'exit');
+  assert.equal(closed.orders[1]?.order_type, 'market');
+  assert.equal(closed.outcome?.close_reason, 'manual_close');
+  assert.equal(closed.outcome?.reliability_eligible, false);
+  assert.equal(
+    closed.events.some((event) => event.reason_code === 'manual_close'),
+    true,
+  );
 });
 
 test('backtest reruns create distinct trade event ids', async () => {
@@ -17325,6 +18968,7 @@ function buildHarness() {
   const researchRuns = new ResearchRunsService(journal, jobs, auth, workspaces);
   const scenarioOhlcv = new MarketOhlcvService();
   const backtestOhlcv = new MarketOhlcvService();
+  const paperExecutionOhlcv = new MarketOhlcvService();
   const researchContinuity = new ResearchContinuityService(
     journal,
     audit,
@@ -17423,6 +19067,12 @@ function buildHarness() {
       scenarioReliability,
     ),
     backtests: new BacktestService(journal, auth, workspaces, backtestOhlcv),
+    paperExecution: new PaperExecutionService(
+      journal,
+      auth,
+      workspaces,
+      paperExecutionOhlcv,
+    ),
     scenarioDecisionWorkbench: new ScenarioDecisionWorkbenchService(
       journal,
       auth,

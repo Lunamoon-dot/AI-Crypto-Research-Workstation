@@ -635,6 +635,203 @@ export interface BacktestTradeEventResponse {
   details: JsonRecord;
 }
 
+export type DecimalString = string;
+
+export interface CreateSimulationRequest {
+  mode?: 'replay' | 'forward';
+  sample_kind?:
+    | 'forward_observation'
+    | 'out_of_sample_replay'
+    | 'in_sample_replay'
+    | 'manual_experiment';
+  fill_policy?: 'touch' | 'next_open_after_trigger';
+  gap_fill_policy?:
+    | 'requested_price'
+    | 'first_tradable_price'
+    | 'reject_if_skipped';
+  intrabar_policy?: 'stop_first' | 'target_first' | 'ambiguous_warning';
+  fee_bps?: DecimalString;
+  slippage_bps?: DecimalString;
+  position_size?: JsonRecord;
+  partial_take_profit?: Array<{
+    target_index: number;
+    close_percent: DecimalString;
+  }>;
+  timeframe?: string;
+  starts_at?: string;
+  ends_at?: string | null;
+  setup_expiry_at?: string | null;
+  position_max_duration_minutes?: number | null;
+  force_close_at_data_end?: boolean;
+}
+
+export interface CloseSimulationRequest {
+  close_policy: 'manual_close' | 'abandon_inconclusive';
+  price?: DecimalString;
+  market_time?: string;
+  reason?: string;
+}
+
+export interface SimulationRunResponse {
+  version: 'simulation_run.v1';
+  id: string;
+  workspace_id: string;
+  source_scenario_id: string;
+  source_thesis_id: string;
+  source_playbook_id: string;
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  mode: 'replay' | 'forward';
+  sample_kind:
+    | 'forward_observation'
+    | 'out_of_sample_replay'
+    | 'in_sample_replay'
+    | 'manual_experiment';
+  status:
+    | 'created'
+    | 'waiting_for_trigger'
+    | 'entry_triggered'
+    | 'order_pending'
+    | 'position_open'
+    | 'completed'
+    | 'cancelled'
+    | 'failed';
+  status_reason: string | null;
+  aggregate_version: number;
+  started_at: string;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  failure_reason: string | null;
+  market_time: string | null;
+  last_processed_candle_id: string | null;
+  assumptions_hash: string;
+  setup_expiry_at: string | null;
+  position_max_duration_minutes: number | null;
+  evaluation_window: JsonRecord;
+  playbook_snapshot: TradePlaybookResponse;
+  analysis_snapshot: JsonRecord;
+  assumptions: JsonRecord;
+  market_data_snapshot: JsonRecord;
+  sample_identity: JsonRecord;
+  source_integrity_status: 'verified' | 'failed' | 'unknown';
+  source_drift_after_start: boolean;
+  source_hashes: JsonRecord;
+}
+
+export interface PaperOrderResponse {
+  version: 'paper_order.v1';
+  id: string;
+  workspace_id: string;
+  simulation_run_id: string;
+  source_playbook_id: string;
+  side: 'buy' | 'sell';
+  intent: 'entry' | 'exit' | 'stop' | 'target' | 'reduce';
+  status:
+    | 'created'
+    | 'partially_filled'
+    | 'filled'
+    | 'cancelled'
+    | 'rejected'
+    | 'expired';
+  order_type: 'market' | 'limit' | 'stop';
+  trigger_condition: JsonRecord;
+  requested_price: DecimalString | null;
+  filled_price: DecimalString | null;
+  quantity: DecimalString;
+  fee: DecimalString;
+  created_at_market_time: string | null;
+  filled_at_market_time: string | null;
+  cancelled_at_market_time: string | null;
+  reason_code: string;
+}
+
+export interface PaperPositionResponse {
+  version: 'paper_position.v1';
+  id: string;
+  workspace_id: string;
+  simulation_run_id: string;
+  source_playbook_id: string;
+  symbol: string;
+  market_type: 'spot' | 'perp';
+  direction: 'long' | 'short';
+  status: 'open' | 'partially_closed' | 'closed';
+  quantity_opened: DecimalString;
+  quantity_remaining: DecimalString;
+  average_entry_price: DecimalString | null;
+  realized_pnl: DecimalString | null;
+  unrealized_pnl: DecimalString | null;
+  realized_pnl_pct: DecimalString | null;
+  unrealized_pnl_pct: DecimalString | null;
+  opened_at_market_time: string | null;
+  closed_at_market_time: string | null;
+  close_reason:
+    | 'target'
+    | 'stop'
+    | 'position_timeout'
+    | 'thesis_invalidation'
+    | 'manual_close'
+    | 'data_end'
+    | null;
+}
+
+export interface ExecutionEventResponse {
+  version: 'execution_event.v1';
+  id: string;
+  workspace_id: string;
+  simulation_run_id: string;
+  source_playbook_id: string;
+  source_scenario_id: string;
+  event_type: string;
+  sequence: number;
+  aggregate_version: number;
+  correlation_id: string;
+  causation_event_id: string | null;
+  idempotency_key: string;
+  order_id: string | null;
+  position_id: string | null;
+  target_index: number | null;
+  occurrence_index: number;
+  market_time: string | null;
+  recorded_at: string;
+  price: DecimalString | null;
+  quantity: DecimalString | null;
+  reason_code: string;
+  source_candle_id: string | null;
+  payload: JsonRecord;
+}
+
+export interface SimulationOutcomeResponse {
+  version: 'simulation_outcome.v1';
+  id: string;
+  workspace_id: string;
+  simulation_run_id: string;
+  source_scenario_id: string;
+  source_playbook_id: string;
+  sample_kind: string;
+  sample_identity: JsonRecord;
+  execution_result: 'win' | 'loss' | 'breakeven' | 'missed' | 'inconclusive';
+  research_evaluation_status: 'pending' | 'rule_based' | 'llm_assisted';
+  thesis_outcome: string | null;
+  execution_quality: string;
+  close_reason: string | null;
+  realized_pnl: DecimalString | null;
+  realized_pnl_pct: DecimalString | null;
+  max_favorable_excursion: DecimalString | null;
+  max_adverse_excursion: DecimalString | null;
+  reliability_eligible: boolean;
+  diagnosis_codes: string[];
+  diagnosis_summary: string;
+  warnings: string[];
+  evaluated_at: string;
+}
+
+export interface SimulationDetailResponse extends SimulationRunResponse {
+  orders: PaperOrderResponse[];
+  position: PaperPositionResponse | null;
+  outcome: SimulationOutcomeResponse | null;
+  events: ExecutionEventResponse[];
+}
+
 export type ScenarioDecisionQueueItemType =
   | 'active_scenario'
   | 'evaluation_due'

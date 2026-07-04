@@ -625,6 +625,102 @@ CREATE TABLE IF NOT EXISTS backtest_trade_events (
 CREATE INDEX IF NOT EXISTS idx_backtest_trade_events_run
 ON backtest_trade_events(workspace_id, backtest_run_id, event_index ASC);
 
+CREATE TABLE IF NOT EXISTS simulation_runs (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    source_playbook_id TEXT NOT NULL,
+    source_scenario_id TEXT NOT NULL,
+    source_thesis_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    market_type TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    assumptions_hash TEXT NOT NULL,
+    aggregate_version INTEGER NOT NULL DEFAULT 0,
+    market_time TIMESTAMPTZ,
+    last_processed_candle_id TEXT,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulation_runs_playbook
+ON simulation_runs(workspace_id, source_playbook_id, started_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_simulation_runs_active_forward
+ON simulation_runs(workspace_id, source_playbook_id, assumptions_hash)
+WHERE mode = 'forward'
+  AND status IN ('created', 'waiting_for_trigger', 'entry_triggered', 'order_pending', 'position_open');
+
+CREATE TABLE IF NOT EXISTS paper_orders (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    simulation_run_id TEXT NOT NULL,
+    source_playbook_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    side TEXT NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_orders_run
+ON paper_orders(workspace_id, simulation_run_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    simulation_run_id TEXT NOT NULL,
+    source_playbook_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_positions_run
+ON paper_positions(workspace_id, simulation_run_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS execution_events (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    simulation_run_id TEXT NOT NULL,
+    source_playbook_id TEXT NOT NULL,
+    source_scenario_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    aggregate_version INTEGER NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    market_time TIMESTAMPTZ,
+    source_candle_id TEXT,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(simulation_run_id, sequence),
+    UNIQUE(simulation_run_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_events_run
+ON execution_events(workspace_id, simulation_run_id, sequence ASC);
+
+CREATE TABLE IF NOT EXISTS simulation_outcomes (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    simulation_run_id TEXT NOT NULL UNIQUE,
+    source_playbook_id TEXT NOT NULL,
+    execution_result TEXT NOT NULL,
+    reliability_eligible BOOLEAN NOT NULL DEFAULT false,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulation_outcomes_playbook
+ON simulation_outcomes(workspace_id, source_playbook_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS scenario_decision_item_states (
     id TEXT NOT NULL,
     workspace_id TEXT NOT NULL,

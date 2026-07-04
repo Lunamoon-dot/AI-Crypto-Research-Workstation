@@ -9,6 +9,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { JournalModule } from './journal/journal.module';
 import { MarketDataModule } from './market-data/market-data.module';
 import { OperationsModule } from './operations/operations.module';
+import { PaperExecutionModule } from './paper-execution/paper-execution.module';
 import { PerformanceModule } from './performance/performance.module';
 import { PlaybooksModule } from './playbooks/playbooks.module';
 import { ResearchChatModule } from './research-chat/research-chat.module';
@@ -43,6 +44,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     ScenariosModule,
     PlaybooksModule,
     BacktestsModule,
+    PaperExecutionModule,
     ScenarioDecisionModule,
     OperationsModule,
     WorkbenchModule,

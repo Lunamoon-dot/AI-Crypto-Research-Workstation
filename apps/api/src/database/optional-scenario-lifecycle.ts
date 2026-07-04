@@ -7,6 +7,10 @@ const OPTIONAL_SCENARIO_LIFECYCLE_IDENTIFIERS = [
   'backtestrun',
   'backtest_trade_events',
   'backtesttradeevent',
+  'simulation_runs',
+  'simulationrun',
+  'simulation_outcomes',
+  'simulationoutcome',
   'scenario_decision_item_states',
   'scenariodecisionitemstate',
 ];

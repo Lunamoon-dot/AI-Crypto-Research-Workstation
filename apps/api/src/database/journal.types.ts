@@ -403,6 +403,49 @@ export interface JournalRepository {
     runId: string,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
+  saveSimulationRun(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  withSimulationRunLock?<T>(
+    simulationRunId: string,
+    workspaceId: string,
+    action: () => Promise<T>,
+  ): Promise<T>;
+  getSimulationRun(
+    id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  listSimulationRunsForPlaybook(
+    playbookId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listSimulationRuns(limit: number, workspaceId: string): Promise<JsonRecord[]>;
+  savePaperOrder(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  listPaperOrdersForSimulation(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  savePaperPosition(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  getPaperPositionForSimulation(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  appendExecutionEvents(
+    simulationRunId: string,
+    events: JsonRecord[],
+    workspaceId: string,
+  ): Promise<void>;
+  listExecutionEvents(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  saveSimulationOutcome(input: JsonRecord, workspaceId: string): Promise<JsonRecord>;
+  getSimulationOutcome(
+    simulationRunId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  listSimulationOutcomesForReliability(
+    filters: ScenarioReliabilityEvaluationFilters,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
   saveScenarioDecisionItemState(
     input: JsonRecord,
     workspaceId: string,

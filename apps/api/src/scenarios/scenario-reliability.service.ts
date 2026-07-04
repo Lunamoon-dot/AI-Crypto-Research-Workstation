@@ -44,19 +44,34 @@ export class ScenarioReliabilityService {
     filters: ReliabilityFilters,
     workspaceId: string,
   ): Promise<ScenarioReliabilityProfileResponse[]> {
-    const rows = await optionalScenarioLifecycleRows(() =>
-      this.journal.listScenarioEvaluationsForReliability(
-        {
-          symbol: filters.symbol,
-          market_type: filters.market_type,
-          horizon: filters.horizon,
-          limit: filters.limit,
-        },
-        workspaceId,
+    const [evaluationRows, simulationRows] = await Promise.all([
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listScenarioEvaluationsForReliability(
+          {
+            symbol: filters.symbol,
+            market_type: filters.market_type,
+            horizon: filters.horizon,
+            limit: filters.limit,
+          },
+          workspaceId,
+        ),
       ),
-    );
+      optionalScenarioLifecycleRows(() =>
+        this.journal.listSimulationOutcomesForReliability(
+          {
+            symbol: filters.symbol,
+            market_type: filters.market_type,
+            horizon: filters.horizon,
+            limit: filters.limit,
+          },
+          workspaceId,
+        ),
+      ),
+    ]);
+    const rows = latestReliabilitySamples([...evaluationRows, ...simulationRows])
+      .slice(0, filters.limit);
     const groups = new Map<string, JsonRecord[]>();
-    for (const row of latestEvaluationPerScenarioWindow(rows)) {
+    for (const row of rows) {
       const key = [
         row.symbol ?? '',
         filters.market_type === 'mixed' ? 'mixed' : row.market_type ?? 'spot',
@@ -175,10 +190,12 @@ function countResult(rows: JsonRecord[], result: string): number {
   return rows.filter((row) => row.result === result).length;
 }
 
-function latestEvaluationPerScenarioWindow(rows: JsonRecord[]): JsonRecord[] {
+function latestReliabilitySamples(rows: JsonRecord[]): JsonRecord[] {
   const byWindow = new Map<string, JsonRecord>();
   for (const row of [...rows].sort(compareEvaluatedAtDesc)) {
-    const key = scenarioEvaluationWindowKey(row);
+    const key = row.source_kind === 'simulation_outcome'
+      ? simulationOutcomeSampleKey(row)
+      : scenarioEvaluationWindowKey(row);
     if (!byWindow.has(key)) {
       byWindow.set(key, row);
     }
@@ -193,6 +210,19 @@ function scenarioEvaluationWindowKey(row: JsonRecord): string {
     row.horizon ?? 'unknown',
     window.starts_at ?? '',
     window.ends_at ?? '',
+  ].map((value) => String(value ?? '')).join('|');
+}
+
+function simulationOutcomeSampleKey(row: JsonRecord): string {
+  const identity = recordValue(row.sample_identity);
+  return [
+    'simulation_outcome',
+    row.sample_kind ?? '',
+    identity.scenario_hash ?? '',
+    identity.playbook_hash ?? '',
+    identity.market_data_hash ?? '',
+    identity.evaluation_window_hash ?? '',
+    identity.assumptions_hash ?? '',
   ].map((value) => String(value ?? '')).join('|');
 }
 

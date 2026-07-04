@@ -104,6 +104,17 @@ export const queryKeys = {
     ['scenario-chart-summaries', queryIdentity(), [...ids].sort()] as const,
   scenarioDecisionWorkbench: () =>
     scopedResource('scenario-decision-workbench'),
+  playbookSimulations: (playbookId: string) =>
+    ['playbook-simulations', queryIdentity(), playbookId] as const,
+  simulation: (id: string) => ['simulation', queryIdentity(), id] as const,
+  simulationEvents: (id: string) =>
+    ['simulation-events', queryIdentity(), id] as const,
+  simulationOrders: (id: string) =>
+    ['simulation-orders', queryIdentity(), id] as const,
+  simulationPosition: (id: string) =>
+    ['simulation-position', queryIdentity(), id] as const,
+  simulationOutcome: (id: string) =>
+    ['simulation-outcome', queryIdentity(), id] as const,
   signalsRoot: () => scopedResource('signals'),
   signals: (filters: Record<string, unknown>) =>
     scopedFilters('signals', filters),

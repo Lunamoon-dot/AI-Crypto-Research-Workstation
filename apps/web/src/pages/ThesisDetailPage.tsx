@@ -8,7 +8,9 @@ import {
   ListChecks,
   Play,
   RefreshCw,
+  Square,
   Target,
+  XCircle,
 } from 'lucide-react';
 import { ScenarioChart } from '@/components/scenarios/ScenarioChart';
 import { getResearchRunEvidenceBundle } from '@/services/research-runs';
@@ -17,10 +19,24 @@ import {
   refreshScenarioLiveState,
 } from '@/services/scenario-chart';
 import {
+  activeForwardRun,
+  latestCompletedForwardRun,
+  latestReplayRun,
+  replayHistoryRuns,
+} from '@/components/scenarios/paper-simulation-read-model';
+import {
   compileScenarioDecisionPlaybook,
   createScenarioDecisionBacktest,
   evaluateScenarioDecisionItem,
 } from '@/services/scenario-decision';
+import {
+  cancelSimulation,
+  closeSimulation,
+  createPlaybookSimulation,
+  getSimulation,
+  listPlaybookSimulations,
+  refreshSimulation,
+} from '@/services/paper-execution';
 import {
   getThesis,
   getThesisScenarios,
@@ -55,12 +71,16 @@ import {
 import { scenarioDetailViewModel, scenarioHorizon } from './scenario-view-model';
 import type {
   BacktestRunResponse,
+  ExecutionEventResponse,
   JsonRecord,
+  PaperPositionResponse,
   PlaybookCompileReportResponse,
   ScenarioEvaluationResponse,
   ScenarioHorizon,
   ScenarioLiveStateResponse,
   ScenarioResponse,
+  SimulationDetailResponse,
+  SimulationRunResponse,
   ThesisResponse,
 } from '@/types';
 
@@ -85,6 +105,13 @@ type PendingScenarioAction = {
   action: ScenarioLifecycleAction;
   key: string;
 };
+type PaperSimulationAction =
+  | 'start-forward'
+  | 'run-replay'
+  | 'refresh'
+  | 'cancel'
+  | 'close-manual'
+  | 'abandon-inconclusive';
 const SCENARIO_HORIZON_FILTER_ORDER: ScenarioHorizon[] = [
   'short_term',
   'mid_term',
@@ -1014,6 +1041,7 @@ function ScenarioRadarCard({
   const queryClient = useQueryClient();
   const vm = scenarioDetailViewModel(scenario, index);
   const scenarioId = persistedScenarioId(scenario);
+  const playbookId = scenario.latest_playbook?.id ?? null;
   const chartQuery = useQuery({
     enabled: Boolean(scenarioId && isExpandedScenario),
     queryKey: queryKeys.scenarioChart(scenarioId ?? 'derived-scenario', '15m'),
@@ -1022,6 +1050,79 @@ function ScenarioRadarCard({
       vm.triggerStatus === 'triggered' || vm.triggerStatus === 'near_trigger'
         ? 30_000
         : false,
+  });
+  const simulationsQuery = useQuery({
+    enabled: Boolean(playbookId && isExpandedScenario),
+    queryKey: queryKeys.playbookSimulations(playbookId ?? 'missing-playbook'),
+    queryFn: () => listPlaybookSimulations(playbookId ?? '', auth),
+  });
+  const simulationRuns = simulationsQuery.data ?? [];
+  const replaySimulationRuns = replayHistoryRuns(simulationRuns);
+  const activeForwardSimulation = activeForwardRun(simulationRuns);
+  const highlightedSimulationRun =
+    activeForwardSimulation ??
+    latestCompletedForwardRun(simulationRuns) ??
+    latestReplayRun(simulationRuns) ??
+    null;
+  const simulationDetailQuery = useQuery({
+    enabled: Boolean(highlightedSimulationRun?.id && isExpandedScenario),
+    queryKey: queryKeys.simulation(highlightedSimulationRun?.id ?? 'missing-simulation'),
+    queryFn: () => getSimulation(highlightedSimulationRun?.id ?? '', auth),
+    refetchInterval: activeForwardSimulation ? 30_000 : false,
+  });
+  const simulationMutation = useMutation({
+    mutationFn: async (action: PaperSimulationAction) => {
+      if (!playbookId) {
+        throw new Error('Compile a playbook before starting a paper simulation.');
+      }
+      if (action === 'start-forward') {
+        return createPlaybookSimulation(playbookId, defaultForwardSimulationRequest(), auth);
+      }
+      if (action === 'run-replay') {
+        return createPlaybookSimulation(playbookId, defaultReplaySimulationRequest(), auth);
+      }
+      const simulationId = simulationDetailQuery.data?.id ?? highlightedSimulationRun?.id;
+      if (!simulationId) {
+        throw new Error('Select an existing simulation first.');
+      }
+      if (action === 'refresh') {
+        return refreshSimulation(simulationId, auth);
+      }
+      if (action === 'cancel') {
+        return cancelSimulation(simulationId, auth);
+      }
+      if (action === 'abandon-inconclusive') {
+        return closeSimulation(
+          simulationId,
+          {
+            close_policy: 'abandon_inconclusive',
+            reason: 'Operator abandoned paper position as inconclusive.',
+          },
+          auth,
+        );
+      }
+      return closeSimulation(
+        simulationId,
+        {
+          close_policy: 'manual_close',
+          reason: 'Operator requested paper position close.',
+        },
+        auth,
+      );
+    },
+    onSuccess: (result) => {
+      if (playbookId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.playbookSimulations(playbookId),
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.simulation(result.id) });
+      if (scenarioId) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.scenarioChart(scenarioId, '15m'),
+        });
+      }
+    },
   });
   const refreshStateMutation = useMutation({
     mutationFn: () => {
@@ -1208,10 +1309,24 @@ function ScenarioRadarCard({
             </button>
           </div>
           {isExpandedScenario ? (
-            <ScenarioChart
-              isLoading={chartQuery.isLoading}
-              projection={chartProjection}
-            />
+            <>
+              <PaperSimulationPanel
+                activeForwardRun={activeForwardSimulation}
+                blocker={simulationBlockerForPlaybook(scenario.latest_playbook)}
+                detail={simulationDetailQuery.data ?? null}
+                isLoading={simulationsQuery.isLoading || simulationDetailQuery.isLoading}
+                latestRun={highlightedSimulationRun}
+                onAction={(action) => simulationMutation.mutate(action)}
+                pendingAction={simulationMutation.isPending ? simulationMutation.variables ?? null : null}
+                replayRuns={replaySimulationRuns}
+                error={simulationMutation.isError ? errorMessage(simulationMutation.error) : null}
+              />
+              <ScenarioChart
+                isLoading={chartQuery.isLoading}
+                projection={chartProjection}
+                simulation={simulationDetailQuery.data ?? null}
+              />
+            </>
           ) : null}
           {chartBlockers.length > 0 ? (
             <ul className="scenario-watch-list">
@@ -1284,6 +1399,187 @@ function ScenarioRadarCard({
 function ScenarioMeta({ label, value }: { label: string; value: string }) {
   return (
     <div className="scenario-meta-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PaperSimulationPanel({
+  activeForwardRun,
+  blocker,
+  detail,
+  error,
+  isLoading,
+  latestRun,
+  onAction,
+  pendingAction,
+  replayRuns,
+}: {
+  activeForwardRun: SimulationRunResponse | null;
+  blocker: string | null;
+  detail: SimulationDetailResponse | null;
+  error: string | null;
+  isLoading: boolean;
+  latestRun: SimulationRunResponse | null;
+  onAction: (action: PaperSimulationAction) => void;
+  pendingAction: PaperSimulationAction | null;
+  replayRuns: SimulationRunResponse[];
+}) {
+  const playbook = detail?.playbook_snapshot ?? null;
+  const position = detail?.position ?? null;
+  const outcome = detail?.outcome ?? null;
+  const openPosition = position?.status === 'open' || position?.status === 'partially_closed';
+  const activeForward = Boolean(activeForwardRun);
+  const status = paperSimulationStatus(detail, latestRun, blocker);
+  return (
+    <div className="paper-simulation-panel">
+      <div className="paper-simulation-header">
+        <div>
+          <span className="badge primary">Opportunity</span>
+          <strong>{paperSimulationTitle(playbook, latestRun)}</strong>
+          <p>{status}</p>
+        </div>
+        <div className="paper-simulation-status">
+          {detail ? <span className="badge">{titleCaseValue(detail.mode)}</span> : null}
+          {detail ? <span className="badge">{titleCaseValue(detail.status)}</span> : null}
+          {detail?.source_drift_after_start ? (
+            <span className="badge warning">Source changed after start</span>
+          ) : null}
+          {replayRuns.length > 0 ? <span className="badge">{replayRuns.length} replay runs</span> : null}
+        </div>
+      </div>
+
+      {playbook ? (
+        <div className="paper-simulation-grid">
+          <PaperSimulationFact label="Entry" value={paperEntryLabel(playbook)} />
+          <PaperSimulationFact label="Invalidation" value={paperInvalidationLabel(playbook)} />
+          <PaperSimulationFact label="Targets" value={paperTargetsLabel(playbook)} />
+          <PaperSimulationFact label="Expires" value={paperExpiryLabel(detail ?? latestRun)} />
+          <PaperSimulationFact label="Position" value={paperPositionLabel(position)} />
+          <PaperSimulationFact label="Realized / Unrealized" value={paperPositionPnlLabel(position, outcome)} />
+        </div>
+      ) : latestRun ? (
+        <div className="paper-simulation-grid">
+          <PaperSimulationFact label="Mode" value={titleCaseValue(latestRun.mode)} />
+          <PaperSimulationFact label="Status" value={titleCaseValue(latestRun.status)} />
+          <PaperSimulationFact label="Started" value={formatScenarioDate(latestRun.started_at)} />
+          <PaperSimulationFact label="Expires" value={paperExpiryLabel(latestRun)} />
+          <PaperSimulationFact label="Sample" value={titleCaseValue(latestRun.sample_kind)} />
+        </div>
+      ) : null}
+
+      {outcome ? (
+        <div className="paper-simulation-outcome">
+          <span>{titleCaseValue(outcome.execution_result)}</span>
+          <strong>{paperPnlLabel(outcome)}</strong>
+          <p>{outcome.diagnosis_summary}</p>
+        </div>
+      ) : null}
+
+      {replayRuns.length > 0 ? (
+        <div className="paper-simulation-history" aria-label="Replay history">
+          <div className="paper-simulation-history-header">
+            <span>Replay history</span>
+            <strong>{replayRuns.length} runs</strong>
+          </div>
+          <ul>
+            {replayRuns.slice(0, 3).map((run) => (
+              <li key={run.id}>
+                <strong>{titleCaseValue(run.status)}</strong>
+                <span>{paperSimulationRunMeta(run)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="scenario-lifecycle-actions paper-simulation-actions" aria-label="Paper simulation actions">
+        <button
+          className="button ghost"
+          disabled={Boolean(blocker) || Boolean(pendingAction) || activeForward}
+          onClick={() => onAction('start-forward')}
+          title={blocker ?? undefined}
+          type="button"
+        >
+          <Play aria-hidden size={14} />
+          {pendingAction === 'start-forward' ? 'Starting' : 'Start simulation'}
+        </button>
+        <button
+          className="button ghost"
+          disabled={Boolean(blocker) || Boolean(pendingAction)}
+          onClick={() => onAction('run-replay')}
+          title={blocker ?? undefined}
+          type="button"
+        >
+          <ListChecks aria-hidden size={14} />
+          {pendingAction === 'run-replay' ? 'Running' : 'Run replay'}
+        </button>
+        {activeForward ? (
+          <button
+            className="button ghost"
+            disabled={Boolean(pendingAction)}
+            onClick={() => onAction('refresh')}
+            type="button"
+          >
+            <RefreshCw aria-hidden size={14} />
+            {pendingAction === 'refresh' ? 'Continuing' : 'Continue simulation'}
+          </button>
+        ) : null}
+        {detail && activeForward && !openPosition ? (
+          <button
+            className="button ghost"
+            disabled={Boolean(pendingAction)}
+            onClick={() => onAction('cancel')}
+            type="button"
+          >
+            <XCircle aria-hidden size={14} />
+            {pendingAction === 'cancel' ? 'Cancelling' : 'Cancel simulation'}
+          </button>
+        ) : null}
+        {detail && openPosition ? (
+          <>
+            <button
+              className="button ghost"
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction('close-manual')}
+              type="button"
+            >
+              <Square aria-hidden size={14} />
+              {pendingAction === 'close-manual' ? 'Closing' : 'Close paper position'}
+            </button>
+            <button
+              className="button ghost"
+              disabled={Boolean(pendingAction)}
+              onClick={() => onAction('abandon-inconclusive')}
+              type="button"
+            >
+              <XCircle aria-hidden size={14} />
+              {pendingAction === 'abandon-inconclusive' ? 'Abandoning' : 'Abandon inconclusive'}
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {isLoading ? <span className="small muted">Loading simulation state...</span> : null}
+      {error ? <span className="badge risk">{error}</span> : null}
+      {detail?.events.length ? (
+        <details className="paper-simulation-ledger">
+          <summary>Open simulation ledger</summary>
+          <ul className="scenario-watch-list">
+            {detail.events.slice(-8).map((event) => (
+              <li key={event.id}>{paperLedgerLine(event)}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function PaperSimulationFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="paper-simulation-fact">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -1411,6 +1707,156 @@ function backtestBlockerForPlaybook(playbook: ScenarioLatestPlaybook): string | 
 function playbookHasNumericEntry(playbook: NonNullable<ScenarioLatestPlaybook>): boolean {
   return playbook.entry.level !== null ||
     (playbook.entry.zone_low !== null && playbook.entry.zone_high !== null);
+}
+
+function defaultForwardSimulationRequest() {
+  return {
+    mode: 'forward' as const,
+    sample_kind: 'forward_observation' as const,
+    fill_policy: 'touch' as const,
+    gap_fill_policy: 'requested_price' as const,
+    intrabar_policy: 'ambiguous_warning' as const,
+    fee_bps: '0',
+    slippage_bps: '0',
+    position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    timeframe: '15m',
+  };
+}
+
+function defaultReplaySimulationRequest() {
+  const endsAt = new Date();
+  const startsAt = new Date(endsAt);
+  startsAt.setUTCDate(startsAt.getUTCDate() - 7);
+  return {
+    mode: 'replay' as const,
+    sample_kind: 'manual_experiment' as const,
+    fill_policy: 'touch' as const,
+    gap_fill_policy: 'requested_price' as const,
+    intrabar_policy: 'ambiguous_warning' as const,
+    fee_bps: '0',
+    slippage_bps: '0',
+    position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    timeframe: '15m',
+    starts_at: startsAt.toISOString(),
+    ends_at: endsAt.toISOString(),
+  };
+}
+
+function simulationBlockerForPlaybook(playbook: ScenarioLatestPlaybook): string | null {
+  if (!playbook?.id) {
+    return 'Requires compiled playbook';
+  }
+  if (playbook.status !== 'current') {
+    return 'Requires current playbook';
+  }
+  if (
+    playbook.direction === 'avoid' ||
+    !playbookHasNumericEntry(playbook) ||
+    playbook.invalidation.level === null ||
+    !playbook.targets.some((target) => target.level !== null)
+  ) {
+    return 'Requires numeric entry, invalidation, and target';
+  }
+  return null;
+}
+
+function paperSimulationStatus(
+  detail: SimulationDetailResponse | null,
+  latestRun: SimulationRunResponse | null,
+  blocker: string | null,
+): string {
+  if (blocker) return blocker;
+  const run = detail ?? latestRun;
+  if (!run) return 'Ready to simulate';
+  if (run.status === 'waiting_for_trigger') return 'Waiting for entry trigger';
+  if (run.status === 'position_open') return 'Paper position open';
+  if (run.status === 'completed') return `Completed: ${titleCaseValue(run.status_reason ?? 'review')}`;
+  if (run.status === 'cancelled') return 'Simulation cancelled';
+  if (run.status === 'failed') return `Simulation failed: ${run.failure_reason ?? 'unknown'}`;
+  return titleCaseValue(run.status);
+}
+
+function paperSimulationTitle(
+  playbook: ScenarioLatestPlaybook,
+  run: SimulationRunResponse | null,
+): string {
+  const source = playbook ?? run?.playbook_snapshot ?? null;
+  if (!source) return 'Paper simulation';
+  return `${source.symbol} ${titleCaseValue(source.direction)} ${titleCaseValue(source.horizon)}`;
+}
+
+function paperEntryLabel(playbook: NonNullable<ScenarioLatestPlaybook>): string {
+  if (playbook.entry.level !== null) {
+    return formatScenarioPrice(playbook.entry.level);
+  }
+  if (playbook.entry.zone_low !== null && playbook.entry.zone_high !== null) {
+    return `${formatScenarioPrice(playbook.entry.zone_low)}-${formatScenarioPrice(playbook.entry.zone_high)}`;
+  }
+  return 'No numeric entry';
+}
+
+function paperInvalidationLabel(playbook: NonNullable<ScenarioLatestPlaybook>): string {
+  return playbook.invalidation.level === null
+    ? 'No numeric invalidation'
+    : formatScenarioPrice(playbook.invalidation.level);
+}
+
+function paperTargetsLabel(playbook: NonNullable<ScenarioLatestPlaybook>): string {
+  const targets = playbook.targets
+    .map((target) => target.level)
+    .filter((target): target is number => target !== null)
+    .map(formatScenarioPrice);
+  return targets.length ? targets.join(' / ') : 'No numeric target';
+}
+
+function paperPositionLabel(position: PaperPositionResponse | null): string {
+  if (!position) return 'No paper position';
+  const entry = position.average_entry_price
+    ? ` @ ${position.average_entry_price}`
+    : '';
+  return `${titleCaseValue(position.status)} ${position.quantity_remaining}${entry}`;
+}
+
+function paperExpiryLabel(run: SimulationRunResponse | null): string {
+  if (!run) {
+    return 'Not started';
+  }
+  if (run.setup_expiry_at) {
+    return formatScenarioDate(run.setup_expiry_at);
+  }
+  const endsAt = typeof run.evaluation_window.ends_at === 'string'
+    ? run.evaluation_window.ends_at
+    : null;
+  return endsAt ? formatScenarioDate(endsAt) : 'No expiry';
+}
+
+function paperPositionPnlLabel(
+  position: PaperPositionResponse | null,
+  outcome: SimulationDetailResponse['outcome'],
+): string {
+  const realized = position?.realized_pnl ?? outcome?.realized_pnl ?? null;
+  const unrealized = position?.unrealized_pnl ?? null;
+  return `${realized ?? '0'} / ${unrealized ?? '0'}`;
+}
+
+function paperPnlLabel(outcome: NonNullable<SimulationDetailResponse['outcome']>): string {
+  if (outcome.realized_pnl === null) {
+    return 'No realized PnL';
+  }
+  const pct = outcome.realized_pnl_pct === null ? '' : ` (${outcome.realized_pnl_pct})`;
+  return `${outcome.realized_pnl}${pct}`;
+}
+
+function paperSimulationRunMeta(run: SimulationRunResponse): string {
+  const timestamp = run.completed_at ?? run.cancelled_at ?? run.market_time ?? run.started_at;
+  const reason = run.status_reason ?? run.sample_kind;
+  return `${formatScenarioDate(timestamp)} | ${titleCaseValue(reason)}`;
+}
+
+function paperLedgerLine(event: ExecutionEventResponse): string {
+  const time = event.market_time ? formatScenarioDate(event.market_time) : formatScenarioDate(event.recorded_at);
+  const price = event.price ? ` @ ${event.price}` : '';
+  return `${time}: ${titleCaseValue(event.event_type)}${price} - ${scenarioFeedbackText(event.reason_code)}`;
 }
 
 type ScenarioThesisRelationTone = 'constructive' | 'warning' | 'risk' | 'primary';

@@ -13,19 +13,23 @@ import type {
   MarketOhlcvCandleResponse,
   ScenarioChartOverlay,
   ScenarioChartProjectionResponse,
+  SimulationDetailResponse,
 } from '@/types';
 import { renderScenarioOverlays } from './scenario-chart-overlays';
+import { buildSimulationOverlays } from './scenario-simulation-overlays';
 
 type ScenarioChartProps = {
   compact?: boolean;
   isLoading?: boolean;
   projection: ScenarioChartProjectionResponse | null;
+  simulation?: SimulationDetailResponse | null;
 };
 
 export function ScenarioChart({
   compact = false,
   isLoading = false,
   projection,
+  simulation = null,
 }: ScenarioChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const height = compact ? 170 : 240;
@@ -41,6 +45,14 @@ export function ScenarioChart({
       ]
     : [];
   const overlayLimit = compact ? 4 : 7;
+  const simulationOverlays = useMemo(
+    () => buildSimulationOverlays(simulation),
+    [simulation],
+  );
+  const overlays = useMemo(
+    () => [...(projection?.overlays ?? []), ...simulationOverlays],
+    [projection?.overlays, simulationOverlays],
+  );
 
   useEffect(() => {
     if (!containerRef.current || !projection || projection.candles.length === 0) {
@@ -84,7 +96,7 @@ export function ScenarioChart({
         createPriceLine: candleSeries.createPriceLine.bind(candleSeries),
         setMarkers: markerPlugin.setMarkers.bind(markerPlugin),
       },
-      projection.overlays,
+      overlays,
     );
     chart.timeScale().fitContent();
 
@@ -100,7 +112,7 @@ export function ScenarioChart({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [candles, height, projection]);
+  }, [candles, height, overlays, projection]);
 
   if (isLoading) {
     return (
@@ -156,9 +168,9 @@ export function ScenarioChart({
         </ul>
       ) : null}
 
-      {projection.overlays.length > 0 ? (
+      {overlays.length > 0 ? (
         <ul className="scenario-chart-overlay-list" aria-label="Scenario chart overlays">
-          {projection.overlays.slice(0, overlayLimit).map((overlay) => (
+          {overlays.slice(0, overlayLimit).map((overlay) => (
             <li key={overlay.id}>
               <span>{overlayLabel(overlay)}</span>
               <strong>{overlayValue(overlay)}</strong>
