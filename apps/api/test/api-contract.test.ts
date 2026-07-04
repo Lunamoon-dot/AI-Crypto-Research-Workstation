@@ -3913,8 +3913,20 @@ test('openapi simulation schema exposes partial take-profit assumptions', () => 
   const partial = schema.properties.partial_take_profit;
 
   assert.equal(partial.type, 'array');
-  assert.equal(partial.items.properties.target_index.type, 'integer');
-  assert.equal(partial.items.properties.close_percent.type, 'string');
+  assert.equal(partial.items.$ref, '#/components/schemas/SimulationPartialTakeProfit');
+  assert.equal(schema.properties.position_size.$ref, '#/components/schemas/SimulationPositionSize');
+  assert.equal(
+    openApiDocument.components.schemas.SimulationRunResponse.properties.assumptions.$ref,
+    '#/components/schemas/SimulationAssumptions',
+  );
+  assert.equal(
+    openApiDocument.components.schemas.SimulationRunResponse.properties.market_data_snapshot.$ref,
+    '#/components/schemas/MarketDataSnapshot',
+  );
+  assert.equal(
+    openApiDocument.components.schemas.SimulationRunResponse.properties.sample_identity.$ref,
+    '#/components/schemas/SimulationSampleIdentity',
+  );
 });
 
 test('OpenAPI contract covers the frontend-facing controller routes', () => {
@@ -16121,6 +16133,44 @@ test('paper execution applies fee and slippage assumptions to fills and PnL', as
   assert.equal(rebuilt.orders[1]?.filled_price, withCost.orders[1]?.filled_price);
   assert.equal(rebuilt.position?.realized_pnl, withCost.position?.realized_pnl);
   assert.equal(rebuilt.outcome?.execution_result, withCost.outcome?.execution_result);
+});
+
+test('paper execution keeps quantity and PnL arithmetic decimal-safe', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const playbook = tradePlaybookFixture('playbook_paper_decimal_precision');
+  playbook.entry = {
+    type: 'level',
+    condition: 'Enter decimal reclaim.',
+    level: 0.3,
+    zone_low: null,
+    zone_high: null,
+  };
+  playbook.invalidation = { condition: 'Decimal stop.', level: 0.2 };
+  playbook.targets = [{ label: 'Target 1', level: 0.6, rationale: 'Decimal target.' }];
+  await journal.saveTradePlaybook(playbook, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:15:00.000Z', 0.29, 0.31, 0.29, 0.3),
+    candle('2026-07-04T00:30:00.000Z', 0.3, 0.61, 0.3, 0.6),
+  ]);
+
+  const simulation = await paperExecution.createSimulation(
+    'playbook_paper_decimal_precision',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T01:00:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '0.1', quantity: null },
+      fee_bps: '0',
+      slippage_bps: '0',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  assert.equal(simulation.orders[0]?.quantity, '0.3333333333');
+  assert.equal(simulation.position?.realized_pnl, '0.1');
+  assert.equal(simulation.position?.realized_pnl_pct, '1');
+  assert.equal(simulation.outcome?.execution_result, 'win');
 });
 
 test('paper execution rebuilds missing projections from the execution ledger', async () => {

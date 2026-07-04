@@ -1,6 +1,5 @@
 import type {
   ExecutionEventResponse,
-  JsonRecord,
   ScenarioChartOverlay,
   SimulationDetailResponse,
 } from '@/types';
@@ -265,16 +264,11 @@ function decimalNumber(value: string | number | null | undefined): number | null
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function assumptionLevel(assumptions: JsonRecord, key: string): number | null {
-  const value = assumptions[key];
-  if (!isRecord(value)) {
-    return null;
-  }
-  return decimalNumber(value.level as string | number | null | undefined);
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function assumptionLevel(
+  assumptions: SimulationDetailResponse['assumptions'],
+  key: 'risk_exit' | 'thesis_invalidation',
+): number | null {
+  return decimalNumber(assumptions[key]?.level);
 }
 
 function samePrice(left: number, right: number): boolean {

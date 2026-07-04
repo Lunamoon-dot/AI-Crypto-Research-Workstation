@@ -1718,7 +1718,7 @@ function defaultForwardSimulationRequest() {
     intrabar_policy: 'ambiguous_warning' as const,
     fee_bps: '0',
     slippage_bps: '0',
-    position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    position_size: { mode: 'fixed_notional' as const, notional: '1000', quantity: null },
     timeframe: '15m',
   };
 }
@@ -1735,7 +1735,7 @@ function defaultReplaySimulationRequest() {
     intrabar_policy: 'ambiguous_warning' as const,
     fee_bps: '0',
     slippage_bps: '0',
-    position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+    position_size: { mode: 'fixed_notional' as const, notional: '1000', quantity: null },
     timeframe: '15m',
     starts_at: startsAt.toISOString(),
     ends_at: endsAt.toISOString(),

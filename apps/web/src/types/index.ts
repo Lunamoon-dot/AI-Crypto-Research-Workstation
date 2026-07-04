@@ -576,7 +576,7 @@ export interface TradePlaybookResponse {
     recommendation: string;
     runtime_decision: string;
   };
-  status: 'current' | 'stale' | 'superseded';
+  status: 'current' | 'stale' | 'superseded' | 'unverifiable';
   stale_reasons: string[];
   created_at: string;
 }
@@ -637,6 +637,88 @@ export interface BacktestTradeEventResponse {
 
 export type DecimalString = string;
 
+export interface SimulationPositionSize {
+  mode: 'fixed_notional' | 'fixed_quantity';
+  notional: DecimalString | null;
+  quantity: DecimalString | null;
+}
+
+export interface SimulationRiskExit {
+  type: 'hard_stop' | 'close_confirmation' | 'condition';
+  level: DecimalString | null;
+  condition: JsonRecord | null;
+}
+
+export interface SimulationThesisInvalidation {
+  level: DecimalString | null;
+  condition: JsonRecord | null;
+}
+
+export interface SimulationPartialTakeProfit {
+  target_index: number;
+  close_percent: DecimalString;
+}
+
+export interface SimulationAssumptions {
+  version: 'simulation_assumptions.v1';
+  fill_policy: 'touch' | 'next_open_after_trigger';
+  gap_fill_policy: 'requested_price' | 'first_tradable_price' | 'reject_if_skipped';
+  intrabar_policy: 'stop_first' | 'target_first' | 'ambiguous_warning';
+  slippage_bps: DecimalString;
+  fee_bps: DecimalString;
+  position_size: SimulationPositionSize;
+  risk_exit: SimulationRiskExit;
+  thesis_invalidation: SimulationThesisInvalidation;
+  partial_take_profit: SimulationPartialTakeProfit[];
+  setup_expiry_at: string | null;
+  position_max_duration_minutes: number | null;
+  force_close_at_data_end: boolean;
+}
+
+export interface MarketDataSnapshot {
+  version: 'market_data_snapshot.v1';
+  provider: string;
+  canonical_symbol: string;
+  provider_symbol: string;
+  timeframe: string;
+  timezone: 'UTC';
+  price_source: 'last' | 'mark' | 'index';
+  dataset_version: string | null;
+  dataset_hash: string | null;
+  candle_close_policy: 'finalized_only';
+  starts_at: string;
+  ends_at: string | null;
+}
+
+export interface SimulationSampleIdentity {
+  scenario_hash: string;
+  playbook_hash: string;
+  market_data_hash: string | null;
+  evaluation_window_hash: string;
+  assumptions_hash: string;
+}
+
+export interface SimulationEvaluationWindow {
+  starts_at: string | null;
+  ends_at: string | null;
+  horizon: string;
+}
+
+export interface SimulationAnalysisSnapshot {
+  scenario: JsonRecord;
+  thesis: JsonRecord;
+  scenario_recommendation: JsonRecord | null;
+  decision_playbook: JsonRecord | null;
+  chart_source_versions: JsonRecord | null;
+}
+
+export interface SimulationSourceHashes {
+  scenario: string;
+  decision_playbook: string | null;
+  recommendation: string | null;
+  trade_playbook: string;
+}
+
 export interface CreateSimulationRequest {
   mode?: 'replay' | 'forward';
   sample_kind?:
@@ -652,7 +734,7 @@ export interface CreateSimulationRequest {
   intrabar_policy?: 'stop_first' | 'target_first' | 'ambiguous_warning';
   fee_bps?: DecimalString;
   slippage_bps?: DecimalString;
-  position_size?: JsonRecord;
+  position_size?: SimulationPositionSize;
   partial_take_profit?: Array<{
     target_index: number;
     close_percent: DecimalString;
@@ -707,15 +789,15 @@ export interface SimulationRunResponse {
   assumptions_hash: string;
   setup_expiry_at: string | null;
   position_max_duration_minutes: number | null;
-  evaluation_window: JsonRecord;
+  evaluation_window: SimulationEvaluationWindow;
   playbook_snapshot: TradePlaybookResponse;
-  analysis_snapshot: JsonRecord;
-  assumptions: JsonRecord;
-  market_data_snapshot: JsonRecord;
-  sample_identity: JsonRecord;
+  analysis_snapshot: SimulationAnalysisSnapshot;
+  assumptions: SimulationAssumptions;
+  market_data_snapshot: MarketDataSnapshot;
+  sample_identity: SimulationSampleIdentity;
   source_integrity_status: 'verified' | 'failed' | 'unknown';
   source_drift_after_start: boolean;
-  source_hashes: JsonRecord;
+  source_hashes: SimulationSourceHashes;
 }
 
 export interface PaperOrderResponse {
@@ -808,7 +890,7 @@ export interface SimulationOutcomeResponse {
   source_scenario_id: string;
   source_playbook_id: string;
   sample_kind: string;
-  sample_identity: JsonRecord;
+  sample_identity: SimulationSampleIdentity;
   execution_result: 'win' | 'loss' | 'breakeven' | 'missed' | 'inconclusive';
   research_evaluation_status: 'pending' | 'rule_based' | 'llm_assisted';
   thesis_outcome: string | null;

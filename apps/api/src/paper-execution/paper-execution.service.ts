@@ -40,6 +40,11 @@ import type {
   SimulationSampleIdentity,
 } from './paper-execution.types';
 
+const DECIMAL_SCALE_DIGITS = 10;
+const DECIMAL_SCALE = 10n ** BigInt(DECIMAL_SCALE_DIGITS);
+const BASIS_POINTS = 10_000n;
+const BASIS_POINTS_SCALE = BASIS_POINTS * DECIMAL_SCALE;
+
 @Injectable()
 export class PaperExecutionService {
   private ohlcvForTest: MarketOhlcvCandleResponse[] | null = null;
@@ -780,10 +785,9 @@ export class PaperExecutionService {
       const exit = isPartial
         ? {
             ...transition.exit,
-            quantity: decimal(
-              (decimalNumber(position.quantity_remaining) ??
-                decimalNumber(position.quantity_opened) ??
-                0) * transition.closePercent,
+            quantity: decimalMul(
+              position.quantity_remaining ?? position.quantity_opened,
+              transition.closePercent,
             ),
           }
         : {
@@ -1551,19 +1555,19 @@ function normalizeAssumptions(
   }
   const mode = positionSize.mode;
   const notionalValue = mode === 'fixed_notional'
-    ? decimalNumber(positionSize.notional)
+    ? decimalUnits(positionSize.notional)
     : null;
   const quantityValue = mode === 'fixed_quantity'
-    ? decimalNumber(positionSize.quantity)
+    ? decimalUnits(positionSize.quantity)
     : null;
-  if (mode === 'fixed_notional' && (!notionalValue || notionalValue <= 0)) {
+  if (mode === 'fixed_notional' && (notionalValue === null || notionalValue <= 0n)) {
     throw new BadRequestException('Simulation requires positive fixed_notional sizing.');
   }
-  if (mode === 'fixed_quantity' && (!quantityValue || quantityValue <= 0)) {
+  if (mode === 'fixed_quantity' && (quantityValue === null || quantityValue <= 0n)) {
     throw new BadRequestException('Simulation requires positive fixed_quantity sizing.');
   }
-  const notional = notionalValue === null ? null : decimal(notionalValue);
-  const quantity = quantityValue === null ? null : decimal(quantityValue);
+  const notional = notionalValue === null ? null : decimalFromUnits(notionalValue);
+  const quantity = quantityValue === null ? null : decimalFromUnits(quantityValue);
   const invalidationLevel = playbook.invalidation.level === null
     ? null
     : decimal(playbook.invalidation.level);
@@ -1908,25 +1912,30 @@ function withExcursionMetrics(
   entryPrice: number,
   candles: MarketOhlcvCandleResponse[],
 ): SimulationExit {
-  if (direction === 'avoid' || entryPrice <= 0 || candles.length === 0) {
+  const entry = decimalUnits(entryPrice) ?? 0n;
+  if (direction === 'avoid' || entry <= 0n || candles.length === 0) {
     return {
       ...exit,
       max_favorable_excursion: null,
       max_adverse_excursion: null,
     };
   }
-  const high = Math.max(...candles.map((candle) => candle.high));
-  const low = Math.min(...candles.map((candle) => candle.low));
+  const high = candles
+    .map((candle) => decimalUnits(candle.high) ?? entry)
+    .reduce((max, value) => maxUnits(max, value), entry);
+  const low = candles
+    .map((candle) => decimalUnits(candle.low) ?? entry)
+    .reduce((min, value) => value < min ? value : min, entry);
   const favorable = direction === 'short'
-    ? entryPrice - low
-    : high - entryPrice;
+    ? entry - low
+    : high - entry;
   const adverse = direction === 'short'
-    ? high - entryPrice
-    : entryPrice - low;
+    ? high - entry
+    : entry - low;
   return {
     ...exit,
-    max_favorable_excursion: decimal(Math.max(favorable, 0) / entryPrice),
-    max_adverse_excursion: decimal(Math.max(adverse, 0) / entryPrice),
+    max_favorable_excursion: decimalRatio(maxUnits(favorable, 0n), entry),
+    max_adverse_excursion: decimalRatio(maxUnits(adverse, 0n), entry),
   };
 }
 
@@ -2127,17 +2136,17 @@ function closePosition(
   exit: SimulationExit,
   assumptions: SimulationAssumptions,
 ): PaperPositionResponse {
-  const remaining = decimalNumber(position.quantity_remaining) ?? decimalNumber(position.quantity_opened) ?? 0;
-  const exitQuantity = decimalNumber(exit.quantity) ?? remaining;
-  const quantity = Math.min(Math.max(exitQuantity, 0), remaining);
+  const remaining = decimalUnits(position.quantity_remaining) ?? decimalUnits(position.quantity_opened) ?? 0n;
+  const exitQuantity = decimalUnits(exit.quantity) ?? remaining;
+  const quantity = clampUnits(exitQuantity, 0n, remaining);
   const realized = realizedPnlFor(position, exit.price, quantity, assumptions, exit.fee);
-  const existingPnl = decimalNumber(position.realized_pnl) ?? 0;
+  const existingPnl = decimalUnits(position.realized_pnl) ?? 0n;
   const totalPnl = existingPnl + realized;
   return {
     ...position,
     status: 'closed',
     quantity_remaining: '0',
-    realized_pnl: decimal(totalPnl),
+    realized_pnl: decimalFromUnits(totalPnl),
     unrealized_pnl: '0',
     realized_pnl_pct: realizedPnlPct(position, totalPnl),
     unrealized_pnl_pct: '0',
@@ -2151,69 +2160,78 @@ function reducePosition(
   exit: SimulationExit,
   assumptions: SimulationAssumptions,
 ): PaperPositionResponse {
-  const remaining = decimalNumber(position.quantity_remaining) ?? decimalNumber(position.quantity_opened) ?? 0;
-  const exitQuantity = decimalNumber(exit.quantity) ?? 0;
-  const quantity = Math.min(Math.max(exitQuantity, 0), remaining);
-  const quantityRemaining = Math.max(remaining - quantity, 0);
+  const remaining = decimalUnits(position.quantity_remaining) ?? decimalUnits(position.quantity_opened) ?? 0n;
+  const exitQuantity = decimalUnits(exit.quantity) ?? 0n;
+  const quantity = clampUnits(exitQuantity, 0n, remaining);
+  const quantityRemaining = remaining - quantity;
   const realized = realizedPnlFor(position, exit.price, quantity, assumptions, exit.fee);
-  const existingPnl = decimalNumber(position.realized_pnl) ?? 0;
+  const existingPnl = decimalUnits(position.realized_pnl) ?? 0n;
   const totalPnl = existingPnl + realized;
   return {
     ...position,
-    status: quantityRemaining > 0 ? 'partially_closed' : 'closed',
-    quantity_remaining: decimal(quantityRemaining),
-    realized_pnl: decimal(totalPnl),
+    status: quantityRemaining > 0n ? 'partially_closed' : 'closed',
+    quantity_remaining: decimalFromUnits(quantityRemaining),
+    realized_pnl: decimalFromUnits(totalPnl),
     unrealized_pnl: null,
     realized_pnl_pct: realizedPnlPct(position, totalPnl),
     unrealized_pnl_pct: null,
-    closed_at_market_time: quantityRemaining > 0 ? null : exit.candle.time,
-    close_reason: quantityRemaining > 0 ? null : exit.reason,
+    closed_at_market_time: quantityRemaining > 0n ? null : exit.candle.time,
+    close_reason: quantityRemaining > 0n ? null : exit.reason,
   };
 }
 
 function realizedPnlFor(
   position: PaperPositionResponse,
   exitPrice: number,
-  quantity: number,
+  quantity: bigint,
   assumptions: SimulationAssumptions,
   exitFee: string | undefined,
-): number {
-  const entry = decimalNumber(position.average_entry_price) ?? exitPrice;
-  const gross = position.direction === 'short'
-    ? (entry - exitPrice) * quantity
-    : (exitPrice - entry) * quantity;
-  return gross - entryFeeFor(position, quantity, assumptions) - (decimalNumber(exitFee) ?? 0);
+): bigint {
+  const entry = decimalUnits(position.average_entry_price) ?? decimalUnits(exitPrice) ?? 0n;
+  const exit = decimalUnits(exitPrice) ?? entry;
+  const priceDelta = position.direction === 'short'
+    ? entry - exit
+    : exit - entry;
+  const gross = decimalMulUnits(priceDelta, quantity);
+  const entryFee = entryFeeFor(position, quantity, assumptions);
+  const parsedExitFee = decimalUnits(exitFee) ?? 0n;
+  return gross - entryFee - parsedExitFee;
 }
 
 function fillPriceFor(
   requestedPrice: number,
   side: PaperOrderResponse['side'],
   assumptions: SimulationAssumptions,
-): number {
-  const slippage = Math.max(decimalNumber(assumptions.slippage_bps) ?? 0, 0) / 10_000;
-  return side === 'buy'
-    ? requestedPrice * (1 + slippage)
-    : requestedPrice * (1 - slippage);
+): string {
+  const price = decimalUnits(requestedPrice) ?? 0n;
+  const slippageBps = maxUnits(decimalUnits(assumptions.slippage_bps) ?? 0n, 0n);
+  const multiplier = side === 'buy'
+    ? BASIS_POINTS_SCALE + slippageBps
+    : BASIS_POINTS_SCALE - slippageBps;
+  return decimalFromUnits(divRound(price * multiplier, BASIS_POINTS_SCALE));
 }
 
 function feeFor(
-  filledPrice: number,
+  filledPrice: string | number,
   quantity: string,
   assumptions: SimulationAssumptions,
 ): string {
-  const parsedQuantity = decimalNumber(quantity) ?? 0;
-  const feeRate = Math.max(decimalNumber(assumptions.fee_bps) ?? 0, 0) / 10_000;
-  return decimal(filledPrice * parsedQuantity * feeRate);
+  const price = decimalUnits(filledPrice) ?? 0n;
+  const parsedQuantity = decimalUnits(quantity) ?? 0n;
+  const notional = decimalMulUnits(price, parsedQuantity);
+  const feeBps = maxUnits(decimalUnits(assumptions.fee_bps) ?? 0n, 0n);
+  return decimalFromUnits(divRound(notional * feeBps, BASIS_POINTS_SCALE));
 }
 
 function entryFeeFor(
   position: PaperPositionResponse,
-  closedQuantity: number,
+  closedQuantity: bigint,
   assumptions: SimulationAssumptions,
-): number {
-  const entryPrice = decimalNumber(position.average_entry_price) ?? 0;
-  const feeRate = Math.max(decimalNumber(assumptions.fee_bps) ?? 0, 0) / 10_000;
-  return entryPrice * closedQuantity * feeRate;
+): bigint {
+  const entryPrice = decimalUnits(position.average_entry_price) ?? 0n;
+  const notional = decimalMulUnits(entryPrice, closedQuantity);
+  const feeBps = maxUnits(decimalUnits(assumptions.fee_bps) ?? 0n, 0n);
+  return divRound(notional * feeBps, BASIS_POINTS_SCALE);
 }
 
 function exitFromOrder(
@@ -2230,12 +2248,12 @@ function exitFromOrder(
 
 function realizedPnlPct(
   position: PaperPositionResponse,
-  realizedPnl: number,
+  realizedPnl: bigint,
 ): string {
-  const entry = decimalNumber(position.average_entry_price) ?? 0;
-  const opened = decimalNumber(position.quantity_opened) ?? 0;
-  const notional = entry * opened;
-  return decimal(notional === 0 ? 0 : realizedPnl / notional);
+  const entry = decimalUnits(position.average_entry_price) ?? 0n;
+  const opened = decimalUnits(position.quantity_opened) ?? 0n;
+  const notional = decimalMulUnits(entry, opened);
+  return decimalFromUnits(notional === 0n ? 0n : divRound(realizedPnl * DECIMAL_SCALE, notional));
 }
 
 function buildOutcome(
@@ -2246,14 +2264,14 @@ function buildOutcome(
     'reason' | 'ambiguous' | 'max_favorable_excursion' | 'max_adverse_excursion'
   >,
 ): SimulationOutcomeResponse {
-  const pnl = decimalNumber(position.realized_pnl) ?? 0;
+  const pnl = decimalUnits(position.realized_pnl) ?? 0n;
   const inconclusive = exit.ambiguous === true || exit.reason === 'data_end';
   const sourceIntegrityFailed = run.source_integrity_status === 'failed';
   const executionResult: SimulationOutcomeResponse['execution_result'] = inconclusive
     ? 'inconclusive'
-    : pnl > 0
+    : pnl > 0n
       ? 'win'
-      : pnl < 0
+      : pnl < 0n
         ? 'loss'
         : 'breakeven';
   const researchEvaluation = researchEvaluationForFinalExit({
@@ -2357,7 +2375,7 @@ function buildManualCloseOutcome(
   run: SimulationRunResponse,
   position: PaperPositionResponse,
 ): SimulationOutcomeResponse {
-  const pnl = decimalNumber(position.realized_pnl) ?? 0;
+  const pnl = decimalUnits(position.realized_pnl) ?? 0n;
   return {
     version: 'simulation_outcome.v1',
     id: `simulation_outcome_${randomUUID().replaceAll('-', '')}`,
@@ -2367,7 +2385,7 @@ function buildManualCloseOutcome(
     source_playbook_id: run.source_playbook_id,
     sample_kind: run.sample_kind,
     sample_identity: run.sample_identity,
-    execution_result: pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven',
+    execution_result: pnl > 0n ? 'win' : pnl < 0n ? 'loss' : 'breakeven',
     research_evaluation_status: 'pending',
     thesis_outcome: null,
     execution_quality: 'invalid_experiment',
@@ -2575,12 +2593,13 @@ function buildEvent(
   };
 }
 
-function quantityFor(assumptions: SimulationAssumptions, price: number): string {
+function quantityFor(assumptions: SimulationAssumptions, price: string | number): string {
   if (assumptions.position_size.mode === 'fixed_quantity') {
     return assumptions.position_size.quantity ?? '1';
   }
-  const notional = decimalNumber(assumptions.position_size.notional) ?? 1000;
-  return decimal(price === 0 ? 0 : notional / price);
+  const notional = decimalUnits(assumptions.position_size.notional) ?? decimalUnits(1000) ?? 0n;
+  const priceUnits = decimalUnits(price) ?? 0n;
+  return decimalFromUnits(priceUnits === 0n ? 0n : divRound(notional * DECIMAL_SCALE, priceUnits));
 }
 
 function buildMarketDataSnapshot(
@@ -2811,13 +2830,13 @@ function integerOrNull(value: unknown): number | null {
 }
 
 function decimalFromUnknown(value: unknown, fallback: string): string {
-  const parsed = decimalNumber(value);
-  return parsed === null ? fallback : decimal(parsed);
+  const parsed = decimalUnits(value);
+  return parsed === null ? fallback : decimalFromUnits(parsed);
 }
 
 function decimalStringOrNull(value: unknown): DecimalString | null {
-  const parsed = decimalNumber(value);
-  return parsed === null ? null : decimal(parsed);
+  const parsed = decimalUnits(value);
+  return parsed === null ? null : decimalFromUnits(parsed);
 }
 
 function decimalNumber(value: unknown): number | null {
@@ -2826,9 +2845,83 @@ function decimalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function decimal(value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  return value.toFixed(10).replace(/\.?0+$/, '');
+function decimal(value: unknown): string {
+  return decimalFromUnits(decimalUnits(value) ?? 0n);
+}
+
+function decimalMul(left: unknown, right: unknown): string {
+  return decimalFromUnits(decimalMulUnits(
+    decimalUnits(left) ?? 0n,
+    decimalUnits(right) ?? 0n,
+  ));
+}
+
+function decimalMulUnits(left: bigint, right: bigint): bigint {
+  return divRound(left * right, DECIMAL_SCALE);
+}
+
+function decimalRatio(numerator: bigint, denominator: bigint): string {
+  return decimalFromUnits(denominator === 0n ? 0n : divRound(numerator * DECIMAL_SCALE, denominator));
+}
+
+function decimalUnits(value: unknown): bigint | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const raw = typeof value === 'number'
+    ? Number.isFinite(value)
+      ? value.toFixed(DECIMAL_SCALE_DIGITS)
+      : ''
+    : String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const match = raw.match(/^([+-])?(\d+)(?:\.(\d+))?$/);
+  if (!match) {
+    return null;
+  }
+  const sign = match[1] === '-' ? -1n : 1n;
+  const whole = BigInt(match[2] ?? '0') * DECIMAL_SCALE;
+  const fractionRaw = match[3] ?? '';
+  const padded = fractionRaw.padEnd(DECIMAL_SCALE_DIGITS + 1, '0');
+  const kept = padded.slice(0, DECIMAL_SCALE_DIGITS);
+  const roundDigit = Number(padded[DECIMAL_SCALE_DIGITS] ?? '0');
+  const fraction = BigInt(kept || '0') + (roundDigit >= 5 ? 1n : 0n);
+  return sign * (whole + fraction);
+}
+
+function decimalFromUnits(value: bigint): string {
+  const sign = value < 0n ? '-' : '';
+  const absolute = value < 0n ? -value : value;
+  const whole = absolute / DECIMAL_SCALE;
+  const fraction = (absolute % DECIMAL_SCALE)
+    .toString()
+    .padStart(DECIMAL_SCALE_DIGITS, '0')
+    .replace(/0+$/, '');
+  return fraction ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
+}
+
+function divRound(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) {
+    return 0n;
+  }
+  const sign = (numerator < 0n) !== (denominator < 0n) ? -1n : 1n;
+  const absoluteNumerator = numerator < 0n ? -numerator : numerator;
+  const absoluteDenominator = denominator < 0n ? -denominator : denominator;
+  const quotient = absoluteNumerator / absoluteDenominator;
+  const remainder = absoluteNumerator % absoluteDenominator;
+  const rounded = remainder * 2n >= absoluteDenominator ? quotient + 1n : quotient;
+  return sign * rounded;
+}
+
+function clampUnits(value: bigint, min: bigint, max: bigint): bigint {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+function maxUnits(left: bigint, right: bigint): bigint {
+  return left > right ? left : right;
 }
 
 function stableHash(value: unknown): string {

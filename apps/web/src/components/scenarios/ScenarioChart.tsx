@@ -171,7 +171,11 @@ export function ScenarioChart({
       {overlays.length > 0 ? (
         <ul className="scenario-chart-overlay-list" aria-label="Scenario chart overlays">
           {overlays.slice(0, overlayLimit).map((overlay) => (
-            <li key={overlay.id}>
+            <li
+              aria-label={overlayTooltip(overlay)}
+              key={overlay.id}
+              title={overlayTooltip(overlay)}
+            >
               <span>{overlayLabel(overlay)}</span>
               <strong>{overlayValue(overlay)}</strong>
             </li>
@@ -218,6 +222,10 @@ function overlayValue(overlay: ScenarioChartOverlay): string {
     return formatNumber(overlay.price);
   }
   return overlay.time ? formatDateTime(overlay.time) : 'event';
+}
+
+function overlayTooltip(overlay: ScenarioChartOverlay): string {
+  return `${overlayLabel(overlay)}: ${overlayValue(overlay)} (${titleCase(overlay.status)})`;
 }
 
 function titleCase(value: string): string {
