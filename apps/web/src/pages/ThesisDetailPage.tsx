@@ -1042,15 +1042,6 @@ function ScenarioRadarCard({
   const vm = scenarioDetailViewModel(scenario, index);
   const scenarioId = persistedScenarioId(scenario);
   const playbookId = scenario.latest_playbook?.id ?? null;
-  const chartQuery = useQuery({
-    enabled: Boolean(scenarioId && isExpandedScenario),
-    queryKey: queryKeys.scenarioChart(scenarioId ?? 'derived-scenario', '15m'),
-    queryFn: () => getScenarioChartProjection(scenarioId ?? '', { interval: '15m', limit: 200 }, auth),
-    refetchInterval:
-      vm.triggerStatus === 'triggered' || vm.triggerStatus === 'near_trigger'
-        ? 30_000
-        : false,
-  });
   const simulationsQuery = useQuery({
     enabled: Boolean(playbookId && isExpandedScenario),
     queryKey: queryKeys.playbookSimulations(playbookId ?? 'missing-playbook'),
@@ -1064,6 +1055,28 @@ function ScenarioRadarCard({
     latestCompletedForwardRun(simulationRuns) ??
     latestReplayRun(simulationRuns) ??
     null;
+  const chartQuery = useQuery({
+    enabled: Boolean(scenarioId && isExpandedScenario),
+    queryKey: queryKeys.scenarioChart(
+      scenarioId ?? 'derived-scenario',
+      '15m',
+      highlightedSimulationRun?.id ?? null,
+    ),
+    queryFn: () =>
+      getScenarioChartProjection(
+        scenarioId ?? '',
+        {
+          interval: '15m',
+          limit: 200,
+          simulationId: highlightedSimulationRun?.id ?? null,
+        },
+        auth,
+      ),
+    refetchInterval:
+      vm.triggerStatus === 'triggered' || vm.triggerStatus === 'near_trigger'
+        ? 30_000
+        : false,
+  });
   const simulationDetailQuery = useQuery({
     enabled: Boolean(highlightedSimulationRun?.id && isExpandedScenario),
     queryKey: queryKeys.simulation(highlightedSimulationRun?.id ?? 'missing-simulation'),
@@ -1120,6 +1133,9 @@ function ScenarioRadarCard({
       if (scenarioId) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.scenarioChart(scenarioId, '15m'),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.scenarioChart(scenarioId, '15m', result.id),
         });
       }
     },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CandlestickSeries,
   ColorType,
@@ -17,6 +17,13 @@ import type {
 } from '@/types';
 import { renderScenarioOverlays } from './scenario-chart-overlays';
 import { buildSimulationOverlays } from './scenario-simulation-overlays';
+import {
+  legacyOverlaysForScenarioChart,
+  projectVisualOverlays,
+  visualOverlaySummaryItems,
+  type VisualOverlayShape,
+  type VisualOverlaySummaryItem,
+} from './visual-opportunity-overlays';
 
 type ScenarioChartProps = {
   compact?: boolean;
@@ -32,30 +39,54 @@ export function ScenarioChart({
   simulation = null,
 }: ScenarioChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [visualShapes, setVisualShapes] = useState<VisualOverlayShape[]>([]);
   const height = compact ? 170 : 240;
   const candles = useMemo(() => (
     projection?.candles.map(toChartCandle).filter(isChartCandle) ?? []
   ), [projection]);
   const stalePlaybook =
     projection?.source_versions.trade_playbook_status === 'stale';
-  const staleReasons = projection
-    ? [
-        ...(projection.source_versions.stale_reasons ?? []),
-        ...projection.warnings.filter((warning) => warning === 'trade_playbook_stale'),
-      ]
-    : [];
+  const staleReasons = useMemo(
+    () =>
+      projection
+        ? [
+            ...(projection.source_versions.stale_reasons ?? []),
+            ...projection.warnings.filter(
+              (warning) => warning === 'trade_playbook_stale',
+            ),
+          ]
+        : [],
+    [projection],
+  );
   const overlayLimit = compact ? 4 : 7;
   const simulationOverlays = useMemo(
     () => buildSimulationOverlays(simulation),
     [simulation],
   );
+  const visualProjection = projection?.visual_projection ?? null;
   const overlays = useMemo(
-    () => [...(projection?.overlays ?? []), ...simulationOverlays],
-    [projection?.overlays, simulationOverlays],
+    () => legacyOverlaysForScenarioChart(projection, simulationOverlays),
+    [projection, simulationOverlays],
+  );
+  const visualSummaryItems = useMemo(
+    () =>
+      visualProjection
+        ? visualOverlaySummaryItems(visualProjection, { compact })
+        : [],
+    [compact, visualProjection],
+  );
+  const chartWarnings = useMemo(
+    () => uniqueStrings([
+      ...(projection?.warnings ?? []),
+      ...(visualProjection?.warnings ?? []),
+      ...staleReasons,
+    ]),
+    [projection?.warnings, staleReasons, visualProjection?.warnings],
   );
 
   useEffect(() => {
     if (!containerRef.current || !projection || projection.candles.length === 0) {
+      setVisualShapes([]);
       return;
     }
     const container = containerRef.current;
@@ -99,20 +130,45 @@ export function ScenarioChart({
       overlays,
     );
     chart.timeScale().fitContent();
+    const updateVisualShapes = () => {
+      if (!visualProjection) {
+        setVisualShapes([]);
+        return;
+      }
+      setVisualShapes(projectVisualOverlays(
+        visualProjection,
+        {
+          width: container.clientWidth,
+          height,
+          timeToX: (time) => {
+            const timestamp = Date.parse(time);
+            if (!Number.isFinite(timestamp)) return null;
+            return chart.timeScale().timeToCoordinate(
+              Math.floor(timestamp / 1000) as UTCTimestamp,
+            );
+          },
+          priceToY: (price) => candleSeries.priceToCoordinate(price),
+        },
+        { compact },
+      ));
+    };
+    updateVisualShapes();
 
     const resizeObserver = new ResizeObserver(() => {
       chart.applyOptions({
         width: container.clientWidth,
         height,
       });
+      updateVisualShapes();
     });
     resizeObserver.observe(container);
 
     return () => {
       resizeObserver.disconnect();
+      setVisualShapes([]);
       chart.remove();
     };
-  }, [candles, height, overlays, projection]);
+  }, [candles, compact, height, overlays, projection, visualProjection]);
 
   if (isLoading) {
     return (
@@ -136,7 +192,14 @@ export function ScenarioChart({
   return (
     <div className={chartClassName(compact)}>
       <div className="scenario-chart-meta">
-        <span className="badge primary">{titleCase(projection.mode)} chart</span>
+        <span className="badge primary">
+          {visualProjection
+            ? `${titleCase(visualProjection.opportunity.status)} setup`
+            : `${titleCase(projection.mode)} chart`}
+        </span>
+        {visualProjection ? (
+          <span className="badge">{titleCase(visualProjection.opportunity.side)}</span>
+        ) : null}
         <span className="badge">{projection.interval}</span>
         <span className="badge">
           Price {formatNumber(projection.live_state.current_price)}
@@ -148,27 +211,53 @@ export function ScenarioChart({
         )}
       </div>
 
-      <div
-        aria-label={`${projection.symbol} scenario chart`}
-        className="scenario-chart-surface"
-        ref={containerRef}
-        style={{ minHeight: height }}
-      />
+      <div className="scenario-chart-surface-wrap" style={{ minHeight: height }}>
+        <div
+          aria-label={`${projection.symbol} scenario chart`}
+          className="scenario-chart-surface"
+          ref={containerRef}
+          style={{ minHeight: height }}
+        />
+        {visualProjection ? (
+          <svg
+            aria-hidden="true"
+            className="visual-opportunity-svg"
+            height={height}
+            viewBox={`0 0 ${containerRef.current?.clientWidth ?? 0} ${height}`}
+            width={containerRef.current?.clientWidth ?? 0}
+          >
+            {visualShapes.map((shape) => renderVisualShape(shape))}
+          </svg>
+        ) : null}
+      </div>
 
       <div className="scenario-chart-status">
         <span>{projection.live_state.commentary}</span>
         <span>Updated {formatDateTime(projection.generated_at)}</span>
       </div>
 
-      {stalePlaybook && staleReasons.length > 0 ? (
+      {chartWarnings.length > 0 ? (
         <ul className="scenario-chart-warning-list">
-          {staleReasons.slice(0, 3).map((reason) => (
+          {chartWarnings.slice(0, 3).map((reason) => (
             <li key={reason}>{reason}</li>
           ))}
         </ul>
       ) : null}
 
-      {overlays.length > 0 ? (
+      {visualProjection && visualSummaryItems.length > 0 ? (
+        <ul className="scenario-chart-overlay-list" aria-label="Visual opportunity overlays">
+          {visualSummaryItems.slice(0, overlayLimit).map((item) => (
+            <li
+              aria-label={visualSummaryTooltip(item)}
+              key={item.id}
+              title={visualSummaryTooltip(item)}
+            >
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </li>
+          ))}
+        </ul>
+      ) : overlays.length > 0 ? (
         <ul className="scenario-chart-overlay-list" aria-label="Scenario chart overlays">
           {overlays.slice(0, overlayLimit).map((overlay) => (
             <li
@@ -183,6 +272,80 @@ export function ScenarioChart({
         </ul>
       ) : null}
     </div>
+  );
+}
+
+function renderVisualShape(shape: VisualOverlayShape) {
+  const color = visualShapeColor(shape);
+  if (shape.kind === 'line') {
+    return (
+      <g key={shape.id}>
+        <line
+          className={`visual-opportunity-line visual-opportunity-${shape.role}`}
+          stroke={color}
+          strokeDasharray={shape.role === 'current_price' ? undefined : '5 4'}
+          strokeWidth={shape.status === 'active' || shape.status === 'passed' ? 2 : 1}
+          x1={shape.x1}
+          x2={shape.x2}
+          y1={shape.y1}
+          y2={shape.y2}
+        />
+        <text fill={color} x={Math.min(shape.x1, shape.x2) + 6} y={shape.y1 - 6}>
+          {shape.label}
+        </text>
+      </g>
+    );
+  }
+  if (shape.kind === 'rect') {
+    return (
+      <g key={shape.id}>
+        <rect
+          className={`visual-opportunity-rect visual-opportunity-${shape.role}`}
+          fill={color}
+          fillOpacity={shape.role === 'risk_box' ? 0.16 : 0.12}
+          height={Math.max(shape.height, 2)}
+          stroke={color}
+          strokeOpacity={0.72}
+          strokeWidth={1}
+          width={Math.max(shape.width, 1)}
+          x={shape.x}
+          y={shape.y}
+        />
+        <text fill={color} x={shape.x + 6} y={shape.y + 14}>
+          {shape.label}
+        </text>
+      </g>
+    );
+  }
+  if (shape.kind === 'path') {
+    return (
+      <g key={shape.id}>
+        <path
+          className={`visual-opportunity-path visual-opportunity-${shape.role}`}
+          d={shape.d}
+          fill="none"
+          stroke={color}
+          strokeDasharray="6 5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+        />
+      </g>
+    );
+  }
+  return (
+    <g key={shape.id}>
+      <circle
+        className={`visual-opportunity-marker visual-opportunity-${shape.role}`}
+        cx={shape.x}
+        cy={shape.y}
+        fill={color}
+        r={4}
+      />
+      <text fill={color} x={shape.x + 7} y={shape.y - 7}>
+        {shape.label}
+      </text>
+    </g>
   );
 }
 
@@ -226,6 +389,36 @@ function overlayValue(overlay: ScenarioChartOverlay): string {
 
 function overlayTooltip(overlay: ScenarioChartOverlay): string {
   return `${overlayLabel(overlay)}: ${overlayValue(overlay)} (${titleCase(overlay.status)})`;
+}
+
+function visualSummaryTooltip(item: VisualOverlaySummaryItem): string {
+  return `${item.label}: ${item.value} (${titleCase(item.status)})`;
+}
+
+function visualShapeColor(shape: VisualOverlayShape): string {
+  if (shape.status === 'failed' || shape.status === 'blocked') {
+    return '#ff5d67';
+  }
+  if (shape.status === 'passed') {
+    return '#34d399';
+  }
+  if (shape.role === 'risk_exit' || shape.role === 'risk_box') {
+    return '#f59e0b';
+  }
+  if (shape.role === 'target' || shape.role === 'reward_box') {
+    return '#62f0df';
+  }
+  if (shape.role === 'current_price') {
+    return '#dbeafe';
+  }
+  if (shape.role === 'paper_fill' || shape.role === 'paper_exit') {
+    return '#f8fafc';
+  }
+  return '#94a3b8';
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function titleCase(value: string): string {

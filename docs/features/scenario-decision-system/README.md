@@ -1,6 +1,6 @@
 # Scenario Decision System
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 Status: draft master spec
 
 ## Purpose
@@ -397,12 +397,14 @@ Backtest Lab must consume playbooks, not scenario prose.
 | V7 | Visual Scenario Monitoring | [V7 implementation plan](v7/implementation-plan.md) |
 | V7.1 | Scenario Lifecycle Hardening | [V7.1 implementation plan](v7.1/implementation-plan.md) |
 | V8 | Paper Execution | [V8 implementation plan](v8/implementation-plan.md) |
+| V8.1 | Visual Opportunity Projection | [V8.1 implementation plan](v8.1/implementation-plan.md) |
 
 Current roadmap status:
 
-- V7 Visual Scenario Monitoring: in-progress on the current branch evidence.
-- V7.1 Scenario Lifecycle Hardening: goal-ready.
-- V8 Paper Execution: design-ready spec, blocked until P0 execution semantics and the V7.1 definition of done pass.
+- V7 Visual Scenario Monitoring: implemented baseline, with lifecycle hardening tracked in V7.1.
+- V7.1 Scenario Lifecycle Hardening: implemented baseline for V8 handoff.
+- V8 Paper Execution: implemented MVP for deterministic paper execution and simulation read models.
+- V8.1 Visual Opportunity Projection: design-ready and recommended before Technical Pattern System V1.
 
 Each version must be independently valuable and testable. Do not skip from V1
 directly to V5. Without V2 and V3, Backtest Lab would be disconnected from the
@@ -1618,7 +1620,7 @@ snapshot without reading mutable live projection as historical rationale.
 
 ## V8: Paper Execution
 
-Status: design-ready spec, gated by P0 semantic acceptance and V7.1 completion.
+Status: implemented MVP; richer chart visualization continues in V8.1.
 
 Primary spec:
 
@@ -1734,6 +1736,44 @@ V8 is done when:
 - Reliability updates deduplicate repeated runs over the same sample identity.
 - UI copy remains simulation-only and contains no live execution language.
 
+## V8.1: Visual Opportunity Projection
+
+Status: design-ready spec for richer read-only chart projection; recommended before Technical Pattern System V1.
+
+Primary spec:
+
+```text
+docs/features/scenario-decision-system/v8.1/implementation-plan.md
+```
+
+### Goal
+
+Turn trade playbooks, paper simulation state, scenario chart projections, and
+optional technical pattern snapshots into Autochartist-like chart overlays:
+entry area, risk exit, targets, projected path, expiry window, pattern geometry,
+and current execution state.
+
+### Boundary
+
+V8.1 is a visualization/read-model release. It must not move execution lifecycle
+decisions into the chart, create broker order tickets, or parse free-text
+scenario prose for chart coordinates. Technical pattern snapshots are optional
+bonus geometry, not a V8.1 blocker.
+
+### Definition Of Done
+
+V8.1 is done when:
+
+- entry, risk exit, target, expiry, and current price are visible from structured
+  overlay data;
+- paper simulation fills and exits can add markers without changing the original
+  playbook geometry;
+- technical pattern geometry can be rendered when present and ignored safely
+  when absent;
+- stale or missing sources are surfaced as warnings instead of silent blank
+  charts;
+- chart rendering remains a read-only projection.
+
 ## Version Dependencies
 
 ```text
@@ -1800,6 +1840,14 @@ V8 Paper Execution
     Stable scenario/playbook/chart snapshot contracts
     Current numeric trade playbooks
     Market OHLCV replay/forward data
+
+V8.1 Visual Opportunity Projection
+  depends on:
+    V8 paper execution read models
+    trade_playbook.v1
+    scenario_chart_projection.v1
+    optional technical_pattern_snapshot.v1
+    lightweight-charts candle coordinates
 ```
 
 ## Do Not Build Out Of Order

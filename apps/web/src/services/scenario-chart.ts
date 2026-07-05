@@ -48,7 +48,11 @@ export function listScenarioEvents(
 
 export function getScenarioChartProjection(
   scenarioId: string,
-  params: { interval?: MarketChartInterval; limit?: number },
+  params: {
+    interval?: MarketChartInterval;
+    limit?: number;
+    simulationId?: string | null;
+  },
   auth: WorkspaceRequestContext,
 ) {
   return apiRequest<ScenarioChartProjectionResponse>(
@@ -57,6 +61,7 @@ export function getScenarioChartProjection(
       query: {
         interval: params.interval ?? '15m',
         limit: params.limit ?? 200,
+        simulation_id: params.simulationId ?? undefined,
       },
     },
     auth,

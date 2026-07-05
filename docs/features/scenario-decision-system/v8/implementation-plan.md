@@ -1,8 +1,8 @@
 # Paper Execution V8 Implementation Plan
 
-Status: design-ready
-Implementation readiness: blocked until the P0 semantic locks in this document are accepted and the V7.1 definition of done passes.
-Last updated: 2026-07-04
+Status: implemented MVP
+Implementation readiness: implemented baseline; richer chart visualization is tracked in V8.1.
+Last updated: 2026-07-05
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

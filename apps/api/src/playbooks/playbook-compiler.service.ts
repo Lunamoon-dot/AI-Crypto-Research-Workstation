@@ -21,7 +21,14 @@ import { evaluateScenario } from '../scenarios/scenario-evaluator';
 import { ScenarioReliabilityService } from '../scenarios/scenario-reliability.service';
 import { evaluateScenarioRuntimeDecision } from '../scenarios/scenario-runtime-evaluator';
 import { firstPriceLevelFromText } from '../scenarios/scenario-text-conditions';
+import {
+  conditionEntryLevel,
+  multiStageSetupRequiresSequence,
+} from '../scenarios/sequenced-setup-guard';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+
+const MULTI_STAGE_SETUP_REJECTION =
+  'Multi-stage setup requires sequenced setup; refusing flat trade playbook.';
 
 @Injectable()
 export class PlaybookCompilerService {
@@ -104,6 +111,18 @@ export class PlaybookCompilerService {
           ? 'No coherent entry condition.'
           : 'Missing entry or trigger condition.',
       );
+    }
+    if (
+      requiresSequencedSetup({
+        direction,
+        trigger,
+        recommendation,
+        decisionPlaybook: response.decision_playbook,
+        scenario,
+        payload: response.payload,
+      })
+    ) {
+      rejectionReasons.push(MULTI_STAGE_SETUP_REJECTION);
     }
     if (!direction) {
       rejectionReasons.push('Direction is not actionable.');
@@ -357,6 +376,46 @@ function firstEntryCondition(
     }
   }
   return null;
+}
+
+function requiresSequencedSetup(input: {
+  direction: 'long' | 'short' | null;
+  trigger: JsonRecord | null;
+  recommendation: ReturnType<typeof toScenarioResponse>['scenario_recommendation'];
+  decisionPlaybook: ReturnType<typeof toScenarioResponse>['decision_playbook'];
+  scenario: JsonRecord;
+  payload: JsonRecord;
+}): boolean {
+  if (!input.direction || !input.trigger) {
+    return false;
+  }
+  return multiStageSetupRequiresSequence({
+    direction: input.direction,
+    entryLevel: conditionEntryLevel(input.trigger, input.direction),
+    conditions: [
+      ...(input.recommendation?.required_conditions ?? []),
+      ...(input.decisionPlaybook?.entry_conditions ?? []),
+    ],
+    textSources: preconditionTexts(input),
+  });
+}
+
+function preconditionTexts(input: {
+  recommendation: ReturnType<typeof toScenarioResponse>['scenario_recommendation'];
+  decisionPlaybook: ReturnType<typeof toScenarioResponse>['decision_playbook'];
+  scenario: JsonRecord;
+  payload: JsonRecord;
+}): unknown[] {
+  return [
+    ...stringList(input.recommendation?.wait_for),
+    input.recommendation?.summary,
+    ...stringList(input.decisionPlaybook?.wait_for),
+    input.decisionPlaybook?.rationale,
+    input.scenario.condition,
+    input.scenario.expected_behavior,
+    input.payload.condition,
+    input.payload.expected_behavior,
+  ];
 }
 
 function hasPriceEntryCondition(...groups: Array<unknown[] | undefined>): boolean {

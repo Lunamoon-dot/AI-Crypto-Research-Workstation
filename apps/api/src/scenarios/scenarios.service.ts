@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import {
   JOURNAL_REPOSITORY,
@@ -17,6 +17,8 @@ import {
 import { optionalScenarioLifecycleRows } from '../database/optional-scenario-lifecycle';
 import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
+import { PaperExecutionService } from '../paper-execution/paper-execution.service';
+import type { SimulationDetailResponse } from '../paper-execution/paper-execution.types';
 import { WorkspacesService, WorkspaceRole } from '../workspaces/workspaces.service';
 import { ScenarioChartProjectionService } from './scenario-chart-projection.service';
 import { ScenarioChartSummaryService } from './scenario-chart-summary.service';
@@ -46,6 +48,7 @@ export class ScenariosService {
     private readonly liveState: ScenarioLiveStateService,
     private readonly chartProjection: ScenarioChartProjectionService,
     private readonly chartSummary: ScenarioChartSummaryService,
+    private readonly paperExecution: PaperExecutionService,
   ) {}
 
   async monitor(
@@ -153,15 +156,48 @@ export class ScenariosService {
   }
 
   async getChartProjection(
-    input: { scenarioId: string; interval?: string; limit?: string },
+    input: {
+      scenarioId: string;
+      interval?: string;
+      limit?: string;
+      simulationId?: string;
+    },
     userId?: string,
     workspaceHeader?: string,
   ): Promise<ScenarioChartProjectionResponse> {
     const workspaceId = await this.resolveWorkspace(userId, workspaceHeader);
+    const simulation = input.simulationId
+      ? await this.simulationForChart(
+          input.simulationId,
+          input.scenarioId,
+          userId,
+          workspaceId,
+        )
+      : null;
     return this.chartProjection.getProjection({
       ...input,
       workspaceId,
+      simulation,
     });
+  }
+
+  private async simulationForChart(
+    simulationId: string,
+    scenarioId: string,
+    userId: string | undefined,
+    workspaceId: string,
+  ): Promise<SimulationDetailResponse> {
+    const simulation = await this.paperExecution.getSimulation(
+      simulationId,
+      userId,
+      workspaceId,
+    );
+    if (simulation.source_scenario_id !== scenarioId) {
+      throw new BadRequestException(
+        'Simulation does not belong to the requested scenario.',
+      );
+    }
+    return simulation;
   }
 
   async getChartSummary(

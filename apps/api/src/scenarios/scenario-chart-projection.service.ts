@@ -11,11 +11,13 @@ import {
 } from '../contracts/frontend-contract';
 import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
+import type { SimulationDetailResponse } from '../paper-execution/paper-execution.types';
 import type {
   ScenarioDecisionCondition,
   ScenarioDecisionPlaybook,
   ScenarioRecommendation,
 } from './scenario-decision.types';
+import { tradePlaybookRequiresSequencedSetup } from './sequenced-setup-guard';
 import { ScenarioContextLoaderService } from './scenario-context-loader.service';
 import type {
   ScenarioChartOverlay,
@@ -25,6 +27,7 @@ import type {
   ScenarioLiveStateResponse,
 } from './scenario-chart.types';
 import { ScenarioLiveStateService } from './scenario-live-state.service';
+import { buildVisualOpportunityProjection } from './visual-opportunity-projection';
 
 @Injectable()
 export class ScenarioChartProjectionService {
@@ -39,6 +42,7 @@ export class ScenarioChartProjectionService {
     workspaceId: string;
     interval?: string;
     limit?: string;
+    simulation?: SimulationDetailResponse | null;
   }): Promise<ScenarioChartProjectionResponse> {
     const context = await this.contextLoader.load({
       scenarioId: input.scenarioId,
@@ -76,6 +80,7 @@ export class ScenarioChartProjectionService {
       liveState,
       ohlcv: candles,
       events: context.events,
+      simulation: input.simulation ?? null,
     });
   }
 }
@@ -92,17 +97,23 @@ function buildScenarioChartProjection(input: {
   liveState: ScenarioLiveStateResponse;
   ohlcv: MarketOhlcvResponse;
   events: JsonRecord[];
+  simulation: SimulationDetailResponse | null;
 }): ScenarioChartProjectionResponse {
   const currentTradePlaybook =
     input.latestPlaybook?.status === 'current' ? input.latestPlaybook : null;
   const chartDecisionPlaybook =
     input.decisionPlaybook ?? playbookFromRecommendation(input.scenarioRecommendation);
+  const enabledTradePlaybook =
+    currentTradePlaybook &&
+    !tradePlaybookRequiresSequencedSetup(currentTradePlaybook, chartDecisionPlaybook)
+      ? currentTradePlaybook
+      : null;
   const overlays: ScenarioChartOverlay[] = [
     ...decisionPlaybookOverlays(
       chartDecisionPlaybook,
       input.liveState.condition_evaluations,
     ),
-    ...tradePlaybookOverlays(currentTradePlaybook, input.liveState),
+    ...tradePlaybookOverlays(enabledTradePlaybook, input.liveState),
     ...currentPriceOverlay(input.liveState),
     ...eventOverlays(input.events),
   ];
@@ -112,14 +123,17 @@ function buildScenarioChartProjection(input: {
     input.latestPlaybook && input.latestPlaybook.status !== 'current'
       ? `trade_playbook_${input.latestPlaybook.status}`
       : null,
+    currentTradePlaybook && !enabledTradePlaybook
+      ? 'trade_playbook_requires_sequenced_setup'
+      : null,
     ...(input.latestPlaybook?.stale_reasons ?? []),
   ].filter((warning): warning is string => Boolean(warning));
-  return {
+  const projectionWithoutVisual: Omit<ScenarioChartProjectionResponse, 'visual_projection'> = {
     version: 'scenario_chart_projection.v1',
     workspace_id: input.workspaceId,
     scenario_id: input.scenarioId,
     thesis_id: input.thesisId,
-    mode: currentTradePlaybook ? 'trade' : 'watch',
+    mode: enabledTradePlaybook ? 'trade' : 'watch',
     symbol: input.symbol,
     market_type: input.marketType,
     interval: input.ohlcv.interval,
@@ -134,6 +148,14 @@ function buildScenarioChartProjection(input: {
     overlays,
     live_state: input.liveState,
     warnings,
+  };
+  return {
+    ...projectionWithoutVisual,
+    visual_projection: buildVisualOpportunityProjection({
+      chart: projectionWithoutVisual,
+      playbook: currentTradePlaybook,
+      simulation: input.simulation,
+    }),
   };
 }
 

@@ -63,11 +63,12 @@ export class ScenariosController {
     @Param('id') id: string,
     @Query('interval') interval?: string,
     @Query('limit') limit?: string,
+    @Query('simulation_id') simulationId?: string,
     @Headers('x-user-id') userId?: string,
     @Headers('x-workspace-id') workspaceId?: string,
   ) {
     return this.scenarios.getChartProjection(
-      { scenarioId: id, interval, limit },
+      { scenarioId: id, interval, limit, simulationId },
       userId,
       workspaceId,
     );

@@ -1,6 +1,6 @@
 # Feature Registry
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 Use this page to find long-lived feature plans. Feature docs capture intent,
 scope, decisions, and verification rules; code and tests remain the executable
@@ -35,8 +35,9 @@ Rules:
 | Calibration Lab | [calibration-lab/v1.2/implementation-plan.md](calibration-lab/v1.2/implementation-plan.md) | goal-ready | Research-quality thesis evaluation and calibration workflow. |
 | Research Data Foundation | [research-data-foundation/README.md](research-data-foundation/README.md) | draft | Data gap ledger and source strategy for market, derivatives, on-chain, news, social, and provenance. |
 | Research Continuity | [research-continuity/v2.0/implementation-plan.md](research-continuity/v2.0/implementation-plan.md) | implemented | Timeline and item lifecycle explorer as the graph-ready continuity substrate. |
-| Scenario Decision System | [scenario-decision-system/v8/implementation-plan.md](scenario-decision-system/v8/implementation-plan.md) | design-ready | V8 defines deterministic paper execution, with implementation blocked until P0 semantics and V7.1 are locked. |
+| Scenario Decision System | [scenario-decision-system/v8.1/implementation-plan.md](scenario-decision-system/v8.1/implementation-plan.md) | design-ready | V8.1 defines Autochartist-like visual opportunity projection before Technical Pattern System V1. |
 | Scenario Horizon Planner | [scenario-horizon-planner/v1/implementation-plan.md](scenario-horizon-planner/v1/implementation-plan.md) | goal-ready | Keep one Scenario Planner node while specializing outputs into short, mid, and long horizon branches. |
+| Technical Pattern System | [technical-pattern-system/v1/implementation-plan.md](technical-pattern-system/v1/implementation-plan.md) | design-ready | Deterministic pattern evidence and chart geometry for scenarios, playbooks, and visual projections. |
 
 ## Status Labels
 

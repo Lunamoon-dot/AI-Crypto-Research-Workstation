@@ -1242,6 +1242,7 @@ export const openApiDocument = {
             enum: ['1m', '5m', '15m', '1h', '4h', '1d'],
             default: '15m',
           }),
+          queryParameter('simulation_id', { type: 'string' }),
           limitParameter(200, 1000),
         ],
         responses: jsonResponse(
@@ -4051,9 +4052,159 @@ export const openApiDocument = {
           status: { type: 'string', enum: ['active', 'passed', 'failed', 'blocked', 'unknown'] },
         },
       },
+      VisualSourceRefV1: {
+        type: 'object',
+        required: ['type'],
+        properties: {
+          type: {
+            type: 'string',
+            enum: [
+              'trade_playbook',
+              'scenario_chart_projection',
+              'simulation_run',
+              'execution_event',
+              'technical_pattern',
+            ],
+          },
+          id: { type: ['string', 'null'] },
+          field: { type: ['string', 'null'] },
+        },
+      },
+      VisualPointV1: {
+        type: 'object',
+        required: ['time', 'price'],
+        properties: {
+          time: { type: 'string' },
+          price: { type: 'number' },
+        },
+      },
+      VisualOverlayV1: {
+        type: 'object',
+        required: ['type', 'id', 'role', 'source_ref'],
+        properties: {
+          type: { type: 'string', enum: ['line', 'zone', 'path', 'box', 'marker'] },
+          id: { type: 'string' },
+          role: { type: 'string' },
+          points: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/VisualPointV1' },
+          },
+          point: { $ref: '#/components/schemas/VisualPointV1' },
+          price_low: { type: 'number' },
+          price_high: { type: 'number' },
+          time_start: { type: ['string', 'null'] },
+          time_end: { type: ['string', 'null'] },
+          label: { type: 'string' },
+          style: { type: 'string', enum: ['solid', 'dashed', 'dotted'] },
+          opacity: { type: 'number' },
+          status: { type: 'string', enum: ['active', 'passed', 'failed', 'blocked', 'unknown'] },
+          path_semantics: {
+            type: 'string',
+            enum: [
+              'planned_setup_path',
+              'measured_move_projection',
+              'pattern_projection',
+            ],
+          },
+          arrow_end: { type: 'boolean' },
+          confidence: { type: 'number' },
+          event_id: { type: ['string', 'null'] },
+          source_ref: { $ref: '#/components/schemas/VisualSourceRefV1' },
+        },
+      },
+      VisualLabelV1: {
+        type: 'object',
+        required: ['id', 'text', 'source_ref'],
+        properties: {
+          id: { type: 'string' },
+          text: { type: 'string' },
+          point: {
+            anyOf: [
+              { $ref: '#/components/schemas/VisualPointV1' },
+              { type: 'null' },
+            ],
+          },
+          source_ref: { $ref: '#/components/schemas/VisualSourceRefV1' },
+        },
+      },
+      VisualOpportunityProjectionV1: {
+        type: 'object',
+        required: [
+          'schema_version',
+          'id',
+          'workspace_id',
+          'scenario_id',
+          'symbol',
+          'timeframe',
+          'generated_at',
+          'source_versions',
+          'opportunity',
+          'overlays',
+          'labels',
+          'warnings',
+        ],
+        properties: {
+          schema_version: { type: 'string', enum: ['visual_opportunity_projection.v1'] },
+          id: { type: 'string' },
+          workspace_id: { type: 'string' },
+          scenario_id: { type: 'string' },
+          thesis_id: { type: 'string' },
+          symbol: { type: 'string' },
+          timeframe: { type: 'string' },
+          generated_at: { type: 'string' },
+          source_versions: {
+            type: 'object',
+            properties: {
+              trade_playbook_id: { type: ['string', 'null'] },
+              trade_playbook_hash: { type: ['string', 'null'] },
+              simulation_run_id: { type: ['string', 'null'] },
+              scenario_chart_projection_hash: { type: ['string', 'null'] },
+              scenario_chart_generated_at: { type: ['string', 'null'] },
+              technical_pattern_snapshot_id: { type: ['string', 'null'] },
+            },
+          },
+          opportunity: {
+            type: 'object',
+            required: ['kind', 'side', 'status', 'stale_reasons'],
+            properties: {
+              kind: {
+                type: 'string',
+                enum: ['trade_setup', 'watch_setup', 'narrative_checkpoint', 'blocked'],
+              },
+              side: { type: 'string', enum: ['long', 'short', 'neutral'] },
+              status: {
+                type: 'string',
+                enum: [
+                  'watching',
+                  'waiting_entry',
+                  'entry_touched',
+                  'open',
+                  'target_hit',
+                  'risk_exit_hit',
+                  'expired',
+                  'cancelled',
+                  'blocked',
+                  'not_chartable',
+                ],
+              },
+              confidence: { type: 'number' },
+              stale_reasons: { type: 'array', items: { type: 'string' } },
+            },
+          },
+          overlays: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/VisualOverlayV1' },
+          },
+          labels: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/VisualLabelV1' },
+          },
+          warnings: { type: 'array', items: { type: 'string' } },
+        },
+      },
       ScenarioChartProjectionResponse: {
         type: 'object',
-        required: ['version', 'workspace_id', 'scenario_id', 'thesis_id', 'mode', 'symbol', 'market_type', 'interval', 'generated_at', 'source_versions', 'candles', 'overlays', 'live_state', 'warnings'],
+        required: ['version', 'workspace_id', 'scenario_id', 'thesis_id', 'mode', 'symbol', 'market_type', 'interval', 'generated_at', 'source_versions', 'candles', 'overlays', 'live_state', 'warnings', 'visual_projection'],
         properties: {
           version: { type: 'string', enum: ['scenario_chart_projection.v1'] },
           workspace_id: { type: 'string' },
@@ -4084,6 +4235,12 @@ export const openApiDocument = {
           },
           live_state: { $ref: '#/components/schemas/ScenarioLiveStateResponse' },
           warnings: { type: 'array', items: { type: 'string' } },
+          visual_projection: {
+            anyOf: [
+              { $ref: '#/components/schemas/VisualOpportunityProjectionV1' },
+              { type: 'null' },
+            ],
+          },
         },
       },
       ScenarioChartSummariesRequest: {

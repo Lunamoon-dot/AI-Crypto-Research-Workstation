@@ -1297,7 +1297,11 @@ export function createApiClient(request: ApiTransport) {
       ),
     getScenarioChartProjection: (
       scenarioId: string,
-      params: { interval?: MarketChartInterval; limit?: number } = {},
+      params: {
+        interval?: MarketChartInterval;
+        limit?: number;
+        simulationId?: string | null;
+      } = {},
     ) =>
       request<ScenarioChartProjectionResponse>(
         `/scenarios/${encodeURIComponent(scenarioId)}/chart`,
@@ -1305,6 +1309,7 @@ export function createApiClient(request: ApiTransport) {
           query: {
             interval: params.interval ?? '15m',
             limit: params.limit ?? 200,
+            simulation_id: params.simulationId ?? undefined,
           },
         },
       ),

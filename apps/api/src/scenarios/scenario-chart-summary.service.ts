@@ -4,6 +4,7 @@ import type { JsonRecord } from '../database/journal.types';
 import { evaluateTradePlaybookFreshness } from '../playbooks/playbook-freshness';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
 import type { ScenarioDecisionCondition } from './scenario-decision.types';
+import { tradePlaybookRequiresSequencedSetup } from './sequenced-setup-guard';
 import {
   ScenarioContext,
   ScenarioContextLoaderService,
@@ -41,9 +42,14 @@ export class ScenarioChartSummaryService {
     const latestPlaybook = currentPlaybook(context.playbooks[0] ?? null, scenario);
     const currentTradePlaybook =
       latestPlaybook?.status === 'current' ? latestPlaybook : null;
+    const enabledTradePlaybook =
+      currentTradePlaybook &&
+      !tradePlaybookRequiresSequencedSetup(currentTradePlaybook, scenario.decision_playbook)
+        ? currentTradePlaybook
+        : null;
     const overlayCounts = overlayCountsFromSources({
       decisionPlaybook: scenario.decision_playbook,
-      tradePlaybook: currentTradePlaybook,
+      tradePlaybook: enabledTradePlaybook,
       live,
       eventCount: context.events.length,
     });
@@ -52,7 +58,7 @@ export class ScenarioChartSummaryService {
       version: 'scenario_chart_summary.v1',
       workspace_id: context.workspaceId,
       scenario_id: context.scenarioId,
-      mode: currentTradePlaybook ? 'trade' : 'watch',
+      mode: enabledTradePlaybook ? 'trade' : 'watch',
       symbol: context.symbol,
       market_type: context.marketType,
       generated_at: live.evaluated_at,

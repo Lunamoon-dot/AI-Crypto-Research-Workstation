@@ -125,6 +125,155 @@ export type ScenarioChartOverlay =
       status: 'active' | 'passed' | 'failed' | 'blocked' | 'unknown';
     };
 
+export interface VisualPointV1 {
+  time: string;
+  price: number;
+}
+
+export type VisualSourceRefV1 = {
+  type:
+    | 'trade_playbook'
+    | 'scenario_chart_projection'
+    | 'simulation_run'
+    | 'execution_event'
+    | 'technical_pattern';
+  id?: string | null;
+  field?: string | null;
+};
+
+export type VisualOverlayStatusV1 =
+  | 'active'
+  | 'passed'
+  | 'failed'
+  | 'blocked'
+  | 'unknown';
+
+export type VisualOverlayRoleV1 =
+  | 'entry'
+  | 'risk_exit'
+  | 'target'
+  | 'expiry'
+  | 'projected_path'
+  | 'pattern_support'
+  | 'pattern_resistance'
+  | 'pattern_channel'
+  | 'pattern_boundary'
+  | 'measured_move'
+  | 'current_price'
+  | 'paper_fill'
+  | 'paper_exit';
+
+export type VisualOverlayV1 =
+  | {
+      type: 'line';
+      id: string;
+      role: VisualOverlayRoleV1;
+      points: [VisualPointV1, VisualPointV1];
+      label?: string;
+      style?: 'solid' | 'dashed' | 'dotted';
+      status?: VisualOverlayStatusV1;
+      source_ref: VisualSourceRefV1;
+    }
+  | {
+      type: 'zone';
+      id: string;
+      role: VisualOverlayRoleV1;
+      price_low: number;
+      price_high: number;
+      time_start?: string | null;
+      time_end?: string | null;
+      label?: string;
+      opacity?: number;
+      status?: VisualOverlayStatusV1;
+      source_ref: VisualSourceRefV1;
+    }
+  | {
+      type: 'box';
+      id: string;
+      role: 'risk_box' | 'reward_box' | 'target' | 'expiry';
+      time_start: string;
+      time_end: string;
+      price_low: number;
+      price_high: number;
+      label?: string;
+      status?: VisualOverlayStatusV1;
+      source_ref: VisualSourceRefV1;
+    }
+  | {
+      type: 'path';
+      id: string;
+      role: 'setup_path' | 'measured_move' | 'pattern_projection';
+      path_semantics:
+        | 'planned_setup_path'
+        | 'measured_move_projection'
+        | 'pattern_projection';
+      points: VisualPointV1[];
+      arrow_end?: boolean;
+      label?: string;
+      confidence?: number;
+      source_ref: VisualSourceRefV1;
+    }
+  | {
+      type: 'marker';
+      id: string;
+      role: 'paper_fill' | 'paper_exit' | 'expiry' | 'current_price';
+      point: VisualPointV1;
+      label?: string;
+      event_id?: string | null;
+      status?: VisualOverlayStatusV1;
+      source_ref: VisualSourceRefV1;
+    };
+
+export interface VisualLabelV1 {
+  id: string;
+  text: string;
+  point?: VisualPointV1 | null;
+  source_ref: VisualSourceRefV1;
+}
+
+export interface VisualOpportunityProjectionV1 {
+  schema_version: 'visual_opportunity_projection.v1';
+  id: string;
+  workspace_id: string;
+  scenario_id: string;
+  thesis_id?: string;
+  symbol: string;
+  timeframe: string;
+  generated_at: string;
+  source_versions: {
+    trade_playbook_id?: string | null;
+    trade_playbook_hash?: string | null;
+    simulation_run_id?: string | null;
+    scenario_chart_projection_hash?: string | null;
+    scenario_chart_generated_at?: string | null;
+    technical_pattern_snapshot_id?: string | null;
+  };
+  opportunity: {
+    kind:
+      | 'trade_setup'
+      | 'watch_setup'
+      | 'narrative_checkpoint'
+      | 'blocked';
+    side: 'long' | 'short' | 'neutral';
+    status:
+      | 'watching'
+      | 'waiting_entry'
+      | 'entry_touched'
+      | 'open'
+      | 'target_hit'
+      | 'risk_exit_hit'
+      | 'expired'
+      | 'cancelled'
+      | 'blocked'
+      | 'not_chartable';
+    confidence?: number;
+    stale_reasons: string[];
+  };
+  overlays: VisualOverlayV1[];
+  labels: VisualLabelV1[];
+  warnings: string[];
+}
+
 export interface ScenarioChartProjectionResponse {
   version: 'scenario_chart_projection.v1';
   workspace_id: string;
@@ -145,6 +294,7 @@ export interface ScenarioChartProjectionResponse {
   overlays: ScenarioChartOverlay[];
   live_state: ScenarioLiveStateResponse;
   warnings: string[];
+  visual_projection: VisualOpportunityProjectionV1 | null;
 }
 
 export interface ScenarioChartSummaryResponse {

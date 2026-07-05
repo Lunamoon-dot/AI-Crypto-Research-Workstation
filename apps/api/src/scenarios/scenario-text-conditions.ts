@@ -100,6 +100,23 @@ export function firstPriceLevelFromText(value: unknown): number | null {
   return null;
 }
 
+export function firstPriceZoneFromText(
+  value: unknown,
+): { zone_low: number; zone_high: number } | null {
+  const zone = matchPriceZone(normalizeScenarioConditionText(value));
+  if (
+    zone &&
+    typeof zone.zone_low === 'number' &&
+    typeof zone.zone_high === 'number'
+  ) {
+    return {
+      zone_low: zone.zone_low,
+      zone_high: zone.zone_high,
+    };
+  }
+  return null;
+}
+
 export function decisionConditionFromRecord(
   value: unknown,
 ): ScenarioDecisionCondition | null {
@@ -238,6 +255,22 @@ function firstDirectionalLevel(
 }
 
 function matchPriceZone(normalizedText: string): ScenarioDecisionCondition | null {
+  const sequencePattern = new RegExp(
+    `\\b(?:gia\\s+)?(?:into|trades?\\s+into|rall(?:y|ies|ied)\\s+(?:to|into)|tang\\s+len|pump\\s+len|tai\\s+vung)\\s+\\$?${PRICE_PATTERN}\\s*[-â€“â€”]\\s*\\$?${PRICE_PATTERN}\\b`,
+    'i',
+  );
+  const sequenceMatch = normalizedText.match(sequencePattern);
+  if (sequenceMatch) {
+    const first = parsePriceLevel(sequenceMatch[1], sequenceMatch[2]);
+    const second = parsePriceLevel(sequenceMatch[3], sequenceMatch[4]);
+    if (first !== null && second !== null) {
+      return {
+        type: 'price_in_zone',
+        zone_low: Math.min(first, second),
+        zone_high: Math.max(first, second),
+      };
+    }
+  }
   const pattern = new RegExp(
     `\\b(?:gia\\s+)?(?:cham|vao|ve|retest|test|near|vung|zone)\\s+\\$?${PRICE_PATTERN}\\s*[-–—]\\s*\\$?${PRICE_PATTERN}\\b`,
     'i',

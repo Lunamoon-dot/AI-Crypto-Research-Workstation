@@ -18,6 +18,7 @@ import {
 } from '../market-data/market-ohlcv.service';
 import { toTradePlaybookResponse } from '../contracts/frontend-contract';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
+import { tradePlaybookRequiresSequencedSetup } from '../scenarios/sequenced-setup-guard';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import type {
   CloseSimulationRequest,
@@ -43,6 +44,8 @@ import type {
 const DECIMAL_SCALE_DIGITS = 10;
 const DECIMAL_SCALE = 10n ** BigInt(DECIMAL_SCALE_DIGITS);
 const BASIS_POINTS = 10_000n;
+const FLAT_MULTI_STAGE_PLAYBOOK_REJECTION =
+  'Simulation requires a sequenced setup for this multi-stage playbook.';
 const BASIS_POINTS_SCALE = BASIS_POINTS * DECIMAL_SCALE;
 
 @Injectable()
@@ -112,6 +115,9 @@ export class PaperExecutionService {
       sourceHashes,
       workspaceId,
     );
+    if (tradePlaybookRequiresSequencedSetup(playbook, analysisSnapshot.decision_playbook)) {
+      throw new BadRequestException(FLAT_MULTI_STAGE_PLAYBOOK_REJECTION);
+    }
     const sampleIdentity = sampleIdentityFrom({
       sourceHashes,
       marketDataSnapshot,

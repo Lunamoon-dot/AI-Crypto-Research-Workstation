@@ -98,8 +98,8 @@ export const queryKeys = {
     ['thesis-scenarios', queryIdentity(), id] as const,
   scenarioMonitor: (filters: Record<string, unknown>) =>
     scopedFilters('scenario-monitor', filters),
-  scenarioChart: (id: string, interval: string) =>
-    ['scenario-chart', queryIdentity(), id, interval] as const,
+  scenarioChart: (id: string, interval: string, simulationId?: string | null) =>
+    ['scenario-chart', queryIdentity(), id, interval, simulationId ?? null] as const,
   scenarioChartSummaries: (ids: string[]) =>
     ['scenario-chart-summaries', queryIdentity(), [...ids].sort()] as const,
   scenarioDecisionWorkbench: () =>

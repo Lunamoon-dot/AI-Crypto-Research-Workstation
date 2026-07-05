@@ -4057,6 +4057,30 @@ test('scenario chart projection source_versions includes stale reasons in OpenAP
   assert.ok(properties.stale_reasons);
 });
 
+test('visual opportunity projection contract is exposed in OpenAPI', () => {
+  const schemas = openApiDocument.components.schemas as Record<string, unknown>;
+  const projection = record(schemas.VisualOpportunityProjectionV1);
+  const overlay = record(schemas.VisualOverlayV1);
+  const chartProjection = record(schemas.ScenarioChartProjectionResponse);
+  const chartProperties = record(chartProjection.properties);
+  const projectionProperties = record(projection.properties);
+  const overlayProperties = record(overlay.properties);
+  const schemaVersion = record(projectionProperties.schema_version);
+
+  assert.ok(projection);
+  assert.ok(overlay);
+  assert.equal(
+    Array.isArray(schemaVersion.enum) &&
+      schemaVersion.enum.includes('visual_opportunity_projection.v1'),
+    true,
+  );
+  assert.ok(projectionProperties.source_versions);
+  assert.ok(projectionProperties.opportunity);
+  assert.ok(projectionProperties.overlays);
+  assert.ok(overlayProperties.source_ref);
+  assert.ok(chartProperties.visual_projection);
+});
+
 test('OpenAPI contract omits decommissioned watchlist and daily brief routes', () => {
   const paths = openApiDocument.paths as Record<string, Record<string, unknown>>;
   for (const removedPath of [
@@ -13782,6 +13806,351 @@ test('scenario chart projection renders trade overlays from current trade playbo
   );
 });
 
+test('scenario chart projection includes visual opportunity overlays from a current long playbook', async () => {
+  const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_visual_long';
+  const scenarioId = 'scenario_visual_long';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_visual_long'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BNB/USDT',
+    entry: {
+      type: 'zone',
+      condition: 'Scale only inside the reclaim zone.',
+      level: null,
+      zone_low: 618,
+      zone_high: 622,
+    },
+    invalidation: { condition: 'Lose the reclaim base.', level: 600 },
+    targets: [{ label: 'Target 1', level: 640, rationale: 'Measured range.' }],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
+    status: 'current',
+  }, 'workspace_a');
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 615, 622, 614, 621),
+      candle('2026-07-02T00:15:00.000Z', 621, 624, 620, 623),
+    ]);
+
+  const projection = await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '10',
+  });
+  const visual = record(
+    (projection as unknown as JsonRecord).visual_projection,
+  );
+  const opportunity = record(visual.opportunity);
+  const sourceVersions = record(visual.source_versions);
+  const overlays = Array.isArray(visual.overlays)
+    ? visual.overlays.map(record)
+    : [];
+
+  assert.equal(visual.schema_version, 'visual_opportunity_projection.v1');
+  assert.equal(sourceVersions.trade_playbook_id, 'playbook_visual_long');
+  assert.equal(opportunity.kind, 'trade_setup');
+  assert.equal(opportunity.side, 'long');
+  assert.equal(opportunity.status, 'waiting_entry');
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'zone' && overlay.role === 'entry',
+    ),
+    true,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'line' && overlay.role === 'risk_exit',
+    ),
+    true,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'box' && overlay.role === 'risk_box',
+    ),
+    true,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'box' && overlay.role === 'reward_box',
+    ),
+    true,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) =>
+        overlay.type === 'path' &&
+        overlay.role === 'setup_path' &&
+        overlay.path_semantics === 'planned_setup_path',
+    ),
+    true,
+  );
+});
+
+test('scenario chart projection warns instead of drawing trade setup boxes for narrative checkpoints', async () => {
+  const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_visual_narrative';
+  const scenarioId = 'scenario_visual_narrative';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_visual_narrative'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BNB/USDT',
+    direction: 'avoid',
+    entry: {
+      type: 'condition',
+      condition: 'Review the narrative only.',
+      level: null,
+      zone_low: null,
+      zone_high: null,
+    },
+    invalidation: { condition: 'Narrative invalidation only.', level: null },
+    targets: [],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
+    status: 'current',
+  }, 'workspace_a');
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-02T00:00:00.000Z', 615, 622, 614, 621),
+    ]);
+
+  const projection = await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '10',
+  });
+  const visual = record(
+    (projection as unknown as JsonRecord).visual_projection,
+  );
+  const opportunity = record(visual.opportunity);
+  const overlays = Array.isArray(visual.overlays)
+    ? visual.overlays.map(record)
+    : [];
+
+  assert.equal(opportunity.kind, 'narrative_checkpoint');
+  assert.equal(opportunity.status, 'not_chartable');
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'box' && overlay.role === 'risk_box',
+    ),
+    false,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'box' && overlay.role === 'reward_box',
+    ),
+    false,
+  );
+  assert.equal(
+    Array.isArray(visual.warnings) &&
+      visual.warnings.includes('non_chartable_trade_playbook'),
+    true,
+  );
+});
+
+test('scenario chart projection can include paper simulation fill and exit markers', async () => {
+  const { journal, paperExecution, scenarioOhlcv, scenarios } = buildHarness();
+  const thesisId = 'thesis_visual_simulation';
+  const scenarioId = 'scenario_visual_simulation';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_visual_simulation'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BNB/USDT',
+    direction: 'long',
+    entry: {
+      type: 'level',
+      condition: 'Reclaim 620.',
+      level: 620,
+      zone_low: null,
+      zone_high: null,
+    },
+    invalidation: { condition: 'Lose 600.', level: 600 },
+    targets: [{ label: 'Target 1', level: 640, rationale: 'Continuation.' }],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
+    status: 'current',
+  }, 'workspace_a');
+  paperExecution.setOhlcvForTest([
+    candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+    candle('2026-07-04T00:15:00.000Z', 624, 641, 622, 640),
+  ]);
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-04T00:00:00.000Z', 610, 625, 608, 624),
+      candle('2026-07-04T00:15:00.000Z', 624, 641, 622, 640),
+    ]);
+  const simulation = await paperExecution.createSimulation(
+    'playbook_visual_simulation',
+    {
+      mode: 'replay',
+      starts_at: '2026-07-04T00:00:00.000Z',
+      ends_at: '2026-07-04T00:30:00.000Z',
+      position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      fee_bps: '0',
+      slippage_bps: '0',
+    },
+    'user_1',
+    'workspace_a',
+  );
+
+  const projection = await scenarios.getChartProjection(
+    {
+      scenarioId,
+      interval: '15m',
+      limit: '10',
+      simulationId: simulation.id,
+    } as never,
+    'user_1',
+    'workspace_a',
+  );
+  const visual = record(
+    (projection as unknown as JsonRecord).visual_projection,
+  );
+  const opportunity = record(visual.opportunity);
+  const overlays = Array.isArray(visual.overlays)
+    ? visual.overlays.map(record)
+    : [];
+
+  assert.equal(opportunity.status, 'target_hit');
+  assert.equal(record(visual.source_versions).simulation_run_id, simulation.id);
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'marker' && overlay.role === 'paper_fill',
+    ),
+    true,
+  );
+  assert.equal(
+    overlays.some(
+      (overlay) => overlay.type === 'marker' && overlay.role === 'paper_exit',
+    ),
+    true,
+  );
+});
+
+test('scenario chart projection keeps multi-stage bull trap in watch mode', async () => {
+  const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
+  const thesisId = 'thesis_chart_bull_trap_watch';
+  const scenarioId = 'scenario_chart_bull_trap_watch';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  const scenario = journal.scenarios.get(key(thesisId, 'workspace_a'))?.[0];
+  assert.ok(scenario);
+  const recommendation = record(scenario.scenario_recommendation);
+  scenario.scenario_recommendation = {
+    ...recommendation,
+    action: 'consider_short',
+    action_bias: 'short',
+    summary:
+      'Short only after price trades into $600-$620 and rejects, then breaks below $570.',
+    required_conditions: [
+      {
+        id: 'breakdown_entry',
+        role: 'entry',
+        type: 'price_below',
+        level: 570,
+      },
+    ],
+    invalidation_conditions: [
+      {
+        id: 'hold_above_trap',
+        role: 'invalidation',
+        type: 'price_above',
+        level: 620,
+      },
+    ],
+    wait_for: ['Price trades into $600-$620 before breakdown.'],
+  };
+  scenario.decision_playbook = {
+    version: 'scenario_decision_playbook.v1',
+    source: 'llm',
+    generated_at: '2026-07-05T00:00:00.000Z',
+    generated_from_run_id: null,
+    action_bias: 'short',
+    confidence: 0.72,
+    preferred_action_if_triggered: 'consider_short',
+    fallback_action: 'wait',
+    near_trigger_threshold_pct: 2,
+    validity_window: {
+      valid_from: null,
+      valid_until: null,
+      timeframe: 'mid_term',
+      rationale: 'Bull trap must arm before breakdown entry.',
+      refresh_policy: 'manual_review',
+    },
+    entry_conditions: [
+      {
+        id: 'trap_zone',
+        role: 'watch',
+        type: 'price_in_zone',
+        zone_low: 600,
+        zone_high: 620,
+      },
+      {
+        id: 'breakdown_entry',
+        role: 'entry',
+        type: 'price_below',
+        level: 570,
+      },
+    ],
+    avoid_if: [],
+    invalidation_conditions: [
+      {
+        id: 'hold_above_trap',
+        role: 'invalidation',
+        type: 'price_above',
+        level: 620,
+      },
+    ],
+    wait_for: ['Price trades into $600-$620 before breakdown.'],
+    risk_notes: [],
+    evidence_refs: record(scenario.scenario_recommendation).evidence_refs as JsonRecord[],
+    rationale: 'Bull trap requires a prior trap zone before entry.',
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    scenario_recommendation: scenario.scenario_recommendation,
+    decision_playbook: scenario.decision_playbook,
+  };
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_chart_bull_trap_flat'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+    direction: 'short',
+    entry: { type: 'level', condition: 'price below 570', level: 570 },
+    invalidation: { condition: 'price above 620', level: 620 },
+    targets: [
+      { label: 'Target 1', level: 535, rationale: 'First target.' },
+      { label: 'Target 2', level: 510, rationale: 'Second target.' },
+    ],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
+    status: 'current',
+  }, 'workspace_a');
+  scenarioOhlcv.getOhlcv = async () =>
+    chartOhlcvResponse([
+      candle('2026-07-05T00:00:00.000Z', 576, 578, 572, 577),
+    ]);
+
+  const projection = await scenarioChartProjection.getProjection({
+    scenarioId,
+    workspaceId: 'workspace_a',
+    interval: '15m',
+    limit: '10',
+  });
+
+  assert.equal(projection.source_versions.trade_playbook_status, 'current');
+  assert.equal(projection.mode, 'watch');
+  assert.equal(
+    projection.overlays.some((overlay) => overlay.source === 'trade_playbook'),
+    false,
+  );
+});
+
 test('scenario chart projection excludes stale trade overlays', async () => {
   const { journal, scenarioChartProjection, scenarioOhlcv } = buildHarness();
   const thesisId = 'thesis_chart_stale_trade';
@@ -15130,6 +15499,137 @@ test('playbook compiler accepts role entry condition as entry', async () => {
   assert.equal(report.playbook?.entry.level, 62000);
 });
 
+test('playbook compiler rejects bull-trap breakdown before setup is sequenced', async () => {
+  const { playbooks } = buildHarness();
+  const scenario = scenarioLifecycleRecord({
+    scenarioId: 'scenario_compile_bull_trap_flat_entry',
+    thesisId: 'thesis_compile_bull_trap_flat_entry',
+    symbol: 'BNB/USDT',
+    actionBias: 'short',
+  });
+  const recommendation = record(scenario.scenario_recommendation);
+  const evidenceRefs = recommendation.evidence_refs;
+  scenario.scenario_name = 'Bull Trap and Reversal';
+  scenario.condition =
+    'Price rallies into $600-$620, then falls below $570 within 48h with volume >1.2x.';
+  scenario.expected_behavior =
+    'Bullish then bearish: trap the breakout first, then confirm the breakdown.';
+  scenario.scenario_recommendation = {
+    ...recommendation,
+    action: 'consider_short',
+    action_bias: 'short',
+    summary:
+      'Short is valid only after price trades into $600-$620 and rejects, then breaks below $570.',
+    thesis_link: 'Challenges the parent thesis after a failed breakout.',
+    required_conditions: [
+      {
+        id: 'breakdown_entry',
+        role: 'entry',
+        type: 'price_below',
+        level: 570,
+        timeframe: '1d',
+      },
+    ],
+    invalidation_conditions: [
+      {
+        id: 'sustained_breakout',
+        role: 'invalidation',
+        type: 'price_above',
+        level: 620,
+        timeframe: '1d',
+      },
+    ],
+    wait_for: [
+      'Price trades into $600-$620 before rejection.',
+      'Volume exceeds 1.2x average after rejection.',
+    ],
+    risk_notes: ['A clean hold above $620 turns the trap into a breakout.'],
+    evidence_refs: evidenceRefs,
+  };
+  scenario.decision_playbook = {
+    version: 'scenario_decision_playbook.v1',
+    source: 'llm',
+    generated_at: '2026-07-05T00:00:00.000Z',
+    generated_from_run_id: null,
+    action_bias: 'short',
+    confidence: 0.72,
+    preferred_action_if_triggered: 'consider_short',
+    fallback_action: 'wait',
+    near_trigger_threshold_pct: 2,
+    validity_window: {
+      valid_from: null,
+      valid_until: null,
+      timeframe: 'mid_term',
+      rationale: 'Bull-trap sequence must arm before entry.',
+      refresh_policy: 'manual_review',
+    },
+    entry_conditions: [
+      {
+        id: 'trap_zone',
+        role: 'watch',
+        type: 'price_in_zone',
+        zone_low: 600,
+        zone_high: 620,
+        timeframe: '1d',
+      },
+      {
+        id: 'breakdown_entry',
+        role: 'entry',
+        type: 'price_below',
+        level: 570,
+        timeframe: '1d',
+      },
+    ],
+    avoid_if: [],
+    invalidation_conditions: [
+      {
+        id: 'sustained_breakout',
+        role: 'invalidation',
+        type: 'price_above',
+        level: 620,
+        timeframe: '1d',
+      },
+    ],
+    wait_for: ['Price trades into $600-$620 before rejection.'],
+    risk_notes: ['A clean hold above $620 turns the trap into a breakout.'],
+    evidence_refs: evidenceRefs as JsonRecord[],
+    rationale:
+      'The setup is not actionable until the trap zone is reached first.',
+  };
+  scenario.runtime_decision = {
+    ...record(scenario.runtime_decision),
+    recommended_action: 'consider_short',
+    blocking_reasons: [],
+    validity_status: 'valid',
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    targets: ['Target $535', 'Target $510', 'Target $480'],
+    scenario_recommendation: scenario.scenario_recommendation,
+    decision_playbook: scenario.decision_playbook,
+    runtime_decision: scenario.runtime_decision,
+  };
+
+  const report = await playbooks.compileScenario(
+    scenario,
+    {
+      id: 'thesis_compile_bull_trap_flat_entry',
+      symbol: 'BNB/USDT',
+      market_type: 'perp',
+    },
+    'workspace_a',
+  );
+
+  assert.equal(report.eligible, false);
+  assert.equal(report.playbook, null);
+  assert.equal(
+    report.rejection_reasons.includes(
+      'Multi-stage setup requires sequenced setup; refusing flat trade playbook.',
+    ),
+    true,
+  );
+});
+
 test('playbook compiler rejects when only watch and invalidation are present', async () => {
   const { playbooks } = buildHarness();
   const scenario = scenarioLifecycleRecord({
@@ -15698,6 +16198,92 @@ test('paper execution rejects stale playbooks before creating simulations', asyn
     ),
     BadRequestException,
   );
+});
+
+test('paper execution rejects flat bull-trap playbooks before creating simulations', async () => {
+  const { paperExecution, journal } = buildHarness();
+  const thesisId = 'thesis_paper_bull_trap_flat';
+  const scenarioId = 'scenario_paper_bull_trap_flat';
+  seedChartScenario(journal, { thesisId, scenarioId });
+  const scenario = journal.scenarios.get(key(thesisId, 'workspace_a'))?.[0];
+  assert.ok(scenario);
+  scenario.decision_playbook = {
+    version: 'scenario_decision_playbook.v1',
+    source: 'llm',
+    generated_at: '2026-07-05T00:00:00.000Z',
+    generated_from_run_id: null,
+    action_bias: 'short',
+    confidence: 0.72,
+    preferred_action_if_triggered: 'consider_short',
+    fallback_action: 'wait',
+    near_trigger_threshold_pct: 2,
+    validity_window: {
+      valid_from: null,
+      valid_until: null,
+      timeframe: 'mid_term',
+      rationale: 'Bull trap must arm before breakdown entry.',
+      refresh_policy: 'manual_review',
+    },
+    entry_conditions: [
+      {
+        id: 'trap_zone',
+        role: 'watch',
+        type: 'price_in_zone',
+        zone_low: 600,
+        zone_high: 620,
+      },
+      {
+        id: 'breakdown_entry',
+        role: 'entry',
+        type: 'price_below',
+        level: 570,
+      },
+    ],
+    avoid_if: [],
+    invalidation_conditions: [
+      {
+        id: 'hold_above_trap',
+        role: 'invalidation',
+        type: 'price_above',
+        level: 620,
+      },
+    ],
+    wait_for: ['Price trades into $600-$620 before breakdown.'],
+    risk_notes: [],
+    evidence_refs: [],
+    rationale: 'Bull trap requires a prior trap zone before entry.',
+  };
+  scenario.payload = {
+    ...record(scenario.payload),
+    decision_playbook: scenario.decision_playbook,
+  };
+  await journal.saveTradePlaybook({
+    ...tradePlaybookFixture('playbook_paper_bull_trap_flat'),
+    source_scenario_id: scenarioId,
+    source_thesis_id: thesisId,
+    symbol: 'BNB/USDT',
+    market_type: 'perp',
+    direction: 'short',
+    entry: { type: 'level', condition: 'price below 570', level: 570 },
+    invalidation: { condition: 'price above 620', level: 620 },
+    targets: [{ label: 'Target 1', level: 535, rationale: 'First target.' }],
+    source_hashes: sourceHashesForScenario(journal, scenarioId),
+    status: 'current',
+  }, 'workspace_a');
+
+  await assert.rejects(
+    () => paperExecution.createSimulation(
+      'playbook_paper_bull_trap_flat',
+      {
+        mode: 'forward',
+        position_size: { mode: 'fixed_notional', notional: '1000', quantity: null },
+      },
+      'user_1',
+      'workspace_a',
+    ),
+    BadRequestException,
+  );
+  assert.equal(journal.simulationRuns.size, 0);
 });
 
 test('paper execution rejects playbooks without numeric targets', async () => {
@@ -19054,6 +19640,12 @@ function buildHarness() {
     scenarioContextLoader,
     scenarioLiveState,
   );
+  const paperExecution = new PaperExecutionService(
+    journal,
+    auth,
+    workspaces,
+    paperExecutionOhlcv,
+  );
   return {
     audit,
     auth,
@@ -19097,6 +19689,7 @@ function buildHarness() {
       scenarioLiveState,
       scenarioChartProjection,
       scenarioChartSummary,
+      paperExecution,
     ),
     scenarioEvaluations: new ScenarioEvaluationService(
       journal,
@@ -19117,12 +19710,7 @@ function buildHarness() {
       scenarioReliability,
     ),
     backtests: new BacktestService(journal, auth, workspaces, backtestOhlcv),
-    paperExecution: new PaperExecutionService(
-      journal,
-      auth,
-      workspaces,
-      paperExecutionOhlcv,
-    ),
+    paperExecution,
     scenarioDecisionWorkbench: new ScenarioDecisionWorkbenchService(
       journal,
       auth,

@@ -5234,6 +5234,26 @@ a {
   background: #05070a;
 }
 
+.scenario-chart-surface-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.visual-opportunity-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.visual-opportunity-svg text {
+  font-size: 10px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: rgba(5, 7, 10, 0.88);
+  stroke-width: 3px;
+}
+
 .scenario-chart-empty {
   display: grid;
   min-height: 170px;

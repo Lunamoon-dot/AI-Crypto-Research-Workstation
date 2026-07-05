@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-07-03
+Last updated: 2026-07-05
 
 Use this file as the short current-state monitor. It should stay much smaller
 than the roadmaps and feature plans.
@@ -35,14 +35,16 @@ apps/web
 | Backend boundary | Current NestJS API plus production hardening targets | [backend-system-design.md](backend-system-design.md) |
 | Frontend boundary | Current route model and UX rules documented | [frontend-system-design.md](frontend-system-design.md) |
 | AI service operations | Local beta posture with release evidence | [../apps/ai-service/docs/GO_LIVE_READINESS.md](../apps/ai-service/docs/GO_LIVE_READINESS.md) |
-| Scenario decision system | V7.1 hardening in progress for live state, chart projection, feedback, and sync audit boundaries | [features/scenario-decision-system/v7.1/implementation-plan.md](features/scenario-decision-system/v7.1/implementation-plan.md) |
+| Scenario decision system | V8 paper execution MVP is implemented; V8.1 visual opportunity projection is the next design-ready slice before Technical Pattern V1 | [features/scenario-decision-system/v8.1/implementation-plan.md](features/scenario-decision-system/v8.1/implementation-plan.md) |
+| Technical pattern system | V1 design-ready for deterministic pattern evidence and renderable chart geometry | [features/technical-pattern-system/v1/implementation-plan.md](features/technical-pattern-system/v1/implementation-plan.md) |
 
 ## Current Scenario Decision Focus
 
-V7.1 is the next recommended hardening slice before any order-draft or
-paper-trading surface. It stabilizes scenario live semantics, transition events,
-chart scalability, contract drift, compact feedback, workspace guardrails, and
-SQLite-to-Postgres sync visibility.
+V8.1 is the next recommended scenario-decision slice. It should turn current
+playbooks, paper simulation state, scenario chart projections, and optional
+technical pattern snapshots into read-only Autochartist-like chart overlays.
+The execution boundary remains simulation-only: no broker orders, exchange
+routing, or account-balance claims.
 
 ## Recently Documented Direction
 
@@ -51,8 +53,10 @@ SQLite-to-Postgres sync visibility.
   plans around without a specific implementation need.
 - Operations tracking should cover quality gates, runtime health, queue health,
   provider/data freshness, LLM cost/latency, and product-quality metrics.
-- Scenario Decision V7.1 keeps order execution out of scope while hardening
-  scenario chart/live-state state, compact feedback, and sync observability.
+- Scenario Decision V8 adds deterministic paper execution; V8.1 should improve
+  visual opportunity projection without moving execution logic into the chart.
+- Technical Pattern System V1 should make chart-pattern evidence deterministic,
+  replayable, and renderable before it is used as scenario or playbook support.
 
 ## Open Risks To Watch
 
@@ -71,12 +75,12 @@ important themes are:
 
 ## Next Three Recommended Moves
 
-1. Finish or explicitly defer Calibration Lab V1.2, then update its status and
-   verification evidence.
-2. Keep route/API contracts aligned as Calibration Lab and research-continuity
-   work moves forward.
-3. Refresh `docs/project-status.md`, `docs/known-issues.md`, and release
-   evidence after each substantial feature or production-hardening slice.
+1. Implement Scenario Decision V8.1a visual opportunity projection from existing
+   playbook, simulation, and chart projection read models.
+2. Implement Technical Pattern System V1 so scenarios and charts consume
+   deterministic pattern geometry instead of LLM-invented levels.
+3. Keep route/API contracts aligned as V8.1 and Technical Pattern System V1 add
+   shared projection and pattern contracts.
 
 ## Update Cadence
 
