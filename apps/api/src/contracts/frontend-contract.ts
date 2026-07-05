@@ -13,6 +13,7 @@ import type {
   ScenarioEvaluationResponse,
   ScenarioEvaluationState,
 } from '../scenarios/scenario-evaluation.types';
+import type { ScenarioOutcomeSnapshotResponse } from '../scenarios/scenario-outcome.types';
 import type { ScenarioReliabilityProfileResponse } from '../scenarios/scenario-reliability.types';
 import type {
   PlaybookCompileReportResponse,
@@ -341,6 +342,7 @@ export interface ScenarioResponse {
   reliability_profile: ScenarioReliabilityProfileResponse | null;
   latest_playbook: TradePlaybookResponse | null;
   latest_backtest: BacktestRunResponse | null;
+  latest_outcome_snapshot: ScenarioOutcomeSnapshotResponse | null;
   payload: JsonRecord;
 }
 
@@ -1922,6 +1924,9 @@ export function toScenarioResponse(
     latest_backtest: backtestRunValue(
       scenario.latest_backtest ?? payload.latest_backtest,
     ),
+    latest_outcome_snapshot: scenarioOutcomeSnapshotValue(
+      scenario.latest_outcome_snapshot ?? payload.latest_outcome_snapshot,
+    ),
     payload,
   };
 }
@@ -1959,6 +1964,41 @@ export function toScenarioEvaluationResponse(
     data_quality: scenarioEvaluationDataQualityValue(value.data_quality),
     warnings: stringList(value.warnings ?? value.warnings_json),
     evidence: recordValue(value.evidence ?? value.evidence_json),
+  };
+}
+
+export function toScenarioOutcomeSnapshotResponse(
+  value: JsonRecord,
+): ScenarioOutcomeSnapshotResponse {
+  return {
+    version: 'scenario_outcome_snapshot.v1',
+    id: stringValue(value.id),
+    workspace_id: stringValue(value.workspace_id, 'local'),
+    scenario_id: stringValue(value.scenario_id),
+    thesis_id: stringValue(value.thesis_id),
+    playbook_id: nullableString(value.playbook_id),
+    simulation_id: nullableString(value.simulation_id),
+    generated_at: stringValue(value.generated_at, new Date().toISOString()),
+    settled_at: stringValue(value.settled_at, new Date().toISOString()),
+    settlement_reason: scenarioOutcomeSettlementReasonValue(value.settlement_reason),
+    trigger_hit: nullableBoolean(value.trigger_hit),
+    trigger_hit_at: nullableString(value.trigger_hit_at),
+    entry_hit: nullableBoolean(value.entry_hit),
+    entry_hit_at: nullableString(value.entry_hit_at),
+    invalidation_hit: nullableBoolean(value.invalidation_hit),
+    invalidation_hit_at: nullableString(value.invalidation_hit_at),
+    target_hit: nullableBoolean(value.target_hit),
+    target_hit_at: nullableString(value.target_hit_at),
+    start_price: nullableNumber(value.start_price),
+    end_price: nullableNumber(value.end_price),
+    max_favorable_excursion: nullableNumber(value.max_favorable_excursion),
+    max_adverse_excursion: nullableNumber(value.max_adverse_excursion),
+    paper_realized_pnl: nullableString(value.paper_realized_pnl),
+    paper_realized_pnl_pct: nullableString(value.paper_realized_pnl_pct),
+    prediction_quality: scenarioOutcomePredictionQualityValue(value.prediction_quality),
+    execution_quality: scenarioOutcomeExecutionQualityValue(value.execution_quality),
+    data_quality: scenarioOutcomeDataQualityValue(value.data_quality),
+    warnings: stringList(value.warnings ?? value.warnings_json),
   };
 }
 
@@ -3684,6 +3724,15 @@ function scenarioReliabilityProfileValue(
     : null;
 }
 
+function scenarioOutcomeSnapshotValue(
+  value: unknown,
+): ScenarioOutcomeSnapshotResponse | null {
+  const record = recordValue(value);
+  return record.version === 'scenario_outcome_snapshot.v1' || record.id
+    ? toScenarioOutcomeSnapshotResponse(record)
+    : null;
+}
+
 function tradePlaybookValue(value: unknown): TradePlaybookResponse | null {
   const record = recordValue(value);
   return record.version === 'trade_playbook.v1' || record.id
@@ -3745,6 +3794,66 @@ function scenarioEvaluationResultValue(value: unknown): ScenarioEvaluationRespon
 function scenarioEvaluationDataQualityValue(
   value: unknown,
 ): ScenarioEvaluationResponse['data_quality'] {
+  const quality = stringValue(value);
+  if (quality === 'complete' || quality === 'partial' || quality === 'insufficient') {
+    return quality;
+  }
+  return 'insufficient';
+}
+
+function scenarioOutcomeSettlementReasonValue(
+  value: unknown,
+): ScenarioOutcomeSnapshotResponse['settlement_reason'] {
+  const reason = stringValue(value);
+  if (
+    reason === 'expired' ||
+    reason === 'invalidated' ||
+    reason === 'target_hit' ||
+    reason === 'risk_exit_hit' ||
+    reason === 'missed_entry' ||
+    reason === 'data_end' ||
+    reason === 'manual_abandon'
+  ) {
+    return reason;
+  }
+  return 'data_end';
+}
+
+function scenarioOutcomePredictionQualityValue(
+  value: unknown,
+): ScenarioOutcomeSnapshotResponse['prediction_quality'] {
+  const quality = stringValue(value);
+  if (
+    quality === 'supported' ||
+    quality === 'challenged' ||
+    quality === 'invalidated' ||
+    quality === 'inconclusive'
+  ) {
+    return quality;
+  }
+  return 'inconclusive';
+}
+
+function scenarioOutcomeExecutionQualityValue(
+  value: unknown,
+): ScenarioOutcomeSnapshotResponse['execution_quality'] {
+  const quality = stringValue(value);
+  if (
+    quality === 'not_simulated' ||
+    quality === 'rule_following' ||
+    quality === 'late_entry' ||
+    quality === 'premature_entry' ||
+    quality === 'missed_trigger' ||
+    quality === 'insufficient_data'
+  ) {
+    return quality;
+  }
+  return 'insufficient_data';
+}
+
+function scenarioOutcomeDataQualityValue(
+  value: unknown,
+): ScenarioOutcomeSnapshotResponse['data_quality'] {
   const quality = stringValue(value);
   if (quality === 'complete' || quality === 'partial' || quality === 'insufficient') {
     return quality;

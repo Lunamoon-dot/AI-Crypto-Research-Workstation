@@ -40,8 +40,8 @@ export function buildVisualOpportunityProjection(
       chart,
       simulation,
       side: 'neutral',
-      kind: 'watch_setup',
-      status: 'watching',
+      kind: 'watch_scenario',
+      status: 'watch_only',
       overlays,
       labels,
       warnings,
@@ -77,8 +77,8 @@ export function buildVisualOpportunityProjection(
       chart,
       simulation,
       side: 'neutral',
-      kind: 'narrative_checkpoint',
-      status: 'not_chartable',
+      kind: 'watch_scenario',
+      status: 'blocked',
       overlays,
       labels,
       warnings,
@@ -164,7 +164,7 @@ export function buildVisualOpportunityProjection(
     chart,
     simulation,
     side,
-    kind: 'trade_setup',
+    kind: opportunityKind(simulation),
     status: opportunityStatus(simulation),
     overlays,
     labels,
@@ -208,6 +208,9 @@ function baseProjection(input: {
       confidence: input.chart.live_state.recommended_action === 'review'
         ? undefined
         : confidenceFromStatus(input.chart.live_state.trigger_status),
+      next_condition: nextCondition(input.kind, input.status),
+      blockers: opportunityBlockers(input.kind, input.status, input.warnings),
+      allowed_actions: allowedActions(input.kind, input.status),
       stale_reasons: uniqueStrings([
         ...input.chart.source_versions.stale_reasons,
         ...(input.playbook?.stale_reasons ?? []),
@@ -441,17 +444,18 @@ function opportunityStatus(
   simulation?: SimulationDetailResponse | null,
 ): VisualOpportunityProjectionV1['opportunity']['status'] {
   if (!simulation) {
-    return 'waiting_entry';
+    return 'waiting_for_entry';
   }
-  if (simulation.status === 'cancelled') return 'cancelled';
+  if (simulation.status === 'cancelled') return 'invalidated';
   if (simulation.status === 'failed') return 'blocked';
   if (simulation.status === 'waiting_for_trigger' || simulation.status === 'created') {
-    return 'waiting_entry';
+    return 'simulation_waiting';
   }
   if (simulation.status === 'entry_triggered' || simulation.status === 'order_pending') {
-    return 'entry_touched';
+    return 'entry_triggered';
   }
-  if (simulation.status === 'position_open') return 'open';
+  if (simulation.position?.status === 'partially_closed') return 'partially_closed';
+  if (simulation.status === 'position_open') return 'position_open';
   if (simulation.outcome?.close_reason === 'target') return 'target_hit';
   if (
     simulation.outcome?.close_reason === 'stop' ||
@@ -460,7 +464,104 @@ function opportunityStatus(
     return 'risk_exit_hit';
   }
   if (simulation.outcome?.close_reason === 'setup_expiry') return 'expired';
-  return simulation.position?.status === 'closed' ? 'blocked' : 'waiting_entry';
+  return simulation.position?.status === 'closed' ? 'settled' : 'waiting_for_entry';
+}
+
+function opportunityKind(
+  simulation?: SimulationDetailResponse | null,
+): VisualOpportunityProjectionV1['opportunity']['kind'] {
+  if (!simulation) {
+    return 'trade_setup';
+  }
+  if (
+    simulation.status === 'position_open' ||
+    simulation.position?.status === 'open' ||
+    simulation.position?.status === 'partially_closed' ||
+    simulation.position?.status === 'closed' ||
+    simulation.status === 'completed'
+  ) {
+    return 'paper_position';
+  }
+  return 'trade_setup';
+}
+
+function nextCondition(
+  kind: VisualOpportunityProjectionV1['opportunity']['kind'],
+  status: VisualOpportunityProjectionV1['opportunity']['status'],
+): string | null {
+  if (kind === 'watch_scenario') {
+    if (status === 'watch_only') {
+      return 'Wait for a current actionable playbook.';
+    }
+    if (status === 'blocked') {
+      return 'Review blockers before treating this as a trade setup.';
+    }
+  }
+  if (kind === 'trade_setup') {
+    if (status === 'waiting_for_entry') {
+      return 'Wait for entry trigger.';
+    }
+    if (status === 'simulation_waiting') {
+      return 'Simulation is waiting for the setup trigger.';
+    }
+    if (status === 'entry_triggered') {
+      return 'Monitor for paper fill or cancel if the setup degrades.';
+    }
+  }
+  if (kind === 'paper_position') {
+    if (status === 'position_open') {
+      return 'Manage the open paper position against targets and risk exit.';
+    }
+    if (status === 'partially_closed') {
+      return 'Track the remaining paper position and exit conditions.';
+    }
+  }
+  return null;
+}
+
+function opportunityBlockers(
+  kind: VisualOpportunityProjectionV1['opportunity']['kind'],
+  status: VisualOpportunityProjectionV1['opportunity']['status'],
+  warnings: string[],
+): string[] {
+  if (kind === 'watch_scenario' && status === 'watch_only') {
+    return ['missing_trade_playbook'];
+  }
+  if (status === 'blocked') {
+    return uniqueStrings(
+      warnings.filter((warning) =>
+        warning === 'non_chartable_trade_playbook' ||
+        warning === 'trade_playbook_requires_sequenced_setup' ||
+        warning === 'missing_trade_playbook',
+      ),
+    );
+  }
+  return [];
+}
+
+function allowedActions(
+  kind: VisualOpportunityProjectionV1['opportunity']['kind'],
+  status: VisualOpportunityProjectionV1['opportunity']['status'],
+): VisualOpportunityProjectionV1['opportunity']['allowed_actions'] {
+  if (kind === 'watch_scenario') {
+    return status === 'watch_only' ? ['compile_playbook'] : [];
+  }
+  if (kind === 'trade_setup') {
+    if (status === 'waiting_for_entry') {
+      return ['start_simulation', 'run_replay'];
+    }
+    if (status === 'simulation_waiting' || status === 'entry_triggered') {
+      return ['refresh_simulation', 'cancel_simulation'];
+    }
+    return [];
+  }
+  if (kind === 'paper_position') {
+    if (status === 'position_open' || status === 'partially_closed') {
+      return ['refresh_simulation', 'close_position', 'abandon_simulation'];
+    }
+    return ['run_replay'];
+  }
+  return [];
 }
 
 function entryStatus(simulation?: SimulationDetailResponse | null): VisualOverlayStatusV1 {

@@ -346,12 +346,24 @@ export interface JournalRepository {
     input: JsonRecord,
     workspaceId: string,
   ): Promise<JsonRecord>;
+  saveScenarioOutcomeSnapshot?(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord>;
   listScenarioEvaluations(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]>;
+  listScenarioOutcomeSnapshots?(
     scenarioId: string,
     workspaceId: string,
   ): Promise<JsonRecord[]>;
   getScenarioEvaluation(
     id: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null>;
+  getLatestScenarioOutcomeSnapshot?(
+    scenarioId: string,
     workspaceId: string,
   ): Promise<JsonRecord | null>;
   listScenarioEvaluationsForReliability(

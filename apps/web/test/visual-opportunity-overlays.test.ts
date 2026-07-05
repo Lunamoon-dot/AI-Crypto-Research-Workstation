@@ -224,6 +224,9 @@ function visualProjectionFixture(
       kind: 'trade_setup',
       side: 'long',
       status: 'target_hit',
+      next_condition: null,
+      blockers: [],
+      allowed_actions: ['run_replay'],
       stale_reasons: [],
     },
     overlays: [

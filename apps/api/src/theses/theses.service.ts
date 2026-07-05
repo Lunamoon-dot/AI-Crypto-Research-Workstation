@@ -205,6 +205,11 @@ export class ThesesService {
           ),
         )
       : [];
+    const latestOutcomeSnapshot = this.journal.getLatestScenarioOutcomeSnapshot
+      ? await optionalScenarioLifecycleValue(() =>
+          this.journal.getLatestScenarioOutcomeSnapshot!(scenarioId, workspaceId),
+        )
+      : null;
     return {
       ...scenarioWithRuntime,
       latest_evaluation: latestValidScenarioEvaluation(evaluations),
@@ -212,6 +217,7 @@ export class ThesesService {
       latest_backtest: latestBacktest
         ? { ...latestBacktest, trade_events: tradeEvents }
         : null,
+      latest_outcome_snapshot: latestOutcomeSnapshot,
       reliability_profile: reliabilityProfile,
     };
   }
@@ -348,6 +354,17 @@ function stringField(value: unknown): string | null {
     return null;
   }
   return String(value);
+}
+
+async function optionalScenarioLifecycleValue<T>(
+  read: () => Promise<T | null>,
+): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    const rows = await optionalScenarioLifecycleRows<T>(() => Promise.reject(error));
+    return rows[0] ?? null;
+  }
 }
 
 function playbookWithStaleness(

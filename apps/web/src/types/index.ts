@@ -513,6 +513,50 @@ export interface ScenarioEvaluationResponse {
   evidence: JsonRecord;
 }
 
+export interface ScenarioOutcomeSnapshotResponse {
+  version: 'scenario_outcome_snapshot.v1';
+  id: string;
+  workspace_id: string;
+  scenario_id: string;
+  thesis_id: string;
+  playbook_id: string | null;
+  simulation_id: string | null;
+  generated_at: string;
+  settled_at: string;
+  settlement_reason:
+    | 'expired'
+    | 'invalidated'
+    | 'target_hit'
+    | 'risk_exit_hit'
+    | 'missed_entry'
+    | 'data_end'
+    | 'manual_abandon';
+  trigger_hit: boolean | null;
+  trigger_hit_at: string | null;
+  entry_hit: boolean | null;
+  entry_hit_at: string | null;
+  invalidation_hit: boolean | null;
+  invalidation_hit_at: string | null;
+  target_hit: boolean | null;
+  target_hit_at: string | null;
+  start_price: number | null;
+  end_price: number | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  paper_realized_pnl: string | null;
+  paper_realized_pnl_pct: string | null;
+  prediction_quality: 'supported' | 'challenged' | 'invalidated' | 'inconclusive';
+  execution_quality:
+    | 'not_simulated'
+    | 'rule_following'
+    | 'late_entry'
+    | 'premature_entry'
+    | 'missed_trigger'
+    | 'insufficient_data';
+  data_quality: 'complete' | 'partial' | 'insufficient';
+  warnings: string[];
+}
+
 export interface ScenarioReliabilityProfileResponse {
   version: 'scenario_reliability_profile.v1';
   workspace_id: string;
@@ -1221,20 +1265,35 @@ export interface VisualOpportunityProjectionV1 {
     technical_pattern_snapshot_id?: string | null;
   };
   opportunity: {
-    kind: 'trade_setup' | 'watch_setup' | 'narrative_checkpoint' | 'blocked';
+    kind: 'watch_scenario' | 'trade_setup' | 'paper_position' | 'diagnostic';
     side: 'long' | 'short' | 'neutral';
     status:
-      | 'watching'
-      | 'waiting_entry'
-      | 'entry_touched'
-      | 'open'
+      | 'watch_only'
+      | 'blocked'
+      | 'waiting_for_setup'
+      | 'setup_armed'
+      | 'waiting_for_entry'
+      | 'entry_triggered'
+      | 'simulation_waiting'
+      | 'position_open'
+      | 'partially_closed'
       | 'target_hit'
       | 'risk_exit_hit'
       | 'expired'
-      | 'cancelled'
-      | 'blocked'
-      | 'not_chartable';
+      | 'invalidated'
+      | 'settled';
     confidence?: number;
+    next_condition?: string | null;
+    blockers: string[];
+    allowed_actions: Array<
+      | 'compile_playbook'
+      | 'start_simulation'
+      | 'run_replay'
+      | 'refresh_simulation'
+      | 'cancel_simulation'
+      | 'close_position'
+      | 'abandon_simulation'
+    >;
     stale_reasons: string[];
   };
   overlays: VisualOverlayV1[];
@@ -1324,6 +1383,7 @@ export interface ScenarioResponse {
   reliability_profile: ScenarioReliabilityProfileResponse | null;
   latest_playbook: TradePlaybookResponse | null;
   latest_backtest: BacktestRunResponse | null;
+  latest_outcome_snapshot: ScenarioOutcomeSnapshotResponse | null;
   payload: JsonRecord;
 }
 

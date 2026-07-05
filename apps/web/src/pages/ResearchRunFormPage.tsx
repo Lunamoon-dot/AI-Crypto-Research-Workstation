@@ -25,7 +25,7 @@ import { routes } from "@/lib/routes";
 import { researchRunRequestSchema } from "@/schemas/research-run";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
-type MarketType = "spot" | "perp";
+type MarketType = "perp";
 
 const marketOptions: Array<{
   value: MarketType;
@@ -33,13 +33,6 @@ const marketOptions: Array<{
   description: string;
   meta: string;
 }> = [
-  {
-    value: "spot",
-    label: "Spot desk",
-    description:
-      "Use cash-market evidence without funding or liquidation assumptions.",
-    meta: "clean directional read",
-  },
   {
     value: "perp",
     label: "Perp desk",
@@ -89,7 +82,7 @@ export function ResearchRunFormPage() {
   const auth = useWorkspaceStore();
   const navigate = useNavigate();
   const [symbol, setSymbol] = useState("BTC/USDT");
-  const [marketType, setMarketType] = useState<MarketType>("spot");
+  const marketType: MarketType = "perp";
   const [analysisDate, setAnalysisDate] = useState(todayIsoDate());
   const [profile] = useState("default");
   const [outputLanguage, setOutputLanguage] = useState("English");
@@ -280,11 +273,11 @@ export function ResearchRunFormPage() {
                 <div className="launch-choice-grid" aria-label="Market type">
                   {marketOptions.map((option) => (
                     <button
-                      aria-pressed={marketType === option.value}
+                      aria-pressed={true}
                       className={`launch-choice-card${marketType === option.value ? " active" : ""}`}
                       key={option.value}
                       type="button"
-                      onClick={() => setMarketType(option.value)}
+                      disabled
                     >
                       <span className="launch-choice-kicker">{option.meta}</span>
                       <strong>{option.label}</strong>

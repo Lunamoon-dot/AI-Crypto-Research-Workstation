@@ -283,18 +283,14 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
     'utf8',
   );
 
-  assert.equal(pageSource.includes('evaluateScenarioDecisionItem'), true);
   assert.equal(pageSource.includes('compileScenarioDecisionPlaybook'), true);
-  assert.equal(pageSource.includes('createScenarioDecisionBacktest'), true);
   assert.equal(pageSource.includes('ScenarioLifecycleActions'), true);
   assert.equal(pageSource.includes('persistedScenarioId'), true);
-  assert.equal(pageSource.includes('Compile a playbook before running a backtest.'), true);
   assert.equal(pageSource.includes('Playbook rejected.'), true);
-  assert.equal(pageSource.includes('Reliability: this scenario window is updated, not double-counted.'), true);
+  assert.equal(pageSource.includes('Reliability: this scenario window is updated, not double-counted.'), false);
   assert.equal(pageSource.includes('Scope: manual research plan only; no exchange order is placed.'), true);
   assert.equal(pageSource.includes('playbookEntryDetail'), true);
   assert.equal(pageSource.includes('playbookTargetsDetail'), true);
-  assert.equal(pageSource.includes('backtestAssumptionsDetail'), true);
   assert.equal(pageSource.includes('compileBlockerForScenario'), true);
   assert.equal(
     pageSource.includes('compileBlockerForScenario(scenario, chartProjection?.live_state ?? null)'),
@@ -307,15 +303,39 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
   assert.equal(pageSource.includes('Scenario is invalidated.'), true);
   assert.equal(pageSource.includes('Recommendation action is wait/review.'), true);
   assert.equal(pageSource.includes('Scenario is watch-only or not directional.'), true);
-  assert.equal(pageSource.includes('backtestBlockerForPlaybook'), true);
-  assert.equal(pageSource.includes('Requires numeric entry, invalidation, and target'), true);
-  assert.equal(serviceSource.includes('lastClosedDailyBacktestEnd'), true);
+  assert.equal(pageSource.includes('backtestBlockerForPlaybook'), false);
+  assert.equal(serviceSource.includes('lastClosedDailyBacktestEnd'), false);
   assert.equal(pageSource.includes('feedback.details.slice(0, 5)'), false);
   assert.equal(pageSource.includes('rejection_reasons'), true);
   assert.equal(pageSource.includes('queryKeys.scenarioDecisionWorkbench()'), true);
   assert.equal(pageSource.includes('queryKeys.thesisScenarios(thesisId)'), true);
   assert.equal(styles.includes('.scenario-lifecycle-actions'), true);
   assert.equal(styles.includes('.scenario-action-result-warning'), true);
+});
+
+test('paper simulation panel avoids opportunity copy for watch and simulation states', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('Opportunity'), false);
+  assert.equal(source.includes('Watch setup'), true);
+  assert.equal(source.includes('Simulation'), true);
+  assert.equal(source.includes('Trade-lab paper simulation supports perp artifacts only.'), true);
+  assert.equal(source.includes("if (playbook.market_type !== 'perp')"), true);
+});
+
+test('paper replay defaults anchor to scenario timing instead of rolling seven-day backtest windows', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ThesisDetailPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('defaultReplaySimulationRequest(scenario)'), true);
+  assert.equal(source.includes('scenario.scenario_recommendation?.evaluation_window.starts_at'), true);
+  assert.equal(source.includes('scenario.scenario_recommendation?.evaluation_window.ends_at'), true);
+  assert.equal(source.includes('startsAt.setUTCDate(startsAt.getUTCDate() - 7)'), false);
 });
 
 test('scenario radar supplements missing scenario branches from thesis boundaries', () => {

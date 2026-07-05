@@ -78,3 +78,20 @@ test('research run form recovers transient launch errors by job id', () => {
   assert.equal(source.includes('navigate(routes.researchRun(job.run_id, job.id))'), true);
   assert.equal(schemaSource.includes('run_id'), true);
 });
+
+test('research run form locks trade-lab launch to perp only', () => {
+  const source = readFileSync(
+    new URL('../src/pages/ResearchRunFormPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const schemaSource = readFileSync(
+    new URL('../src/schemas/research-run.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(source.includes('Spot desk'), false);
+  assert.equal(source.includes('Perp desk'), true);
+  assert.equal(source.includes('const marketType: MarketType = "perp";'), true);
+  assert.equal(source.includes('setMarketType('), false);
+  assert.equal(schemaSource.includes("market_type: z.literal('perp').default('perp')"), true);
+});

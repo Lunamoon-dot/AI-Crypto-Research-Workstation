@@ -1,6 +1,8 @@
 const OPTIONAL_SCENARIO_LIFECYCLE_IDENTIFIERS = [
   'scenario_evaluations',
   'scenarioevaluation',
+  'scenario_outcome_snapshots',
+  'scenariooutcomesnapshot',
   'trade_playbooks',
   'tradeplaybook',
   'backtest_runs',

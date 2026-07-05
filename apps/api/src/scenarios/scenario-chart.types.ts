@@ -250,23 +250,38 @@ export interface VisualOpportunityProjectionV1 {
   };
   opportunity: {
     kind:
+      | 'watch_scenario'
       | 'trade_setup'
-      | 'watch_setup'
-      | 'narrative_checkpoint'
-      | 'blocked';
+      | 'paper_position'
+      | 'diagnostic';
     side: 'long' | 'short' | 'neutral';
     status:
-      | 'watching'
-      | 'waiting_entry'
-      | 'entry_touched'
-      | 'open'
+      | 'watch_only'
+      | 'blocked'
+      | 'waiting_for_setup'
+      | 'setup_armed'
+      | 'waiting_for_entry'
+      | 'entry_triggered'
+      | 'simulation_waiting'
+      | 'position_open'
+      | 'partially_closed'
       | 'target_hit'
       | 'risk_exit_hit'
       | 'expired'
-      | 'cancelled'
-      | 'blocked'
-      | 'not_chartable';
+      | 'invalidated'
+      | 'settled';
     confidence?: number;
+    next_condition?: string | null;
+    blockers: string[];
+    allowed_actions: Array<
+      | 'compile_playbook'
+      | 'start_simulation'
+      | 'run_replay'
+      | 'refresh_simulation'
+      | 'cancel_simulation'
+      | 'close_position'
+      | 'abandon_simulation'
+    >;
     stale_reasons: string[];
   };
   overlays: VisualOverlayV1[];

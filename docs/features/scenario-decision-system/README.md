@@ -1,6 +1,6 @@
 # Scenario Decision System
 
-Last updated: 2026-07-05
+Last updated: 2026-07-06
 Status: draft master spec
 
 ## Purpose
@@ -398,6 +398,10 @@ Backtest Lab must consume playbooks, not scenario prose.
 | V7.1 | Scenario Lifecycle Hardening | [V7.1 implementation plan](v7.1/implementation-plan.md) |
 | V8 | Paper Execution | [V8 implementation plan](v8/implementation-plan.md) |
 | V8.1 | Visual Opportunity Projection | [V8.1 implementation plan](v8.1/implementation-plan.md) |
+| V8.2 | Trade-Lab Perp-Only Boundary | [V8.2 implementation plan](v8.2/implementation-plan.md) |
+| V8.3 | Opportunity Semantics And State | [V8.3 implementation plan](v8.3/implementation-plan.md) |
+| V8.4 | Auto Outcome And Settlement | [V8.4 implementation plan](v8.4/implementation-plan.md) |
+| V9 | Platform Spot Purge And Perp-Only Hardening | [V9 implementation plan](v9/implementation-plan.md) |
 
 Current roadmap status:
 
@@ -405,6 +409,10 @@ Current roadmap status:
 - V7.1 Scenario Lifecycle Hardening: implemented baseline for V8 handoff.
 - V8 Paper Execution: implemented MVP for deterministic paper execution and simulation read models.
 - V8.1 Visual Opportunity Projection: design-ready and recommended before Technical Pattern System V1.
+- V8.2 Trade-Lab Perp-Only Boundary: design-ready product-boundary slice before opportunity card/state-machine work.
+- V8.3 Opportunity Semantics And State: design-ready read-model and state-contract cleanup after V8.2.
+- V8.4 Auto Outcome And Settlement: design-ready lifecycle/outcome slice after V8.3.
+- V9 Platform Spot Purge And Perp-Only Hardening: design-ready migration phase after the product surface is stable.
 
 Each version must be independently valuable and testable. Do not skip from V1
 directly to V5. Without V2 and V3, Backtest Lab would be disconnected from the

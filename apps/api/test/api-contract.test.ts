@@ -129,6 +129,7 @@ class FakeJournalRepository implements JournalRepository {
   readonly thesisEvaluationPromotions = new Map<string, JsonRecord>();
   readonly scenarios = new Map<string, JsonRecord[]>();
   readonly scenarioEvaluations = new Map<string, JsonRecord>();
+  readonly scenarioOutcomeSnapshots = new Map<string, JsonRecord>();
   readonly tradePlaybooks = new Map<string, JsonRecord>();
   readonly scenarioEvents = new Map<string, JsonRecord>();
   readonly scenarioLiveStateSnapshots = new Map<string, JsonRecord>();
@@ -1124,6 +1125,25 @@ class FakeJournalRepository implements JournalRepository {
     return saved;
   }
 
+  async saveScenarioOutcomeSnapshot(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    const id = String(
+      input.id ?? `scenario_outcome_${this.scenarioOutcomeSnapshots.size + 1}`,
+    );
+    const saved = {
+      ...input,
+      id,
+      workspace_id: workspaceId,
+      version: 'scenario_outcome_snapshot.v1',
+      settled_at: input.settled_at ?? '2026-07-01T00:00:00.000Z',
+      warnings: Array.isArray(input.warnings) ? input.warnings : [],
+    };
+    this.scenarioOutcomeSnapshots.set(key(id, workspaceId), saved);
+    return saved;
+  }
+
   async listScenarioEvaluations(
     scenarioId: string,
     workspaceId: string,
@@ -1134,11 +1154,34 @@ class FakeJournalRepository implements JournalRepository {
       .sort((a, b) => String(b.evaluated_at ?? '').localeCompare(String(a.evaluated_at ?? '')));
   }
 
+  async listScenarioOutcomeSnapshots(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    return [...this.scenarioOutcomeSnapshots.values()]
+      .filter((item) => item.workspace_id === workspaceId)
+      .filter((item) => item.scenario_id === scenarioId)
+      .sort((a, b) => String(b.settled_at ?? '').localeCompare(String(a.settled_at ?? '')));
+  }
+
   async getScenarioEvaluation(
     id: string,
     workspaceId: string,
   ): Promise<JsonRecord | null> {
     return this.scenarioEvaluations.get(key(id, workspaceId)) ?? null;
+  }
+
+  async getLatestScenarioOutcomeSnapshot(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    return (
+      [...this.scenarioOutcomeSnapshots.values()]
+        .filter((item) => item.workspace_id === workspaceId)
+        .filter((item) => item.scenario_id === scenarioId)
+        .sort((a, b) => String(b.settled_at ?? '').localeCompare(String(a.settled_at ?? '')))[0] ??
+      null
+    );
   }
 
   async listScenarioEvaluationsForReliability(
@@ -3273,7 +3316,7 @@ test('POST /research-runs enqueues the exact engine request contract', async () 
           workspace_id: 'workspace_a',
           symbol: 'ETH/USDT',
           asset_class: 'crypto',
-          market_type: 'spot',
+          market_type: 'perp',
           analysis_date: '2026-05-12',
           analysts: ['market', 'news'],
           config_profile: 'default',
@@ -3926,6 +3969,30 @@ test('openapi simulation schema exposes partial take-profit assumptions', () => 
   assert.equal(
     openApiDocument.components.schemas.SimulationRunResponse.properties.sample_identity.$ref,
     '#/components/schemas/SimulationSampleIdentity',
+  );
+});
+
+test('POST /research-runs normalizes trade-lab launch requests to perp', async () => {
+  await withEnv(
+    { JOBS_EXECUTION_MODE: 'memory', REDIS_URL: undefined },
+    async () => {
+      const { researchRunsController, jobs } = buildHarness();
+
+      await researchRunsController.create(
+        {
+          run_id: 'run_spot_normalized',
+          workspace_id: 'workspace_a',
+          symbol: 'BTC/USDT',
+          analysis_date: '2026-05-12',
+          analysts: ['market'],
+          market_type: 'spot',
+        },
+        'user_1',
+        'workspace_a',
+      );
+
+      assert.equal(jobs.listMemoryJobs()[0]?.market_type, 'perp');
+    },
   );
 });
 
@@ -12642,6 +12709,7 @@ test('scenario read surfaces tolerate missing optional lifecycle tables', async 
   assert.equal(detailScenarios[0]?.latest_evaluation, null);
   assert.equal(detailScenarios[0]?.latest_playbook, null);
   assert.equal(detailScenarios[0]?.latest_backtest, null);
+  assert.equal(detailScenarios[0]?.latest_outcome_snapshot, null);
   assert.equal(detailScenarios[0]?.reliability_profile, null);
   assert.equal(monitor.total_scenarios, 1);
   assert.equal(workbench.workspace_id, 'workspace_a');
@@ -13853,7 +13921,10 @@ test('scenario chart projection includes visual opportunity overlays from a curr
   assert.equal(sourceVersions.trade_playbook_id, 'playbook_visual_long');
   assert.equal(opportunity.kind, 'trade_setup');
   assert.equal(opportunity.side, 'long');
-  assert.equal(opportunity.status, 'waiting_entry');
+  assert.equal(opportunity.status, 'waiting_for_entry');
+  assert.equal(opportunity.next_condition, 'Wait for entry trigger.');
+  assert.deepEqual(opportunity.allowed_actions, ['start_simulation', 'run_replay']);
+  assert.deepEqual(opportunity.blockers, []);
   assert.equal(
     overlays.some(
       (overlay) => overlay.type === 'zone' && overlay.role === 'entry',
@@ -13931,8 +14002,13 @@ test('scenario chart projection warns instead of drawing trade setup boxes for n
     ? visual.overlays.map(record)
     : [];
 
-  assert.equal(opportunity.kind, 'narrative_checkpoint');
-  assert.equal(opportunity.status, 'not_chartable');
+  assert.equal(opportunity.kind, 'watch_scenario');
+  assert.equal(opportunity.status, 'blocked');
+  assert.equal(
+    Array.isArray(opportunity.blockers) &&
+      opportunity.blockers.includes('non_chartable_trade_playbook'),
+    true,
+  );
   assert.equal(
     overlays.some(
       (overlay) => overlay.type === 'box' && overlay.role === 'risk_box',
@@ -13953,7 +14029,7 @@ test('scenario chart projection warns instead of drawing trade setup boxes for n
 });
 
 test('scenario chart projection can include paper simulation fill and exit markers', async () => {
-  const { journal, paperExecution, scenarioOhlcv, scenarios } = buildHarness();
+  const { journal, paperExecution, scenarioOhlcv, scenarios, theses } = buildHarness();
   const thesisId = 'thesis_visual_simulation';
   const scenarioId = 'scenario_visual_simulation';
   seedChartScenario(journal, { thesisId, scenarioId });
@@ -14016,6 +14092,7 @@ test('scenario chart projection can include paper simulation fill and exit marke
     ? visual.overlays.map(record)
     : [];
 
+  assert.equal(opportunity.kind, 'paper_position');
   assert.equal(opportunity.status, 'target_hit');
   assert.equal(record(visual.source_versions).simulation_run_id, simulation.id);
   assert.equal(
@@ -14030,6 +14107,21 @@ test('scenario chart projection can include paper simulation fill and exit marke
     ),
     true,
   );
+  assert.equal(journal.scenarioOutcomeSnapshots.size, 1);
+  assert.equal(
+    (
+      await journal.getLatestScenarioOutcomeSnapshot(
+        scenarioId,
+        'workspace_a',
+      )
+    )?.version,
+    'scenario_outcome_snapshot.v1',
+  );
+  const detail = await theses.scenarios(thesisId, 'user_1', 'workspace_a');
+  assert.equal(detail[0]?.latest_outcome_snapshot?.version, 'scenario_outcome_snapshot.v1');
+  assert.equal(detail[0]?.latest_outcome_snapshot?.simulation_id, simulation.id);
+  assert.equal(detail[0]?.latest_outcome_snapshot?.settlement_reason, 'target_hit');
+  assert.equal(detail[0]?.latest_outcome_snapshot?.prediction_quality, 'supported');
 });
 
 test('scenario chart projection keeps multi-stage bull trap in watch mode', async () => {
@@ -14801,8 +14893,10 @@ test('scenario monitor and thesis detail hide obsolete invalid lifecycle artifac
 
   assert.equal(monitorScenario?.latest_evaluation, null);
   assert.equal(monitorScenario?.latest_backtest, null);
+  assert.equal(monitorScenario?.latest_outcome_snapshot, null);
   assert.equal(detail[0]?.latest_evaluation, null);
   assert.equal(detail[0]?.latest_backtest, null);
+  assert.equal(detail[0]?.latest_outcome_snapshot, null);
 });
 
 test('playbook compiler rejects missing invalidation and compiles valid long scenario', async () => {

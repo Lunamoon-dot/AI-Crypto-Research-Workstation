@@ -1,12 +1,9 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
 import type {
-  BacktestAssumptionSetResponse,
-  BacktestRunResponse,
   PlaybookCompileReportResponse,
   ScenarioDecisionQueueItemResponse,
   ScenarioDecisionWorkbenchResponse,
-  ScenarioEvaluationResponse,
 } from '@/types';
 
 export function getScenarioDecisionWorkbench(auth: WorkspaceRequestContext) {
@@ -40,17 +37,6 @@ export function snoozeScenarioDecisionItem(
   );
 }
 
-export function evaluateScenarioDecisionItem(
-  scenarioId: string,
-  auth: WorkspaceRequestContext,
-) {
-  return apiRequest<ScenarioEvaluationResponse>(
-    `/scenarios/${encodeURIComponent(scenarioId)}/evaluations`,
-    { method: 'POST', body: {} },
-    auth,
-  );
-}
-
 export function compileScenarioDecisionPlaybook(
   scenarioId: string,
   auth: WorkspaceRequestContext,
@@ -60,41 +46,4 @@ export function compileScenarioDecisionPlaybook(
     { method: 'POST', body: {} },
     auth,
   );
-}
-
-export function createScenarioDecisionBacktest(
-  playbookId: string,
-  auth: WorkspaceRequestContext,
-  assumptions: BacktestAssumptionSetResponse = defaultBacktestAssumptions(),
-) {
-  return apiRequest<BacktestRunResponse>(
-    `/playbooks/${encodeURIComponent(playbookId)}/backtests`,
-    { method: 'POST', body: assumptions },
-    auth,
-  );
-}
-
-function defaultBacktestAssumptions(): BacktestAssumptionSetResponse {
-  const end = lastClosedDailyBacktestEnd();
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 90);
-  return {
-    version: 'backtest_assumption_set.v1',
-    fee_bps: 5,
-    slippage_bps: 5,
-    fill_policy: 'touch',
-    sizing_policy: 'fixed_notional',
-    starting_equity: 10_000,
-    risk_fraction: null,
-    timeframe: '1d',
-    start_at: start.toISOString(),
-    end_at: end.toISOString(),
-  };
-}
-
-function lastClosedDailyBacktestEnd(): Date {
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
-  end.setUTCMilliseconds(-1);
-  return end;
 }

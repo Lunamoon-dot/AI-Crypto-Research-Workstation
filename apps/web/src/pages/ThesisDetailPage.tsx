@@ -2,7 +2,6 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ClipboardCheck,
   Download,
   GitBranch,
   ListChecks,
@@ -26,8 +25,6 @@ import {
 } from '@/components/scenarios/paper-simulation-read-model';
 import {
   compileScenarioDecisionPlaybook,
-  createScenarioDecisionBacktest,
-  evaluateScenarioDecisionItem,
 } from '@/services/scenario-decision';
 import {
   cancelSimulation,
@@ -70,12 +67,10 @@ import {
 } from './thesis-detail-tabs';
 import { scenarioDetailViewModel, scenarioHorizon } from './scenario-view-model';
 import type {
-  BacktestRunResponse,
   ExecutionEventResponse,
   JsonRecord,
   PaperPositionResponse,
   PlaybookCompileReportResponse,
-  ScenarioEvaluationResponse,
   ScenarioHorizon,
   ScenarioLiveStateResponse,
   ScenarioResponse,
@@ -85,15 +80,12 @@ import type {
 } from '@/types';
 
 type ScenarioHorizonFilter = 'all' | ScenarioHorizon;
-type ScenarioLifecycleAction = 'evaluate' | 'compile' | 'backtest';
+type ScenarioLifecycleAction = 'compile';
 type ScenarioLifecycleRequest = {
   action: ScenarioLifecycleAction;
   scenario: ScenarioResponse;
 };
-type ScenarioLifecycleResult =
-  | ScenarioEvaluationResponse
-  | PlaybookCompileReportResponse
-  | BacktestRunResponse;
+type ScenarioLifecycleResult = PlaybookCompileReportResponse;
 type ScenarioLatestPlaybook = ScenarioResponse['latest_playbook'];
 type ScenarioActionFeedback = {
   tone: 'constructive' | 'warning' | 'risk' | 'primary';
@@ -199,17 +191,7 @@ export function ThesisDetailPage() {
       if (!scenarioId) {
         throw new Error('Derived thesis boundary scenarios cannot be actioned.');
       }
-      if (request.action === 'evaluate') {
-        return evaluateScenarioDecisionItem(scenarioId, auth);
-      }
-      if (request.action === 'compile') {
-        return compileScenarioDecisionPlaybook(scenarioId, auth);
-      }
-      const playbookId = request.scenario.latest_playbook?.id;
-      if (!playbookId) {
-        throw new Error('Compile a playbook before running a backtest.');
-      }
-      return createScenarioDecisionBacktest(playbookId, auth);
+      return compileScenarioDecisionPlaybook(scenarioId, auth);
     },
     onMutate: (request) => {
       const key = scenarioActionKey(request.scenario);
@@ -873,78 +855,26 @@ function scenarioLifecycleFeedback(
   action: ScenarioLifecycleAction,
   result: ScenarioLifecycleResult,
 ): ScenarioActionFeedback {
-  if (action === 'evaluate') {
-    const evaluation = result as ScenarioEvaluationResponse;
+  const report = result as PlaybookCompileReportResponse;
+  if (!report.eligible) {
     return {
-      tone: scenarioEvaluationTone(evaluation.result),
-      message: `Evaluation ${titleCaseValue(evaluation.result)} recorded.`,
-      details: [
-        `Outcome: ${titleCaseValue(evaluation.result)}`,
-        `Data quality: ${titleCaseValue(evaluation.data_quality)}`,
-        `Trigger: ${scenarioEvaluationFlagText(evaluation.trigger_hit, 'hit', 'missed')}`,
-        `Invalidation: ${scenarioEvaluationFlagText(evaluation.invalidation_hit, 'hit', 'clear')}`,
-        'Reliability: this scenario window is updated, not double-counted.',
-        ...evaluation.warnings.map(scenarioFeedbackText),
-      ],
+      tone: 'warning',
+      message: 'Playbook rejected.',
+      details: report.rejection_reasons.map(scenarioFeedbackText),
     };
   }
-
-  if (action === 'compile') {
-    const report = result as PlaybookCompileReportResponse;
-    if (!report.eligible) {
-      return {
-        tone: 'warning',
-        message: 'Playbook rejected.',
-        details: report.rejection_reasons.map(scenarioFeedbackText),
-      };
-    }
-    return {
-      tone: 'constructive',
-      message: 'Playbook compiled.',
-      details: [
-        report.playbook ? playbookDirectionDetail(report.playbook) : '',
-        report.playbook ? playbookEntryDetail(report.playbook) : '',
-        report.playbook ? playbookInvalidationDetail(report.playbook) : '',
-        report.playbook ? playbookTargetsDetail(report.playbook) : '',
-        'Scope: manual research plan only; no exchange order is placed.',
-        ...report.warnings.map(scenarioFeedbackText),
-      ].filter(Boolean),
-    };
-  }
-
-  const backtest = result as BacktestRunResponse;
   return {
-    tone: backtest.status === 'completed'
-      ? 'constructive'
-      : backtest.status === 'failed'
-        ? 'risk'
-        : 'warning',
-    message: `Backtest ${titleCaseValue(backtest.status)}.`,
+    tone: 'constructive',
+    message: 'Playbook compiled.',
     details: [
-      `Trades: ${backtest.result.trade_count}`,
-      backtest.result.total_return_pct === null
-        ? ''
-        : `Return: ${backtest.result.total_return_pct.toFixed(2)}%`,
-      `Data quality: ${titleCaseValue(backtest.data_quality)}`,
-      backtestWindowDetail(backtest),
-      backtestAssumptionsDetail(backtest),
-      ...backtest.warnings.map(scenarioFeedbackText),
+      report.playbook ? playbookDirectionDetail(report.playbook) : '',
+      report.playbook ? playbookEntryDetail(report.playbook) : '',
+      report.playbook ? playbookInvalidationDetail(report.playbook) : '',
+      report.playbook ? playbookTargetsDetail(report.playbook) : '',
+      'Scope: manual research plan only; no exchange order is placed.',
+      ...report.warnings.map(scenarioFeedbackText),
     ].filter(Boolean),
   };
-}
-
-function scenarioEvaluationFlagText(
-  value: boolean | null,
-  trueLabel: string,
-  falseLabel: string,
-): string {
-  if (value === true) {
-    return trueLabel;
-  }
-  if (value === false) {
-    return falseLabel;
-  }
-  return 'not evaluated';
 }
 
 function playbookDirectionDetail(playbook: CompiledTradePlaybook): string {
@@ -982,34 +912,12 @@ function playbookTargetsDetail(playbook: CompiledTradePlaybook): string {
     : 'Targets: not available';
 }
 
-function backtestWindowDetail(backtest: BacktestRunResponse): string {
-  return `Range: ${formatScenarioDate(backtest.assumptions.start_at)} to ${formatScenarioDate(backtest.assumptions.end_at)}`;
-}
-
-function backtestAssumptionsDetail(backtest: BacktestRunResponse): string {
-  return [
-    `Timeframe: ${backtest.assumptions.timeframe}`,
-    `Fill: ${scenarioFeedbackText(backtest.assumptions.fill_policy)}`,
-    `Sizing: ${scenarioFeedbackText(backtest.assumptions.sizing_policy)}`,
-  ].join(' | ');
-}
-
 function formatScenarioDate(value: string): string {
   return cleanScenarioText(value).slice(0, 10) || 'unknown';
 }
 
 function formatScenarioPrice(value: number): string {
   return `$${value.toLocaleString('en-US', { maximumFractionDigits: 8 })}`;
-}
-
-function scenarioEvaluationTone(result: ScenarioEvaluationResponse['result']): ScenarioActionFeedback['tone'] {
-  if (result === 'hit' || result === 'mixed') {
-    return 'constructive';
-  }
-  if (result === 'invalidated' || result === 'missed') {
-    return 'risk';
-  }
-  return 'warning';
 }
 
 function scenarioFeedbackText(value: string): string {
@@ -1092,7 +1000,7 @@ function ScenarioRadarCard({
         return createPlaybookSimulation(playbookId, defaultForwardSimulationRequest(), auth);
       }
       if (action === 'run-replay') {
-        return createPlaybookSimulation(playbookId, defaultReplaySimulationRequest(), auth);
+        return createPlaybookSimulation(playbookId, defaultReplaySimulationRequest(scenario), auth);
       }
       const simulationId = simulationDetailQuery.data?.id ?? highlightedSimulationRun?.id;
       if (!simulationId) {
@@ -1183,7 +1091,6 @@ function ScenarioRadarCard({
   const chartProjection = chartQuery.data ?? null;
   const chartBlockers = chartProjection?.live_state.blockers ?? [];
   const compileBlocker = compileBlockerForScenario(scenario, chartProjection?.live_state ?? null);
-  const backtestBlocker = backtestBlockerForPlaybook(scenario.latest_playbook);
 
   return (
     <article className={`scenario-card scenario-card-${directionToneValue}`}>
@@ -1294,7 +1201,6 @@ function ScenarioRadarCard({
         <ScenarioLifecycleActions
           feedback={lifecycle.feedback}
           compileBlocker={compileBlocker}
-          backtestBlocker={backtestBlocker}
           onAction={lifecycle.onAction}
           pendingAction={lifecycle.pendingAction}
         />
@@ -1452,7 +1358,7 @@ function PaperSimulationPanel({
     <div className="paper-simulation-panel">
       <div className="paper-simulation-header">
         <div>
-          <span className="badge primary">Opportunity</span>
+          <span className="badge primary">{paperSimulationBadge(playbook, latestRun)}</span>
           <strong>{paperSimulationTitle(playbook, latestRun)}</strong>
           <p>{status}</p>
         </div>
@@ -1603,13 +1509,11 @@ function PaperSimulationFact({ label, value }: { label: string; value: string })
 }
 
 function ScenarioLifecycleActions({
-  backtestBlocker,
   compileBlocker,
   feedback,
   onAction,
   pendingAction,
 }: {
-  backtestBlocker: string | null;
   compileBlocker: string | null;
   feedback: ScenarioActionFeedback | undefined;
   onAction: (action: ScenarioLifecycleAction) => void;
@@ -1621,15 +1525,6 @@ function ScenarioLifecycleActions({
       <div className="scenario-lifecycle-actions" aria-label="Scenario lifecycle actions">
         <button
           className="button primary"
-          disabled={pending}
-          onClick={() => onAction('evaluate')}
-          type="button"
-        >
-          <ClipboardCheck aria-hidden size={14} />
-          {pendingAction === 'evaluate' ? 'Evaluating' : 'Evaluate'}
-        </button>
-        <button
-          className="button ghost"
           disabled={pending || Boolean(compileBlocker)}
           onClick={() => onAction('compile')}
           title={compileBlocker ?? undefined}
@@ -1637,16 +1532,6 @@ function ScenarioLifecycleActions({
         >
           <ListChecks aria-hidden size={14} />
           {pendingAction === 'compile' ? 'Compiling' : 'Compile playbook'}
-        </button>
-        <button
-          className="button ghost"
-          disabled={pending || Boolean(backtestBlocker)}
-          onClick={() => onAction('backtest')}
-          title={backtestBlocker ?? undefined}
-          type="button"
-        >
-          <Play aria-hidden size={14} />
-          {pendingAction === 'backtest' ? 'Running' : 'Run backtest'}
         </button>
       </div>
       {feedback ? (
@@ -1705,21 +1590,6 @@ function compileBlockerForScenario(
   return null;
 }
 
-function backtestBlockerForPlaybook(playbook: ScenarioLatestPlaybook): string | null {
-  if (!playbook?.id) {
-    return 'Requires compiled playbook';
-  }
-  if (
-    playbook.direction === 'avoid' ||
-    !playbookHasNumericEntry(playbook) ||
-    playbook.invalidation.level === null ||
-    !playbook.targets.some((target) => target.level !== null)
-  ) {
-    return 'Requires numeric entry, invalidation, and target';
-  }
-  return null;
-}
-
 function playbookHasNumericEntry(playbook: NonNullable<ScenarioLatestPlaybook>): boolean {
   return playbook.entry.level !== null ||
     (playbook.entry.zone_low !== null && playbook.entry.zone_high !== null);
@@ -1739,10 +1609,10 @@ function defaultForwardSimulationRequest() {
   };
 }
 
-function defaultReplaySimulationRequest() {
-  const endsAt = new Date();
-  const startsAt = new Date(endsAt);
-  startsAt.setUTCDate(startsAt.getUTCDate() - 7);
+function defaultReplaySimulationRequest(scenario: ScenarioResponse) {
+  const anchoredWindow = scenarioReplayWindow(scenario);
+  const startsAt = anchoredWindow?.startsAt ?? new Date();
+  const endsAt = anchoredWindow?.endsAt ?? new Date(startsAt.getTime() + 7 * 24 * 60 * 60 * 1000);
   return {
     mode: 'replay' as const,
     sample_kind: 'manual_experiment' as const,
@@ -1758,9 +1628,41 @@ function defaultReplaySimulationRequest() {
   };
 }
 
+function scenarioReplayWindow(
+  scenario: ScenarioResponse,
+): { startsAt: Date; endsAt: Date } | null {
+  const windowStart = scenario.scenario_recommendation?.evaluation_window.starts_at;
+  const windowEnd = scenario.scenario_recommendation?.evaluation_window.ends_at;
+  const generatedAt = scenario.scenario_recommendation?.generated_at;
+  const validUntil = scenario.scenario_recommendation?.valid_until;
+  const startsAt =
+    timestampOrNull(windowStart) ??
+    timestampOrNull(generatedAt) ??
+    timestampOrNull(scenario.as_of ? `${scenario.as_of}T00:00:00.000Z` : null);
+  const endsAt =
+    timestampOrNull(windowEnd) ??
+    timestampOrNull(validUntil) ??
+    (startsAt ? new Date(startsAt.getTime() + 7 * 24 * 60 * 60 * 1000) : null);
+  if (!startsAt || !endsAt || endsAt.getTime() <= startsAt.getTime()) {
+    return null;
+  }
+  return { startsAt, endsAt };
+}
+
+function timestampOrNull(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
 function simulationBlockerForPlaybook(playbook: ScenarioLatestPlaybook): string | null {
   if (!playbook?.id) {
     return 'Requires compiled playbook';
+  }
+  if (playbook.market_type !== 'perp') {
+    return 'Trade-lab paper simulation supports perp artifacts only.';
   }
   if (playbook.status !== 'current') {
     return 'Requires current playbook';
@@ -1799,6 +1701,13 @@ function paperSimulationTitle(
   const source = playbook ?? run?.playbook_snapshot ?? null;
   if (!source) return 'Paper simulation';
   return `${source.symbol} ${titleCaseValue(source.direction)} ${titleCaseValue(source.horizon)}`;
+}
+
+function paperSimulationBadge(
+  playbook: ScenarioLatestPlaybook,
+  run: SimulationRunResponse | null,
+): string {
+  return playbook || run ? 'Simulation' : 'Watch setup';
 }
 
 function paperEntryLabel(playbook: NonNullable<ScenarioLatestPlaybook>): string {
@@ -2395,6 +2304,7 @@ function buildBoundaryScenario(
     reliability_profile: null,
     latest_playbook: null,
     latest_backtest: null,
+    latest_outcome_snapshot: null,
     payload: {
       branchType: boundary.branchType,
       source_context: 'thesis_brief',

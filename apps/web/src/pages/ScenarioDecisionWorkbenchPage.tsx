@@ -9,8 +9,6 @@ import { ErrorState, LoadingState } from '@/components/ui/state';
 import { routes } from '@/lib/routes';
 import {
   compileScenarioDecisionPlaybook,
-  createScenarioDecisionBacktest,
-  evaluateScenarioDecisionItem,
   getScenarioDecisionWorkbench,
   resolveScenarioDecisionItem,
   snoozeScenarioDecisionItem,
@@ -49,7 +47,7 @@ export function ScenarioDecisionWorkbenchPage() {
       <PageHeader
         eyebrow="Scenario Decision"
         title="Scenario decision workbench"
-        description="Prioritized scenario evaluations, playbooks, and backtests that need operator action."
+        description="Prioritized scenario setups that need operator review and playbook compilation."
         action={
           <HeaderStats
             stats={[
@@ -93,8 +91,8 @@ export function ScenarioDecisionWorkbenchPage() {
             <div className="state-card scenario-queue-empty">
               <strong>No scenario decision items are open.</strong>
               <p>
-                Queue items open when a scenario is triggered, due for evaluation,
-                inconclusive, compiled into a playbook, or backtested.
+                Queue items open when a scenario is triggered or needs follow-up after
+                playbook compilation.
               </p>
               <Link className="button ghost scenario-open-button" to={routes.scenarios}>
                 Scenarios
@@ -226,30 +224,14 @@ async function runScenarioDecisionItemAction(
   if (!primaryAction) {
     return null;
   }
-  if (primaryAction.kind === 'evaluate') {
-    return evaluateScenarioDecisionItem(primaryAction.id, auth);
-  }
-  if (primaryAction.kind === 'compile') {
-    return compileScenarioDecisionPlaybook(primaryAction.id, auth);
-  }
-  return createScenarioDecisionBacktest(primaryAction.id, auth);
+  return compileScenarioDecisionPlaybook(primaryAction.id, auth);
 }
 
 function itemPrimaryAction(
   item: ScenarioDecisionQueueItemResponse,
-): { kind: 'evaluate' | 'compile' | 'backtest'; id: string; label: string } | null {
-  if (
-    (item.type === 'evaluation_due' ||
-      item.type === 'evaluation_inconclusive') &&
-    item.scenario_id
-  ) {
-    return { kind: 'evaluate', id: item.scenario_id, label: 'Evaluate' };
-  }
+): { kind: 'compile'; id: string; label: string } | null {
   if (item.type === 'active_scenario' && item.scenario_id) {
     return { kind: 'compile', id: item.scenario_id, label: 'Compile playbook' };
-  }
-  if (item.type === 'playbook_candidate' && item.playbook_id) {
-    return { kind: 'backtest', id: item.playbook_id, label: 'Run backtest' };
   }
   return null;
 }

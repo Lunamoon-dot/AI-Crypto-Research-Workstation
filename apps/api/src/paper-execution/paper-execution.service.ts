@@ -19,6 +19,7 @@ import {
 import { toTradePlaybookResponse } from '../contracts/frontend-contract';
 import type { TradePlaybookResponse } from '../playbooks/playbook.types';
 import { tradePlaybookRequiresSequencedSetup } from '../scenarios/sequenced-setup-guard';
+import type { ScenarioOutcomeSnapshotResponse } from '../scenarios/scenario-outcome.types';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import type {
   CloseSimulationRequest,
@@ -387,7 +388,12 @@ export class PaperExecutionService {
     );
     if (applied.finalExit) {
       const outcome = buildOutcome(run, applied.position, applied.finalExit);
-      await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+      await this.persistSimulationOutcomeArtifacts(
+        run,
+        outcome,
+        workspaceId,
+        applied.position,
+      );
       createdEvents.push(
         events.build({
           event_type: 'simulation_completed',
@@ -423,7 +429,12 @@ export class PaperExecutionService {
     if (run.mode === 'replay') {
       const final = candles[candles.length - 1]!;
       const outcome = buildDataEndOutcome(run, applied.position);
-      await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+      await this.persistSimulationOutcomeArtifacts(
+        run,
+        outcome,
+        workspaceId,
+        applied.position,
+      );
       createdEvents.push(
         events.build({
           event_type: 'data_end_reached',
@@ -563,7 +574,12 @@ export class PaperExecutionService {
     await this.journal.savePaperOrder(jsonRecord(exitOrder), workspaceId);
     await this.journal.savePaperPosition(jsonRecord(closedPosition), workspaceId);
     const outcome = buildManualCloseOutcome(run, closedPosition);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(
+      run,
+      outcome,
+      workspaceId,
+      closedPosition,
+    );
     const createdEvents = [
       events.build({
         event_type: 'paper_order_created',
@@ -674,6 +690,23 @@ export class PaperExecutionService {
     return outcome ? toSimulationOutcomeResponse(outcome) : null;
   }
 
+  private async persistSimulationOutcomeArtifacts(
+    run: SimulationRunResponse,
+    outcome: SimulationOutcomeResponse,
+    workspaceId: string,
+    position?: PaperPositionResponse | null,
+  ): Promise<void> {
+    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    if (!this.journal.saveScenarioOutcomeSnapshot) {
+      return;
+    }
+    const snapshot = buildScenarioOutcomeSnapshot(run, outcome, position ?? null);
+    await this.journal.saveScenarioOutcomeSnapshot(
+      jsonRecord(snapshot),
+      workspaceId,
+    );
+  }
+
   private async refreshOpenPosition(
     run: SimulationRunResponse,
     rawPosition: JsonRecord,
@@ -737,7 +770,7 @@ export class PaperExecutionService {
       return this.detailFromRun(updated, workspaceId);
     }
     const outcome = buildOutcome(run, applied.position, applied.finalExit);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(run, outcome, workspaceId);
     createdEvents.push(
       events.build({
         event_type: 'simulation_completed',
@@ -879,7 +912,7 @@ export class PaperExecutionService {
   ): Promise<SimulationDetailResponse> {
     const events = await this.nextEvents(run.id, workspaceId);
     const outcome = buildAbandonedOutcome(run);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(run, outcome, workspaceId);
     const createdEvents = [
       events.build({
         event_type: 'simulation_completed',
@@ -958,7 +991,7 @@ export class PaperExecutionService {
   ): Promise<SimulationRunResponse> {
     const events = await this.nextEvents(run.id, workspaceId);
     const outcome = buildMissedOutcome(run);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(run, outcome, workspaceId);
     const createdEvents = [
       events.build({
         event_type: 'setup_expired',
@@ -1003,7 +1036,7 @@ export class PaperExecutionService {
   ): Promise<SimulationRunResponse> {
     const events = await this.nextEvents(run.id, workspaceId);
     const outcome = buildNoEntryDataEndOutcome(run);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(run, outcome, workspaceId);
     const createdEvents = [
       events.build({
         event_type: 'data_end_reached',
@@ -1053,7 +1086,7 @@ export class PaperExecutionService {
       payload: { failure_reason: reason },
     });
     const outcome = buildFailureOutcome(run, reason);
-    await this.journal.saveSimulationOutcome(jsonRecord(outcome), workspaceId);
+    await this.persistSimulationOutcomeArtifacts(run, outcome, workspaceId);
     await this.journal.appendExecutionEvents(run.id, jsonRecords([event]), workspaceId);
     return this.saveRun(
       {
@@ -1117,7 +1150,12 @@ export class PaperExecutionService {
       await this.journal.savePaperPosition(jsonRecord(rebuilt.position), workspaceId);
     }
     if (!persistedOutcome && rebuilt.outcome) {
-      await this.journal.saveSimulationOutcome(jsonRecord(rebuilt.outcome), workspaceId);
+      await this.persistSimulationOutcomeArtifacts(
+        run,
+        rebuilt.outcome,
+        workspaceId,
+        rebuilt.position ?? undefined,
+      );
     }
     const sourceDriftAfterStart = await this.sourceDriftAfterStart(run, workspaceId);
 
@@ -2330,6 +2368,43 @@ function buildOutcome(
   };
 }
 
+function buildScenarioOutcomeSnapshot(
+  run: SimulationRunResponse,
+  outcome: SimulationOutcomeResponse,
+  position: PaperPositionResponse | null,
+): ScenarioOutcomeSnapshotResponse {
+  return {
+    version: 'scenario_outcome_snapshot.v1',
+    id: `scenario_outcome_${randomUUID().replaceAll('-', '')}`,
+    workspace_id: run.workspace_id,
+    scenario_id: run.source_scenario_id,
+    thesis_id: run.source_thesis_id,
+    playbook_id: run.source_playbook_id,
+    simulation_id: run.id,
+    generated_at: scenarioGeneratedAt(run),
+    settled_at: outcome.evaluated_at,
+    settlement_reason: scenarioSettlementReason(outcome),
+    trigger_hit: triggerHitForOutcome(outcome),
+    trigger_hit_at: triggerTimestampForOutcome(run, outcome, position),
+    entry_hit: entryHitForOutcome(outcome, position),
+    entry_hit_at: entryTimestampForOutcome(run, outcome, position),
+    invalidation_hit: invalidationHitForOutcome(outcome),
+    invalidation_hit_at: invalidationHitForOutcome(outcome) ? outcome.evaluated_at : null,
+    target_hit: targetHitForOutcome(outcome),
+    target_hit_at: targetHitForOutcome(outcome) ? outcome.evaluated_at : null,
+    start_price: decimalNumber(position?.average_entry_price ?? null),
+    end_price: null,
+    max_favorable_excursion: decimalNumber(outcome.max_favorable_excursion),
+    max_adverse_excursion: decimalNumber(outcome.max_adverse_excursion),
+    paper_realized_pnl: outcome.realized_pnl,
+    paper_realized_pnl_pct: outcome.realized_pnl_pct,
+    prediction_quality: predictionQualityForOutcome(outcome),
+    execution_quality: executionQualityForOutcome(outcome),
+    data_quality: dataQualityForOutcome(outcome),
+    warnings: outcome.warnings,
+  };
+}
+
 function researchEvaluationForFinalExit(input: {
   executionResult: SimulationOutcomeResponse['execution_result'];
   ambiguous: boolean;
@@ -2549,6 +2624,135 @@ function buildFailureOutcome(
     warnings: [reason],
     evaluated_at: new Date().toISOString(),
   };
+}
+
+function scenarioGeneratedAt(run: SimulationRunResponse): string {
+  return stringOrNull(run.analysis_snapshot.scenario_recommendation?.generated_at)
+    ?? run.evaluation_window.starts_at
+    ?? run.started_at;
+}
+
+function scenarioSettlementReason(
+  outcome: SimulationOutcomeResponse,
+): ScenarioOutcomeSnapshotResponse['settlement_reason'] {
+  if (outcome.execution_result === 'missed') {
+    return 'missed_entry';
+  }
+  if (outcome.close_reason === 'target') {
+    return 'target_hit';
+  }
+  if (outcome.close_reason === 'stop' || outcome.close_reason === 'thesis_invalidation') {
+    return 'risk_exit_hit';
+  }
+  if (outcome.close_reason === 'setup_expiry') {
+    return 'expired';
+  }
+  if (outcome.warnings.includes('manual_abandon_inconclusive')) {
+    return 'manual_abandon';
+  }
+  return 'data_end';
+}
+
+function triggerHitForOutcome(outcome: SimulationOutcomeResponse): boolean | null {
+  if (outcome.execution_result === 'missed') {
+    return false;
+  }
+  if (outcome.close_reason === null && outcome.realized_pnl === null) {
+    return null;
+  }
+  return true;
+}
+
+function entryHitForOutcome(
+  outcome: SimulationOutcomeResponse,
+  position: PaperPositionResponse | null,
+): boolean | null {
+  if (position?.average_entry_price) {
+    return true;
+  }
+  if (outcome.execution_result === 'missed') {
+    return false;
+  }
+  return outcome.close_reason === null && outcome.realized_pnl === null ? null : true;
+}
+
+function triggerTimestampForOutcome(
+  run: SimulationRunResponse,
+  outcome: SimulationOutcomeResponse,
+  position: PaperPositionResponse | null,
+): string | null {
+  if (triggerHitForOutcome(outcome) !== true) {
+    return null;
+  }
+  return position?.opened_at_market_time ?? run.market_time ?? outcome.evaluated_at;
+}
+
+function entryTimestampForOutcome(
+  run: SimulationRunResponse,
+  outcome: SimulationOutcomeResponse,
+  position: PaperPositionResponse | null,
+): string | null {
+  if (entryHitForOutcome(outcome, position) !== true) {
+    return null;
+  }
+  return position?.opened_at_market_time ?? run.market_time ?? outcome.evaluated_at;
+}
+
+function invalidationHitForOutcome(outcome: SimulationOutcomeResponse): boolean | null {
+  if (outcome.close_reason === 'stop' || outcome.close_reason === 'thesis_invalidation') {
+    return true;
+  }
+  return outcome.close_reason === null && outcome.realized_pnl === null ? null : false;
+}
+
+function targetHitForOutcome(outcome: SimulationOutcomeResponse): boolean | null {
+  if (outcome.close_reason === 'target') {
+    return true;
+  }
+  return outcome.close_reason === null && outcome.realized_pnl === null ? null : false;
+}
+
+function predictionQualityForOutcome(
+  outcome: SimulationOutcomeResponse,
+): ScenarioOutcomeSnapshotResponse['prediction_quality'] {
+  if (outcome.thesis_outcome === 'supported') {
+    return 'supported';
+  }
+  if (outcome.close_reason === 'thesis_invalidation') {
+    return 'invalidated';
+  }
+  if (outcome.thesis_outcome === 'challenged') {
+    return 'challenged';
+  }
+  return 'inconclusive';
+}
+
+function executionQualityForOutcome(
+  outcome: SimulationOutcomeResponse,
+): ScenarioOutcomeSnapshotResponse['execution_quality'] {
+  if (outcome.execution_quality === 'rule_following') {
+    return 'rule_following';
+  }
+  if (outcome.execution_quality === 'missed_trigger') {
+    return 'missed_trigger';
+  }
+  return 'insufficient_data';
+}
+
+function dataQualityForOutcome(
+  outcome: SimulationOutcomeResponse,
+): ScenarioOutcomeSnapshotResponse['data_quality'] {
+  if (outcome.execution_result === 'win' || outcome.execution_result === 'loss' || outcome.execution_result === 'breakeven') {
+    return 'complete';
+  }
+  if (outcome.execution_result === 'missed') {
+    return 'partial';
+  }
+  return 'insufficient';
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function buildEvent(

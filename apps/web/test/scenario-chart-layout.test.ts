@@ -18,3 +18,12 @@ test('scenario chart source has no execution action copy', () => {
     assert.equal(forbidden.test(checked), false);
   }
 });
+
+test('scenario chart badge uses opportunity-card semantics instead of setup-only wording', () => {
+  const sourceText = source('../src/components/scenarios/ScenarioChart.tsx');
+
+  assert.equal(sourceText.includes('formatOpportunityBadge(visualProjection.opportunity)'), true);
+  assert.equal(sourceText.includes('`${titleCase(visualProjection.opportunity.status)} setup`'), false);
+  assert.equal(sourceText.includes('watch_scenario'), true);
+  assert.equal(sourceText.includes('paper_position'), true);
+});

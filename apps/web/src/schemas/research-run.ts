@@ -7,7 +7,7 @@ export const researchRunRequestSchema = z.object({
   workspace_id: z.string().trim().min(1, 'Workspace is required.'),
   symbol: z.string().trim().min(1, 'Symbol is required.').transform(normalizeCryptoSymbol),
   asset_class: z.string().trim().min(1).default('crypto'),
-  market_type: z.enum(['spot', 'perp']).default('spot'),
+  market_type: z.literal('perp').default('perp'),
   analysis_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
   analysts: z
     .array(z.string().trim().min(1))

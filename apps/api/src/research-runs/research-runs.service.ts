@@ -141,7 +141,7 @@ export class ResearchRunsService {
         workspace_id: workspaceId,
         symbol,
         asset_class: assetClass,
-        market_type: dto.market_type ?? 'spot',
+        market_type: normalizeTradeLabMarketType(dto.market_type),
         analysis_date: dto.analysis_date,
         analysts: normalizeSelectedAnalysts(dto.analysts),
         config_profile: dto.config_profile ?? 'default',
@@ -1163,6 +1163,12 @@ function errorSummary(error: unknown): string {
     return `${error.name}: ${firstLine(error.message)}`;
   }
   return firstLine(String(error));
+}
+
+function normalizeTradeLabMarketType(
+  _input: 'spot' | 'perp' | undefined,
+): 'perp' {
+  return 'perp';
 }
 
 function firstLine(value: string): string {

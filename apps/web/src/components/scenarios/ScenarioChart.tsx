@@ -194,7 +194,7 @@ export function ScenarioChart({
       <div className="scenario-chart-meta">
         <span className="badge primary">
           {visualProjection
-            ? `${titleCase(visualProjection.opportunity.status)} setup`
+            ? formatOpportunityBadge(visualProjection.opportunity)
             : `${titleCase(projection.mode)} chart`}
         </span>
         {visualProjection ? (
@@ -273,6 +273,21 @@ export function ScenarioChart({
       ) : null}
     </div>
   );
+}
+
+function formatOpportunityBadge(
+  opportunity: NonNullable<ScenarioChartProjectionResponse['visual_projection']>['opportunity'],
+): string {
+  if (opportunity.kind === 'watch_scenario') {
+    return `${titleCase(opportunity.status)} watch`;
+  }
+  if (opportunity.kind === 'paper_position') {
+    return `${titleCase(opportunity.status)} paper position`;
+  }
+  if (opportunity.kind === 'diagnostic') {
+    return `${titleCase(opportunity.status)} diagnostic`;
+  }
+  return `${titleCase(opportunity.status)} setup`;
 }
 
 function renderVisualShape(shape: VisualOverlayShape) {

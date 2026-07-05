@@ -23,16 +23,12 @@ test('scenario decision workbench has route navigation and API service', () => {
   assert.equal(page.includes('getScenarioDecisionWorkbench'), true);
   assert.equal(page.includes('resolveScenarioDecisionItem'), true);
   assert.equal(page.includes('snoozeScenarioDecisionItem'), true);
-  assert.equal(page.includes('evaluateScenarioDecisionItem'), true);
   assert.equal(page.includes('compileScenarioDecisionPlaybook'), true);
-  assert.equal(page.includes('createScenarioDecisionBacktest'), true);
   assert.equal(page.includes('ScenarioDecisionQueueItemResponse'), true);
   assert.equal(service.includes('/scenario-decision/workbench'), true);
   assert.equal(service.includes('/resolve'), true);
   assert.equal(service.includes('/snooze'), true);
-  assert.equal(service.includes('/evaluations'), true);
   assert.equal(service.includes('/playbook'), true);
-  assert.equal(service.includes('/backtests'), true);
   assert.equal(routes.includes('ScenarioDecisionWorkbenchPage'), true);
   assert.equal(routes.includes("path: 'scenario-decision'"), true);
   assert.equal(nav.includes('scenario-decision'), true);
@@ -49,9 +45,9 @@ test('scenario decision workbench renders priority and next action fields', () =
   assert.equal(page.includes('<span>Next action</span>'), true);
   assert.equal(page.includes('<span>Blockers</span>'), true);
   assert.equal(page.includes('itemPrimaryAction'), true);
-  assert.equal(page.includes('Run backtest'), true);
   assert.equal(page.includes('Compile playbook'), true);
-  assert.equal(page.includes('Evaluate'), true);
+  assert.equal(page.includes('Run backtest'), false);
+  assert.equal(page.includes('Evaluate'), false);
   assert.equal(page.includes('No scenario decision items are open.'), true);
   assert.equal(page.includes('Queue items open when a scenario is triggered'), true);
   assert.equal(page.includes('routes.thesis(item.thesis_id)'), true);

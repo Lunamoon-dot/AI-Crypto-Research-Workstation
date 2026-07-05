@@ -67,6 +67,7 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
     ? runtimeDecision.blocking_reasons.map(cleanText).filter(Boolean)
     : [];
   const latestEvaluation = scenario.latest_evaluation;
+  const latestOutcome = scenario.latest_outcome_snapshot;
   const reliability = scenario.reliability_profile;
   const playbook = scenario.latest_playbook;
   const backtest = scenario.latest_backtest;
@@ -116,7 +117,13 @@ function buildScenarioViewModel(scenario: ScenarioResponse, fallbackTitle: strin
       }))
       .filter((gate) => gate.label),
     evaluationLabel: scenarioEvaluationLabel(scenario),
-    evaluationDetail: latestEvaluation
+    evaluationDetail: latestOutcome
+      ? [
+          latestOutcome.settlement_reason.replaceAll('_', ' '),
+          latestOutcome.prediction_quality,
+          latestOutcome.execution_quality.replaceAll('_', ' '),
+        ].filter(Boolean).join(' | ')
+      : latestEvaluation
       ? [
           latestEvaluation.data_quality,
           latestEvaluation.trigger_hit === null
@@ -307,6 +314,9 @@ function evaluationLabel(value: string): string {
 }
 
 function scenarioEvaluationLabel(scenario: ScenarioResponse): string {
+  if (scenario.latest_outcome_snapshot) {
+    return scenario.latest_outcome_snapshot.settlement_reason.replaceAll('_', ' ');
+  }
   if (scenario.latest_evaluation) {
     return statusLabel(scenario.latest_evaluation.result);
   }

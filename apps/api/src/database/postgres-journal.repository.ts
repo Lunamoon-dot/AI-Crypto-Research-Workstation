@@ -1717,6 +1717,128 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     );
   }
 
+  async saveScenarioOutcomeSnapshot(
+    input: JsonRecord,
+    workspaceId: string,
+  ): Promise<JsonRecord> {
+    await this.ensureScenarioLifecycleSchema();
+    const id = stringValue(
+      input.id,
+      `scenario_outcome_${randomUUID().replaceAll('-', '')}`,
+    );
+    const settledAt = stringValue(input.settled_at, new Date().toISOString());
+    const payload = { ...input, id, workspace_id: workspaceId, settled_at: settledAt };
+    const saved = await this.one(
+      `INSERT INTO scenario_outcome_snapshots
+       (id, workspace_id, scenario_id, thesis_id, playbook_id, simulation_id, generated_at,
+        settled_at, settlement_reason, prediction_quality, execution_quality, data_quality,
+        warnings_json, payload_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9, $10, $11, $12, $13::jsonb, $14::jsonb)
+       ON CONFLICT (simulation_id) DO UPDATE SET
+         playbook_id = EXCLUDED.playbook_id,
+         settled_at = EXCLUDED.settled_at,
+         settlement_reason = EXCLUDED.settlement_reason,
+         prediction_quality = EXCLUDED.prediction_quality,
+         execution_quality = EXCLUDED.execution_quality,
+         data_quality = EXCLUDED.data_quality,
+         warnings_json = EXCLUDED.warnings_json,
+         payload_json = EXCLUDED.payload_json,
+         updated_at = now()
+       RETURNING payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'playbook_id', playbook_id,
+         'simulation_id', simulation_id,
+         'generated_at', generated_at,
+         'settled_at', settled_at,
+         'settlement_reason', settlement_reason,
+         'prediction_quality', prediction_quality,
+         'execution_quality', execution_quality,
+         'data_quality', data_quality,
+         'warnings', warnings_json
+       ) AS payload_json`,
+      [
+        id,
+        workspaceId,
+        stringValue(input.scenario_id, ''),
+        stringValue(input.thesis_id, ''),
+        nullableString(input.playbook_id),
+        nullableString(input.simulation_id),
+        stringValue(input.generated_at, settledAt),
+        settledAt,
+        stringValue(input.settlement_reason, 'data_end'),
+        stringValue(input.prediction_quality, 'inconclusive'),
+        stringValue(input.execution_quality, 'insufficient_data'),
+        stringValue(input.data_quality, 'insufficient'),
+        JSON.stringify(arrayFromUnknown(input.warnings)),
+        JSON.stringify(payload),
+      ],
+    );
+    if (!saved) {
+      throw new ServiceUnavailableException('Scenario outcome snapshot was not persisted.');
+    }
+    return saved;
+  }
+
+  async listScenarioOutcomeSnapshots(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord[]> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.many(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'playbook_id', playbook_id,
+         'simulation_id', simulation_id,
+         'generated_at', generated_at,
+         'settled_at', settled_at,
+         'settlement_reason', settlement_reason,
+         'prediction_quality', prediction_quality,
+         'execution_quality', execution_quality,
+         'data_quality', data_quality,
+         'warnings', warnings_json
+       ) AS payload_json
+       FROM scenario_outcome_snapshots
+       WHERE workspace_id = $1 AND scenario_id = $2
+       ORDER BY settled_at DESC, id DESC`,
+      [workspaceId, scenarioId],
+    );
+  }
+
+  async getLatestScenarioOutcomeSnapshot(
+    scenarioId: string,
+    workspaceId: string,
+  ): Promise<JsonRecord | null> {
+    await this.ensureScenarioLifecycleSchema();
+    return this.one(
+      `SELECT payload_json || jsonb_build_object(
+         'id', id,
+         'workspace_id', workspace_id,
+         'scenario_id', scenario_id,
+         'thesis_id', thesis_id,
+         'playbook_id', playbook_id,
+         'simulation_id', simulation_id,
+         'generated_at', generated_at,
+         'settled_at', settled_at,
+         'settlement_reason', settlement_reason,
+         'prediction_quality', prediction_quality,
+         'execution_quality', execution_quality,
+         'data_quality', data_quality,
+         'warnings', warnings_json
+       ) AS payload_json
+       FROM scenario_outcome_snapshots
+       WHERE workspace_id = $1 AND scenario_id = $2
+       ORDER BY settled_at DESC, id DESC
+       LIMIT 1`,
+      [workspaceId, scenarioId],
+    );
+  }
+
   async getScenarioEvaluation(
     id: string,
     workspaceId: string,
@@ -4077,6 +4199,27 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
       );
       CREATE INDEX IF NOT EXISTS idx_scenario_evaluations_scenario
         ON scenario_evaluations(workspace_id, scenario_id, evaluated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS scenario_outcome_snapshots (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        scenario_id TEXT NOT NULL,
+        thesis_id TEXT NOT NULL,
+        playbook_id TEXT,
+        simulation_id TEXT UNIQUE,
+        generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        settled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        settlement_reason TEXT NOT NULL,
+        prediction_quality TEXT NOT NULL DEFAULT 'inconclusive',
+        execution_quality TEXT NOT NULL DEFAULT 'insufficient_data',
+        data_quality TEXT NOT NULL DEFAULT 'insufficient',
+        warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_scenario_outcome_snapshots_scenario
+        ON scenario_outcome_snapshots(workspace_id, scenario_id, settled_at DESC);
 
       CREATE TABLE IF NOT EXISTS trade_playbooks (
         id TEXT PRIMARY KEY,
