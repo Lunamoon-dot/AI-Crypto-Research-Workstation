@@ -19,9 +19,8 @@ market context
 -> deterministic signals
 -> multi-agent research
 -> structured thesis
--> user decision
--> journal
--> monitoring / evaluation
+-> scenario analysis
+-> journal, monitoring, and evaluation
 -> reliability learning
 ```
 
@@ -50,9 +49,15 @@ implementation plans use the versioned layout documented in
 
 ## Product Boundary
 
-LunaCrypto is built around research artifacts and user-reviewed decisions. It
-keeps the audit trail and product language focused on decision quality,
-evidence, invalidation, monitoring, and review.
+LunaCrypto is built around research artifacts and user-reviewed theses. It
+keeps the audit trail and product language focused on evidence, invalidation,
+scenario analysis, monitoring, and review.
+
+The product intentionally does **not** include a Decision Queue, Research
+Continuity memory, RAG retrieval, or Research Chat. Historical database tables
+may remain temporarily for data preservation, but the application neither
+reads from nor writes to them. New work should deepen the core analysis flow
+rather than recreate these features.
 
 ## Root Commands
 
@@ -85,8 +90,8 @@ The Prisma config defaults to
 `postgresql://postgres:postgres@localhost:5432/lunacrypto` for Prisma schema work.
 When running `apps/api`, set `DATABASE_URL` explicitly if API routes need real
 journal reads/writes. Without `DATABASE_URL`, API tests can still exercise
-static membership and queue behavior, but repository-backed reads will return a
-service-unavailable error. The raw Postgres SQL file in
+static membership and background-job behavior, but repository-backed reads will
+return a service-unavailable error. The raw Postgres SQL file in
 `apps/api/src/database/postgres-schema.sql` is kept as compatibility/reference
 material for the Python journal migration boundary.
 
@@ -169,7 +174,7 @@ pnpm --filter @lunaperception/api dev
 pnpm --filter @lunaperception/web dev
 ```
 
-Queue behavior is controlled by:
+Background-job execution is controlled by:
 
 ```text
 JOBS_EXECUTION_MODE=memory
