@@ -155,14 +155,12 @@ def test_run_orchestrator_adds_market_context_to_initial_state(monkeypatch):
             trade_date,
             past_context,
             market_type,
-            latest_continuity_context=None,
         ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
                 "past_context": past_context,
                 "market_type": market_type,
-                "latest_continuity_context": latest_continuity_context,
                 "messages": [],
             }
 
@@ -283,14 +281,12 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
             trade_date,
             past_context,
             market_type,
-            latest_continuity_context=None,
         ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
                 "past_context": past_context,
                 "market_type": market_type,
-                "latest_continuity_context": latest_continuity_context,
                 "messages": [],
             }
 
@@ -337,7 +333,7 @@ def test_run_orchestrator_adds_news_context_and_quality_to_initial_state(monkeyp
     )
 
 
-def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
+def test_run_orchestrator_does_not_add_legacy_metadata_to_initial_state(
     monkeypatch,
 ):
     captured = {}
@@ -412,14 +408,12 @@ def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
             trade_date,
             past_context,
             market_type,
-            latest_continuity_context=None,
         ):
             return {
                 "company_of_interest": company_name,
                 "trade_date": trade_date,
                 "past_context": past_context,
                 "market_type": market_type,
-                "latest_continuity_context": latest_continuity_context,
                 "messages": [],
             }
 
@@ -452,16 +446,4 @@ def test_run_orchestrator_adds_latest_continuity_context_to_initial_state(
 
     ResearchRunOrchestrator().run_graph(host, "BTC/USDT", "2026-05-31")
 
-    assert captured["latest_continuity_context"] == {
-        "scenario_feedback_playbook": {
-            "version": "scenario_feedback_playbook.v1",
-            "lessons": [
-                {
-                    "statement": "Require confirmation.",
-                    "confidence": "medium",
-                }
-            ],
-            "gates": [],
-            "exclusions": [],
-        },
-    }
+    assert "latest_continuity_context" not in captured

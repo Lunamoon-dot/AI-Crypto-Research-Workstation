@@ -1,6 +1,7 @@
 import importlib
 import json
 from pathlib import Path
+from inspect import signature
 from typing import Any
 
 from luna_workstation.engine import (
@@ -10,6 +11,7 @@ from luna_workstation.engine import (
     EngineRunResult,
     EngineRunner,
 )
+from luna_workstation.engine.market_validation import validate_market_data
 from luna_workstation.engine.runner import run_evaluate_request
 from luna_workstation.domain import ResearchRun, ThesisDirection, TradeThesis
 from luna_workstation.services.evaluation_service import EvaluationService
@@ -82,10 +84,10 @@ def test_engine_runner_dry_run_persists_contract_events(tmp_path, monkeypatch):
     }
     assert run is not None
     assert run.workspace_id == "workspace_1"
-    assert run.market_type == "spot"
+    assert run.market_type == "perp"
     assert run.status.value == "completed"
     assert [event.event_type for event in events] == ["run.started", "run.completed"]
-    assert events[0].payload["market_type"] == "spot"
+    assert events[0].payload["market_type"] == "perp"
     assert events[0].payload["exchange"] == "binance"
     assert events[0].payload["output_language"] == "Vietnamese"
     assert events[0].payload["metadata"] == {"source": "contract-test"}
@@ -163,6 +165,25 @@ def test_engine_request_accepts_perp_market_type():
     )
 
     assert request.market_type == "perp"
+
+
+def test_engine_request_defaults_market_type_to_perp():
+    request = EngineRunRequest.model_validate(
+        {
+            "run_id": "run_default_market_type",
+            "workspace_id": "workspace_1",
+            "symbol": "BTC/USDT",
+            "asset_class": "crypto",
+            "analysis_date": "2026-05-12",
+            "analysts": ["market"],
+        }
+    )
+
+    assert request.market_type == "perp"
+
+
+def test_validate_market_data_defaults_market_type_to_perp():
+    assert signature(validate_market_data).parameters["market_type"].default == "perp"
 
 
 def test_engine_request_normalizes_common_crypto_symbols():

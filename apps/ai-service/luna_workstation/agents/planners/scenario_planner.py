@@ -572,59 +572,6 @@ def _validated_free_text_json_plan(
     )
 
 
-def _render_scenario_continuity_handoff(handoff: object) -> str:
-    if not isinstance(handoff, dict) or not handoff:
-        return ""
-    lines = [
-        "Portfolio Manager scenario continuity handoff (prior memory only; not current evidence):"
-    ]
-    for key in (
-        "continuity_relation",
-        "summary",
-        "short_term_focus",
-        "mid_term_focus",
-        "long_term_focus",
-        "carry_forward_watchpoints",
-        "carry_forward_invalidations",
-        "stale_prior",
-    ):
-        value = handoff.get(key)
-        if value:
-            lines.append(f"- {key}: {value}")
-    return "\n".join(lines)
-
-
-def render_scenario_feedback_playbook(context: object) -> str:
-    if not isinstance(context, dict) or not context:
-        return ""
-    playbook = context.get("scenario_feedback_playbook")
-    if not isinstance(playbook, dict):
-        return ""
-    lessons = playbook.get("lessons") or []
-    gates = playbook.get("gates") or []
-    lines = [
-        "Scenario feedback playbook (evaluated prior outcomes only; compact guardrails):"
-    ]
-    if isinstance(lessons, list):
-        for lesson in lessons[:8]:
-            if not isinstance(lesson, dict):
-                continue
-            statement = _compact_text(lesson.get("statement"))
-            if not statement:
-                continue
-            confidence = _compact_text(lesson.get("confidence") or "low") or "low"
-            lines.append(f"- {statement} ({confidence})")
-    if isinstance(gates, list):
-        for gate in gates[:5]:
-            if not isinstance(gate, dict):
-                continue
-            reason = _compact_text(gate.get("reason"))
-            applies_to = _compact_text(gate.get("applies_to") or "entry") or "entry"
-            if reason:
-                lines.append(f"- gate:{applies_to}: {reason}")
-    return "\n".join(lines) if len(lines) > 1 else ""
-
-
 def render_scenario_reliability_digest(digest: object) -> str:
     if isinstance(digest, dict):
         profiles = digest.get("profiles") or digest.get("items") or []
@@ -770,15 +717,9 @@ def create_scenario_planner(llm, config=None):
         current_price_context = build_current_price_context(state)
         investment_plan = state.get("investment_plan", "")
         pm_decision = state.get("final_trade_decision", "") or ""
-        scenario_handoff = _render_scenario_continuity_handoff(
-            state.get("scenario_continuity_handoff")
-        )
         scenario_reliability = render_scenario_reliability_digest(
             state.get("scenario_reliability_digest")
             or state.get("scenario_reliability_profiles")
-        )
-        scenario_feedback = render_scenario_feedback_playbook(
-            state.get("latest_continuity_context")
         )
 
         research_reports = {
@@ -869,9 +810,7 @@ def create_scenario_planner(llm, config=None):
                                 "horizon. The parent planner will normalize the final "
                                 "short/mid/long plan. Use the current reports, investment "
                                 "plan, and Portfolio Manager decision as the primary "
-                                "evidence layer. Do not use raw continuity memory.\n\n"
-                                f"{scenario_handoff}\n\n"
-                                f"{scenario_feedback}\n\n"
+                                "evidence layer.\n\n"
                                 f"{scenario_reliability}\n\n"
                                 "Portfolio Manager decision (truncated):\n"
                                 f"{guard_untrusted_context('portfolio_manager_decision', pm_decision)}\n\n"
@@ -1029,10 +968,6 @@ SCENARIO_PLAN_JSON:
 {_TEMPLATE_LINE}
 
 Base your scenarios on the research reports and investment plan below.
-
-{scenario_handoff}
-
-{scenario_feedback}
 
 {scenario_reliability}
 

@@ -513,7 +513,7 @@ CREATE TABLE IF NOT EXISTS scenario_evaluations (
     thesis_id TEXT NOT NULL,
     research_run_id TEXT,
     symbol TEXT NOT NULL,
-    market_type TEXT NOT NULL DEFAULT 'spot',
+    market_type TEXT NOT NULL DEFAULT 'perp',
     horizon TEXT NOT NULL DEFAULT 'unknown',
     evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     evaluation_window JSONB NOT NULL DEFAULT '{}'::jsonb,

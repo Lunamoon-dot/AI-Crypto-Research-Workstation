@@ -553,7 +553,7 @@ class ResearchAgentsGraph(GraphRunContextMixin, JournalPersistenceMixin):
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
             "market_type": final_state.get(
-                "market_type", self.config.get("market_type", "spot")
+                "market_type", self.config.get("market_type", "perp")
             ),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],

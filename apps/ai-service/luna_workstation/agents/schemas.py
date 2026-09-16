@@ -463,9 +463,7 @@ class PortfolioDecision(BaseModel):
     investment_thesis: str = Field(
         description=(
             "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons or Research Continuity prior memory are "
-            "referenced in the prompt context, incorporate them as prior context "
-            "only; otherwise rely solely on the current analysis."
+            "debate and current analysis."
         ),
     )
     price_target: Optional[float] = Field(
@@ -577,8 +575,7 @@ class PortfolioDecision(BaseModel):
         default_factory=list,
         description=(
             "Global thesis evidence used only when an item lacks its own evidence. "
-            "When prior continuity memory is cited, use source_artifact "
-            "'research_continuity'."
+            "Use source_artifact values that identify the supporting evidence."
         ),
     )
     spot_notes: str = Field(
@@ -596,15 +593,6 @@ class PortfolioDecision(BaseModel):
         default_factory=list,
         description="Missing data that weakens confidence in the final thesis.",
     )
-    scenario_continuity_handoff: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Optional compact Portfolio Manager-authored prior-memory handoff for "
-            "Scenario Planner. Summarize how Research Continuity prior memory should "
-            "influence short/mid/long scenarios without treating it as current evidence."
-        ),
-    )
-
     @field_validator("market_type", mode="before")
     @classmethod
     def _normalize_market_type(cls, value: Any) -> MarketType:
@@ -747,7 +735,6 @@ def _pm_summary_payload(decision: PortfolioDecision) -> dict[str, Any]:
         "spot_notes": decision.spot_notes,
         "perp_notes": decision.perp_notes,
         "missing_data": decision.missing_data,
-        "scenario_continuity_handoff": decision.scenario_continuity_handoff,
     }
 
 

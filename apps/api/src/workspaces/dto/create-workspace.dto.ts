@@ -1,5 +1,4 @@
 import { IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
-import { WorkspaceMarketType } from '../workspace-metadata';
 
 export class CreateWorkspaceDto {
   @IsString()
@@ -13,8 +12,8 @@ export class CreateWorkspaceDto {
   symbol: string;
 
   @IsOptional()
-  @IsIn(['mixed', 'spot', 'perp'])
-  market_type?: WorkspaceMarketType;
+  @IsIn(['perp'])
+  market_type?: 'perp';
 
   @IsOptional()
   @IsString()

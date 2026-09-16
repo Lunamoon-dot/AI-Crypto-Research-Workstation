@@ -13,6 +13,12 @@ import {
 import {
   ScenarioEvaluationResponse,
 } from './scenario-evaluation.types';
+import type {
+  ScenarioOutcomeDataQuality,
+  ScenarioOutcomeExecutionQuality,
+  ScenarioOutcomePredictionQuality,
+  ScenarioOutcomeSettlementReason,
+} from './scenario-outcome.types';
 import {
   toScenarioEvaluationResponse,
   toScenarioResponse,
@@ -222,6 +228,7 @@ export class ScenarioEvaluationService {
   }): Promise<ScenarioEvaluationResponse> {
     const prices = candleStats(input.candles);
     const id = deterministicScenarioEvaluationId(input);
+    const evaluatedAt = new Date().toISOString();
     const saved = await this.journal.saveScenarioEvaluation(
       {
         version: 'scenario_evaluation.v1',
@@ -233,7 +240,7 @@ export class ScenarioEvaluationService {
         symbol: responseSymbol(input.response, input.thesis),
         market_type: marketType(input.thesis.market_type ?? input.response.payload.market_type),
         horizon: input.response.horizon,
-        evaluated_at: new Date().toISOString(),
+        evaluated_at: evaluatedAt,
         evaluation_window: {
           starts_at: input.evaluationWindow.starts_at,
           ends_at: input.evaluationWindow.ends_at,
@@ -252,6 +259,18 @@ export class ScenarioEvaluationService {
       },
       input.workspaceId,
     );
+    if (this.journal.saveScenarioOutcomeSnapshot) {
+      await this.journal.saveScenarioOutcomeSnapshot(
+        buildOutcomeSnapshot({
+          saved,
+          response: input.response,
+          thesis: input.thesis,
+          prices,
+          evaluatedAt,
+        }),
+        input.workspaceId,
+      );
+    }
     return toScenarioEvaluationResponse(saved);
   }
 
@@ -408,6 +427,49 @@ function marketType(value: unknown): 'spot' | 'perp' {
   return value === 'perp' ? 'perp' : 'spot';
 }
 
+function buildOutcomeSnapshot(input: {
+  saved: JsonRecord;
+  response: ReturnType<typeof toScenarioResponse>;
+  thesis: JsonRecord;
+  prices: ReturnType<typeof candleStats>;
+  evaluatedAt: string;
+}): JsonRecord {
+  const evidence = recordValue(input.saved.evidence);
+  return {
+    version: 'scenario_outcome_snapshot.v1',
+    id: `scenario_outcome_${String(input.saved.id ?? '')}`,
+    workspace_id: String(input.saved.workspace_id ?? input.response.workspace_id),
+    scenario_id: String(input.saved.scenario_id ?? input.response.id),
+    thesis_id: String(input.saved.thesis_id ?? input.response.thesis_id),
+    playbook_id: null,
+    simulation_id: null,
+    generated_at:
+      nullableString(input.response.scenario_recommendation?.generated_at) ??
+      nullableString(input.thesis.created_at) ??
+      input.evaluatedAt,
+    settled_at: input.evaluatedAt,
+    settlement_reason: settlementReasonValue(input.saved.result),
+    trigger_hit: booleanOrNull(input.saved.trigger_hit),
+    trigger_hit_at: nullableString(evidence.trigger_hit_at),
+    entry_hit: booleanOrNull(input.saved.trigger_hit),
+    entry_hit_at: nullableString(evidence.trigger_hit_at),
+    invalidation_hit: booleanOrNull(input.saved.invalidation_hit),
+    invalidation_hit_at: nullableString(evidence.invalidation_hit_at),
+    target_hit: booleanOrNull(input.saved.target_hit),
+    target_hit_at: nullableString(evidence.target_hit_at),
+    start_price: input.prices.start,
+    end_price: input.prices.end,
+    max_favorable_excursion: input.prices.mfe,
+    max_adverse_excursion: input.prices.mae,
+    paper_realized_pnl: null,
+    paper_realized_pnl_pct: null,
+    prediction_quality: predictionQualityValue(input.saved.result),
+    execution_quality: executionQualityValue(input.saved.data_quality),
+    data_quality: outcomeDataQualityValue(input.saved.data_quality),
+    warnings: warningList(input.saved.warnings),
+  };
+}
+
 function withReliabilityMetadata(
   evidence: JsonRecord,
   response: ReturnType<typeof toScenarioResponse>,
@@ -504,6 +566,56 @@ function recordValue(value: unknown): JsonRecord {
 
 function nullableString(value: unknown): string | null {
   return value === null || value === undefined || value === '' ? null : String(value);
+}
+
+function warningList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item ?? '').trim()).filter(Boolean)
+    : [];
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function settlementReasonValue(value: unknown): ScenarioOutcomeSettlementReason {
+  switch (value) {
+    case 'invalidated':
+      return 'invalidated';
+    case 'mixed':
+      return 'risk_exit_hit';
+    case 'missed':
+      return 'missed_entry';
+    case 'hit':
+      return 'data_end';
+    default:
+      return 'data_end';
+  }
+}
+
+function predictionQualityValue(value: unknown): ScenarioOutcomePredictionQuality {
+  switch (value) {
+    case 'hit':
+      return 'supported';
+    case 'missed':
+    case 'mixed':
+      return 'challenged';
+    case 'invalidated':
+      return 'invalidated';
+    default:
+      return 'inconclusive';
+  }
+}
+
+function executionQualityValue(value: unknown): ScenarioOutcomeExecutionQuality {
+  return value === 'complete' ? 'not_simulated' : 'insufficient_data';
+}
+
+function outcomeDataQualityValue(value: unknown): ScenarioOutcomeDataQuality {
+  if (value === 'complete' || value === 'partial') {
+    return value;
+  }
+  return 'insufficient';
 }
 
 function numberOrNull(value: unknown): number | null {

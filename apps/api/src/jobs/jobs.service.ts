@@ -9,7 +9,6 @@ import { Job, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { EngineRunRequest, JsonRecord } from '../database/journal.types';
-import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
 import {
   JobLifecycleRecord,
   JobLifecycleService,
@@ -63,8 +62,6 @@ export class JobsService implements OnModuleDestroy {
     private readonly sqliteSync?: SqliteJournalSyncService,
     @Optional()
     lifecycle?: JobLifecycleService,
-    @Optional()
-    private readonly continuity?: ResearchContinuityService,
   ) {
     this.lifecycle = lifecycle ?? new JobLifecycleService();
     this.ownsLifecycle = !lifecycle;
@@ -72,7 +69,6 @@ export class JobsService implements OnModuleDestroy {
       this.pythonEngine,
       this.lifecycle,
       this.sqliteSync,
-      this.continuity,
     );
     const redisUrl = process.env.REDIS_URL;
     if (redisUrl && resolveExecutionMode() === 'bullmq') {

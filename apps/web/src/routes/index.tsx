@@ -5,11 +5,7 @@ import { CalibrationLabPage } from '@/pages/CalibrationLabPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OperationsPage } from '@/pages/OperationsPage';
 import { PerformanceAnalyticsPage } from '@/pages/PerformanceAnalyticsPage';
-import { ScenarioDecisionWorkbenchPage } from '@/pages/ScenarioDecisionWorkbenchPage';
 import { ScenarioMonitorPage } from '@/pages/ScenarioMonitorPage';
-import { ResearchContinuityEntryDetailPage } from '@/pages/ResearchContinuityEntryDetailPage';
-import { ResearchContinuityPage } from '@/pages/ResearchContinuityPage';
-import { ResearchChatPage } from '@/pages/ResearchChatPage';
 import { ResearchRunFormPage } from '@/pages/ResearchRunFormPage';
 import { ResearchHistoryPage } from '@/pages/ResearchHistoryPage';
 import { ResearchRunWorkspacePage } from '@/pages/ResearchRunWorkspacePage';
@@ -22,7 +18,6 @@ import { WorkbenchPage } from '@/pages/WorkbenchPage';
 import { WorkspaceConfigurationPage } from '@/pages/WorkspaceConfigurationPage';
 
 export const router = createBrowserRouter([
-  { path: 'research-chat', element: <ResearchChatPage /> },
   {
     element: <MainLayout />,
     children: [
@@ -31,11 +26,6 @@ export const router = createBrowserRouter([
       { path: 'research/new', element: <ResearchRunFormPage /> },
       { path: 'research/history', element: <ResearchHistoryPage /> },
       { path: 'research/workspace', element: <WorkspaceConfigurationPage /> },
-      { path: 'research-continuity', element: <ResearchContinuityPage /> },
-      {
-        path: 'research-continuity/entries/:id',
-        element: <ResearchContinuityEntryDetailPage />,
-      },
       { path: 'performance', element: <PerformanceAnalyticsPage /> },
       { path: 'calibration', element: <CalibrationLabPage /> },
       { path: 'research/runs/:id', element: <ResearchRunWorkspacePage /> },
@@ -45,7 +35,6 @@ export const router = createBrowserRouter([
       { path: 'signals', element: <SignalsPage /> },
       { path: 'signals/:id', element: <SignalDetailPage /> },
       { path: 'scenarios', element: <ScenarioMonitorPage /> },
-      { path: 'scenario-decision', element: <ScenarioDecisionWorkbenchPage /> },
       { path: 'alerts', element: <AlertsPage /> },
       { path: 'operations', element: <OperationsPage /> },
       { path: 'settings', element: <SettingsPage /> },

@@ -1,41 +1,6 @@
 import type { WorkspaceRequestContext } from '@/store/useWorkspaceStore';
 import { apiRequest } from '@/services/client';
-import type {
-  PlaybookCompileReportResponse,
-  ScenarioDecisionQueueItemResponse,
-  ScenarioDecisionWorkbenchResponse,
-} from '@/types';
-
-export function getScenarioDecisionWorkbench(auth: WorkspaceRequestContext) {
-  return apiRequest<ScenarioDecisionWorkbenchResponse>(
-    '/scenario-decision/workbench',
-    {},
-    auth,
-  );
-}
-
-export function resolveScenarioDecisionItem(
-  id: string,
-  auth: WorkspaceRequestContext,
-) {
-  return apiRequest<ScenarioDecisionQueueItemResponse>(
-    `/scenario-decision/items/${encodeURIComponent(id)}/resolve`,
-    { method: 'POST', body: {} },
-    auth,
-  );
-}
-
-export function snoozeScenarioDecisionItem(
-  id: string,
-  dueAt: string,
-  auth: WorkspaceRequestContext,
-) {
-  return apiRequest<ScenarioDecisionQueueItemResponse>(
-    `/scenario-decision/items/${encodeURIComponent(id)}/snooze`,
-    { method: 'POST', body: { due_at: dueAt } },
-    auth,
-  );
-}
+import type { PlaybookCompileReportResponse } from '@/types';
 
 export function compileScenarioDecisionPlaybook(
   scenarioId: string,

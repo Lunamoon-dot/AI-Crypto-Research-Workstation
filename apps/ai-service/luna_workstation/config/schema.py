@@ -90,12 +90,12 @@ def validate_and_normalize_config(
         if not validate_llm_keys:
             issues.append("production runtime_environment requires LLM key validation")
 
-    market_type = str(normalized.get("market_type", "spot")).strip().lower()
+    market_type = str(normalized.get("market_type", "perp")).strip().lower()
     if market_type in {"perpetual", "futures", "future"}:
         market_type = "perp"
     if market_type not in _MARKET_TYPES:
         issues.append("market_type must be one of: spot, perp")
-        market_type = "spot"
+        market_type = "perp"
     normalized["market_type"] = market_type
 
     disabled = normalized.get("disabled_data_vendors", [])

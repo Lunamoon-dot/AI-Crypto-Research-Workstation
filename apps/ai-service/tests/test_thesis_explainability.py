@@ -12,6 +12,7 @@ from luna_workstation.domain import (
     Signal,
     SignalDirection,
     SignalProvenance,
+    ThesisCandidate,
     ThesisArtifactStatus,
     ThesisDirection,
     ThesisTextSource,
@@ -29,6 +30,14 @@ class _ThesisMemoryService:
 
     def list_theses(self, *, limit=20):
         return self._theses[:limit]
+
+
+def test_thesis_contract_defaults_market_type_to_perp():
+    candidate = ThesisCandidate()
+    summary = TradeThesisStructuredSummary()
+
+    assert candidate.market_type == "perp"
+    assert summary.market_type == "perp"
 
 
 def test_graph_builds_explicit_thesis_explainability_fields():

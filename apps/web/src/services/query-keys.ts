@@ -50,28 +50,6 @@ export const queryKeys = {
     ['calibration-evaluation-version-policy', queryIdentity(), id] as const,
   researchRunWorkspace: (id: string) =>
     ['research-run-workspace', queryIdentity(), id] as const,
-  researchRunContinuity: (id: string) =>
-    ['research-run-continuity', queryIdentity(), id] as const,
-  researchContinuityState: (symbol: string) =>
-    ['research-continuity-state', queryIdentity(), symbol] as const,
-  researchContinuityEntries: (filters: Record<string, unknown>) =>
-    scopedFilters('research-continuity-entries', filters),
-  researchContinuityTimeline: (filters: Record<string, unknown>) =>
-    scopedFilters('research-continuity-timeline', filters),
-  researchContinuityEntry: (id: string) =>
-    ['research-continuity-entry', queryIdentity(), id] as const,
-  researchContinuityEntryDebug: (id: string) =>
-    ['research-continuity-entry-debug', queryIdentity(), id] as const,
-  researchContinuitySettings: () =>
-    scopedResource('research-continuity-settings'),
-  researchContinuityScheduler: () =>
-    scopedResource('research-continuity-scheduler'),
-  researchContinuityRepairPreview: (filters: Record<string, unknown>) =>
-    scopedFilters('research-continuity-repair-preview', filters),
-  researchContinuityRepairRuns: (filters: Record<string, unknown>) =>
-    scopedFilters('research-continuity-repair-runs', filters),
-  researchContinuityRepairRun: (id: string) =>
-    ['research-continuity-repair-run', queryIdentity(), id] as const,
   researchRunSnapshots: (id: string) =>
     ['research-run-snapshots', queryIdentity(), id] as const,
   jobStatus: (id: string) => ['job-status', queryIdentity(), id] as const,
@@ -102,8 +80,6 @@ export const queryKeys = {
     ['scenario-chart', queryIdentity(), id, interval, simulationId ?? null] as const,
   scenarioChartSummaries: (ids: string[]) =>
     ['scenario-chart-summaries', queryIdentity(), [...ids].sort()] as const,
-  scenarioDecisionWorkbench: () =>
-    scopedResource('scenario-decision-workbench'),
   playbookSimulations: (playbookId: string) =>
     ['playbook-simulations', queryIdentity(), playbookId] as const,
   simulation: (id: string) => ['simulation', queryIdentity(), id] as const,

@@ -23,7 +23,7 @@ export function getMarketOhlcv(
     {
       query: {
         symbol: params.symbol,
-        market_type: params.market_type ?? 'spot',
+        market_type: params.market_type ?? 'perp',
         provider: params.provider,
         exchange: params.exchange,
         interval: params.interval ?? '15m',

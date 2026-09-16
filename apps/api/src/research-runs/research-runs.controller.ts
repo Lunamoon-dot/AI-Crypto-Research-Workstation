@@ -1,16 +1,11 @@
 import { Body, Controller, Delete, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { parseListLimit } from '../common/query-limit';
-import { GenerateResearchContinuityDto } from '../research-continuity/dto/research-continuity.dto';
-import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
 import { CreateResearchRunDto } from './dto/create-research-run.dto';
 import { ResearchRunsService } from './research-runs.service';
 
 @Controller('research-runs')
 export class ResearchRunsController {
-  constructor(
-    private readonly researchRuns: ResearchRunsService,
-    private readonly continuity: ResearchContinuityService,
-  ) {}
+  constructor(private readonly researchRuns: ResearchRunsService) {}
 
   @Get()
   list(
@@ -111,22 +106,4 @@ export class ResearchRunsController {
     return this.researchRuns.evidenceBundle(id, userId, workspaceId);
   }
 
-  @Get(':id/continuity')
-  continuityEntry(
-    @Param('id') id: string,
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-workspace-id') workspaceId?: string,
-  ) {
-    return this.continuity.getRunContinuity(id, userId, workspaceId);
-  }
-
-  @Post(':id/continuity')
-  generateContinuity(
-    @Param('id') id: string,
-    @Body() dto: GenerateResearchContinuityDto,
-    @Headers('x-user-id') userId?: string,
-    @Headers('x-workspace-id') workspaceId?: string,
-  ) {
-    return this.continuity.generateForRun(id, dto, userId, workspaceId);
-  }
 }

@@ -24,10 +24,6 @@ import type {
   BacktestRunResponse,
   BacktestTradeEventResponse,
 } from '../backtests/backtest.types';
-import type {
-  ScenarioDecisionQueueItemResponse,
-  ScenarioDecisionWorkbenchResponse,
-} from '../scenario-decision/scenario-decision.types';
 import { researchItemTextList } from './research-evidence';
 import {
   decisionConditionFromRecord,
@@ -924,32 +920,6 @@ export interface LlmHealthSummaryResponse {
   by_provider: Record<string, { calls: number; errors: number; tokens: number }>;
 }
 
-export interface OperationsContinuityHealthResponse {
-  workspace_id: string;
-  lookback_days: number;
-  audit_available: boolean;
-  missing_entries_recent: number;
-  degraded_entries_recent: number;
-  stale_symbols: number;
-  last_repair_run_at: string | null;
-  last_repair_status: string | null;
-  repair_failures_24h: number;
-  debug_access_24h: number;
-  debug_denied_24h: number;
-  scheduled_repair_mode: 'disabled' | 'dry_run' | 'enabled';
-  scheduled_repair_due: boolean;
-  next_scheduled_repair_due_at: string | null;
-  last_scheduled_repair_run_id: string | null;
-  scheduled_repair_worker_enabled: boolean;
-  scheduled_repair_lease_owner: string | null;
-  scheduled_repair_lease_expires_at: string | null;
-  scheduled_repair_last_attempt_at: string | null;
-  scheduled_repair_last_success_at: string | null;
-  scheduled_repair_last_error: string | null;
-  scheduled_repair_consecutive_failures: number;
-  scheduled_repair_next_retry_at: string | null;
-}
-
 export interface OperationsHealthResponse {
   generated_at: string;
   providers: ProviderHealthResponse[];
@@ -964,7 +934,6 @@ export interface OperationsHealthResponse {
     backend: string;
     redis_configured: boolean;
   };
-  continuity: OperationsContinuityHealthResponse;
 }
 
 export interface SignalResponse {
@@ -1137,7 +1106,7 @@ export function toResearchRunResponse(run: JsonRecord): ResearchRunResponse {
     workspace_id: stringValue(run.workspace_id, 'local'),
     symbol: stringValue(run.symbol),
     asset_class: stringValue(run.asset_class, 'crypto'),
-    market_type: stringValue(run.market_type, 'spot'),
+    market_type: stringValue(run.market_type, 'perp'),
     timeframe: nullableString(run.timeframe),
     status: stringValue(run.status, 'unknown'),
     started_at: nullableString(run.started_at),
@@ -1220,13 +1189,6 @@ const STAGE_TIMING_DEFINITIONS: readonly StageTimingDefinition[] = [
     key: 'setup_planner',
     label: 'Setup Planner',
     aliases: ['setup planner', 'setup_planner', 'trader'],
-    completedEventTypes: ['plan.recorded'],
-  },
-  {
-    key: 'spot_checks',
-    label: 'Spot Checks',
-    aliases: ['setup planner', 'setup_planner', 'trader'],
-    marketTypes: ['spot'],
     completedEventTypes: ['plan.recorded'],
   },
   {
@@ -1381,7 +1343,7 @@ function resolveStageEventState({
 }
 
 function isMarketBranchStage(stageKey: string): boolean {
-  return stageKey === 'spot_checks' || stageKey === 'perp_checks';
+  return stageKey === 'perp_checks';
 }
 
 function selectedAnalystsFromStageEvents(
@@ -1443,9 +1405,7 @@ function normalizeAliasText(value: string): string {
 
 function normalizeStageMarketType(value: string): 'spot' | 'perp' {
   const normalized = value.trim().toLowerCase();
-  return ['perp', 'perpetual', 'future', 'futures'].includes(normalized)
-    ? 'perp'
-    : 'spot';
+  return normalized === 'spot' ? 'spot' : 'perp';
 }
 
 function isTerminalRunStatus(status: string | undefined): boolean {
@@ -2148,42 +2108,6 @@ export function toBacktestTradeEventResponse(
   };
 }
 
-export function toScenarioDecisionQueueItemResponse(
-  value: JsonRecord,
-): ScenarioDecisionQueueItemResponse {
-  return {
-    version: 'scenario_decision_queue_item.v1',
-    id: stringValue(value.id),
-    workspace_id: stringValue(value.workspace_id, 'local'),
-    type: scenarioDecisionQueueItemTypeValue(value.type),
-    priority: Math.trunc(numberValue(value.priority, 0)),
-    title: stringValue(value.title),
-    summary: stringValue(value.summary),
-    scenario_id: nullableString(value.scenario_id),
-    thesis_id: nullableString(value.thesis_id),
-    playbook_id: nullableString(value.playbook_id),
-    backtest_id: nullableString(value.backtest_id),
-    status: scenarioDecisionItemStatusValue(value.status),
-    blockers: stringList(value.blockers),
-    next_action: stringValue(value.next_action),
-    due_at: nullableString(value.due_at),
-    created_at: stringValue(value.created_at, new Date().toISOString()),
-  };
-}
-
-export function toScenarioDecisionWorkbenchResponse(
-  value: JsonRecord,
-): ScenarioDecisionWorkbenchResponse {
-  const items = arrayRecords(value.items).map(toScenarioDecisionQueueItemResponse);
-  return {
-    version: 'scenario_decision_workspace.v1',
-    workspace_id: stringValue(value.workspace_id, 'local'),
-    generated_at: stringValue(value.generated_at, new Date().toISOString()),
-    total_open: Math.max(0, Math.trunc(numberValue(value.total_open, items.length))),
-    items,
-  };
-}
-
 function scenarioRelationToThesisValue(
   explicit: string,
   context: {
@@ -2869,7 +2793,7 @@ function toThesisSummaryResponse(
     rating: stringValue(summary.rating, 'Hold'),
     direction: stringValue(summary.direction, 'watch'),
     confidence: nullableNumber(summary.confidence),
-    market_type: stringValue(summary.market_type, 'spot'),
+    market_type: stringValue(summary.market_type, 'perp'),
     action_summary: stringValue(summary.action_summary),
     recommended_action: stringValue(summary.recommended_action),
     market_bias: stringValue(summary.market_bias),
@@ -3862,7 +3786,7 @@ function scenarioOutcomeDataQualityValue(
 }
 
 function marketTypeValue(value: unknown): 'spot' | 'perp' {
-  return value === 'perp' ? 'perp' : 'spot';
+  return value === 'spot' ? 'spot' : 'perp';
 }
 
 function reliabilityMarketTypeValue(value: unknown): 'spot' | 'perp' | 'mixed' {
@@ -3950,31 +3874,6 @@ function backtestDataQualityValue(
     return value;
   }
   return 'insufficient';
-}
-
-function scenarioDecisionQueueItemTypeValue(
-  value: unknown,
-): ScenarioDecisionQueueItemResponse['type'] {
-  if (
-    value === 'active_scenario' ||
-    value === 'evaluation_due' ||
-    value === 'evaluation_inconclusive' ||
-    value === 'reliability_changed' ||
-    value === 'playbook_candidate' ||
-    value === 'backtest_ready'
-  ) {
-    return value;
-  }
-  return 'active_scenario';
-}
-
-function scenarioDecisionItemStatusValue(
-  value: unknown,
-): ScenarioDecisionQueueItemResponse['status'] {
-  if (value === 'snoozed' || value === 'resolved') {
-    return value;
-  }
-  return 'open';
 }
 
 function scenarioDecisionConditionTypeValue(

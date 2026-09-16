@@ -47,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Allowed values: "local", "dev", "production".
     "asset_class": "crypto",
     # Research market type: "spot" or "perp". This controls setup guidance only.
-    "market_type": "spot",
+    "market_type": "perp",
     # Crypto-specific settings
     "crypto_exchange": "binance",  # ccxt exchange id
     "crypto_benchmark": "BTC/USDT",  # benchmark ticker for alpha calc

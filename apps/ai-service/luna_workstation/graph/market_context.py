@@ -25,7 +25,7 @@ def precompute_market_context(config: dict, symbol: str, trade_date: str):
         if str(venue).strip() and str(venue).strip() != primary_venue
     ]
     threshold = float(policy.get("divergence_threshold_bps", 25.0))
-    market_type = str(config.get("market_type", "spot"))
+    market_type = str(config.get("market_type", "perp"))
 
     try:
         result = build_market_context(

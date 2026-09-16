@@ -226,48 +226,6 @@ export interface JournalRepository {
     snapshot: JsonRecord,
     workspaceId: string,
   ): Promise<JsonRecord>;
-  getResearchContinuityEntry(
-    id: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  listResearchRunsForContinuityRepair(
-    filters: ContinuityRepairRunFilters,
-    workspaceId: string,
-  ): Promise<JsonRecord[]>;
-  getLatestResearchContinuityEntryForRun(
-    runId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  getLatestResearchContinuityEntryBeforeRun(
-    symbol: string,
-    before: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  getLatestCompletedResearchRunForContinuity(
-    symbol: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  findResearchContinuityRepairEntry(
-    identity: ContinuityRepairIdentity,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  listResearchContinuityEntriesBySymbol(
-    symbol: string,
-    limit: number,
-    workspaceId: string,
-  ): Promise<JsonRecord[]>;
-  saveResearchContinuityEntry(
-    entry: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord>;
-  getResearchContinuityState(
-    symbol: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null>;
-  saveResearchContinuityState(
-    state: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord>;
   getDebate(id: string, workspaceId: string): Promise<JsonRecord | null>;
   listAgentOpinions(
     debateId: string,

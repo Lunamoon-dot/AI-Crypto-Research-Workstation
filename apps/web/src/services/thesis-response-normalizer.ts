@@ -40,7 +40,7 @@ function normalizeThesisSummary(input: ThesisLike['summary']): ThesisSummaryResp
     rating: stringValue(summary.rating, 'Hold'),
     direction: stringValue(summary.direction, 'watch'),
     confidence: nullableNumber(summary.confidence),
-    market_type: stringValue(summary.market_type, 'spot'),
+    market_type: stringValue(summary.market_type, 'perp'),
     action_summary: stringValue(summary.action_summary),
     recommended_action: stringValue(summary.recommended_action),
     market_bias: stringValue(summary.market_bias),

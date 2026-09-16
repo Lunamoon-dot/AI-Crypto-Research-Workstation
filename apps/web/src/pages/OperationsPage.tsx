@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Database, ServerCog, ShieldCheck, Sparkles } from 'lucide-react';
+import { Database, ServerCog, Sparkles } from 'lucide-react';
 import { BentoGrid, DataPair } from '@/components/research/bento';
 import { HeaderStats } from '@/components/research/header-stats';
 import { JsonView } from '@/components/research/json-view';
@@ -19,7 +19,6 @@ export function OperationsPage() {
     refetchInterval: 30_000,
   });
   const data = health.data;
-  const continuity = data?.continuity;
   const providerIssues = data?.providers.filter((row) => !healthyStatus(row.status)).length ?? 0;
 
   return (
@@ -51,13 +50,6 @@ export function OperationsPage() {
                 meta: `${data?.freshness.total_checks ?? 0} rows`,
                 tone: (data?.freshness.stale_checks ?? 0) > 0 ? 'warning' : 'constructive',
                 value: data?.freshness.stale_checks ?? '...',
-              },
-              {
-                icon: <ShieldCheck aria-hidden size={14} />,
-                label: 'Workspace',
-                meta: continuity?.audit_available === false ? 'audit unavailable' : 'active',
-                tone: continuity?.audit_available === false ? 'warning' : 'primary',
-                value: continuity?.workspace_id ?? auth.workspaceId,
               },
             ]}
           />
@@ -100,99 +92,6 @@ export function OperationsPage() {
             <DataPair label="Avg latency" value={formatNumber(data?.llm.average_latency_ms)} />
             <DataPair label="Recent errors" value={data?.llm.recent_errors ?? 0} />
             <JsonView value={data?.llm.by_provider ?? {}} />
-          </div>
-        </Panel>
-
-        <Panel className="span-6" title="Continuity Health">
-          <div className="grid two">
-            <DataPair label="Workspace" value={continuity?.workspace_id ?? auth.workspaceId} />
-            <DataPair
-              label="Audit"
-              value={
-                <span className={continuity?.audit_available === false ? 'badge warning' : 'badge constructive'}>
-                  {continuity?.audit_available === false ? 'unavailable' : 'available'}
-                </span>
-              }
-            />
-            <DataPair
-              label="Repair mode"
-              value={continuity?.scheduled_repair_mode.replaceAll('_', ' ') ?? 'disabled'}
-            />
-            <DataPair
-              label="Scheduler due"
-              value={
-                <span className={continuity?.scheduled_repair_due ? 'badge warning' : 'badge constructive'}>
-                  {continuity?.scheduled_repair_due ? 'due' : 'not due'}
-                </span>
-              }
-            />
-            <DataPair
-              label="Next scheduled"
-              value={formatDateTime(continuity?.next_scheduled_repair_due_at)}
-            />
-            <DataPair
-              label="Last scheduled run"
-              value={continuity?.last_scheduled_repair_run_id ?? 'none'}
-            />
-            <DataPair
-              label="Worker enabled"
-              value={
-                <span className={continuity?.scheduled_repair_worker_enabled ? 'badge constructive' : 'badge'}>
-                  {continuity?.scheduled_repair_worker_enabled ? 'enabled' : 'disabled'}
-                </span>
-              }
-            />
-            <DataPair
-              label="Lease owner"
-              value={continuity?.scheduled_repair_lease_owner ?? 'none'}
-            />
-            <DataPair
-              label="Lease expires"
-              value={formatDateTime(continuity?.scheduled_repair_lease_expires_at)}
-            />
-            <DataPair
-              label="Last attempt"
-              value={formatDateTime(continuity?.scheduled_repair_last_attempt_at)}
-            />
-            <DataPair
-              label="Last success"
-              value={formatDateTime(continuity?.scheduled_repair_last_success_at)}
-            />
-            <DataPair
-              label="Next retry"
-              value={formatDateTime(continuity?.scheduled_repair_next_retry_at)}
-            />
-            <DataPair
-              label="Failures"
-              value={continuity?.scheduled_repair_consecutive_failures ?? 0}
-            />
-            <DataPair
-              label="Last error"
-              value={continuity?.scheduled_repair_last_error ?? 'none'}
-            />
-            <DataPair label="Missing recent" value={continuity?.missing_entries_recent ?? 0} />
-            <DataPair label="Degraded recent" value={continuity?.degraded_entries_recent ?? 0} />
-            <DataPair label="Stale symbols" value={continuity?.stale_symbols ?? 0} />
-            <DataPair
-              label="Last repair"
-              value={formatDateTime(continuity?.last_repair_run_at)}
-            />
-            <DataPair
-              label="Repair status"
-              value={continuity?.last_repair_status ?? 'none'}
-            />
-            <DataPair
-              label="Repair failures"
-              value={continuity?.repair_failures_24h ?? 0}
-            />
-            <DataPair
-              label="Debug allowed"
-              value={continuity?.debug_access_24h ?? 0}
-            />
-            <DataPair
-              label="Debug denied"
-              value={continuity?.debug_denied_24h ?? 0}
-            />
           </div>
         </Panel>
 

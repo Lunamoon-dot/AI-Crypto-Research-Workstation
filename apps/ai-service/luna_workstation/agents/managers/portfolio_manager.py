@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, cast
+from typing import Any
 
 from luna_workstation.agents.schemas import PortfolioDecision, render_pm_decision
 from luna_workstation.agents.utils.agent_utils import (
@@ -298,19 +298,6 @@ def _synthesize_trade_summary_json(text: str, *, market_type: str) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _extract_scenario_continuity_handoff(
-    summary_json: str,
-) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(summary_json) if summary_json else {}
-    except json.JSONDecodeError:
-        payload = {}
-    handoff = payload.get("scenario_continuity_handoff")
-    if isinstance(handoff, dict) and handoff:
-        return cast(dict[str, Any], handoff)
-    return None
-
-
 def _validated_candidate_json_block(text: str) -> str:
     candidate_json = extract_trade_thesis_json(text)
     if not candidate_json:
@@ -365,49 +352,6 @@ def _get_feedback_context(config) -> str:
         return ""
 
 
-def _render_scenario_feedback_playbook(context: object) -> str:
-    if not isinstance(context, dict) or not context:
-        return ""
-    playbook = context.get("scenario_feedback_playbook")
-    if not isinstance(playbook, dict):
-        return ""
-    lessons = playbook.get("lessons") or []
-    gates = playbook.get("gates") or []
-    lines = ["Scenario feedback playbook:"]
-    if isinstance(lessons, list):
-        for lesson in lessons[:8]:
-            if not isinstance(lesson, dict):
-                continue
-            statement = str(lesson.get("statement") or "").strip()
-            if not statement:
-                continue
-            confidence = str(lesson.get("confidence") or "low").strip() or "low"
-            lines.append(f"- {statement} ({confidence})")
-    if isinstance(gates, list):
-        for gate in gates[:5]:
-            if not isinstance(gate, dict):
-                continue
-            reason = str(gate.get("reason") or "").strip()
-            applies_to = str(gate.get("applies_to") or "entry").strip() or "entry"
-            if reason:
-                lines.append(f"- gate:{applies_to}: {reason}")
-    return "\n".join(line for line in lines if line.strip() and line != "- ()")
-
-
-def _render_latest_continuity_context(context: object) -> str:
-    rendered = _render_scenario_feedback_playbook(context)
-    if not rendered:
-        return ""
-    return (
-        "- Latest compact scenario feedback for the same workspace/symbol/market type:\n"
-        f"{guard_untrusted_context('scenario_feedback_playbook', rendered)}\n"
-        "Treat this only as evaluated prior feedback, not current evidence. "
-        "Use it only as guardrails for confirmation, invalidation, and data-quality discipline.\n"
-        "If you cite this feedback in supporting_evidence, set "
-        "`source_artifact` to `research_continuity`.\n"
-    )
-
-
 def create_portfolio_manager(llm: Any, config: dict[str, Any] | None = None):
     structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
 
@@ -420,7 +364,7 @@ def create_portfolio_manager(llm: Any, config: dict[str, Any] | None = None):
         research_plan = state["investment_plan"]
         setup_proposal = state["trader_investment_plan"]
         market_type = (
-            state.get("market_type") or (config or {}).get("market_type") or "spot"
+            state.get("market_type") or (config or {}).get("market_type") or "perp"
         )
 
         past_context = state.get("past_context", "")
@@ -429,9 +373,6 @@ def create_portfolio_manager(llm: Any, config: dict[str, Any] | None = None):
             f"{guard_untrusted_context('past_context', past_context)}\n"
             if past_context
             else ""
-        )
-        continuity_line = _render_latest_continuity_context(
-            state.get("latest_continuity_context")
         )
 
         feedback_context = guard_untrusted_context(
@@ -462,7 +403,6 @@ Market type: {market_type}
 - Research Manager's investment plan: {guard_untrusted_context("research_plan", research_plan)}
 - Setup Planner's proposal: {guard_untrusted_context("setup_proposal", setup_proposal)}
 {lessons_line}
-{continuity_line}
 {feedback_context}
 
 **Risk Analysts Debate History:**
@@ -508,7 +448,7 @@ TRADE_THESIS_JSON:
         {{
           "text": "specific observed, reasoning, or missing-data evidence",
           "evidence_kind": "observed | reasoning | missing",
-          "source_artifact": "market_snapshot | signal_snapshot | trade_thesis | agent_opinion | research_debate | research_run | research_continuity | external_report | unknown",
+          "source_artifact": "market_snapshot | signal_snapshot | trade_thesis | agent_opinion | research_debate | research_run | external_report | unknown",
           "source_field": "optional source field",
           "strength": "low | medium | high | unknown"
         }}
@@ -531,16 +471,6 @@ TRADE_THESIS_JSON:
   "spot_notes": "spot-specific notes or empty string",
   "perp_notes": "perp-specific notes or empty string",
   "missing_data": ["missing data item"],
-  "scenario_continuity_handoff": {{
-    "continuity_relation": "continues | weakens | invalidates | supersedes | none",
-    "summary": "compact prior-memory guidance for scenario planning only",
-    "short_term_focus": "short-term prior watchpoint guidance",
-    "mid_term_focus": "mid-term prior watchpoint guidance",
-    "long_term_focus": "long-term prior watchpoint guidance",
-    "carry_forward_watchpoints": ["prior watchpoint if relevant"],
-    "carry_forward_invalidations": ["prior invalidation if relevant"],
-    "stale_prior": false
-  }}
 }}
 ```
 Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing debate consensus, quant baseline, missing data, conflict, and risk; do not copy the quant confidence mechanically. Use valid JSON only inside the block; no comments or trailing commas.{get_language_instruction(config=config)}"""
@@ -583,9 +513,6 @@ Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing d
                 rendered_trade_decision,
                 market_type=str(market_type),
             )
-        scenario_continuity_handoff = _extract_scenario_continuity_handoff(
-            final_trade_summary_json,
-        )
         final_trade_decision = (
             strip_trade_thesis_json_block(rendered_trade_decision)
             if extract_trade_thesis_json(rendered_trade_decision)
@@ -621,7 +548,6 @@ Set `confidence` to the final thesis confidence from 0.0 to 1.0 after weighing d
                 else candidate_call_source
             ),
             "final_trade_candidate_schema_version": "thesis_candidate.v1",
-            "scenario_continuity_handoff": scenario_continuity_handoff,
         }
 
     return portfolio_manager_node

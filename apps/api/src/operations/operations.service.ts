@@ -6,18 +6,6 @@ import {
   JsonRecord,
 } from '../database/journal.types';
 import {
-  RESEARCH_CONTINUITY_AUDIT_REPOSITORY,
-} from '../research-continuity/research-continuity-audit.repository';
-import type {
-  ResearchContinuityAuditRepository,
-} from '../research-continuity/research-continuity-audit.types';
-import {
-  RESEARCH_CONTINUITY_SETTINGS_REPOSITORY,
-} from '../research-continuity/research-continuity-settings.repository';
-import type {
-  ResearchContinuitySettingsRepository,
-} from '../research-continuity/research-continuity-settings.types';
-import {
   DataFreshnessResponse,
   LlmCallResponse,
   LlmHealthSummaryResponse,
@@ -34,10 +22,6 @@ export class OperationsService {
   constructor(
     @Inject(JOURNAL_REPOSITORY)
     private readonly journal: JournalRepository,
-    @Inject(RESEARCH_CONTINUITY_AUDIT_REPOSITORY)
-    private readonly continuityAudit: ResearchContinuityAuditRepository,
-    @Inject(RESEARCH_CONTINUITY_SETTINGS_REPOSITORY)
-    private readonly continuitySettings: ResearchContinuitySettingsRepository,
     private readonly auth: AuthService,
     private readonly workspaces: WorkspacesService,
   ) {}
@@ -53,7 +37,6 @@ export class OperationsService {
       this.llmCallsForWorkspace(limit, workspaceId),
       this.dataFreshnessForWorkspace(limit, workspaceId),
     ]);
-    const continuity = await this.continuityHealthForWorkspace(workspaceId);
     return {
       generated_at: new Date().toISOString(),
       providers,
@@ -68,7 +51,6 @@ export class OperationsService {
         backend: (process.env.JOBS_EXECUTION_MODE ?? 'memory').toLowerCase(),
         redis_configured: Boolean(process.env.REDIS_URL?.trim()),
       },
-      continuity,
     };
   }
 
@@ -134,103 +116,6 @@ export class OperationsService {
       }
     }
     return rows.map(toDataFreshnessResponse);
-  }
-
-  private async continuityHealthForWorkspace(
-    workspaceId: string,
-  ): Promise<OperationsHealthResponse['continuity']> {
-    const lookbackDays = 30;
-    const scheduler = await this.continuitySchedulerHealthForWorkspace(workspaceId);
-    try {
-      const health = await this.continuityAudit.getContinuityOperationsHealth(
-        workspaceId,
-        { lookbackDays },
-      );
-      return {
-        workspace_id: workspaceId,
-        lookback_days: numberValue(health.lookback_days, lookbackDays),
-        audit_available: booleanValue(health.audit_available, true),
-        missing_entries_recent: numberValue(health.missing_entries_recent, 0),
-        degraded_entries_recent: numberValue(health.degraded_entries_recent, 0),
-        stale_symbols: numberValue(health.stale_symbols, 0),
-        last_repair_run_at: nullableString(health.last_repair_run_at),
-        last_repair_status: nullableString(health.last_repair_status),
-        repair_failures_24h: numberValue(health.repair_failures_24h, 0),
-        debug_access_24h: numberValue(health.debug_access_24h, 0),
-        debug_denied_24h: numberValue(health.debug_denied_24h, 0),
-        ...scheduler,
-      };
-    } catch (error) {
-      if (!isRepositoryUnavailable(error)) {
-        throw error;
-      }
-      return {
-        ...defaultContinuityHealth(workspaceId, lookbackDays),
-        ...scheduler,
-      };
-    }
-  }
-
-  private async continuitySchedulerHealthForWorkspace(
-    workspaceId: string,
-  ): Promise<Pick<
-    OperationsHealthResponse['continuity'],
-    | 'scheduled_repair_mode'
-    | 'scheduled_repair_due'
-    | 'next_scheduled_repair_due_at'
-    | 'last_scheduled_repair_run_id'
-    | 'scheduled_repair_worker_enabled'
-    | 'scheduled_repair_lease_owner'
-    | 'scheduled_repair_lease_expires_at'
-    | 'scheduled_repair_last_attempt_at'
-    | 'scheduled_repair_last_success_at'
-    | 'scheduled_repair_last_error'
-    | 'scheduled_repair_consecutive_failures'
-    | 'scheduled_repair_next_retry_at'
-  >> {
-    try {
-      const settings =
-        await this.continuitySettings.getWorkspaceSettings(workspaceId);
-      if (!settings) {
-        return defaultContinuitySchedulerHealth();
-      }
-      const mode = scheduledRepairModeValue(settings.scheduled_repair_mode);
-      const nextDue = nullableString(settings.next_scheduled_repair_due_at);
-      return {
-        scheduled_repair_mode: mode,
-        scheduled_repair_due: mode !== 'disabled' && isDue(nextDue),
-        next_scheduled_repair_due_at: nextDue,
-        last_scheduled_repair_run_id: nullableString(
-          settings.last_scheduled_repair_run_id,
-        ),
-        scheduled_repair_worker_enabled: isContinuitySchedulerWorkerEnabled(),
-        scheduled_repair_lease_owner: nullableString(
-          settings.scheduler_lease_owner,
-        ),
-        scheduled_repair_lease_expires_at: nullableString(
-          settings.scheduler_lease_expires_at,
-        ),
-        scheduled_repair_last_attempt_at: nullableString(
-          settings.last_scheduler_attempt_at,
-        ),
-        scheduled_repair_last_success_at: nullableString(
-          settings.last_scheduler_success_at,
-        ),
-        scheduled_repair_last_error: nullableString(settings.last_scheduler_error),
-        scheduled_repair_consecutive_failures: numberValue(
-          settings.consecutive_scheduler_failures,
-          0,
-        ),
-        scheduled_repair_next_retry_at: nullableString(
-          settings.next_scheduler_retry_at,
-        ),
-      };
-    } catch (error) {
-      if (!isRepositoryUnavailable(error)) {
-        throw error;
-      }
-      return defaultContinuitySchedulerHealth();
-    }
   }
 
   private async resolveWorkspace(
@@ -323,76 +208,6 @@ function countBy<T>(values: T[], keyFn: (value: T) => string): Record<string, nu
 function staleStatus(status: string): boolean {
   const normalized = status.toLowerCase();
   return normalized.includes('stale') || normalized.includes('expired') || normalized.includes('failed');
-}
-
-function defaultContinuityHealth(
-  workspaceId: string,
-  lookbackDays: number,
-): OperationsHealthResponse['continuity'] {
-  return {
-    workspace_id: workspaceId,
-    lookback_days: lookbackDays,
-    audit_available: false,
-    missing_entries_recent: 0,
-    degraded_entries_recent: 0,
-    stale_symbols: 0,
-    last_repair_run_at: null,
-    last_repair_status: null,
-    repair_failures_24h: 0,
-    debug_access_24h: 0,
-    debug_denied_24h: 0,
-    ...defaultContinuitySchedulerHealth(),
-  };
-}
-
-function defaultContinuitySchedulerHealth(): Pick<
-  OperationsHealthResponse['continuity'],
-  | 'scheduled_repair_mode'
-  | 'scheduled_repair_due'
-  | 'next_scheduled_repair_due_at'
-  | 'last_scheduled_repair_run_id'
-  | 'scheduled_repair_worker_enabled'
-  | 'scheduled_repair_lease_owner'
-  | 'scheduled_repair_lease_expires_at'
-  | 'scheduled_repair_last_attempt_at'
-  | 'scheduled_repair_last_success_at'
-  | 'scheduled_repair_last_error'
-  | 'scheduled_repair_consecutive_failures'
-  | 'scheduled_repair_next_retry_at'
-> {
-  return {
-    scheduled_repair_mode: 'disabled',
-    scheduled_repair_due: false,
-    next_scheduled_repair_due_at: null,
-    last_scheduled_repair_run_id: null,
-    scheduled_repair_worker_enabled: isContinuitySchedulerWorkerEnabled(),
-    scheduled_repair_lease_owner: null,
-    scheduled_repair_lease_expires_at: null,
-    scheduled_repair_last_attempt_at: null,
-    scheduled_repair_last_success_at: null,
-    scheduled_repair_last_error: null,
-    scheduled_repair_consecutive_failures: 0,
-    scheduled_repair_next_retry_at: null,
-  };
-}
-
-function isContinuitySchedulerWorkerEnabled(): boolean {
-  return process.env.RESEARCH_CONTINUITY_SCHEDULER_ENABLED === 'true';
-}
-
-function scheduledRepairModeValue(
-  value: unknown,
-): OperationsHealthResponse['continuity']['scheduled_repair_mode'] {
-  const mode = String(value ?? 'disabled');
-  return mode === 'dry_run' || mode === 'enabled' ? mode : 'disabled';
-}
-
-function isDue(value: string | null): boolean {
-  if (!value) {
-    return true;
-  }
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) && parsed <= Date.now();
 }
 
 function nullableString(value: unknown): string | null {

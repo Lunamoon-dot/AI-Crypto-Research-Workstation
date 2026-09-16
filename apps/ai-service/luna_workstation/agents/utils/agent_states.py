@@ -98,17 +98,9 @@ class AgentState(MessagesState):
     final_trade_candidate_schema_version: Annotated[
         str, "Schema version for the Portfolio Manager thesis candidate contract"
     ]
-    scenario_continuity_handoff: Annotated[
-        dict[str, Any] | None,
-        "Portfolio Manager-authored prior-memory guidance for horizon scenario planning",
-    ]
     past_context: Annotated[
         str,
         "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)",
-    ]
-    latest_continuity_context: Annotated[
-        dict[str, Any] | None,
-        "Compact latest Research Continuity prior for same workspace/symbol/market_type; prior memory only, not current evidence",
     ]
     quant_signal: Annotated[
         str, "Pre-computed quantitative signal (prompt block from SignalEngine)"

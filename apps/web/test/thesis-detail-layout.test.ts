@@ -307,7 +307,7 @@ test('scenario radar exposes lifecycle actions on persisted scenario cards', () 
   assert.equal(serviceSource.includes('lastClosedDailyBacktestEnd'), false);
   assert.equal(pageSource.includes('feedback.details.slice(0, 5)'), false);
   assert.equal(pageSource.includes('rejection_reasons'), true);
-  assert.equal(pageSource.includes('queryKeys.scenarioDecisionWorkbench()'), true);
+  assert.equal(pageSource.includes('queryKeys.scenarioDecisionWorkbench()'), false);
   assert.equal(pageSource.includes('queryKeys.thesisScenarios(thesisId)'), true);
   assert.equal(styles.includes('.scenario-lifecycle-actions'), true);
   assert.equal(styles.includes('.scenario-action-result-warning'), true);
@@ -350,6 +350,12 @@ test('scenario radar supplements missing scenario branches from thesis boundarie
   assert.equal(source.includes('if (scenarios.length > 0)'), true);
   assert.equal(source.includes('branchType: \'confirmation\''), true);
   assert.equal(source.includes('branchType: \'invalidation\''), true);
+  assert.equal(source.includes('scenario_recommendation: recommendation,'), true);
+  assert.equal(source.includes('runtime_decision: runtimeDecision,'), true);
+  assert.equal(source.includes('function buildBoundaryScenarioRecommendation('), true);
+  assert.equal(source.includes('function buildBoundaryRuntimeDecision('), true);
+  assert.equal(source.includes('scenario_recommendation: null'), false);
+  assert.equal(source.includes('runtime_decision: {'), false);
 });
 
 test('boundary scenarios do not use market type as timeframe metadata', () => {

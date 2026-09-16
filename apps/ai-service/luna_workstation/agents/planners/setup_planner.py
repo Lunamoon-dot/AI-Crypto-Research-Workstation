@@ -23,7 +23,7 @@ from luna_workstation.agents.utils.structured import (
 
 
 def _market_type_from(config: dict | None, state: dict) -> MarketType:
-    value = state.get("market_type") or (config or {}).get("market_type") or "spot"
+    value = state.get("market_type") or (config or {}).get("market_type") or "perp"
     normalized = str(value).strip().lower()
     if normalized in {"perp", "perpetual", "futures", "future"}:
         return MarketType.PERP

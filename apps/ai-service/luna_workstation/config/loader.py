@@ -224,7 +224,7 @@ class ConfigLoader:
             "max_risk_discuss_rounds": selections.get("research_depth", 1),
             "output_language": selections.get("output_language", "English"),
             "asset_class": selections.get("asset_class", "crypto"),
-            "market_type": selections.get("market_type", "spot"),
+            "market_type": selections.get("market_type", "perp"),
             "checkpoint_enabled": checkpoint,
         }
         optional_overrides = {

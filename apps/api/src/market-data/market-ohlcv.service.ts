@@ -305,7 +305,7 @@ function normalizeRequest(request: MarketOhlcvRequest): NormalizedOhlcvRequest {
 }
 
 function normalizeMarketType(value: string | undefined): MarketType {
-  const normalized = String(value ?? 'spot')
+  const normalized = String(value ?? 'perp')
     .trim()
     .toLowerCase();
   if (normalized === 'spot' || normalized === 'perp') {

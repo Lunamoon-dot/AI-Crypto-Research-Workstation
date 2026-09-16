@@ -3,8 +3,6 @@ import {
   Activity,
   BarChart3,
   Bell,
-  Bot,
-  ClipboardList,
   FlaskConical,
   Gauge,
   History,
@@ -51,14 +49,6 @@ export const navGroups: NavigationGroup[] = [
         mobile: true,
       },
       {
-        id: 'research-chat',
-        label: 'RAG Chat',
-        title: 'Structured research chat',
-        href: routes.researchChat,
-        icon: Bot,
-        mobile: true,
-      },
-      {
         id: 'research-new',
         label: 'New Research',
         title: 'Research launcher',
@@ -79,14 +69,6 @@ export const navGroups: NavigationGroup[] = [
         title: 'Workspace configuration',
         href: routes.researchWorkspace,
         icon: Settings,
-      },
-      {
-        id: 'research-continuity',
-        label: 'Continuity',
-        title: 'Research continuity ledger',
-        href: routes.researchContinuity(),
-        icon: Activity,
-        mobile: true,
       },
       {
         id: 'theses',
@@ -111,19 +93,12 @@ export const navGroups: NavigationGroup[] = [
         href: routes.scenarios,
         icon: Radar,
       },
-      {
-        id: 'scenario-decision',
-        label: 'Decision Queue',
-        title: 'Scenario decision workbench',
-        href: routes.scenarioDecision,
-        icon: ClipboardList,
-      },
     ],
   },
   {
     id: 'monitoring',
     label: 'Luna Monitoring',
-    icon: ClipboardList,
+    icon: Bell,
     items: [
       {
         id: 'alerts',

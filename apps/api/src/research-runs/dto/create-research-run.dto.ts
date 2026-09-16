@@ -33,8 +33,8 @@ export class CreateResearchRunDto {
   asset_class?: string;
 
   @IsOptional()
-  @IsIn(['spot', 'perp'])
-  market_type?: 'spot' | 'perp';
+  @IsIn(['perp'])
+  market_type?: 'perp';
 
   @IsDateString()
   analysis_date: string;

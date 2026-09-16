@@ -2,14 +2,8 @@ import 'reflect-metadata';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { writeFileSync } from 'node:fs';
-import { AuthService } from '../auth/auth.service';
 import { loadWorkspaceEnv } from '../config/env';
 import { EngineRunRequest } from '../database/journal.types';
-import { PostgresJournalRepository } from '../database/postgres-journal.repository';
-import { PostgresResearchContinuityAuditRepository } from '../research-continuity/research-continuity-audit.repository';
-import { PostgresResearchContinuitySettingsRepository } from '../research-continuity/research-continuity-settings.repository';
-import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
-import { WorkspacesService } from '../workspaces/workspaces.service';
 import { JobLifecycleService } from './job-lifecycle.service';
 import { PythonEngineClient } from './python-engine.client';
 import { ResearchJobProcessor } from './research-job.processor';
@@ -28,22 +22,10 @@ async function bootstrap() {
   const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
   const lifecycle = new JobLifecycleService();
   const sqliteSync = new SqliteJournalSyncService();
-  const journal = new PostgresJournalRepository();
-  const continuityAudit = new PostgresResearchContinuityAuditRepository();
-  const continuitySettings = new PostgresResearchContinuitySettingsRepository();
-  const workspaces = new WorkspacesService();
-  const continuity = new ResearchContinuityService(
-    journal,
-    continuityAudit,
-    continuitySettings,
-    new AuthService(),
-    workspaces,
-  );
   const processor = new ResearchJobProcessor(
     new PythonEngineClient(),
     lifecycle,
     sqliteSync,
-    continuity,
   );
   const heartbeat = setInterval(touchHealthFile, 10_000);
   touchHealthFile();
@@ -93,10 +75,6 @@ async function bootstrap() {
     await connection.quit();
     await sqliteSync.onModuleDestroy();
     await lifecycle.onModuleDestroy();
-    await journal.onModuleDestroy();
-    await continuityAudit.onModuleDestroy();
-    await continuitySettings.onModuleDestroy();
-    await workspaces.onModuleDestroy();
   };
   process.once('SIGINT', () => {
     void shutdown().finally(() => process.exit(0));

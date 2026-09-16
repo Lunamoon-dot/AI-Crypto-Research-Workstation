@@ -20,13 +20,3 @@ test('sidebar navigation does not render quick research run controls', () => {
   assert.equal(source.includes('>Check<'), false);
   assert.equal(source.includes('>Brief<'), false);
 });
-
-test('sidebar navigation limits workspace switcher on research continuity routes', () => {
-  const source = readFileSync(
-    new URL('../src/components/navigation/SidebarNav.tsx', import.meta.url),
-    'utf8',
-  );
-
-  assert.equal(source.includes("pathname.startsWith('/research-continuity')"), true);
-  assert.equal(source.includes("<WorkspaceSwitcher fixedOnly={pathname.startsWith('/research-continuity')} />"), true);
-});

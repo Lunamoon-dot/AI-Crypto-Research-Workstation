@@ -18,7 +18,7 @@ quick_think_llm = "deepseek-v4-flash"
 # Runtime environment / asset class
 runtime_environment = "local" # "local" | "dev" | "production"
 asset_class = "crypto"
-market_type = "spot" # "spot" | "perp"
+market_type = "perp" # "spot" | "perp"
 crypto_exchange = "binance"
 crypto_benchmark = "BTC/USDT"
 

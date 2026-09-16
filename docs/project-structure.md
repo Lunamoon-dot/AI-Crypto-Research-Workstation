@@ -568,7 +568,6 @@ apps/api/
    |-- market-data/                   # Market price/OHLCV endpoints
    |-- operations/                    # Operations/provider/model/freshness endpoints
    |-- performance/                   # Reliability/performance analytics
-   |-- research-continuity/           # Continuity snapshot/delta/report
    |-- research-runs/                 # Tạo/chi tiết/lịch sử research run
    |-- scenarios/                     # Scenario monitor
    |-- signals/                       # Signal explorer/detail
@@ -708,21 +707,6 @@ signals/
 |-- signals.controller.ts             # Signal routes
 |-- signals.module.ts                 # Nest module wiring
 `-- signals.service.ts                # Signal explorer/detail logic
-```
-
-#### `apps/api/src/research-continuity/`
-
-```text
-research-continuity/
-|-- continuity-delta.engine.ts        # Computes delta between continuity snapshots
-|-- continuity-report.renderer.ts     # Renders continuity report
-|-- continuity-state.projector.ts     # Projects current continuity state
-|-- research-continuity.controller.ts # Continuity HTTP routes
-|-- research-continuity.module.ts     # Nest module wiring
-|-- research-continuity.service.ts    # Continuity use cases
-|-- research-snapshot.builder.ts      # Builds normalized research snapshot
-`-- dto/
-   `-- research-continuity.dto.ts     # Continuity request/response DTOs
 ```
 
 #### `apps/api/src/research-runs/`
@@ -873,7 +857,6 @@ services/
 |-- operations.ts                     # Operations API calls
 |-- performance.ts                    # Performance analytics API calls
 |-- query-keys.ts                     # TanStack Query key constants
-|-- research-continuity.ts            # Research continuity API calls
 |-- research-runs.ts                  # Research run API calls
 |-- scenarios.ts                      # Scenario API calls
 |-- signals.ts                        # Signal API calls
@@ -986,13 +969,7 @@ docs/
 |  |  |-- v2.4/implementation-plan.md # Calibration lab v2.4 plan
 |  |  |-- v2.5/implementation-plan.md # Calibration lab v2.5 plan
 |  |  `-- v3.0/implementation-plan.md # Calibration lab v3.0 plan
-|  `-- research-continuity/
-|     |-- README.md                   # Research continuity feature hub
-|     |-- v1/implementation-plan.md   # Research continuity v1 plan
-|     |-- v1.1/implementation-plan.md # Research continuity v1.1 plan
-|     |-- v1.2/implementation-plan.md # Research continuity v1.2 plan
-|     |-- v1.3/implementation-plan.md # Research continuity v1.3 plan
-|     `-- v1.4/implementation-plan.md # Research continuity v1.4 plan
+|  `-- archived feature plans/        # Historical plans retained outside active scope
 `-- preview/
    |-- lunacrypto-roadmap-design-board.pdf # Design board preview
    `-- lunacrypto-workstation-ui-concept.png # Workstation UI concept image

@@ -40,7 +40,6 @@ from luna_workstation.agents.planners.setup_planner import (
 )
 from luna_workstation.agents.planners.scenario_planner import (
     create_scenario_planner,
-    render_scenario_feedback_playbook,
     render_scenario_reliability_digest,
 )
 
@@ -204,15 +203,10 @@ class TestPortfolioManagerAgent:
 
         portfolio_manager = create_portfolio_manager(llm, config={})
         state = _make_pm_state()
-        state["latest_continuity_context"] = {
-            "summary": "Prior continuity exists.",
-            "active_invalidations": ["Invalidate below 65000 on volume."],
-        }
         result = portfolio_manager(state)
         payload = json.loads(result["final_trade_summary_json"])
 
         assert result["final_trade_decision"] == plain_response
-        assert result["scenario_continuity_handoff"] is None
         assert "Current price anchor: $1,647.71" in llm.invoke.call_args.args[0]
         assert payload["rating"] == "Underweight"
         assert payload["direction"] == "avoid"
@@ -443,45 +437,6 @@ class TestPortfolioManagerAgent:
         assert payload["investment_thesis"] == "Live-price anchored thesis."
         assert payload["entry_zone"] == "No new long entry below reclaim."
         assert payload["target_zones"] == ["1850 reclaim review"]
-
-    def test_extracts_only_pm_authored_scenario_continuity_handoff(self):
-        handoff = {
-            "continuity_relation": "weakens",
-            "summary": "Prior long thesis is weakening.",
-            "short_term_focus": "Watch reclaim failure.",
-            "mid_term_focus": "Compare catalyst follow-through.",
-            "long_term_focus": "Track structural invalidation.",
-            "carry_forward_watchpoints": ["Prior reclaim zone"],
-            "carry_forward_invalidations": ["Prior invalidation level"],
-            "stale_prior": False,
-        }
-        structured = MagicMock()
-        structured.invoke.return_value = PortfolioDecision(
-            rating=PortfolioRating.HOLD,
-            executive_summary="Hold pending confirmation.",
-            investment_thesis="Current evidence is mixed.",
-            confidence=0.5,
-            market_type=MarketType.SPOT,
-            action_summary="Watch.",
-            confirmation_condition="Reclaim resistance.",
-            invalidation="Lose support.",
-            key_reasons=[],
-            risks=[],
-            monitor_next=[],
-            supporting_evidence=[],
-            spot_notes="",
-            perp_notes="",
-            missing_data=[],
-            scenario_continuity_handoff=handoff,
-        )
-        llm = MagicMock()
-        llm.with_structured_output.return_value = structured
-
-        portfolio_manager = create_portfolio_manager(llm, config={})
-        result = portfolio_manager(_make_pm_state())
-
-        assert result["scenario_continuity_handoff"] == handoff
-
 
 # ---------------------------------------------------------------------------
 # Setup Planner agent: structured happy path + fallback
@@ -723,26 +678,6 @@ def _structured_scenario_llm(captured: dict, plan: ScenarioPlan | None = None):
 
 @pytest.mark.unit
 class TestScenarioPlannerAgent:
-    def test_scenario_feedback_playbook_renders_without_raw_continuity(self):
-        digest = render_scenario_feedback_playbook(
-            {
-                "raw_notes": "raw continuity paragraph",
-                "scenario_feedback_playbook": {
-                    "version": "scenario_feedback_playbook.v1",
-                    "lessons": [
-                        {
-                            "statement": "Require volume confirmation.",
-                            "confidence": "medium",
-                        }
-                    ],
-                    "gates": [],
-                },
-            }
-        )
-
-        assert "Require volume confirmation." in digest
-        assert "raw continuity paragraph" not in digest
-
     def test_scenario_reliability_digest_renders_compact_aggregates(self):
         digest = render_scenario_reliability_digest(
             {
@@ -814,42 +749,6 @@ class TestScenarioPlannerAgent:
         assert "Require volume confirmation." in prompt
         assert "raw_scenarios" not in prompt
         assert "raw scenario history should stay out" not in prompt
-
-    def test_scenario_planner_prompt_uses_feedback_playbook_not_raw_continuity(self):
-        captured = {}
-        llm = _structured_scenario_llm(captured)
-        scenario_planner = create_scenario_planner(llm)
-
-        scenario_planner(
-            {
-                "company_of_interest": "BTC/USDT",
-                "trade_date": "2026-06-10",
-                "investment_plan": "Overweight if reclaim confirms.",
-                "final_trade_decision": "Watch reclaim and invalidation.",
-                "market_report": "Price is below resistance.",
-                "sentiment_report": "",
-                "news_report": "",
-                "fundamentals_report": "",
-                "setup_type": "agent_debate",
-                "latest_continuity_context": {
-                    "raw_notes": "raw continuity paragraph",
-                    "scenario_feedback_playbook": {
-                        "version": "scenario_feedback_playbook.v1",
-                        "lessons": [
-                            {
-                                "statement": "Require volume confirmation.",
-                                "confidence": "medium",
-                            }
-                        ],
-                        "gates": [],
-                    },
-                },
-            }
-        )
-
-        prompt = captured["prompt"][1]["content"]
-        assert "Require volume confirmation." in prompt
-        assert "raw continuity paragraph" not in prompt
 
     def test_scenario_plan_renders_horizon_identity(self):
         plan = ScenarioPlan(

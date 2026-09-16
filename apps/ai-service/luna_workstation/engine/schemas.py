@@ -19,7 +19,7 @@ class EngineRunRequest(BaseModel):
     workspace_id: str
     symbol: str
     asset_class: str = "crypto"
-    market_type: str = "spot"
+    market_type: str = "perp"
     analysis_date: date
     analysts: list[str] = Field(default_factory=lambda: ["market", "news"])
     config_profile: str | None = "default"
@@ -49,7 +49,7 @@ class EngineRunRequest(BaseModel):
     @field_validator("market_type", mode="before")
     @classmethod
     def _market_type_valid(cls, value: str | None) -> str:
-        normalized = str(value or "spot").strip().lower()
+        normalized = str(value or "perp").strip().lower()
         if normalized in {"perp", "perpetual", "futures", "future"}:
             return "perp"
         if normalized == "spot":

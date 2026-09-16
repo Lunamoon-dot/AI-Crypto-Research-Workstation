@@ -301,7 +301,7 @@ function nodeKicker(
   if (variant === 'analyst') {
     return 'parallel analyst';
   }
-  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+  if (stage.key === 'perp_checks') {
     return 'market branch';
   }
   if (stage.key === 'scenario_planner') {

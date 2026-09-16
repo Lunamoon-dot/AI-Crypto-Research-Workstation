@@ -20,7 +20,7 @@ const btcWorkspace = {
   name: 'BTC Workspace',
   scope_type: 'fixed_symbol',
   symbol: 'BTC/USDT',
-  market_type: 'spot',
+  market_type: 'perp',
   default_timeframe: null,
   archived: false,
   created_at: '2026-05-31T00:00:00.000Z',
@@ -70,6 +70,8 @@ test('workspace switcher loads metadata and creates fixed-symbol workspaces', ()
   assert.equal(source.includes('Fixed-symbol only'), true);
   assert.equal(source.includes('Legacy mixed'), true);
   assert.equal(source.includes('Create workspace'), true);
+  assert.equal(source.includes('workspace-create-select'), false);
+  assert.equal(source.includes('<option value="spot">'), false);
   assert.equal(source.includes('auth: '), false);
   assert.equal(source.includes('user: '), false);
 });

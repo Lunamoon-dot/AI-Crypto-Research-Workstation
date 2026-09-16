@@ -74,7 +74,7 @@ export class ScenarioReliabilityService {
     for (const row of rows) {
       const key = [
         row.symbol ?? '',
-        filters.market_type === 'mixed' ? 'mixed' : row.market_type ?? 'spot',
+        filters.market_type === 'mixed' ? 'mixed' : row.market_type ?? 'perp',
         row.horizon ?? 'unknown',
         evidenceString(row, 'relation_to_thesis', 'unknown'),
         evidenceString(row, 'action_bias', 'unknown'),
@@ -157,7 +157,7 @@ export class ScenarioReliabilityService {
       version: 'scenario_reliability_profile.v1',
       workspace_id: workspaceId,
       symbol: first.symbol ?? null,
-      market_type: requestedMarketType === 'mixed' ? 'mixed' : first.market_type ?? 'spot',
+      market_type: requestedMarketType === 'mixed' ? 'mixed' : first.market_type ?? 'perp',
       horizon: first.horizon ?? 'unknown',
       relation_to_thesis: evidenceString(first, 'relation_to_thesis', 'unknown'),
       action_bias: evidenceString(first, 'action_bias', 'unknown'),

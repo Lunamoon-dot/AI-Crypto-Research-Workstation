@@ -339,8 +339,7 @@ class ResearchRunOrchestrator:
             company_name,
             trade_date,
             past_context=self._build_symbol_past_context(host, company_name),
-            market_type=host.config.get("market_type", "spot"),
-            latest_continuity_context=self._latest_continuity_context(host),
+            market_type=host.config.get("market_type", "perp"),
         )
         init_agent_state["quant_signal"] = quant_signal_text
         init_agent_state["market_context"] = market_context_text
@@ -548,17 +547,3 @@ class ResearchRunOrchestrator:
             "invalidation/confirmation condition has actually occurred or the "
             "new evidence is strong enough to override the cooldown."
         )
-
-    def _latest_continuity_context(self, host: Any) -> dict[str, Any] | None:
-        metadata = (host.config.get("_engine") or {}).get("metadata") or {}
-        if not isinstance(metadata, dict):
-            return None
-        context = metadata.get("latest_continuity_context")
-        if not isinstance(context, dict):
-            return None
-        if context.get("version") == "scenario_feedback_playbook.v1":
-            return {"scenario_feedback_playbook": context}
-        playbook = context.get("scenario_feedback_playbook")
-        if isinstance(playbook, dict) and playbook.get("version") == "scenario_feedback_playbook.v1":
-            return {"scenario_feedback_playbook": playbook}
-        return None

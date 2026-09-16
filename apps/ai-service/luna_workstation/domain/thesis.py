@@ -104,7 +104,6 @@ ALLOWED_SOURCE_ARTIFACTS = {
     "agent_opinion",
     "research_debate",
     "research_run",
-    "research_continuity",
     "external_report",
     "unknown",
 }
@@ -186,7 +185,7 @@ class ThesisCandidate(BaseModel):
     rating: str = ""
     direction: str = ""
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    market_type: str = "spot"
+    market_type: str = "perp"
     action_summary: str = ""
     investment_thesis: str = ""
     confirmation_condition: str = ""
@@ -204,7 +203,6 @@ class ThesisCandidate(BaseModel):
     missing_data: list[str] = Field(default_factory=list)
     spot_notes: str = ""
     perp_notes: str = ""
-    scenario_continuity_handoff: dict[str, Any] | None = None
 
     @field_validator(
         "schema_version",
@@ -463,7 +461,7 @@ class TradeThesisStructuredSummary(BaseModel):
     )
     direction: ThesisDirection = ThesisDirection.WATCH
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    market_type: str = "spot"
+    market_type: str = "perp"
     action_summary: str = ""
     recommended_action: str = ""
     market_bias: str = ""
@@ -620,10 +618,12 @@ class TradeThesisStructuredSummary(BaseModel):
     @field_validator("market_type", mode="before")
     @classmethod
     def _normalize_market_type(cls, value: Any) -> str:
-        normalized = str(value or "spot").strip().lower()
+        normalized = str(value or "perp").strip().lower()
         if normalized in {"perp", "perpetual", "futures", "future"}:
             return "perp"
-        return "spot"
+        if normalized == "spot":
+            return "spot"
+        return "perp"
 
     @field_validator(
         "action_summary",

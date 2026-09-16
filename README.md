@@ -147,31 +147,6 @@ event-derived view of each workflow stage with `pending`, `running`,
 duration, and source event IDs. The web workstation uses this contract to render
 the agent workflow visualization.
 
-Research Continuity scheduled repair automation runs as a separate API-package
-process. It is disabled by default and should be started separately after the API
-is built:
-
-```bash
-pnpm --filter @lunaperception/api build
-pnpm worker:continuity-scheduler
-```
-
-Worker runtime configuration:
-
-```text
-RESEARCH_CONTINUITY_SCHEDULER_ENABLED=false
-RESEARCH_CONTINUITY_SCHEDULER_INTERVAL_MS=60000
-RESEARCH_CONTINUITY_SCHEDULER_BATCH_SIZE=1
-RESEARCH_CONTINUITY_SCHEDULER_LEASE_SECONDS=300
-RESEARCH_CONTINUITY_SCHEDULER_ACTOR=system:research-continuity-scheduler
-RESEARCH_CONTINUITY_SCHEDULER_HEALTH_FILE=/tmp/lunacrypto-continuity-scheduler-health
-```
-
-When enabled, the worker claims due workspace settings with a Postgres lease,
-runs the existing scheduled repair path, and surfaces lease, retry, and failure
-metadata through Operations and Research Continuity UI.
-Keep the default batch size at `1` unless the lease duration is sized for the
-worst-case sequential repair time.
 
 ## Web Workstation
 

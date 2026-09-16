@@ -610,9 +610,9 @@ def _optional_missing_codes(
     payload: dict[str, Any],
 ) -> set[str]:
     raw_market_type = payload.get("market_type") or (
-        getattr(run, "market_type", "spot") if run else "spot"
+        getattr(run, "market_type", "perp") if run else "perp"
     )
-    market_type = str(raw_market_type or "spot").lower()
+    market_type = str(raw_market_type or "perp").lower()
     return (
         _SPOT_OPTIONAL_MISSING_CODES
         if market_type == "spot"
@@ -806,7 +806,7 @@ class ThesisBuilder:
             structured_payload.get("market_type")
             or final_state.get("market_type")
             or getattr(run, "market_type", None)
-            or (getattr(self.host, "config", None) or {}).get("market_type", "spot")
+            or (getattr(self.host, "config", None) or {}).get("market_type", "perp")
         )
         rating = assert_consistent_ratings(
             [

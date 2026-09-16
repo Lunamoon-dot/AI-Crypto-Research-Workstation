@@ -36,6 +36,7 @@ def test_default_toml_keeps_root_keys_at_root():
 
     assert loaded["llm_provider"] == "deepseek"
     assert loaded["runtime_environment"] == "local"
+    assert loaded["market_type"] == "perp"
     assert loaded["config_search_paths"] == {
         "default_toml": "config/default.toml",
         "local_toml": "config/local.toml",
@@ -62,3 +63,11 @@ def test_local_example_toml_keeps_root_keys_at_root():
         "validate_llm_keys": True,
     }
     assert "runtime_environment" not in loaded["config_validation"]
+
+
+def test_build_runtime_config_defaults_market_type_to_perp():
+    from luna_workstation.config.loader import ConfigLoader
+
+    config = ConfigLoader().build_runtime_config({})
+
+    assert config["market_type"] == "perp"

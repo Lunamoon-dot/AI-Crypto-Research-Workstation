@@ -391,25 +391,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         [workspaceId, runIds],
       );
       await client.query(
-        `DELETE FROM research_continuity_debug_access_audits
-         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
-        [workspaceId, runIds],
-      );
-      await client.query(
-        `DELETE FROM research_continuity_entries
-         WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
-        [workspaceId, runIds],
-      );
-      await client.query(
-        `DELETE FROM research_continuity_states
-         WHERE workspace_id = $1
-           AND (
-             latest_run_id = ANY($2::text[])
-             OR current_snapshot_id = ANY($3::text[])
-           )`,
-        [workspaceId, runIds, snapshotIds],
-      );
-      await client.query(
         `DELETE FROM research_snapshots
          WHERE workspace_id = $1 AND research_run_id = ANY($2::text[])`,
         [workspaceId, runIds],
@@ -699,281 +680,6 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
     );
     if (!saved) {
       throw new NotFoundException(`Research snapshot ${id} not found`);
-    }
-    return saved;
-  }
-
-  async getResearchContinuityEntry(
-    id: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
-       FROM research_continuity_entries
-       WHERE id = $1 AND workspace_id = $2`,
-      [id, workspaceId],
-    );
-  }
-
-  async listResearchRunsForContinuityRepair(
-    filters: ContinuityRepairRunFilters,
-    workspaceId: string,
-  ): Promise<JsonRecord[]> {
-    const where = [
-      'workspace_id = $1',
-      "status IN ('completed', 'completed_degraded')",
-    ];
-    const params: unknown[] = [workspaceId];
-    if (filters.symbol) {
-      params.push(filters.symbol);
-      where.push(`symbol = $${params.length}`);
-    }
-    if (filters.from) {
-      params.push(filters.from);
-      where.push(`COALESCE(completed_at, started_at) >= $${params.length}::timestamptz`);
-    }
-    if (filters.to) {
-      params.push(filters.to);
-      where.push(`COALESCE(completed_at, started_at) <= $${params.length}::timestamptz`);
-    }
-    params.push(filters.limit);
-    return this.many(
-      `SELECT ${researchRunPayloadSql()} AS payload_json
-       FROM research_runs
-       WHERE ${where.join(' AND ')}
-       ORDER BY COALESCE(completed_at, started_at) ASC, id ASC
-       LIMIT $${params.length}`,
-      params,
-    );
-  }
-
-  async getLatestResearchContinuityEntryForRun(
-    runId: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
-       FROM research_continuity_entries
-       WHERE research_run_id = $1 AND workspace_id = $2
-       ORDER BY generated_at DESC, id DESC
-       LIMIT 1`,
-      [runId, workspaceId],
-    );
-  }
-
-  async getLatestResearchContinuityEntryBeforeRun(
-    symbol: string,
-    before: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql('entry')} AS payload_json
-       FROM research_continuity_entries entry
-       JOIN research_runs run
-         ON run.id = entry.research_run_id
-        AND run.workspace_id = entry.workspace_id
-       WHERE entry.workspace_id = $1
-         AND entry.symbol = $2
-         AND COALESCE(run.completed_at, run.started_at) < $3::timestamptz
-         AND entry.current_snapshot_id IS NOT NULL
-         AND entry.status IN ('completed', 'degraded')
-       ORDER BY COALESCE(run.completed_at, run.started_at) DESC,
-                entry.generated_at DESC,
-                entry.id DESC
-       LIMIT 1`,
-      [workspaceId, symbol, before],
-    );
-  }
-
-  async getLatestCompletedResearchRunForContinuity(
-    symbol: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchRunPayloadSql()} AS payload_json
-       FROM research_runs
-       WHERE workspace_id = $1
-         AND symbol = $2
-         AND status IN ('completed', 'completed_degraded')
-       ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
-       LIMIT 1`,
-      [workspaceId, symbol],
-    );
-  }
-
-  async findResearchContinuityRepairEntry(
-    identity: ContinuityRepairIdentity,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
-       FROM research_continuity_entries
-       WHERE workspace_id = $1
-         AND research_run_id = $2
-         AND COALESCE(
-           payload_json#>>'{payload,repair,repair_version}',
-           payload_json#>>'{repair,repair_version}'
-         ) = $3
-         AND COALESCE(
-           payload_json#>>'{payload,repair,case_type}',
-           payload_json#>>'{repair,case_type}'
-         ) = $4
-         AND COALESCE(
-           payload_json#>>'{payload,repair,source_entry_id}',
-           payload_json#>>'{repair,source_entry_id}',
-           ''
-         ) = COALESCE($5, '')
-       ORDER BY generated_at DESC, id DESC
-       LIMIT 1`,
-      [
-        workspaceId,
-        identity.runId,
-        identity.repairVersion,
-        identity.caseType,
-        identity.sourceEntryId ?? '',
-      ],
-    );
-  }
-
-  async listResearchContinuityEntriesBySymbol(
-    symbol: string,
-    limit: number,
-    workspaceId: string,
-  ): Promise<JsonRecord[]> {
-    return this.many(
-      `SELECT ${researchContinuityEntryPayloadSql()} AS payload_json
-       FROM research_continuity_entries
-       WHERE workspace_id = $1 AND symbol = $2
-       ORDER BY generated_at DESC, id DESC
-       LIMIT $3`,
-      [workspaceId, symbol, limit],
-    );
-  }
-
-  async saveResearchContinuityEntry(
-    entry: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const id = stringValue(entry.id, `continuity_${randomUUID().replaceAll('-', '')}`);
-    const symbol = stringValue(entry.symbol, '');
-    const researchRunId = stringValue(entry.research_run_id, '');
-    const generatedAt = stringValue(entry.generated_at, new Date().toISOString());
-    const payload = {
-      ...entry,
-      id,
-      workspace_id: workspaceId,
-      symbol,
-      research_run_id: researchRunId,
-      current_snapshot_id: nullableString(entry.current_snapshot_id),
-      previous_entry_id: nullableString(entry.previous_entry_id),
-      entry_type: stringValue(entry.entry_type, 'skipped'),
-      status: stringValue(entry.status, 'skipped'),
-      generated_at: generatedAt,
-      summary: stringValue(entry.summary, ''),
-      sections: arrayFromUnknown(entry.sections),
-      events: arrayFromUnknown(entry.events),
-      snapshot_quality: recordOrDefault(entry.snapshot_quality, {}),
-      source_run_ids: arrayFromUnknown(entry.source_run_ids),
-      writer_metadata: recordOrDefault(entry.writer_metadata, {}),
-    };
-    const saved = await this.one(
-      `INSERT INTO research_continuity_entries
-       (id, workspace_id, symbol, research_run_id, current_snapshot_id, previous_entry_id, entry_type, status, generated_at, summary, sections_json, events_json, snapshot_quality_json, source_run_ids_json, writer_metadata_json, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb)
-       RETURNING ${researchContinuityEntryPayloadSql()} AS payload_json`,
-      [
-        id,
-        workspaceId,
-        symbol,
-        researchRunId,
-        payload.current_snapshot_id,
-        payload.previous_entry_id,
-        payload.entry_type,
-        payload.status,
-        generatedAt,
-        payload.summary,
-        JSON.stringify(payload.sections),
-        JSON.stringify(payload.events),
-        JSON.stringify(payload.snapshot_quality),
-        JSON.stringify(payload.source_run_ids),
-        JSON.stringify(payload.writer_metadata),
-        JSON.stringify(payload),
-      ],
-    );
-    if (!saved) {
-      throw new NotFoundException(`Research continuity entry ${id} not found`);
-    }
-    return saved;
-  }
-
-  async getResearchContinuityState(
-    symbol: string,
-    workspaceId: string,
-  ): Promise<JsonRecord | null> {
-    return this.one(
-      `SELECT ${researchContinuityStatePayloadSql()} AS payload_json
-       FROM research_continuity_states
-       WHERE symbol = $1 AND workspace_id = $2`,
-      [symbol, workspaceId],
-    );
-  }
-
-  async saveResearchContinuityState(
-    state: JsonRecord,
-    workspaceId: string,
-  ): Promise<JsonRecord> {
-    const id = stringValue(state.id, `continuity_state_${randomUUID().replaceAll('-', '')}`);
-    const symbol = stringValue(state.symbol, '');
-    const updatedAt = stringValue(state.updated_at, new Date().toISOString());
-    const payload = {
-      ...state,
-      id,
-      workspace_id: workspaceId,
-      symbol,
-      current_snapshot_id: nullableString(state.current_snapshot_id),
-      latest_entry_id: nullableString(state.latest_entry_id),
-      latest_run_id: nullableString(state.latest_run_id),
-      current_view: recordOrDefault(state.current_view, {}),
-      active_items: arrayFromUnknown(state.active_items),
-      recent_resolved_items: arrayFromUnknown(state.recent_resolved_items),
-      recent_invalidated_items: arrayFromUnknown(state.recent_invalidated_items),
-      data_quality: recordOrDefault(state.data_quality, {}),
-      updated_at: updatedAt,
-    };
-    const saved = await this.one(
-      `INSERT INTO research_continuity_states
-       (id, workspace_id, symbol, current_snapshot_id, latest_entry_id, latest_run_id, current_view_json, active_items_json, recent_resolved_items_json, recent_invalidated_items_json, data_quality_json, updated_at, payload_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::timestamptz, $13::jsonb)
-       ON CONFLICT (workspace_id, symbol) DO UPDATE SET
-         current_snapshot_id = EXCLUDED.current_snapshot_id,
-         latest_entry_id = EXCLUDED.latest_entry_id,
-         latest_run_id = EXCLUDED.latest_run_id,
-         current_view_json = EXCLUDED.current_view_json,
-         active_items_json = EXCLUDED.active_items_json,
-         recent_resolved_items_json = EXCLUDED.recent_resolved_items_json,
-         recent_invalidated_items_json = EXCLUDED.recent_invalidated_items_json,
-         data_quality_json = EXCLUDED.data_quality_json,
-         updated_at = EXCLUDED.updated_at,
-         payload_json = EXCLUDED.payload_json
-       RETURNING ${researchContinuityStatePayloadSql()} AS payload_json`,
-      [
-        id,
-        workspaceId,
-        symbol,
-        payload.current_snapshot_id,
-        payload.latest_entry_id,
-        payload.latest_run_id,
-        JSON.stringify(payload.current_view),
-        JSON.stringify(payload.active_items),
-        JSON.stringify(payload.recent_resolved_items),
-        JSON.stringify(payload.recent_invalidated_items),
-        JSON.stringify(payload.data_quality),
-        updatedAt,
-        JSON.stringify(payload),
-      ],
-    );
-    if (!saved) {
-      throw new NotFoundException(`Research continuity state ${symbol} not found`);
     }
     return saved;
   }
@@ -1657,7 +1363,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         stringValue(input.thesis_id, ''),
         nullableString(input.research_run_id),
         stringValue(input.symbol, ''),
-        stringValue(input.market_type, 'spot'),
+        stringValue(input.market_type, 'perp'),
         stringValue(input.horizon, 'unknown'),
         evaluatedAt,
         JSON.stringify(recordOrDefault(input.evaluation_window, {})),
@@ -1953,7 +1659,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         stringValue(input.source_scenario_id, ''),
         stringValue(input.source_thesis_id, ''),
         stringValue(input.symbol, ''),
-        stringValue(input.market_type, 'spot'),
+        stringValue(input.market_type, 'perp'),
         stringValue(input.direction, 'long'),
         stringValue(input.horizon, 'unknown'),
         JSON.stringify(payload),
@@ -2511,7 +2217,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         stringValue(input.source_scenario_id, ''),
         stringValue(input.source_thesis_id, ''),
         stringValue(input.symbol, ''),
-        stringValue(input.market_type, 'spot'),
+        stringValue(input.market_type, 'perp'),
         stringValue(input.mode, 'forward'),
         stringValue(input.status, 'waiting_for_trigger'),
         stringValue(input.assumptions_hash, ''),
@@ -4178,7 +3884,7 @@ export class PostgresJournalRepository implements JournalRepository, OnModuleDes
         thesis_id TEXT NOT NULL,
         research_run_id TEXT,
         symbol TEXT NOT NULL,
-        market_type TEXT NOT NULL DEFAULT 'spot',
+        market_type TEXT NOT NULL DEFAULT 'perp',
         horizon TEXT NOT NULL DEFAULT 'unknown',
         evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         evaluation_window JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -4730,57 +4436,6 @@ function researchRunPayloadSql(alias = ''): string {
     'degradation_reasons', ${p}degradation_reasons_json,
     'missing_core_data', ${p}missing_core_data_json,
     'missing_optional_data', ${p}missing_optional_data_json
-  )`;
-}
-
-function researchContinuityEntryPayloadSql(alias = ''): string {
-  const p = alias ? `${alias}.` : '';
-  return `${p}payload_json || jsonb_build_object(
-    'id', ${p}id,
-    'workspace_id', ${p}workspace_id,
-    'symbol', ${p}symbol,
-    'research_run_id', ${p}research_run_id,
-    'current_snapshot_id', ${p}current_snapshot_id,
-    'previous_entry_id', ${p}previous_entry_id,
-    'entry_type', ${p}entry_type,
-    'status', ${p}status,
-    'generated_at', ${p}generated_at,
-    'summary', ${p}summary,
-    'sections', ${p}sections_json,
-    'sections_json', ${p}sections_json,
-    'events', ${p}events_json,
-    'events_json', ${p}events_json,
-    'snapshot_quality', ${p}snapshot_quality_json,
-    'snapshot_quality_json', ${p}snapshot_quality_json,
-    'source_run_ids', ${p}source_run_ids_json,
-    'source_run_ids_json', ${p}source_run_ids_json,
-    'writer_metadata', ${p}writer_metadata_json,
-    'writer_metadata_json', ${p}writer_metadata_json,
-    'payload', ${p}payload_json
-  )`;
-}
-
-function researchContinuityStatePayloadSql(alias = ''): string {
-  const p = alias ? `${alias}.` : '';
-  return `${p}payload_json || jsonb_build_object(
-    'id', ${p}id,
-    'workspace_id', ${p}workspace_id,
-    'symbol', ${p}symbol,
-    'current_snapshot_id', ${p}current_snapshot_id,
-    'latest_entry_id', ${p}latest_entry_id,
-    'latest_run_id', ${p}latest_run_id,
-    'current_view', ${p}current_view_json,
-    'current_view_json', ${p}current_view_json,
-    'active_items', ${p}active_items_json,
-    'active_items_json', ${p}active_items_json,
-    'recent_resolved_items', ${p}recent_resolved_items_json,
-    'recent_resolved_items_json', ${p}recent_resolved_items_json,
-    'recent_invalidated_items', ${p}recent_invalidated_items_json,
-    'recent_invalidated_items_json', ${p}recent_invalidated_items_json,
-    'data_quality', ${p}data_quality_json,
-    'data_quality_json', ${p}data_quality_json,
-    'updated_at', ${p}updated_at,
-    'payload', ${p}payload_json
   )`;
 }
 

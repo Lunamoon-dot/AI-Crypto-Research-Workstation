@@ -43,6 +43,23 @@ test('research workflow surfaces scenario planner scope', () => {
   assert.equal(workflowSource.includes("return 'scenario agent'"), true);
 });
 
+test('research workflow omits legacy spot branch wording', () => {
+  const pageSource = readFileSync(
+    new URL('../src/pages/ResearchRunWorkspacePage.tsx', import.meta.url),
+    'utf8',
+  );
+  const workflowSource = readFileSync(
+    new URL('../src/components/research/workflow-visualization.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(pageSource.includes("key: 'spot_checks'"), false);
+  assert.equal(pageSource.includes("label: 'Legacy Spot Checks'"), false);
+  assert.equal(pageSource.includes('Legacy spot accumulation / DCA branch'), false);
+  assert.equal(pageSource.includes('Legacy spot checks applied'), false);
+  assert.equal(workflowSource.includes("return 'legacy market branch'"), false);
+});
+
 test('workflow visualization styles blocked stages distinctly from missing output', () => {
   const source = readFileSync(
     new URL('../src/styles/index.css', import.meta.url),

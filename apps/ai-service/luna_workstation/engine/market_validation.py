@@ -24,7 +24,7 @@ def validate_market_data(
     symbol: str,
     analysis_date: str,
     asset_class: str = "crypto",
-    market_type: str = "spot",
+    market_type: str = "perp",
     exchange: str | None = None,
     profile: str | None = None,
 ) -> dict[str, Any]:

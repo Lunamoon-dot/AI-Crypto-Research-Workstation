@@ -4,26 +4,9 @@ import type {
   AlertResponse,
   CreateWorkspaceRequest,
   EvidenceBundleResponse,
-  GenerateResearchContinuityRequest,
-  GenerateResearchContinuityResponse,
   MarketChartInterval,
   RecordThesisDecisionRequest,
   RecordThesisReviewRequest,
-  ResearchContinuityRepairPreviewRequest,
-  ResearchContinuityRepairPreviewResponse,
-  ResearchContinuityRepairRunDetailResponse,
-  ResearchContinuityRepairRunResponse,
-  ResearchContinuityRepairRunsResponse,
-  ResearchContinuitySchedulerRunDueResponse,
-  ResearchContinuitySchedulerStatusResponse,
-  ResearchContinuityEntriesResponse,
-  ResearchContinuityEntryDebugResponse,
-  ResearchContinuityEntryDetailResponse,
-  ResearchContinuityEntrySummaryResponse,
-  ResearchContinuityStateEnvelopeResponse,
-  ResearchContinuityTimelineResponse,
-  ResearchContinuityWorkspaceSettingsResponse,
-  RunResearchContinuityRepairRequest,
   ScenarioChartProjectionResponse,
   ScenarioChartSummaryResponse,
   ScenarioDecisionConditionRole,
@@ -34,7 +17,6 @@ import type {
   SignalResponse,
   ThesisDecisionResponse,
   ThesisReviewResponse,
-  UpdateResearchContinuitySettingsRequest,
   WorkspaceSummary,
 } from '@/types';
 
@@ -51,7 +33,7 @@ export interface EngineRunRequest {
   workspace_id: string;
   symbol: string;
   asset_class: string;
-  market_type: 'spot' | 'perp';
+  market_type: 'perp';
   analysis_date: string;
   analysts: Array<'market' | 'news' | 'social' | 'onchain'>;
   config_profile: string;
@@ -66,7 +48,7 @@ export type CreateResearchRunRequest = {
   workspace_id: string;
   symbol?: string;
   asset_class?: string;
-  market_type?: 'spot' | 'perp';
+  market_type?: 'perp';
   analysis_date: string;
   analysts: string[];
   config_profile?: string;
@@ -905,41 +887,6 @@ export interface SimulationDetailResponse extends SimulationRunResponse {
   events: ExecutionEventResponse[];
 }
 
-export type ScenarioDecisionQueueItemType =
-  | 'active_scenario'
-  | 'evaluation_due'
-  | 'evaluation_inconclusive'
-  | 'reliability_changed'
-  | 'playbook_candidate'
-  | 'backtest_ready';
-
-export interface ScenarioDecisionQueueItemResponse {
-  version: 'scenario_decision_queue_item.v1';
-  id: string;
-  workspace_id: string;
-  type: ScenarioDecisionQueueItemType;
-  priority: number;
-  title: string;
-  summary: string;
-  scenario_id: string | null;
-  thesis_id: string | null;
-  playbook_id: string | null;
-  backtest_id: string | null;
-  status: 'open' | 'snoozed' | 'resolved';
-  blockers: string[];
-  next_action: string;
-  due_at: string | null;
-  created_at: string;
-}
-
-export interface ScenarioDecisionWorkbenchResponse {
-  version: 'scenario_decision_workspace.v1';
-  workspace_id: string;
-  generated_at: string;
-  total_open: number;
-  items: ScenarioDecisionQueueItemResponse[];
-}
-
 export interface ScenarioRuntimeDecision {
   version: 'scenario_runtime_decision.v1';
   evaluated_at: string;
@@ -1065,126 +1012,6 @@ export function createApiClient(request: ApiTransport) {
     getResearchRunEvidenceBundle: (id: string) =>
       request<EvidenceBundleResponse>(
         `/research-runs/${encodeURIComponent(id)}/evidence-bundle`,
-        {},
-      ),
-    getResearchRunContinuity: (id: string) =>
-      request<ResearchContinuityEntrySummaryResponse | null>(
-        `/research-runs/${encodeURIComponent(id)}/continuity`,
-        {},
-      ),
-    generateResearchRunContinuity: (
-      id: string,
-      body: GenerateResearchContinuityRequest = {},
-    ) =>
-      request<GenerateResearchContinuityResponse>(
-        `/research-runs/${encodeURIComponent(id)}/continuity`,
-        { method: 'POST', body },
-      ),
-    getResearchContinuityState: (symbol: string) =>
-      request<ResearchContinuityStateEnvelopeResponse>(
-        `/research-continuity/symbols/${encodeURIComponent(symbol)}/state`,
-        {},
-      ),
-    listResearchContinuityEntries: (
-      symbol: string,
-      params: { limit?: number } = {},
-    ) =>
-      request<ResearchContinuityEntriesResponse>(
-        `/research-continuity/symbols/${encodeURIComponent(symbol)}/entries`,
-        { query: { limit: params.limit ?? 20 } },
-      ),
-    getResearchContinuityTimeline: (
-      symbol: string,
-      params: {
-        include_context?: boolean;
-        item_type?: string;
-        limit?: number;
-        status?: string;
-      } = {},
-    ) =>
-      request<ResearchContinuityTimelineResponse>(
-        `/research-continuity/symbols/${encodeURIComponent(symbol)}/timeline`,
-        {
-          query: {
-            include_context: params.include_context,
-            item_type: params.item_type,
-            limit: params.limit ?? 50,
-            status: params.status,
-          },
-        },
-      ),
-    getResearchContinuitySettings: () =>
-      request<ResearchContinuityWorkspaceSettingsResponse>(
-        '/research-continuity/settings',
-        {},
-      ),
-    updateResearchContinuitySettings: (
-      body: UpdateResearchContinuitySettingsRequest,
-    ) =>
-      request<ResearchContinuityWorkspaceSettingsResponse>(
-        '/research-continuity/settings',
-        { method: 'PATCH', body },
-      ),
-    getResearchContinuityScheduler: () =>
-      request<ResearchContinuitySchedulerStatusResponse>(
-        '/research-continuity/scheduler',
-        {},
-      ),
-    runDueResearchContinuityScheduler: () =>
-      request<ResearchContinuitySchedulerRunDueResponse>(
-        '/research-continuity/scheduler/run-due',
-        { method: 'POST' },
-      ),
-    previewResearchContinuityRepair: (
-      params: ResearchContinuityRepairPreviewRequest = {},
-    ) =>
-      request<ResearchContinuityRepairPreviewResponse>(
-        '/research-continuity/repair/preview',
-        {
-          query: {
-            symbol: params.symbol,
-            from: params.from,
-            to: params.to,
-            case_types: params.case_types?.join(','),
-            limit: params.limit ?? 25,
-          },
-        },
-      ),
-    runResearchContinuityRepair: (body: RunResearchContinuityRepairRequest) =>
-      request<ResearchContinuityRepairRunResponse>(
-        '/research-continuity/repair/run',
-        { method: 'POST', body },
-      ),
-    listResearchContinuityRepairRuns: (
-      params: {
-        dry_run?: boolean;
-        limit?: number;
-        status?: string;
-      } = {},
-    ) =>
-      request<ResearchContinuityRepairRunsResponse>(
-        '/research-continuity/repair/runs',
-        {
-          query: {
-            dry_run: params.dry_run,
-            limit: params.limit ?? 20,
-            status: params.status,
-          },
-        },
-      ),
-    getResearchContinuityRepairRun: (id: string) =>
-      request<ResearchContinuityRepairRunDetailResponse>(
-        `/research-continuity/repair/runs/${encodeURIComponent(id)}`,
-        {},
-      ),
-    getResearchContinuityEntry: (id: string) =>
-      request<ResearchContinuityEntryDetailResponse>(
-        `/research-continuity/entries/${encodeURIComponent(id)}`,
-        {},
-      ),
-    getResearchContinuityEntryDebug: (id: string) =>
-      request<ResearchContinuityEntryDebugResponse>(
-        `/research-continuity/entries/${encodeURIComponent(id)}/debug`,
         {},
       ),
     getJournalRunWorkspace: (id: string) =>
@@ -1425,21 +1252,6 @@ export function createApiClient(request: ApiTransport) {
       request<SimulationOutcomeResponse | null>(
         `/simulations/${encodeURIComponent(id)}/outcome`,
         {},
-      ),
-    getScenarioDecisionWorkbench: () =>
-      request<ScenarioDecisionWorkbenchResponse>(
-        '/scenario-decision/workbench',
-        {},
-      ),
-    resolveScenarioDecisionItem: (id: string) =>
-      request<ScenarioDecisionQueueItemResponse>(
-        `/scenario-decision/items/${encodeURIComponent(id)}/resolve`,
-        { method: 'POST', body: {} },
-      ),
-    snoozeScenarioDecisionItem: (id: string, body: { due_at: string }) =>
-      request<ScenarioDecisionQueueItemResponse>(
-        `/scenario-decision/items/${encodeURIComponent(id)}/snooze`,
-        { method: 'POST', body },
       ),
     recordThesisDecision: (
       id: string,

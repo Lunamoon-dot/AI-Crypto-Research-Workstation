@@ -22,7 +22,7 @@ export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps)
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
-  const [marketType, setMarketType] = useState<WorkspaceMarketType>('mixed');
+  const marketType: WorkspaceMarketType = 'perp';
 
   const workspacesQuery = useQuery({
     queryKey: queryKeys.workspacesRoot(),
@@ -48,12 +48,6 @@ export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps)
       setWorkspace(activationTarget);
     }
   }, [fixedOnly, setWorkspace, workspace, workspaceId, workspacesQuery.data]);
-
-  useEffect(() => {
-    if (fixedOnly && marketType === 'mixed') {
-      setMarketType('spot');
-    }
-  }, [fixedOnly, marketType]);
 
   const fallbackActiveWorkspace = workspace ?? legacyMixedWorkspace;
   const workspaces = useMemo(() => {
@@ -87,7 +81,7 @@ export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps)
         {
           name: name.trim(),
           symbol: symbol.trim(),
-          market_type: fixedOnly && marketType === 'mixed' ? 'spot' : marketType,
+          market_type: marketType,
         },
         auth,
       ),
@@ -95,7 +89,6 @@ export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps)
       setWorkspace(workspace);
       setName('');
       setSymbol('');
-      setMarketType('mixed');
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.workspacesRoot() });
     },
@@ -173,18 +166,6 @@ export function WorkspaceSwitcher({ fixedOnly = false }: WorkspaceSwitcherProps)
               value={symbol}
               onChange={(event) => setSymbol(event.target.value)}
             />
-            <select
-              aria-label="Workspace market type"
-              className="top-command-select workspace-create-select"
-              value={fixedOnly && marketType === 'mixed' ? 'spot' : marketType}
-              onChange={(event) =>
-                setMarketType(event.target.value as WorkspaceMarketType)
-              }
-            >
-              {fixedOnly ? null : <option value="mixed">Mixed</option>}
-              <option value="spot">Spot</option>
-              <option value="perp">Perp</option>
-            </select>
             <button
               className="button primary workspace-create-button"
               disabled={createMutation.isPending || !name.trim() || !symbol.trim()}

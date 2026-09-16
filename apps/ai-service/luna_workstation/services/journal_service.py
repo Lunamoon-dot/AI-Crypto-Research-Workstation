@@ -1203,7 +1203,7 @@ class JournalService:
         scenarios: list[Scenario] | None = None,
         _conn=None,
     ) -> None:
-        market_type = getattr(run, "market_type", "spot")
+        market_type = getattr(run, "market_type", "perp")
         missing_core: list[str] = []
         for item in run.missing_core_data:
             core_code = _core_reason_code(item)

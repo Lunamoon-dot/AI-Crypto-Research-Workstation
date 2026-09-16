@@ -1,6 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { EngineRunRequest, JsonRecord } from '../database/journal.types';
-import { ResearchContinuityService } from '../research-continuity/research-continuity.service';
 import {
   JobBackend,
   JobLifecycleService,
@@ -33,8 +32,6 @@ export class ResearchJobProcessor {
     private readonly pythonEngine: PythonEngineClient,
     private readonly lifecycle: JobLifecycleService,
     private readonly sqliteSync?: SqliteJournalSyncService,
-    @Optional()
-    private readonly continuity?: ResearchContinuityService,
   ) {}
 
   async process(
@@ -107,10 +104,6 @@ export class ResearchJobProcessor {
         });
       } else {
         await this.lifecycle.markCompleted(context.jobId, result);
-        await this.continuity?.generateForCompletedRun(
-          request.run_id,
-          request.workspace_id,
-        );
       }
       return result;
     } catch (error) {
@@ -188,8 +181,7 @@ export class ResearchJobProcessor {
     request: EngineRunRequest,
     signal: AbortSignal,
   ): Promise<JsonRecord> {
-    const enrichedRequest = await this.withContinuityContext(request);
-    const result = await this.pythonEngine.runInline(enrichedRequest, { signal });
+    const result = await this.pythonEngine.runInline(request, { signal });
     const status = resultStatus(result);
     await this.lifecycle.heartbeat(request.run_id, { phase: 'postgres_sync' });
     try {
@@ -212,32 +204,6 @@ export class ResearchJobProcessor {
         },
       };
     }
-  }
-
-  private async withContinuityContext(
-    request: EngineRunRequest,
-  ): Promise<EngineRunRequest> {
-    const buildEngineContinuityContext =
-      this.continuity?.buildEngineContinuityContext;
-    if (typeof buildEngineContinuityContext !== 'function') {
-      return request;
-    }
-    const latest = await buildEngineContinuityContext.call(
-      this.continuity,
-      request.symbol,
-      request.workspace_id,
-      request.market_type,
-    );
-    if (!latest) {
-      return request;
-    }
-    return {
-      ...request,
-      metadata: {
-        ...(request.metadata ?? {}),
-        latest_continuity_context: latest,
-      },
-    };
   }
 
   private async syncRun(

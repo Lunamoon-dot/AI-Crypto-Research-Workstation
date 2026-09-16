@@ -45,7 +45,7 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_market.add_argument("--symbol", required=True)
     validate_market.add_argument("--analysis-date", required=True)
     validate_market.add_argument("--asset-class", default="crypto")
-    validate_market.add_argument("--market-type", default="spot")
+    validate_market.add_argument("--market-type", default="perp")
     validate_market.add_argument("--exchange")
     validate_market.add_argument("--profile")
     validate_market.set_defaults(handler=_validate_market)

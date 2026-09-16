@@ -49,6 +49,30 @@ def test_validate_config_preserves_stale_data_max_age_override():
     assert resolved["stale_data"]["max_age_hours"] == 6.5
 
 
+def test_validate_config_defaults_market_type_to_perp():
+    cfg = {**DEFAULT_CONFIG}
+    cfg.pop("market_type", None)
+    resolved = validate_and_normalize_config(
+        cfg,
+        source="unit-test",
+    )
+
+    assert resolved["market_type"] == "perp"
+
+
+def test_validate_config_invalid_market_type_normalizes_to_perp():
+    resolved = validate_and_normalize_config(
+        {
+            **DEFAULT_CONFIG,
+            "market_type": "futures-ish",
+            "config_validation": {"mode": "warn"},
+        },
+        source="unit-test",
+    )
+
+    assert resolved["market_type"] == "perp"
+
+
 def test_route_to_vendor_skips_disabled_provider(monkeypatch):
     from luna_workstation.dataflows import interface
 

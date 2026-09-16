@@ -159,7 +159,7 @@ export class WorkspacesService implements OnModuleDestroy {
       name: normalizeWorkspaceName(dto.name),
       scope_type: 'fixed_symbol',
       symbol: dto.symbol,
-      market_type: normalizeMarketType(dto.market_type),
+      market_type: 'perp',
       default_timeframe: normalizeNullableString(dto.default_timeframe),
       archived: false,
       created_at: now,

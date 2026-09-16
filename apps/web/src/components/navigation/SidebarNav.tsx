@@ -123,7 +123,7 @@ export function SidebarNav() {
       </nav>
       <div className="sidebar-footer">
         <div className="sidebar-footer-actions">
-          <WorkspaceSwitcher fixedOnly={pathname.startsWith('/research-continuity')} />
+          <WorkspaceSwitcher />
           <button className="button icon ghost" aria-label="Account" type="button">
             <UserCircle aria-hidden size={16} />
           </button>

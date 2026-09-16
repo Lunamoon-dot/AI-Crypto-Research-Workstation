@@ -208,7 +208,6 @@ export function ThesisDetailPage() {
         [scenarioActionKey(request.scenario)]: scenarioLifecycleFeedback(request.action, result),
       }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.thesisScenarios(thesisId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.scenarioDecisionWorkbench() });
     },
     onError: (error, request) => {
       setScenarioActionFeedback((current) => ({
@@ -2233,6 +2232,8 @@ function buildBoundaryScenario(
     impactOnThesis: string;
   },
 ): ScenarioResponse {
+  const recommendation = buildBoundaryScenarioRecommendation(thesis, boundary);
+  const runtimeDecision = buildBoundaryRuntimeDecision(thesis, boundary, recommendation);
   return {
     id: `${thesis.id ?? thesis.symbol}:${boundary.branchType}`,
     workspace_id: thesis.workspace_id,
@@ -2263,33 +2264,11 @@ function buildBoundaryScenario(
     last_evaluated_at: null,
     trigger_spec: null,
     decision_playbook: null,
-    scenario_recommendation: null,
-    runtime_decision: {
-      version: 'scenario_runtime_decision.v1',
-      evaluated_at: '',
-      trigger_status: 'needs_review',
-      validity_status: 'needs_review',
-      recommended_action: 'review',
-      confidence: 0,
-      matched_conditions: [],
-      failed_conditions: [],
-      blocking_reasons: ['runtime_decision_missing'],
-      risk_notes: [],
-      evidence_refs: [],
-      source: 'rule_engine_from_decision_playbook',
-      playbook_source: 'missing',
-      status_reason: 'Runtime decision has not been evaluated.',
-      distance_to_trigger: null,
-      llm_recommendation: null,
-      final_decision: {
-        action: 'review',
-        reason: 'Runtime decision has not been evaluated.',
-        overrides: ['runtime_decision_missing'],
-      },
-    },
+    scenario_recommendation: recommendation,
+    runtime_decision: runtimeDecision,
     evaluation_snapshot: {
       version: 'scenario_evaluation_snapshot.v1',
-      readiness: 'needs_review',
+      readiness: recommendation.evaluation_readiness,
       planned_evaluation_at: null,
       expected_horizon: 'unknown',
       trigger_observed: null,
@@ -2297,7 +2276,7 @@ function buildBoundaryScenario(
       max_favorable_excursion: null,
       max_adverse_excursion: null,
       outcome: 'not_ready',
-      notes: ['Scenario recommendation is missing.'],
+      notes: ['Boundary checkpoint derived from thesis summary.'],
     },
     latest_evaluation: null,
     evaluation_state: 'not_ready',
@@ -2310,6 +2289,148 @@ function buildBoundaryScenario(
       source_context: 'thesis_brief',
     },
   };
+}
+
+function buildBoundaryScenarioRecommendation(
+  thesis: ThesisResponse,
+  boundary: {
+    branchType: 'confirmation' | 'invalidation';
+    title: string;
+    condition: string;
+    expectedBehavior: string;
+    invalidation: string;
+    suggestedAction: string;
+    impactOnThesis: string;
+  },
+): NonNullable<ScenarioResponse['scenario_recommendation']> {
+  const thesisBias = normalizeScenarioBias(thesis.market_bias || thesis.direction);
+  const action = boundary.branchType === 'confirmation'
+    ? 'wait'
+    : 'reduce';
+  const requiredConditions = splitInlineListItems(boundary.condition)
+    .slice(0, 3)
+    .map((item, index) => ({
+      type: 'price_in_zone' as const,
+      role: 'trigger' as const,
+      id: `boundary-trigger-${index + 1}`,
+      label: item,
+    }));
+  const invalidationConditions = splitInlineListItems(boundary.invalidation)
+    .slice(0, 3)
+    .map((item, index) => ({
+      type: 'price_in_zone' as const,
+      role: 'invalidation' as const,
+      id: `boundary-invalidation-${index + 1}`,
+      label: item,
+    }));
+  const evidenceRefs = [
+    ...thesis.summary.key_reasons.slice(0, 2).map((reason, index) => ({
+      type: 'thesis',
+      id: thesis.id ?? null,
+      field: 'summary.key_reasons',
+      label: `Thesis reason ${index + 1}`,
+      supports: reason,
+    })),
+    ...thesis.summary.risks.slice(0, 1).map((risk, index) => ({
+      type: 'thesis',
+      id: thesis.id ?? null,
+      field: 'summary.risks',
+      label: `Thesis risk ${index + 1}`,
+      supports: risk,
+    })),
+  ];
+  if (evidenceRefs.length === 0) {
+    evidenceRefs.push({
+      type: 'thesis',
+      id: thesis.id ?? null,
+      field: 'boundary.condition',
+      label: 'Boundary condition',
+      supports: boundary.condition || boundary.expectedBehavior || boundary.suggestedAction,
+    });
+  }
+
+  return {
+    version: 'scenario_recommendation.v1',
+    generated_at: thesis.created_at ?? null,
+    source: 'derived_v1',
+    action,
+    action_bias: thesisBias,
+    confidence: 0.45,
+    summary: boundary.suggestedAction,
+    thesis_link: boundary.impactOnThesis || boundary.expectedBehavior,
+    required_conditions: requiredConditions,
+    invalidation_conditions: invalidationConditions,
+    wait_for: splitInlineListItems(boundary.condition),
+    hard_gates: [],
+    blocking_reasons: [
+      boundary.branchType === 'confirmation'
+        ? 'Waiting for confirmation conditions to print.'
+        : 'Waiting for invalidation conditions to print.',
+    ],
+    risk_notes: thesis.summary.risks.slice(0, 3),
+    evidence_refs: evidenceRefs,
+    valid_until: null,
+    evaluation_readiness: 'needs_review',
+    evaluation_window: {
+      starts_at: null,
+      ends_at: null,
+      horizon: 'unknown',
+      metric_hint: 'manual_review',
+    },
+  };
+}
+
+function buildBoundaryRuntimeDecision(
+  thesis: ThesisResponse,
+  boundary: {
+    branchType: 'confirmation' | 'invalidation';
+    title: string;
+    condition: string;
+    expectedBehavior: string;
+    invalidation: string;
+    suggestedAction: string;
+    impactOnThesis: string;
+  },
+  recommendation: NonNullable<ScenarioResponse['scenario_recommendation']>,
+): NonNullable<ScenarioResponse['runtime_decision']> {
+  const recommendedAction = boundary.branchType === 'confirmation' ? 'wait' : 'reduce';
+  return {
+    version: 'scenario_runtime_decision.v1',
+    evaluated_at: thesis.created_at ?? '',
+    trigger_status: 'needs_review',
+    validity_status: 'needs_review',
+    recommended_action: recommendedAction,
+    confidence: recommendation.confidence,
+    matched_conditions: [],
+    failed_conditions: [],
+    blocking_reasons: [...recommendation.blocking_reasons],
+    risk_notes: [...recommendation.risk_notes],
+    evidence_refs: [...recommendation.evidence_refs],
+    source: 'rule_engine_from_decision_playbook',
+    playbook_source: 'derived_v1',
+    status_reason: 'Boundary checkpoint derived from thesis summary.',
+    distance_to_trigger: null,
+    llm_recommendation: null,
+    final_decision: {
+      action: recommendedAction,
+      reason: 'Boundary checkpoint derived from thesis summary.',
+      overrides: [],
+    },
+  };
+}
+
+function normalizeScenarioBias(value: string): 'long' | 'short' | 'neutral' | 'unknown' {
+  const normalized = cleanScenarioText(value).toLowerCase();
+  if (normalized.includes('long') || normalized.includes('bull')) {
+    return 'long';
+  }
+  if (normalized.includes('short') || normalized.includes('bear')) {
+    return 'short';
+  }
+  if (normalized.includes('neutral') || !normalized) {
+    return 'neutral';
+  }
+  return 'unknown';
 }
 
 function scenarioDisplayName(

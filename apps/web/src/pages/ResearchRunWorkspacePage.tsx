@@ -1,24 +1,19 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
   Brain,
-  CheckCircle2,
   Clipboard,
+  CheckCircle2,
   Database,
   Download,
   FileText,
   Newspaper,
-  RefreshCw,
   ShieldAlert,
   Users,
   WalletCards,
 } from 'lucide-react';
-import {
-  generateResearchRunContinuity,
-  getResearchRunContinuity,
-} from '@/services/research-continuity';
 import {
   getJobStatus,
   getJournalRunEvidenceBundle,
@@ -52,7 +47,6 @@ import { routes } from '@/lib/routes';
 import type {
   AgentOpinionResponse,
   ResearchRunArtifactsResponse,
-  ResearchContinuityEntrySummaryResponse,
   ResearchRunEventResponse,
   JournalRunWorkspaceResponse,
   ResearchRunStageTimingResponse,
@@ -61,7 +55,6 @@ import type {
 
 const agentAvatarSrc = (fileName: string) => `/agent-avatars/${fileName}`;
 const terminalArtifactPollWindowMs = 2 * 60 * 1000;
-const continuityEntryPollWindowMs = 30 * 1000;
 
 const pipelineStages = [
   {
@@ -122,15 +115,6 @@ const pipelineStages = [
     aliases: ['setup planner', 'setup_planner', 'trader'],
   },
   {
-    key: 'spot_checks',
-    label: 'Spot Checks',
-    icon: WalletCards,
-    avatarSrc: agentAvatarSrc('spot-checks.png'),
-    aliases: ['setup planner', 'setup_planner', 'trader'],
-    marketTypes: ['spot'],
-    detail: 'Accumulation / DCA / allocation',
-  },
-  {
     key: 'perp_checks',
     label: 'Perp Checks',
     icon: ShieldAlert,
@@ -187,7 +171,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const auth = useWorkspaceStore();
-  const queryClient = useQueryClient();
   const runId = id ?? '';
   const [exportingBundle, setExportingBundle] = useState(false);
   const [exportError, setExportError] = useState('');
@@ -223,55 +206,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
     },
     retry: false,
   });
-  const workspaceForContinuity = query.data;
-  const continuityQueryEnabled = Boolean(
-    runId &&
-      workspaceForContinuity &&
-      isContinuityEligibleRunStatus(workspaceForContinuity.run.status),
-  );
-  const continuityQuery = useQuery({
-    queryKey: queryKeys.researchRunContinuity(runId),
-    queryFn: () => getResearchRunContinuity(runId, auth),
-    enabled: continuityQueryEnabled,
-    refetchInterval: (query) => {
-      if (!continuityQueryEnabled || query.state.data) {
-        return false;
-      }
-      return shouldPollRecentTerminalRun(
-        workspaceForContinuity,
-        query.state.dataUpdatedAt,
-        continuityEntryPollWindowMs,
-      )
-        ? 5000
-        : false;
-    },
-    refetchOnMount: 'always',
-    retry: (failureCount) =>
-      failureCount < 3 &&
-      shouldPollRecentTerminalRun(
-        workspaceForContinuity,
-        0,
-        continuityEntryPollWindowMs,
-      ),
-    retryDelay: 1000,
-  });
-  const continuityMutation = useMutation({
-    mutationFn: () => generateResearchRunContinuity(runId, { force: true }, auth),
-    onSuccess: (response) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.researchRunContinuity(runId),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.researchContinuityState(response.entry.symbol),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.researchContinuityEntries({
-          symbol: response.entry.symbol,
-        }),
-      });
-    },
-  });
-
   if (query.isLoading) {
     return (
       <main className="page">
@@ -353,20 +287,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
   const signal = workspace.snapshots.signal_snapshot;
   const runFailed = workspace.run.status === 'failed';
   const runTerminal = isTerminalRunStatus(workspace.run.status);
-  const continuityPending =
-    isActiveJobStatus(workspace.run.status) ||
-    (isContinuityEligibleRunStatus(workspace.run.status) &&
-      !continuityQuery.data &&
-      shouldPollRecentTerminalRun(
-        workspace,
-        query.dataUpdatedAt,
-        continuityEntryPollWindowMs,
-      ));
-  const continuityError =
-    continuityMutation.error ??
-    (continuityPending ? null : continuityQuery.error);
-  const continuityIsError =
-    continuityMutation.isError || (!continuityPending && continuityQuery.isError);
   const artifactPolling = shouldPollTerminalArtifacts(workspace);
   const marketType = normalizeMarketType(workspace.run.market_type);
   const artifacts = workspace.artifacts ?? emptyArtifacts();
@@ -463,7 +383,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
       <PageHeader
         eyebrow="Luna Research"
         title={`${workspace.run.symbol} dossier workspace`}
-        description={`${marketType.toUpperCase()} research run ${workspace.run.run_id ?? workspace.run.id ?? runId}. Review the memo, evidence health, continuity entry, and artifact provenance from one place.`}
+        description={`${marketType.toUpperCase()} research run ${workspace.run.run_id ?? workspace.run.id ?? runId}. Review the memo, evidence health, and artifact provenance from one place.`}
         action={
           <div className="page-header-action-stack research-workspace-header-actions">
             <HeaderStats
@@ -486,13 +406,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
                   label: 'Signals',
                   meta: 'Bullish / bearish / neutral',
                   value: signal?.signal_count ?? 0,
-                },
-                {
-                  icon: <FileText aria-hidden size={14} />,
-                  label: 'Continuity',
-                  meta: continuityQuery.data?.entry_type ?? (continuityPending ? 'writing ledger' : 'ledger entry'),
-                  tone: continuityQuery.data ? 'constructive' : continuityPending ? 'warning' : 'degraded',
-                  value: continuityQuery.data ? <StatusBadge value={continuityQuery.data.status} /> : continuityPending ? 'pending' : 'not written',
                 },
               ]}
             />
@@ -517,11 +430,7 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
       ) : null}
 
       <BentoGrid className="research-workspace-grid">
-        <WorkspaceDossierPanel
-          continuityEntry={continuityQuery.data ?? null}
-          marketType={marketType}
-          workspace={workspace}
-        />
+        <WorkspaceDossierPanel marketType={marketType} workspace={workspace} />
 
         <Panel
           className="span-12 emphasis research-pipeline-panel"
@@ -534,20 +443,6 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
             stages={workflowStages}
           />
         </Panel>
-
-        <DailyDeltaPanel
-          entry={continuityQuery.data ?? null}
-          error={continuityError}
-          isError={continuityIsError}
-          isLoading={
-            continuityPending ||
-            (continuityQueryEnabled &&
-              continuityQuery.isFetching &&
-              !continuityQuery.data)
-          }
-          isRegenerating={continuityMutation.isPending}
-          onRegenerate={() => continuityMutation.mutate()}
-        />
 
         <Panel
           className="span-4 research-provenance-panel"
@@ -749,11 +644,9 @@ export function ResearchRunWorkspacePage({ journal = false }: { journal?: boolea
 type ResearchTone = 'default' | 'primary' | 'constructive' | 'warning' | 'risk' | 'degraded';
 
 function WorkspaceDossierPanel({
-  continuityEntry,
   marketType,
   workspace,
 }: {
-  continuityEntry: ResearchContinuityEntrySummaryResponse | null;
   marketType: MarketTypeKey;
   workspace: JournalRunWorkspaceResponse;
 }) {
@@ -761,11 +654,10 @@ function WorkspaceDossierPanel({
   const signal = workspace.snapshots.signal_snapshot;
   const thesis = workspace.thesis;
   const debate = workspace.debate.debate;
-  const continuityQuality = continuityEntry?.thin_report?.quality;
   const memoCopy =
     thesis?.summary.action_summary ||
     thesis?.thesis_text ||
-    'The research memo is still pending. The workspace will keep the pipeline, artifacts, and continuity state visible as they arrive.';
+    'The research memo is still pending. The workspace will keep the pipeline and artifacts visible as they arrive.';
 
   return (
     <Panel
@@ -808,14 +700,6 @@ function WorkspaceDossierPanel({
                 Open research memo
               </Link>
             ) : null}
-            {continuityEntry ? (
-              <Link
-                className="button"
-                to={routes.researchContinuity(continuityEntry.symbol)}
-              >
-                Open continuity ledger
-              </Link>
-            ) : null}
           </div>
         </section>
 
@@ -840,19 +724,6 @@ function WorkspaceDossierPanel({
             meta={debate?.conflict_level ?? `${workspace.debate.agent_opinions.length} opinions`}
             tone={debate ? 'warning' : 'degraded'}
             value={debate?.consensus_stance ?? 'pending'}
-          />
-          <DossierFact
-            icon={<FileText aria-hidden size={15} />}
-            label="Continuity"
-            meta={
-              continuityQuality
-                ? `Quality ${continuityQuality.status} / coverage ${formatConfidence(
-                    continuityQuality.observed_evidence_coverage,
-                  )}`
-                : 'Ledger entry pending'
-            }
-            tone={continuityEntry ? 'constructive' : 'degraded'}
-            value={continuityEntry?.status ?? 'not written'}
           />
         </div>
       </div>
@@ -959,194 +830,6 @@ function SignalCount({
     <div className="signal-count">
       <span>{label}</span>
       <strong className={`tone-${tone}`}>{value}</strong>
-    </div>
-  );
-}
-
-function ContinuityQualityRow({
-  entry,
-}: {
-  entry: ResearchContinuityEntrySummaryResponse;
-}) {
-  const quality = entry.thin_report?.quality;
-  if (!quality) {
-    return null;
-  }
-  return (
-    <div className="daily-delta-quality-row">
-      <div>
-        <span>Quality</span>
-        <strong>{quality.status}</strong>
-      </div>
-      <div>
-        <span>Score</span>
-        <strong>{formatConfidence(quality.score)}</strong>
-      </div>
-      <div>
-        <span>Observed coverage</span>
-        <strong>{formatConfidence(quality.observed_evidence_coverage)}</strong>
-      </div>
-      <div>
-        <span>Provenance</span>
-        <strong>{quality.provenance_status ?? 'n/a'}</strong>
-      </div>
-    </div>
-  );
-}
-
-function DailyDeltaPanel({
-  entry,
-  error,
-  isError,
-  isLoading,
-  isRegenerating,
-  onRegenerate,
-}: {
-  entry: ResearchContinuityEntrySummaryResponse | null;
-  error: unknown;
-  isError: boolean;
-  isLoading: boolean;
-  isRegenerating: boolean;
-  onRegenerate: () => void;
-}) {
-  const detailSections = entry?.thin_report?.sections ?? [];
-
-  return (
-    <Panel
-      className="span-12 daily-delta-panel"
-      title="Continuity ledger entry"
-      description="Memory written from this research run for the next dossier"
-    >
-      {isLoading ? <LoadingState label="Writing continuity ledger entry..." /> : null}
-      {isError ? <ErrorState error={error} /> : null}
-      {!isLoading && !isError && !entry ? (
-        <div className="stack">
-          <EmptyState label="No continuity entry has been written for this run." />
-          <button
-            className="button"
-            disabled={isRegenerating}
-            onClick={onRegenerate}
-            type="button"
-          >
-            <RefreshCw aria-hidden size={15} />
-            {isRegenerating ? 'Regenerating' : 'Write continuity entry'}
-          </button>
-        </div>
-      ) : null}
-      {entry ? (
-        <div className="daily-delta-layout">
-          <div className="daily-delta-toolbar">
-            <div className="daily-delta-status">
-              <span className="badge primary">{entry.entry_type}</span>
-              <StatusBadge value={entry.status} />
-              <span className="small muted">{formatDateTime(entry.generated_at)}</span>
-            </div>
-            <div className="daily-delta-actions">
-              <Link
-                className="button"
-                to={routes.researchContinuity(entry.symbol)}
-              >
-                Open continuity
-              </Link>
-              {entry.id ? (
-                <Link className="button" to={routes.researchContinuityEntry(entry.id)}>
-                  Details
-                </Link>
-              ) : null}
-              <button
-                className="button"
-                disabled={isRegenerating}
-                onClick={onRegenerate}
-                type="button"
-              >
-                <RefreshCw aria-hidden size={15} />
-                {isRegenerating ? 'Regenerating' : 'Regenerate'}
-              </button>
-            </div>
-          </div>
-
-          <div className="daily-delta-summary">
-            <strong>Ledger summary</strong>
-            <p>{entry.summary}</p>
-          </div>
-
-          <ContinuityQualityRow entry={entry} />
-          <ContinuityMarkdownArtifactRow entry={entry} />
-
-          {detailSections.length > 0 ? (
-            <div className="daily-delta-section-grid">
-              {detailSections.slice(0, 4).map((section) => (
-                <section className="daily-delta-section" key={section.id}>
-                  <h4>{section.title}</h4>
-                  <p>{section.items[0] ?? 'No changes reported.'}</p>
-                </section>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="daily-delta-meta">
-            <div>
-              <span className="small muted">Source run</span>
-              <IdChip value={entry.research_run_id} />
-            </div>
-            <div>
-              <span className="small muted">Entry</span>
-              <IdChip value={entry.id} />
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </Panel>
-  );
-}
-
-function ContinuityMarkdownArtifactRow({
-  entry,
-}: {
-  entry: ResearchContinuityEntrySummaryResponse;
-}) {
-  const [copied, setCopied] = useState(false);
-  const artifact = entry.markdown_artifact;
-  const status = artifact?.exists
-    ? { label: 'Markdown saved', className: 'badge constructive' }
-    : { label: 'Markdown not exported', className: 'badge warning' };
-
-  async function copyPath() {
-    if (!artifact?.path) {
-      return;
-    }
-    try {
-      await navigator.clipboard?.writeText(artifact.path);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  return (
-    <div className="daily-delta-artifact">
-      <div className="row">
-        <span className={status.className}>{status.label}</span>
-        <button
-          className="button"
-          disabled={!artifact?.path}
-          onClick={copyPath}
-          type="button"
-        >
-          <Clipboard aria-hidden size={15} />
-          {copied ? 'Copied' : 'Copy path'}
-        </button>
-      </div>
-      <div className="artifact-path">
-        <FileText aria-hidden size={15} />
-        <code>{artifact?.path ?? 'No continuity_report.md path resolved.'}</code>
-      </div>
-      {artifact?.exists ? (
-        <div className="small muted">
-          {formatBytes(artifact.size_bytes)} | {formatDateTime(artifact.modified_at)}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1597,7 +1280,7 @@ function startedEventsForStage(
   stage: PipelineStage,
   events: ResearchRunEventResponse[],
 ): ResearchRunEventResponse[] {
-  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+  if (stage.key === 'perp_checks') {
     return [];
   }
   if (stage.key === 'quant') {
@@ -1647,7 +1330,7 @@ function completedEventTypesForStage(stageKey: string): string[] {
   if (stageKey === 'setup_planner') {
     return ['plan.recorded'];
   }
-  if (stageKey === 'spot_checks' || stageKey === 'perp_checks') {
+  if (stageKey === 'perp_checks') {
     return ['plan.recorded'];
   }
   if (stageKey === 'risk_debate') {
@@ -1713,9 +1396,6 @@ function readyDetailForStage(stageKey: string): string {
   if (stageKey === 'thesis') {
     return 'Thesis generated';
   }
-  if (stageKey === 'spot_checks') {
-    return 'Spot checks applied';
-  }
   if (stageKey === 'perp_checks') {
     return 'Perp checks applied';
   }
@@ -1757,7 +1437,7 @@ function latestCompletedStageEvent(
       latestMatchingEvent(events, stage, 'agent.node.completed')
     );
   }
-  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+  if (stage.key === 'perp_checks') {
     return (
       latestEventByType(events, ['plan.recorded']) ??
       latestMatchingEvent(events, stage, 'agent.node.completed')
@@ -1782,7 +1462,7 @@ function latestStartedStageEvent(
   events: ResearchRunEventResponse[],
   stage: PipelineStage,
 ) {
-  if (stage.key === 'spot_checks' || stage.key === 'perp_checks') {
+  if (stage.key === 'perp_checks') {
     return null;
   }
   if (stage.key === 'risk_debate') {
@@ -1804,7 +1484,7 @@ function latestStartedStageEvent(
 }
 
 function isMarketBranchStage(stageKey: string): boolean {
-  return stageKey === 'spot_checks' || stageKey === 'perp_checks';
+  return stageKey === 'perp_checks';
 }
 
 function latestCompletedGroupEvent(

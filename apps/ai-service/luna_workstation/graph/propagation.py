@@ -19,8 +19,7 @@ class Propagator:
         company_name: str,
         trade_date: str,
         past_context: str = "",
-        market_type: str = "spot",
-        latest_continuity_context: dict[str, Any] | None = None,
+        market_type: str = "perp",
     ) -> Dict[str, Any]:
         """Create the initial state for the agent graph."""
         return {
@@ -29,7 +28,6 @@ class Propagator:
             "trade_date": str(trade_date),
             "market_type": market_type,
             "past_context": past_context,
-            "latest_continuity_context": latest_continuity_context,
             "investment_debate_state": InvestDebateState(
                 {
                     "bull_history": "",

@@ -12,10 +12,7 @@ import { OperationsModule } from './operations/operations.module';
 import { PaperExecutionModule } from './paper-execution/paper-execution.module';
 import { PerformanceModule } from './performance/performance.module';
 import { PlaybooksModule } from './playbooks/playbooks.module';
-import { ResearchChatModule } from './research-chat/research-chat.module';
-import { ResearchContinuityModule } from './research-continuity/research-continuity.module';
 import { ResearchRunsModule } from './research-runs/research-runs.module';
-import { ScenarioDecisionModule } from './scenario-decision/scenario-decision.module';
 import { ScenariosModule } from './scenarios/scenarios.module';
 import { SignalsModule } from './signals/signals.module';
 import { SystemController } from './system.controller';
@@ -31,8 +28,6 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WorkspacesModule,
     DatabaseModule,
     JobsModule,
-    ResearchChatModule,
-    ResearchContinuityModule,
     ResearchRunsModule,
     JournalModule,
     MarketDataModule,
@@ -45,7 +40,6 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     PlaybooksModule,
     BacktestsModule,
     PaperExecutionModule,
-    ScenarioDecisionModule,
     OperationsModule,
     WorkbenchModule,
   ],
